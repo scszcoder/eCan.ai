@@ -1,0 +1,135 @@
+<!DOCTYPE QPH>
+<QPH sourcelanguage="en_US" language="zh_CN">
+<phrase>
+    <source>bot</source>
+    <target>机器人</target>
+</phrase>
+<phrase>
+    <source>mission</source>
+    <target>任务</target>
+</phrase>
+<phrase>
+    <source>login</source>
+    <target>登陆</target>
+</phrase>
+<phrase>
+    <source>logout</source>
+    <target>登出</target>
+</phrase>
+<phrase>
+    <source>password</source>
+    <target>密码</target>
+</phrase>
+<phrase>
+    <source>browser</source>
+    <target>浏览器</target>
+</phrase>
+<phrase>
+    <source>app</source>
+    <target>应用程序</target>
+</phrase>
+<phrase>
+    <source>e-business</source>
+    <target>电商</target>
+</phrase>
+<phrase>
+    <source>platform</source>
+    <target>平台</target>
+</phrase>
+<phrase>
+    <source>add</source>
+    <target>添加</target>
+</phrase>
+<phrase>
+    <source>delete</source>
+    <target>删除</target>
+</phrase>
+<phrase>
+    <source>update</source>
+    <target>更新</target>
+</phrase>
+<phrase>
+    <source>Sign Up</source>
+    <target>注册新账号</target>
+</phrase>
+<phrase>
+    <source>forgot password?</source>
+    <target>忘记密码？</target>
+</phrase>
+<phrase>
+    <source>Language</source>
+    <target>语言</target>
+</phrase>
+<phrase>
+    <source>browse</source>
+    <target>浏览</target>
+</phrase>
+<phrase>
+    <source>review</source>
+    <target>测评</target>
+</phrase>
+<phrase>
+    <source>feedback</source>
+    <target>反馈</target>
+</phrase>
+<phrase>
+    <source>English</source>
+    <target>英文</target>
+</phrase>
+<phrase>
+    <source>Chinese</source>
+    <target>中文</target>
+</phrase>
+<phrase>
+    <source>Buyer</source>
+    <target>买手</target>
+</phrase>
+<phrase>
+    <source>Seller</source>
+    <target>卖家</target>
+</phrase>
+<phrase>
+    <source>Role</source>
+    <target>角色</target>
+</phrase>
+<phrase>
+    <source>day</source>
+    <target>天</target>
+</phrase>
+<phrase>
+    <source>month</source>
+    <target>月</target>
+</phrase>
+<phrase>
+    <source>year</source>
+    <target>年</target>
+</phrase>
+<phrase>
+    <source>search</source>
+    <target>搜索</target>
+</phrase>
+<phrase>
+    <source>category</source>
+    <target>分类</target>
+</phrase>
+<phrase>
+    <source>email</source>
+    <target>电子邮箱</target>
+</phrase>
+<phrase>
+    <source>memorize password</source>
+    <target>记住密码</target>
+</phrase>
+<phrase>
+    <source>confirm password</source>
+    <target>密码确认</target>
+</phrase>
+<phrase>
+    <source>confirmation code</source>
+    <target>验证码</target>
+</phrase>
+<phrase>
+    <source>(New Entry)</source>
+    <target></target>
+</phrase>
+</QPH>
