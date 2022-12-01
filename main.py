@@ -1,4 +1,18 @@
-# This is a sample Python script.
+
+import sys
+import random
+from PySide6 import QtCore, QtWidgets, QtGui
+from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+from ui_settings import *
+from BorderLayout import *
+from LoginoutGUI import *
+import cpuinfo
+from readSkill import *
+from MainGUI import *
+from network import *
+import asyncio
+from qasync import asyncSlot, asyncClose, QApplication, QThreadExecutor, QEventLoop
+import qasync
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
@@ -9,8 +23,66 @@ def print_hi(name):
     print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+def run(mainApp):
+    #mainWidget = MainWidget()
+    mainWidget = MainWindow()
+    mainWidget.show()
+    quit(mainApp)
+
+
+def quit(mainApp):
+    sys.exit(mainApp.exec())
+
+# app = None
+# login = None
+
+async def main():
+    # info = cpuinfo.get_cpu_info()
+    # print(info)
+    loop = asyncio.get_event_loop()
+    future = asyncio.Future()
+
+    global app
+    app = QApplication(sys.argv)
+
+    # run(app)
+    global login
+    login = Login(app)
+    login.show()
+    # login.fakeLogin()
+    # allsteps = []
+    # readSkillFile(allsteps, "", "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/enter_amz/enter_amz.ski", 0)
+    await future
+    return True
+
+def windowlauncher():
+    app = QtWidgets.QApplication(sys.argv)
+    loop = QEventLoop(app)
+    asyncio.set_event_loop(loop)
+
+    global login
+    login = Login(app,loop)
+    login.show()
+    #loop.create_task(udpBroadcaster())
+    #loop.create_task(tcpServer())
+    loop.create_task(runLAN())
+    # w = MainWindow()
+    # w.show()
+    loop.run_forever()
+
+if __name__ == '__main__':
+    windowlauncher()
+
+    # try:
+    #     asyncio.run(main())
+    # except asyncio.exceptions.CancelledError:
+    #     sys.exit(0)
+
+    # quit(app)
+
+# if __name__ == "__main__":
+#     try:
+#         qasync.run(main())
+#     except asyncio.exceptions.CancelledError:
+#         sys.exit(0)
