@@ -1,4 +1,5 @@
 import os
+import winreg
 from PySide6 import QtCore, QtWidgets, QtGui
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton
 import boto3
@@ -9,25 +10,35 @@ import json
 from os.path import exists
 import locale
 from MainGUI import *
+from PlatoonGUI import *
 from pycognito.aws_srp import AWSSRP
+from envi import *
 
 import asyncio
 import qasync
 from network import *
 
-ACCT_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/uli.json"
+#ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
+echomepath = getECBotHome()
+ACCT_FILE = echomepath + "/resource/settings/uli.json"
+ROLE_FILE = echomepath + "/resource/settings/role.json"
+
 
 class Login(QtWidgets.QDialog):
     def __init__(self, inApp, cloop, parent=None):
         self.cog = None
         self.mainwin = None
+        self.platoonwin = None
         self.mode = "Sign In"
+        self.machine_role = "Platoon"
+        self.get_role(self)
         super(Login, self).__init__(parent)
         self.banner = QtWidgets.QLabel(self)
         pixmap = QtGui.QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/ecBot09.png')
         self.banner.setPixmap(pixmap)
 
-        self.linkFont = QtGui.QFont('Arial', 8, QtGui.QFont.StyleItalic)
+        # self.linkFont = QtGui.QFont('Arial', 8, QtGui.QFont.Style.StyleItalic)
+        self.linkFont = QtGui.QFont('Arial', 8, italic=True)
         self.linkFont.setUnderline(True)
 
         self.mem_pw = True
@@ -181,6 +192,15 @@ class Login(QtWidgets.QDialog):
 
     # async def launchLAN(self):
 
+    def get_role(self):
+        self.machine_role = "Platoon"
+
+        if exists(ROLE_FILE):
+            with open(ROLE_FILE, 'r') as file:
+                mr_data = json.load(file)
+                self.machine_role = mr_data["machine_role"]
+
+
 
     def __setup_language(self):
         system_locale, _ = locale.getdefaultlocale()
@@ -300,11 +320,16 @@ class Login(QtWidgets.QDialog):
         self.hide()
         print("hello hello hello")
 
-
-        self.mainwin = MainWindow(self.tokens, self.textName.text())
-        print("hohohohoho")
-        self.mainwin.setOwner(self.textName.text())
-        self.mainwin.show()
+        if self.machine_role == "Commander":
+            self.mainwin = MainWindow(self.tokens, self.textName.text())
+            print("Running as a commander...")
+            self.mainwin.setOwner(self.textName.text())
+            self.mainwin.show()
+        else:
+            self.platoonwin = PlatoonWindow(self.tokens, self.textName.text())
+            print("Running as a platoon...")
+            self.PlatoonWindow.setOwner(self.textName.text())
+            self.PlatoonWindow.show()
 
     def fakeLogin(self):
             print("logging in....")
