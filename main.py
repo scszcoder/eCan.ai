@@ -66,11 +66,19 @@ def windowlauncher():
     login.show()
     #loop.create_task(udpBroadcaster())
     #loop.create_task(tcpServer())
-    loop.create_task(runLAN())
-    # w = MainWindow()
-    # w.show()
-    loop.run_forever()
 
+    if login.isCommander():
+        print("run as commander...")
+        loop.create_task(runCommanderLAN())
+        # w = MainWindow()
+        # w.show()
+        loop.run_forever()
+    else:
+        print("run as platoon...")
+        loop.create_task(runPlatoonLAN())
+        # w = MainWindow()
+        # w.show()
+        loop.run_forever()
 if __name__ == '__main__':
     windowlauncher()
 

@@ -1,8 +1,6 @@
 from BotGUI import *
 from MissionGUI import *
 from ScheduleGUI import *
-from PlatoonGUI import *
-
 from ebbot import *
 from csv import reader
 from tasks import *
@@ -14,18 +12,16 @@ from Cloud import *
 from TrainGUI import *
 from BorderLayout import *
 import lzstring
-from network import *
 
 
 # class MainWindow(QtWidgets.QWidget):
-class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, inTokens, tcpserver, user):
-        super(MainWindow, self).__init__()
+class PlatoonMainWindow(QtWidgets.QMainWindow):
+    def __init__(self, inTokens, user):
+        super(PlatoonMainWindow, self).__init__()
         self.BOTS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/bots.json"
         self.MISSIONS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/missions.json"
         self.session = set_up_cloud()
         self.tokens = inTokens
-        self.tcpServer = tcpserver
         self.user = user
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
@@ -36,7 +32,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bots = []
         self.missions = []
         self.missionsToday = []
-        self.platoons = []
         self.zipper = lzstring.LZString()
         self.threadPool = QtCore.QThreadPool()
         self.selected_row = -1
@@ -44,7 +39,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionWin = None
         self.trainNewSkillWin = None
         self.reminderWin = None
-        self.platoonWin = None
         self.owner = "NA"
         self.botRank = "soldier"              # this should be read from a file which is written during installation phase, user will select this during installation phase
 
@@ -93,11 +87,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionDelAction = self._createMissionDelAction()
         self.missionEditAction = self._createMissionEditAction()
         self.missionImportAction = self._createMissionImportAction()
-
-
-        self.mtvViewAction = self._createMTVViewAction()
-        self.fieldMonitorAction = self._createFieldMonitorAction()
-        self.commandSendAction = self._createCommandSendAction()
 
         self.settingsAccountAction = self._createSettingsAccountAction()
 
@@ -249,26 +238,12 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar = QtWidgets.QMenuBar()
         # Creating menus using a QMenu object
         bot_menu = QtWidgets.QMenu("&Bots", self)
-
-        bot_menu.addAction(self.botNewAction)
         bot_menu.addAction(self.botGetAction)
-        bot_menu.addAction(self.botEditAction)
-        bot_menu.addAction(self.botCloneAction)
-        bot_menu.addAction(self.botDelAction)
         menu_bar.addMenu(bot_menu)
 
         mission_menu = QtWidgets.QMenu("&Missions", self)
-        mission_menu.addAction(self.missionNewAction)
         mission_menu.addAction(self.missionImportAction)
-        mission_menu.addAction(self.missionEditAction)
-        mission_menu.addAction(self.missionDelAction)
         menu_bar.addMenu(mission_menu)
-
-        platoon_menu = QtWidgets.QMenu("&Platoons", self)
-        platoon_menu.addAction(self.mtvViewAction)
-        platoon_menu.addAction(self.fieldMonitorAction)
-        platoon_menu.addAction(self.commandSendAction)
-        menu_bar.addMenu(platoon_menu)
 
         settings_menu = QtWidgets.QMenu("&Settings", self)
         settings_menu.addAction(self.settingsAccountAction)
@@ -299,9 +274,6 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu(schedule_menu)
 
         skill_menu = QtWidgets.QMenu("&Skills", self)
-        skill_menu.addAction(self.skillNewAction)
-        skill_menu.addAction(self.skillEditAction)
-        skill_menu.addAction(self.skillDeleteAction)
         skill_menu.addAction(self.skillShowAction)
         menu_bar.addMenu(skill_menu)
 
@@ -381,29 +353,6 @@ class MainWindow(QtWidgets.QMainWindow):
         new_action = QtGui.QAction(self)
         new_action.setText("&Create")
         new_action.triggered.connect(self.newMissionView)
-
-        return new_action
-
-    def _createMTVViewAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText("&Vehicles View")
-        #new_action.triggered.connect(self.newMissionView)
-
-        return new_action
-
-
-    def _createFieldMonitorAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText("&Field Monitor")
-        #new_action.triggered.connect(self.newMissionView)
-
-        return new_action
-
-
-    def _createCommandSendAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText("&Send Command")
-        new_action.triggered.connect(self.sendToPlatoons)
 
         return new_action
 
@@ -732,16 +681,6 @@ class MainWindow(QtWidgets.QMainWindow):
             #now that add is successfull, update local file as well.
             self.writeMissionJsonFile()
 
-    # this function sends commands to platoon(s)
-    def sendToPlatoons(self):
-        # this shall bring up a windows, but for now, simply send something to a platoon for network testing purpose...
-        #if self.platoonWin == None:
-        #    self.platoonWin = PlatoonWindow(self)
-        #self.BotNewWin.resize(400, 200)
-        #self.platoonWin.show()
-
-        if not self.tcpServer == None:
-            self.tcpServer.transport.write(b'what the hell!!!!')
 
     # This function translate bots data structure matching ebbot.py to Json format for file storage.
     def genBotsJson(self):

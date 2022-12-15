@@ -14,6 +14,8 @@ sel = selectors.DefaultSelector()
 
 # UDP pack broadcasted every 15 second.
 UDP_PERIOD = 15
+commanderServer = None
+fieldLinks = []
 
 async def handle_client(reader, writer):
     request = None
@@ -85,7 +87,25 @@ class Commander:
 
 
 
-class TCPServerProtocol(asyncio.Protocol):
+class CommanderTCPServerProtocol(asyncio.Protocol):
+    def connection_made(self, transport):
+        peername = transport.get_extra_info('peername')
+        print('Connection from Platoon {}'.format(peername))
+        self.transport = transport
+        fieldLinks.append({"ip": peername, "link": self})
+
+    def data_received(self, data):
+        message = data.decode()
+        print('Data received: {!r}'.format(message))
+
+        #print('Send: {!r}'.format(message))
+        #self.transport.write(data)
+
+        #print('Close the client socket')
+        # self.transport.close()
+
+
+class PlatoonTCPServerProtocol(asyncio.Protocol):
     def connection_made(self, transport):
         peername = transport.get_extra_info('peername')
         print('Connection from {}'.format(peername))
@@ -98,8 +118,25 @@ class TCPServerProtocol(asyncio.Protocol):
         print('Send: {!r}'.format(message))
         self.transport.write(data)
 
-        #print('Close the client socket')
-        # self.transport.close()
+
+# this is the tcp server for the platoon side.
+async def communicator():
+    # Get a reference to the event loop as we plan to use
+    # low-level APIs.
+    hostname = socket.gethostname()
+    myips = socket.gethostbyname_ex(hostname)[2]
+    myip = myips[len(myips)-1]
+    print("my host name is: ", hostname, " and my ip is: ", myip)
+    tcp_loop = asyncio.get_running_loop()
+
+    tserver = await tcp_loop.create_server(
+        lambda: PlatoonTCPServerProtocol(),
+        '192.168.1.20', TCP_PORT)
+
+    async with tserver:
+        await tserver.serve_forever()
+
+
 
 
 async def tcpServer():
@@ -111,12 +148,12 @@ async def tcpServer():
     print("my host name is: ", hostname, " and my ip is: ", myip)
     tcp_loop = asyncio.get_running_loop()
 
-    tserver = await tcp_loop.create_server(
-        lambda: TCPServerProtocol(),
-        '192.168.1.20', TCP_PORT)
+    commanderServer = await tcp_loop.create_server(
+        lambda: CommanderTCPServerProtocol(),
+        myip, TCP_PORT)
 
-    async with tserver:
-        await tserver.serve_forever()
+    async with commanderServer:
+        await commanderServer.serve_forever()
 
 
 # async def echo():
@@ -130,7 +167,14 @@ async def tcpServer():
 
 async def udpBroadcaster():
     over = False
-    message = b'hello everybody!!!!'
+
+    hostname = socket.gethostname()
+    myips = socket.gethostbyname_ex(hostname)[-1]
+    myip = myips[len(myips)-1]
+    message = str.encode('Commander Calling:' + myip)
+    print('Commander Calling:' + myip)
+
+
     usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     # Enable port reusage so we will be able to run multiple clients and servers on single (host, port).
     # Do not use socket.SO_REUSEADDR except you using linux(kernel<3.9): goto https://stackoverflow.com/questions/14388706/how-do-so-reuseaddr-and-so-reuseport-differ for more information.
@@ -157,9 +201,33 @@ async def udpBroadcaster():
     # finally:
     #     transport.close()
 
+# this is the udp receiver on the platoon side.
+async def commanderFinder():
+    over = False
+    hostname = socket.gethostname()
+    myips = socket.gethostbyname_ex(hostname)[-1]
+    myip = myips[len(myips)-1]
+    message = b'Commander Calling:'
+    usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    usock.bind(('', UDP_PORT))
 
-async def runLAN():
+    while not over:
+        print("listening....")
+        rxmsg = usock.recvfrom(1024)
+        print("received::", rxmsg)
+        await asyncio.sleep(UDP_PERIOD)
+
+
+
+async def runCommanderLAN():
     await asyncio.gather(
         udpBroadcaster(),
         tcpServer(),
+    )
+
+
+async def runPlatoonLAN():
+    await asyncio.gather(
+        commanderFinder(),
+        communicator(),
     )

@@ -10,7 +10,7 @@ import json
 from os.path import exists
 import locale
 from MainGUI import *
-from PlatoonGUI import *
+from PlatoonMainGUI import *
 from pycognito.aws_srp import AWSSRP
 from envi import *
 
@@ -31,7 +31,7 @@ class Login(QtWidgets.QDialog):
         self.platoonwin = None
         self.mode = "Sign In"
         self.machine_role = "Platoon"
-        self.get_role(self)
+        self.get_role()
         super(Login, self).__init__(parent)
         self.banner = QtWidgets.QLabel(self)
         pixmap = QtGui.QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/ecBot09.png')
@@ -200,7 +200,11 @@ class Login(QtWidgets.QDialog):
                 mr_data = json.load(file)
                 self.machine_role = mr_data["machine_role"]
 
-
+    def isCommander(self):
+        if self.machine_role == "Commander":
+            return True
+        else:
+            return False
 
     def __setup_language(self):
         system_locale, _ = locale.getdefaultlocale()
@@ -321,15 +325,15 @@ class Login(QtWidgets.QDialog):
         print("hello hello hello")
 
         if self.machine_role == "Commander":
-            self.mainwin = MainWindow(self.tokens, self.textName.text())
+            self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text())
             print("Running as a commander...")
             self.mainwin.setOwner(self.textName.text())
             self.mainwin.show()
         else:
-            self.platoonwin = PlatoonWindow(self.tokens, self.textName.text())
+            self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text())
             print("Running as a platoon...")
-            self.PlatoonWindow.setOwner(self.textName.text())
-            self.PlatoonWindow.show()
+            self.PlatoonMainWindow.setOwner(self.textName.text())
+            self.PlatoonMainWindow.show()
 
     def fakeLogin(self):
             print("logging in....")
