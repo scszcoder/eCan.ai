@@ -291,6 +291,7 @@ class Login(QtWidgets.QDialog):
 
     def handleLogin(self):
         print("logging in....")
+        global commanderServer
 
         self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
         self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID, client_id=CLIENT_ID, client=self.aws_client)
@@ -326,7 +327,7 @@ class Login(QtWidgets.QDialog):
 
         if self.machine_role == "Commander":
             self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text())
-            print("Running as a commander...")
+            print("Running as a commander...", commanderServer)
             self.mainwin.setOwner(self.textName.text())
             self.mainwin.show()
         else:

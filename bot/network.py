@@ -14,6 +14,9 @@ sel = selectors.DefaultSelector()
 
 # UDP pack broadcasted every 15 second.
 UDP_PERIOD = 15
+commanderXport = None
+commanderIP = "0.0.0.0"
+platoonProtocol = None
 commanderServer = None
 fieldLinks = []
 
@@ -105,18 +108,26 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         # self.transport.close()
 
 
-class PlatoonTCPServerProtocol(asyncio.Protocol):
+class communicatorProtocol(asyncio.Protocol):
+    def __init__(self, message, on_con_lost):
+        self.message = message
+        self.on_con_lost = on_con_lost
+
     def connection_made(self, transport):
         peername = transport.get_extra_info('peername')
-        print('Connection from {}'.format(peername))
+        print('Connection from commander {}'.format(peername))
         self.transport = transport
 
     def data_received(self, data):
         message = data.decode()
         print('Data received: {!r}'.format(message))
 
-        print('Send: {!r}'.format(message))
-        self.transport.write(data)
+        # print('Send: {!r}'.format(message))
+        # self.transport.write(data)
+
+    def connection_lost(self, exec):
+        print("The commander is LOST....")
+        self.on_con_lost.set_result(True)
 
 
 # this is the tcp server for the platoon side.
@@ -151,6 +162,7 @@ async def tcpServer():
     commanderServer = await tcp_loop.create_server(
         lambda: CommanderTCPServerProtocol(),
         myip, TCP_PORT)
+    print("commanderServer: ", commanderServer)
 
     async with commanderServer:
         await commanderServer.serve_forever()
@@ -203,10 +215,13 @@ async def udpBroadcaster():
 
 # this is the udp receiver on the platoon side.
 async def commanderFinder():
+    global commanderXport
     over = False
     hostname = socket.gethostname()
     myips = socket.gethostbyname_ex(hostname)[-1]
     myip = myips[len(myips)-1]
+    print("my IP is: ", myip)
+
     message = b'Commander Calling:'
     usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     usock.bind(('', UDP_PORT))
@@ -215,6 +230,25 @@ async def commanderFinder():
         print("listening....")
         rxmsg = usock.recvfrom(1024)
         print("received::", rxmsg)
+
+        if "Commander" in rxmsg[0].decode("utf-8") and commanderXport == None:
+            commanderIP = rxmsg[1][0]
+            print("recevied::", commanderIP)
+
+            loop = asyncio.get_running_loop()
+            on_con_lost = loop.create_future()
+
+            commanderXport, platoonProtocol = await loop.create_connection(
+                lambda: communicatorProtocol('', on_con_lost),
+                commanderIP, TCP_PORT
+            )
+
+            try:
+                await on_con_lost
+            finally:
+                commanderXport.close()
+            break
+
         await asyncio.sleep(UDP_PERIOD)
 
 

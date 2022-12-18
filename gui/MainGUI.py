@@ -739,9 +739,18 @@ class MainWindow(QtWidgets.QMainWindow):
         #    self.platoonWin = PlatoonWindow(self)
         #self.BotNewWin.resize(400, 200)
         #self.platoonWin.show()
+        print("sending commands.....")
+        print("tcp connections.....", fieldLinks)
+        print("tcp server.....", self.tcpServer)
+        print("commander server.....", commanderServer)
 
-        if not self.tcpServer == None:
-            self.tcpServer.transport.write(b'what the hell!!!!')
+        # if not self.tcpServer == None:
+        if len(fieldLinks) > 0:
+            print("Currently, there are (", len(fieldLinks), ") connection to this server.....")
+            for i in range(len(fieldLinks)):
+                fieldLinks[i]["link"].transport.write(('what the hell!!!! ' + str(i)).encode('utf8'))
+        else:
+            print("Warning..... TCP server not up and running yet...")
 
     # This function translate bots data structure matching ebbot.py to Json format for file storage.
     def genBotsJson(self):
