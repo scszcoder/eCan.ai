@@ -191,12 +191,12 @@ class WORKSKILL(QtGui.QStandardItem):
     def add_cloud_skill(self, info_skill):
         self.cloud_skill = info_skill
 
-    def gen_lsk_file(self):
-        print("generating lsk file:")
+    def gen_psk_file(self):
+        print("generating psk file:")
 
     def gen_csk_file(self):
-        print("generating lsk file:")
+        print("generating psk file:")
 
     def gen_skill_files(self):
         self.gen_csk_file()
-        self.gen_lsk_file()
+        self.gen_psk_file()

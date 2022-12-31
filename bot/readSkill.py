@@ -203,11 +203,11 @@ next_step = 0
 
 running = False
 
-# read an lsk fill into steps (json data structure)
+# read an psk fill into steps (json data structure)
 # input: steps - data structure to hold the results.
 #        name_prefix - name to add to front of step # to make step name unique.
 #                       typically this is the cascade of userID, skill name.
-#       skill_file - full path file name of the .lsk file.
+#       skill_file - full path file name of the .psk file.
 # output: None (sort of in step already)
 # Note:
 def readSkillFile(name_prefix, skill_file, lvl = 0):
@@ -244,7 +244,7 @@ def readSkillFile(name_prefix, skill_file, lvl = 0):
                     if step["type"] == "Use Skill":
                         subskill_file = step["name"]
                         subskill_file_name = os.path.basename(subskill_file)
-                        # assume file name is in the format of *.lsk
+                        # assume file name is in the format of *.psk
                         subskill_name = subskill_file_name.split('.')[0]
                         lvl = lvl + 1
                         if lvl > MAXNEST:
@@ -269,7 +269,7 @@ def readSkillFile(name_prefix, skill_file, lvl = 0):
             if step["type"] == "Use Skill":
                 subskill_file = step["name"]
                 subskill_file_name = os.path.basename(subskill_file)
-                # assume file name is in the format of *.lsk
+                # assume file name is in the format of *.psk
                 subskill_name = subskill_file_name.split('.')[0]
                 lvl = lvl + 1
                 if lvl > MAXNEST:
@@ -497,7 +497,7 @@ def processExtractInfo(step, step_name, settings):
         "domain": "amz",
         "page": step["page_name"],
         "skill_name": settings["skill_name"],
-        "psk": settings["lsk"],
+        "psk": settings["psk"],
         "csk": settings["csk"],
         "lastMove": step["sect_name"],
         "ssk": "{}",

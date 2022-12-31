@@ -17,3 +17,4 @@ pynput~=1.7.6
 Pillow~=9.3.0
 qasync~=0.23.0
 py-cpuinfo~=9.0.0
+schedule==1.1.0

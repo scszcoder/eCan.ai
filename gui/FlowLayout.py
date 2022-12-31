@@ -74,6 +74,10 @@ class MissionListView(QtWidgets.QListView):
     #     self.popMenu.popup(QtGui.QCursor.pos())
 
 
+class VehicleListView(QtWidgets.QListView):
+    def __init__(self):
+        super(VehicleListView, self).__init__()
+
 class BotView(QtGui.QStandardItem):
     def __init__(self):
         super(BotView, self).__init__()

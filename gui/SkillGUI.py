@@ -2470,11 +2470,11 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def load_skill_file(self):
         # bring out the load file dialog
-        lskFile = self.skfsel.getOpenFileName()
+        pskFile = self.skfsel.getOpenFileName()
 
     def save_skill_file(self):
         # bring out the load file dialog
-        lskFile = self.skfsel.getSaveFileName()
+        pskFile = self.skfsel.getSaveFileName()
 
     def cancel_run(self):
         #will add later a sure? dialog

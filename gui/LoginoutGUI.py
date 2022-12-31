@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton
 import boto3
 from signio import *
 import time
+import datetime
 from BorderLayout import *
 import json
 from os.path import exists
@@ -292,6 +293,7 @@ class Login(QtWidgets.QDialog):
     def handleLogin(self):
         print("logging in....")
         global commanderServer
+        global commanderXport
 
         self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
         self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID, client_id=CLIENT_ID, client=self.aws_client)
@@ -313,7 +315,7 @@ class Login(QtWidgets.QDialog):
         #print(self.cog.access_token)
         #print(self.cog.refresh_token)
         #print(user)
-
+        print("timezone:", datetime.now().astimezone().tzinfo)
         #now make this window dissappear and bring out the main windows.
         data = {"mem_cb": True, "user": self.textName.text(), "pw": self.scramble(self.textPass.text()), "lan": "EN"}
         if self.mempw_cb.checkState() == QtCore.Qt.Unchecked:
@@ -331,10 +333,10 @@ class Login(QtWidgets.QDialog):
             self.mainwin.setOwner(self.textName.text())
             self.mainwin.show()
         else:
-            self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text())
+            self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
             print("Running as a platoon...")
-            self.PlatoonMainWindow.setOwner(self.textName.text())
-            self.PlatoonMainWindow.show()
+            self.platoonwin.setOwner(self.textName.text())
+            self.platoonwin.show()
 
     def fakeLogin(self):
             print("logging in....")

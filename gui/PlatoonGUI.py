@@ -16,13 +16,14 @@ import lzstring
 
 # class MainWindow(QtWidgets.QWidget):
 class PlatoonWindow(QtWidgets.QMainWindow):
-    def __init__(self, inTokens, user):
+    def __init__(self, inTokens, user, xport):
         super(PlatoonWindow, self).__init__()
         self.BOTS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/bots.json"
         self.MISSIONS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/missions.json"
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.user = user
+        self.commanderXport = xport
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
@@ -147,9 +148,8 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         self.running_missionListView.setViewMode(QtWidgets.QListView.ListMode)
         self.running_missionListView.setMovement(QtWidgets.QListView.Snap)
 
-        self.completed_missionListView.setModel(self.completedMissionModel)
-        self.completed_missionListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.completed_missionListView.setMovement(QtWidgets.QListView.Snap)
+        self.netconsolelabel = QtWidgets.QLabel("Network Console", alignment=QtCore.Qt.AlignLeft)
+        self.netconsole = QtWidgets.QTextBrowser()
 
         centralWidget = DragPanel()
 
@@ -200,7 +200,14 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         label_e1 = self.createLabel("East 1")
         # layout.addWidget(self.east0Scroll, BorderLayout.East)
 
-        self.east1Scroll.setWidget(self.completed_missionListView)
+        self.consoleWidget = QtWidgets.QWidget()
+        self.consoleLayout = QtWidgets.QVBoxLayout(self)
+        self.consoleLayout.addWidget(self.netconsolelabel)
+        self.consoleLayout.addWidget(self.netconsole)
+        self.consoleWidget.setLayout(self.consoleLayout)
+
+
+        self.east1Scroll.setWidget(self.consoleWidget)
         label_e2 = self.createLabel("East 2")
         # layout.addWidget(self.east1Scroll, BorderLayout.East)
 

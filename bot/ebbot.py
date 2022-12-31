@@ -53,9 +53,6 @@ class BOT_SETTINGS():
 
         # self.
 
-    def run(self):
-        self.abc = 1
-
 
     def loadJson(self, dj):
         self.platform = dj.platform

@@ -15,6 +15,117 @@ from TrainGUI import *
 from BorderLayout import *
 import lzstring
 from network import *
+from LoggerGUI import *
+from ui_settings import *
+import schedule
+from datetime import datetime, timedelta
+import pytz
+import tzlocal
+
+
+START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
+FETCH_ROUTINE = {
+    "eastern": [{
+        "bid": 0,
+        "tz": "eastern",
+        "bw_works": [],
+        "other_works": [{
+            "mid": 0,
+            "name": "fetch schedules",
+            "cuspas": "",
+            "todos": None,
+            "start_time": START_TIME,
+            "end_time": "",
+            "stat": "nys"
+        }],
+    }],
+    "central": [],
+    "moutain": [],
+    "pacific": [],
+    "alaska": [],
+    "hawaii": []
+}
+
+Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
+
+# adopted from web: https://stackoverflow.com/questions/32476006/how-to-make-an-expandable-collapsable-section-widget-in-qt
+class Expander(QtWidgets.QWidget):
+    def __init__(self, parent=None, title='', animationDuration=300):
+        """
+        References:
+            # Adapted from PyQt4 version
+            https://stackoverflow.com/a/37927256/386398
+            # Adapted from c++ version
+            https://stackoverflow.com/a/37119983/386398
+        """
+        super(Expander, self).__init__(parent=parent)
+
+        self.animationDuration = animationDuration
+        self.toggleAnimation = QtCore.QParallelAnimationGroup()
+        self.contentArea =  QtWidgets.QScrollArea()
+        self.headerLine =   QtWidgets.QFrame()
+        self.toggleButton = QtWidgets.QToolButton()
+        self.mainLayout =   QtWidgets.QGridLayout()
+
+        toggleButton = self.toggleButton
+        toggleButton.setStyleSheet("QToolButton { border: none; }")
+        toggleButton.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        toggleButton.setArrowType(QtCore.Qt.RightArrow)
+        toggleButton.setText(str(title))
+        toggleButton.setCheckable(True)
+        toggleButton.setChecked(False)
+
+        headerLine = self.headerLine
+        headerLine.setFrameShape(QtWidgets.QFrame.HLine)
+        headerLine.setFrameShadow(QtWidgets.QFrame.Sunken)
+        headerLine.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+
+        self.contentArea.setStyleSheet("QScrollArea { background-color: white; border: none; }")
+        self.contentArea.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        # start out collapsed
+        self.contentArea.setMaximumHeight(0)
+        self.contentArea.setMinimumHeight(0)
+        # let the entire widget grow and shrink with its content
+        toggleAnimation = self.toggleAnimation
+        toggleAnimation.addAnimation(QtCore.QPropertyAnimation(self, b"minimumHeight"))
+        toggleAnimation.addAnimation(QtCore.QPropertyAnimation(self, b"maximumHeight"))
+        toggleAnimation.addAnimation(QtCore.QPropertyAnimation(self.contentArea, b"maximumHeight"))
+        # don't waste space
+        mainLayout = self.mainLayout
+        mainLayout.setVerticalSpacing(0)
+        mainLayout.setContentsMargins(0, 0, 0, 0)
+        row = 0
+        mainLayout.addWidget(self.toggleButton, row, 0, 1, 1, QtCore.Qt.AlignLeft)
+        mainLayout.addWidget(self.headerLine, row, 2, 1, 1)
+        row += 1
+        mainLayout.addWidget(self.contentArea, row, 0, 1, 3)
+        self.setLayout(self.mainLayout)
+
+        def start_animation(checked):
+            arrow_type = QtCore.Qt.DownArrow if checked else QtCore.Qt.RightArrow
+            direction = QtCore.QAbstractAnimation.Forward if checked else QtCore.QAbstractAnimation.Backward
+            toggleButton.setArrowType(arrow_type)
+            self.toggleAnimation.setDirection(direction)
+            self.toggleAnimation.start()
+
+        self.toggleButton.clicked.connect(start_animation)
+
+    def setContentLayout(self, contentLayout):
+        # Not sure if this is equivalent to self.contentArea.destroy()
+        self.contentArea.destroy()
+        self.contentArea.setLayout(contentLayout)
+        collapsedHeight = self.sizeHint().height() - self.contentArea.maximumHeight()
+        contentHeight = contentLayout.sizeHint().height()
+        for i in range(self.toggleAnimation.animationCount()-1):
+            expandAnimation = self.toggleAnimation.animationAt(i)
+            expandAnimation.setDuration(self.animationDuration)
+            expandAnimation.setStartValue(collapsedHeight)
+            expandAnimation.setEndValue(collapsedHeight + contentHeight)
+        contentAnimation = self.toggleAnimation.animationAt(self.toggleAnimation.animationCount() - 1)
+        contentAnimation.setDuration(self.animationDuration)
+        contentAnimation.setStartValue(0)
+        contentAnimation.setEndValue(contentHeight)
+
 
 
 # class MainWindow(QtWidgets.QWidget):
@@ -27,6 +138,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tokens = inTokens
         self.tcpServer = tcpserver
         self.user = user
+        self.hostrole = "CommanderOnly"
+        self.workingState = "Idle"
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
@@ -45,14 +158,46 @@ class MainWindow(QtWidgets.QMainWindow):
         self.trainNewSkillWin = None
         self.reminderWin = None
         self.platoonWin = None
+        self.SettingsWin = SettingsWidget(self)
+        self.netLogWin = CommanderLogWin(self)
+        self.logConsoleBox = Expander(self, "Log Console:")
+        self.commanderName = ""
+        self.todaysReport = []
+        self.todaysReports = []
+
+        # self.logConsoleBox = QtWidgets.QWidget()
+        self.logConsole = QtWidgets.QTextEdit()
+        self.logConsole.setLineWrapMode(QtWidgets.QTextEdit.FixedPixelWidth)
+        self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
+        self.logConsoleLayout = QtWidgets.QVBoxLayout()
+
+        # self.logConsoleBox.setContentLayout(self.logConsoleLayout)
+
+        # self.toggle_button = QtWidgets.QToolButton(
+        #     text="log console", checkable=True, checked=False
+        # )
+        # self.toggle_button.setStyleSheet("QToolButton { border: none; }")
+        # self.toggle_button.setToolButtonStyle(
+        #     QtCore.Qt.ToolButtonTextBesideIcon
+        # )
+        # self.toggle_button.setArrowType(QtCore.Qt.RightArrow)
+        # self.toggle_button.pressed.connect(self.on_tg_pressed)
+
+        # self.logConsoleLayout.addWidget(self.toggle_button)
+        self.logConsoleLayout.addWidget(self.logConsole)
+        # self.logConsoleBox.setLayout(self.logConsoleLayout)
+
+        self.logConsoleBox.setContentLayout(self.logConsoleLayout)
+
         self.owner = "NA"
         self.botRank = "soldier"              # this should be read from a file which is written during installation phase, user will select this during installation phase
 
         self.save_all_button = QtWidgets.QPushButton("Save All")
         self.log_out_button = QtWidgets.QPushButton("Logout")
-        self.south_layout = QtWidgets.QHBoxLayout(self)
-        self.south_layout.addWidget(self.save_all_button)
-        self.south_layout.addWidget(self.log_out_button)
+        self.south_layout = QtWidgets.QVBoxLayout(self)
+        self.south_layout.addWidget(self.logConsoleBox)
+        # self.south_layout.addWidget(self.save_all_button)
+        # self.south_layout.addWidget(self.log_out_button)
         self.save_all_button.clicked.connect(self.saveAll)
         self.log_out_button.clicked.connect(self.logOut)
 
@@ -60,13 +205,45 @@ class MainWindow(QtWidgets.QMainWindow):
         self.southWidget.setLayout(self.south_layout)
 
         self.mainWidget = QtWidgets.QWidget()
+        self.westScrollArea = QtWidgets.QWidget()
+        self.westScrollLayout = QtWidgets.QVBoxLayout(self)
+        self.westScrollLabel = QtWidgets.QLabel("Missions:", alignment=QtCore.Qt.AlignLeft)
+
+        self.centralScrollArea = QtWidgets.QWidget()
+        self.centralScrollLayout = QtWidgets.QVBoxLayout(self)
+        self.centralScrollLabel = QtWidgets.QLabel("Bots:", alignment=QtCore.Qt.AlignLeft)
+
+        self.east0ScrollArea = QtWidgets.QWidget()
+        self.east0ScrollLayout = QtWidgets.QVBoxLayout(self)
+        self.east0ScrollLabel = QtWidgets.QLabel("Vehicles:", alignment=QtCore.Qt.AlignLeft)
+
+        self.east1ScrollArea = QtWidgets.QWidget()
+        self.east1ScrollLayout = QtWidgets.QVBoxLayout(self)
+        self.east1ScrollLabel = QtWidgets.QLabel("Completed Missions:", alignment=QtCore.Qt.AlignLeft)
+
         self.westScroll = QtWidgets.QScrollArea()
         self.centralScroll = QtWidgets.QScrollArea()
         self.east0Scroll = QtWidgets.QScrollArea()
         self.east1Scroll = QtWidgets.QScrollArea()
 
+        self.westScrollLayout.addWidget(self.westScrollLabel)
+        self.westScrollLayout.addWidget(self.westScroll)
+        self.westScrollArea.setLayout(self.westScrollLayout)
+
+        self.centralScrollLayout.addWidget(self.centralScrollLabel)
+        self.centralScrollLayout.addWidget(self.centralScroll)
+        self.centralScrollArea.setLayout(self.centralScrollLayout)
+
+        self.east0ScrollLayout.addWidget(self.east0ScrollLabel)
+        self.east0ScrollLayout.addWidget(self.east0Scroll)
+        self.east0ScrollArea.setLayout(self.east0ScrollLayout)
+
+        self.east1ScrollLayout.addWidget(self.east1ScrollLabel)
+        self.east1ScrollLayout.addWidget(self.east1Scroll)
+        self.east1ScrollArea.setLayout(self.east1ScrollLayout)
+
         self.westScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.westScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.westScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self.westScroll.setWidgetResizable(True)
 
         self.centralScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
@@ -74,11 +251,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.centralScroll.setWidgetResizable(True)
 
         self.east0Scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.east0Scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.east0Scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self.east0Scroll.setWidgetResizable(True)
 
         self.east1Scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.east1Scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.east1Scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self.east1Scroll.setWidgetResizable(True)
 
         #creating QActions
@@ -100,6 +277,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.commandSendAction = self._createCommandSendAction()
 
         self.settingsAccountAction = self._createSettingsAccountAction()
+        self.settingsEditAction = self._createSettingsEditAction()
 
         self.runRunAllAction = self._createRunRunAllAction()
 
@@ -108,6 +286,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.reportsShowAction = self._createReportsShowAction()
         self.reportsGenAction = self._createReportsGenAction()
+        self.reportsLogConsoleAction = self._createReportsLogConsoleAction()
 
         self.skillNewAction = self._createSkillNewAction()
         self.skillEditAction = self._createSkillEditAction()
@@ -134,8 +313,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionListView.installEventFilter(self)
         self.missionModel = QtGui.QStandardItemModel(self.missionListView)
 
-        self.running_missionListView = MissionListView()
-        self.runningMissionModel = QtGui.QStandardItemModel(self.running_missionListView)
+        self.vehicleListView = VehicleListView()
+        self.vehicleListView.installEventFilter(self)
+        self.runningVehicleModel = QtGui.QStandardItemModel(self.vehicleListView)
 
         self.completed_missionListView = MissionListView()
         self.completedMissionModel = QtGui.QStandardItemModel(self.completed_missionListView)
@@ -154,9 +334,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionListView.setViewMode(QtWidgets.QListView.ListMode)
         self.missionListView.setMovement(QtWidgets.QListView.Snap)
 
-        self.running_missionListView.setModel(self.runningMissionModel)
-        self.running_missionListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.running_missionListView.setMovement(QtWidgets.QListView.Snap)
+        self.vehicleListView.setModel(self.runningVehicleModel)
+        self.vehicleListView.setViewMode(QtWidgets.QListView.ListMode)
+        self.vehicleListView.setMovement(QtWidgets.QListView.Snap)
 
         self.completed_missionListView.setModel(self.completedMissionModel)
         self.completed_missionListView.setViewMode(QtWidgets.QListView.ListMode)
@@ -207,7 +387,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # layout.addWidget(self.westScroll, BorderLayout.West)
         #layout.addWidget(ic0, BorderLayout.West)
 
-        self.east0Scroll.setWidget(self.running_missionListView)
+        self.east0Scroll.setWidget(self.vehicleListView)
         label_e1 = self.createLabel("East 1")
         # layout.addWidget(self.east0Scroll, BorderLayout.East)
 
@@ -217,10 +397,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         label_s = self.createLabel("South")
 
-        self.centralSplitter.addWidget(self.westScroll)
-        self.centralSplitter.addWidget(self.centralScroll)
-        self.centralSplitter.addWidget(self.east1Scroll)
-        self.centralSplitter.addWidget(self.east0Scroll)
+        self.centralSplitter.addWidget(self.westScrollArea)
+        self.centralSplitter.addWidget(self.centralScrollArea)
+        self.centralSplitter.addWidget(self.east0ScrollArea)
+        self.centralSplitter.addWidget(self.east1ScrollArea)
 
         self.bottomSplitter.addWidget(self.centralSplitter)
         self.bottomSplitter.addWidget(self.southWidget)
@@ -236,6 +416,35 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.mainWidget)
 
         self.setWindowTitle("Main Bot&Mission Scheduler")
+
+        self.todays_work = {"tbd": [{"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}], "allstat": "working"}
+        # point to the 1st task to run for the day.
+        self.updateRunStatus(self.todays_work["tbd"][0])
+
+    def on_tg_pressed(self):
+        checked = self.toggle_button.isChecked()
+        self.toggle_button.setArrowType(
+            QtCore.Qt.DownArrow if not checked else QtCore.Qt.RightArrow
+        )
+
+        if self.toggle_button.arrowType() == QtCore.Qt.DownArrow:
+            self.logConsole.setVisible(True)
+        else:
+            self.logConsole.setVisible(False)
+
+
+
+    #async def networking(self, platoonCallBack):
+    def setHostRole(self, role):
+        self.hostrole = role
+
+    def getHostRole(self):
+        return self.hostrole
+
+    def appendNetLogs(self, msgs):
+        # self.netLogWin.show()
+        for msg in msgs:
+            self.logConsole.append(msg)
 
     def setTokens(self, intoken):
         self.tokens = intoken
@@ -271,31 +480,26 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu(platoon_menu)
 
         settings_menu = QtWidgets.QMenu("&Settings", self)
-        settings_menu.addAction(self.settingsAccountAction)
+        # settings_menu.addAction(self.settingsAccountAction)
         #settings_menu.addAction(self.settingsImportAction)
-        #settings_menu.addAction(self.settingsEditAction)
+        settings_menu.addAction(self.settingsEditAction)
         #settings_menu.addAction(self.settingsDelAction)
         menu_bar.addMenu(settings_menu)
 
         reports_menu = QtWidgets.QMenu("&Reports", self)
         reports_menu.addAction(self.reportsShowAction)
         reports_menu.addAction(self.reportsGenAction)
+        reports_menu.addAction(self.reportsLogConsoleAction)
         menu_bar.addMenu(reports_menu)
 
         run_menu = QtWidgets.QMenu("&Run", self)
         run_menu.addAction(self.runRunAllAction)
-        #settings_menu.addAction(self.settingsImportAction)
-        #settings_menu.addAction(self.settingsEditAction)
-        #settings_menu.addAction(self.settingsDelAction)
         menu_bar.addMenu(run_menu)
 
         schedule_menu = QtWidgets.QMenu("&Schedule", self)
         schedule_menu.addAction(self.fetchScheduleAction)
 
         schedule_menu.addAction(self.scheduleCalendarViewAction)
-        #settings_menu.addAction(self.settingsImportAction)
-        #settings_menu.addAction(self.settingsEditAction)
-        #settings_menu.addAction(self.settingsDelAction)
         menu_bar.addMenu(schedule_menu)
 
         skill_menu = QtWidgets.QMenu("&Skills", self)
@@ -434,6 +638,14 @@ class MainWindow(QtWidgets.QMainWindow):
         new_action.setText("&Account")
         return new_action
 
+    def _createSettingsEditAction(self):
+        # File actions
+        new_action = QtGui.QAction(self)
+        new_action.setText("&Edit")
+        new_action.triggered.connect(self.editSettings)
+        return new_action
+
+
     def _createRunRunAllAction(self):
         # File actions
         new_action = QtGui.QAction(self)
@@ -467,6 +679,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # File actions
         new_action = QtGui.QAction(self)
         new_action.setText("&Generate")
+        return new_action
+
+    def _createReportsLogConsoleAction(self):
+        # File actions
+        new_action = QtGui.QAction(self)
+        new_action.setText("&Log Console")
+        new_action.triggered.connect(self.showLogs)
         return new_action
 
     def _createSettingsGenAction(self):
@@ -524,6 +743,9 @@ class MainWindow(QtWidgets.QMainWindow):
         new_action.triggered.connect(self.showAbout)
         return new_action
 
+    def showLogs(self):
+        self.netLogWin.show()
+
     def fetchSchedule(self):
         jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
@@ -538,7 +760,27 @@ class MainWindow(QtWidgets.QMainWindow):
                 # print("body string:", uncompressed, "!", len(uncompressed), "::")
                 bodyobj = json.loads(uncompressed)
 
-                # body object will be a list of tasks [...]
+                # body object will be a list of task groups[
+                # {
+                # "eastern": [{
+                #       bid : 0,
+                #       tz : "eastern",
+                #       bw_works : [{
+                #           mid : 0,
+                #           name: "",
+                #           cuspas : "",
+                #           todos : null,
+                #           start_time : null
+                #       }],
+                #       other_works : [],
+                # }...],
+                # "central": [],
+                # "mountain": [],
+                # "pacific": [],
+                # "alaska": [],
+                # "hawaii": []
+                #}, ....
+                #]
                 # each task is a json, { skill steps. [...]
                 # each step is a json
                 ##print("resp body: ", bodyobj)
@@ -546,48 +788,226 @@ class MainWindow(QtWidgets.QMainWindow):
                     #jbody = json.loads(jresp["body"])
                     #jbody = json.loads(originalS)
                 if len(bodyobj) > 0:
-                    self.assign_work(bodyobj)
+                    self.assignWork(bodyobj)
                 else:
-                    print("Warning: NO schedule generated.")
+                    self.warn("Warning: NO schedule generated.")
+            else:
+                self.warn("Warning: Empty Network Response.")
 
-    def assignWork(self, tasks):
+
+    def warn(self, msg):
+        warnText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\" >"
+        warnText += msg
+        warnText += "</span>"
+        # self.netLogWin.appendLogs([warnText])
+        self.appendNetLogs([warnText])
+
+
+    def showMsg(self, msg):
+        MsgText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\" >"
+        MsgText += msg
+        MsgText += "</span>"
+        # self.netLogWin.appendLogs([MsgText])
+        self.appendNetLogs([MsgText])
+
+    # assign work, if this commander runs, assign works for commander,
+    # otherwise, send works to platoons to execute.
+    def assignWork(self, task_groups):
         # tasks should already be sorted by botid,
-        if len(tasks) > self.LOCAL_BOT_LIMIT:
-            localwork = tasks[:self.LOCAL_BOT_LIMIT]
-            remaining = tasks[self.LOCAL_BOT_LIMIT:]
-            for v in self.vehicles:
-                # allocate max of LOCAL_BOT_LIMIT number of bot-tasks to this vehicle
-                if len(remaining) > self.LOCAL_BOT_LIMIT:
-                    thiswork = remaining[:self.LOCAL_BOT_LIMIT]
-                    remaining = remaining[self.LOCAL_BOT_LIMIT:]
-                    thiswork_string = self.zipper.compressToBase64(json.dumps(thiswork))
-
-                    # send thiswork_string to v
-                    v.transport.write(thiswork_string)
-
-                else:
-                    # send remaining to this vehicle v. and break out of the loop.
-                    thiswork_string = self.zipper.compressToBase64(json.dumps(remaining))
-                    v.transport.write(thiswork_string)
-                    break
-
-            # after send networked tasks out, now do the local work
+        if self.hostrole == "CommanderOnly":
+            nsites = len(fieldLinks)
         else:
-            localwork = tasks
+            nsites = 1 + len(fieldLinks)
+        if len(task_groups) > nsites:
+            # there will be unserved tasks due to over capacity
+            self.netLogWin.appendLogs("Run Capacity Spilled, some tasks will NOT be served!!!")
 
-        self.dowork(localwork)
-        #now get to work.
+        # distribute work to all available sites, which is the limit for the total capacity.
+        for i in range(nsites):
+            if i == 0 and not self.hostrole == "CommanderOnly":
+                # if commander participate work, give work to here.
+                self.todays_work["tbd"].append = {"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "eastern", "current grp": None, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []}
+            else:
+                #otherwise, send work to platoons in the field.
+                fieldLinks[i-1]["link"].transport.write(json.dumps(task_groups[i]).encode("utf-8"))
 
 
-    def dowork(self, tasks):
-        # tasks should be already sorted according to the time of the day.
-        # simply setup a timer for each task.
-        # this is actually tricky due to the fact that:
-        # 1) scheduled task start time might be blocked due to previous task is not yet finished.
-        #   a) this should be a serial process. after task N is done, if task N+1's designated
-        #      start time is passed, immediately starts task N+1, if not schedule it to happen
-        #      as designed.
-        print("Setting up timers for the tasks....")
+    # find to todos.,
+    # 1) check whether need to fetch schedules,
+    # 2) checking whether need to do RPA
+    # 3)
+    def checkToDos(self):
+        nextrun = None
+        # go thru tasks and check the 1st task whose designated start_time has passed.
+        pt = datetime.now()
+        if not self.todays_work["tbd"][0]["status"] == "done":
+            if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
+                nextrun = self.todays_work["tbd"][0]
+        elif len(self.todays_work["tbd"]) > 1 and not self.todays_work["tbd"][1]["status"] == "done":
+            tz = self.todays_work["tbd"][1]["current tz"]
+            bith = self.todays_work["tbd"][1]["current bidx"]
+            grp = self.todays_work["tbd"][1]["current grp"]
+            if grp == "other_works":
+                wjth = self.todays_work["tbd"][1]["current oidx"]
+            else:
+                wjth = self.todays_work["tbd"][1]["current widx"]
+            if self.ts2time(self.todays_work["tbd"][1]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
+                nextrun = self.todays_work["tbd"][1]
+        # elif len(self.todays_work["tbd"]) > 1 and self.todays_work["tbd"][1]["status"] == "done":
+
+
+        return nextrun
+
+
+    # run one bot one time slot at a time.
+    async def runRPA(self, worksTBD):
+        works = worksTBD["works"]
+        tz = worksTBD["current tz"]
+        grp = worksTBD["current grp"]
+        bidx = worksTBD["current bidx"]
+        widx = worksTBD["current widx"]
+        oidx = worksTBD["current oidx"]
+        if grp == "other_works":
+            idx = oidx
+        else:
+            idx = widx
+
+        settings = self.missions[works[tz][bidx][grp][idx].mid].parent_settings
+
+        #now run the steps
+        runAllSteps(works[tz][bidx][grp][idx].todos, settings)
+
+        #now update the pointer, status, and so on.....
+        self.updateRunStatus(worksTBD)
+
+
+    def updateRunStatus(self, worksTBD):
+        works = worksTBD["works"]
+        tz = worksTBD["current tz"]
+        grp = worksTBD["current grp"]
+        bidx = worksTBD["current bidx"]
+        widx = worksTBD["current widx"]
+        oidx = worksTBD["current oidx"]
+        switch_tz = False
+        switch_grp = False
+        worksTBD["status"] == "working"
+        # check whether need to switch group?
+        if grp == None:
+            # just the begining....
+            tzi = 0
+            switch_tz = True
+        else:
+            # update after already started
+            if len(works[tz]) > 0:
+                if grp == "other_works":
+                    if len(works[tz][bidx][grp])-1 > oidx:
+                        oidx = oidx + 1
+                    else:
+                        # all other_works are done. simply go to the next wb_works if there are more
+                        # simply switch group
+                        grp = "bw_works"
+                        # but if no more work after switching grp, switch timezone.
+                        if len(works[tz][bidx][grp]) > 0:
+                            if not len(works[tz][bidx][grp])-1 > widx:
+                                #switch tz
+                                switch_tz = True
+                            else:
+                                switch_grp = True
+                                widx = widx + 1
+                        else:
+                            # all other_works and wh_works of this region(timezone) are done, switch tz.
+                            switch_tz = True
+                else:
+                    if len(works[tz][bidx][grp])-1 > widx:
+                        widx = widx + 1
+                    else:
+                        # all walk-buy works are done. simply go to the next other_works  if there are more
+                        grp = "other_works"
+                        if len(works[tz][bidx][grp]) > 0:
+                            if not len(works[tz][bidx][grp])-1 > oidx:
+                                #switch tz
+                                switch_tz = True
+                            else:
+                                switch_grp = True
+                                oidx = oidx + 1
+                        else:
+                            # switch tz.
+                            switch_tz = True
+                # now compare time.
+                if switch_tz == False:
+                    if switch_grp == False:
+                        if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx]["start_time"]:
+                            worksTBD["current grp"] = "other_works"
+                        else:
+                            worksTBD["current grp"] = "wb_works"
+                    else:
+                        worksTBD["current grp"] = grp
+
+                    worksTBD["current bidx"] = bidx
+                    worksTBD["current widx"] = widx
+                    worksTBD["current oidx"] = oidx
+                    worksTBD["current tz"] = tz
+            else:
+                switch_tz = True
+
+        # check whether need to switch region?
+        if switch_tz:
+            tzi = Tzs.index(tz)
+            while tzi < len(Tzs) and len(works[tz]) == 0:
+                tzi = tzi + 1
+
+            if tzi < len(Tzs):
+                tz = Tzs[tzi]
+                if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
+                    # see which one's start time is earlier
+                    if works[tz][bidx]["other_works"][0]["start_time"] < works[tz][bidx]["bw_works"][0]["start_time"]:
+                        worksTBD["current grp"] = "other_works"
+                        worksTBD["current bidx"] = 0
+                        worksTBD["current widx"] = -1
+                        worksTBD["current oidx"] = 0
+                    else:
+                        worksTBD["current grp"] = "wb_works"
+                        worksTBD["current bidx"] = 0
+                        worksTBD["current widx"] = 0
+                        worksTBD["current oidx"] = -1
+                elif len(works[tz][bidx]["other_works"]) > 0:
+                    worksTBD["current grp"] = "other_works"
+                    worksTBD["current bidx"] = 0
+                    worksTBD["current widx"] = -1
+                    worksTBD["current oidx"] = 0
+                elif len(works[tz][bidx]["bw_works"]) > 0:
+                    worksTBD["current grp"] = "wb_works"
+                    worksTBD["current bidx"] = 0
+                    worksTBD["current widx"] = 0
+                    worksTBD["current oidx"] = -1
+
+            else:
+                worksTBD["status"] == "done"
+
+
+        worksTBD["current tz"] = tz
+
+
+    #convert time zone, time slot to datetime
+    # the time slot is defined as following:
+    # time slot is defined as a 20 minute interval, an entire day has 72 slots indexed 0~71
+    # counting timezone, and starts from eastern standard time, the timezone will extend to
+    # cover hawaii, which is 5 timezone away from eastern, so total time zone slots are
+    # 72+15=87 or index 0~86.
+    def ts2time(self, ts):
+        thistime = datetime.now()
+        zerotime = datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
+        time_change = timedelta(minutes=20*ts)
+        runtime = zerotime + time_change
+        tzinfo = datetime.now().astimezone().tzinfo
+        return runtime
+
+
+    def runBotTask(self, task):
+        self.workingState = "Working"
+        task_mission = self.missions[task.mid]
+        # run all the todo steps
+        runAllSteps(task.todos, task_mission.parent_settings)
 
 
     def showAbout(self):
@@ -614,6 +1034,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.BotNewWin = BotNewWin(self)
         #self.BotNewWin.resize(400, 200)
         self.BotNewWin.show()
+
 
     def trainNewSkill(self):
         if self.trainNewSkillWin == None:
@@ -1158,12 +1579,6 @@ class MainWindow(QtWidgets.QMainWindow):
             # now that fetch all bots from the cloud side is successfull, need to compare with local data and merge:
 
 
-    # fetch schedule for the next # of days.
-    def getSchedule(self, days=1):
-        # File actions
-        self.botModel.removeRow(self.selected_bot_row)
-        print("delete bot" + str(self.selected_bot_row))
-
     def setOwner(self, owner):
         self.owner = owner
 
@@ -1177,6 +1592,9 @@ class MainWindow(QtWidgets.QMainWindow):
             # 3. Call start()
             #pool.start(runnable)
             print("run thread")
+
+    def editSettings(self):
+        self.SettingsWin.show()
 
     def manualRunAll(self):
         txt_results = "{}"
@@ -1193,5 +1611,128 @@ class MainWindow(QtWidgets.QMainWindow):
         for m in self.missions:
             status = m.run()
 
+    def runbotworks(self):
+        # run all the work
+        botTodos = None
+        if self.workingState == "Idle":
+            botTodos = self.checkToDos()
+            self.showMsg("check todos....")
+            if not botTodos == None:
+                self.workingState = "Working"
+                if botTodos["name"] == "fetch schedule":
+                    self.fetchSchedule()
+                    botTodos["status"] = "done"
+                elif botTodos["name"] == "automation":
+                    # run 1 bot's work
+                    if not botTodos["status"] == "done":
+                        self.runRPA(botTodos)
+                    else:
+                        self.doneWithToday()
+
+                # elif botTodos["name"] == "report":
+                #     self.doneWithToday()
+                self.workingState = "Idle"
+            else:
+                # nothing to do right now. check if all of today's work are done.
+                # if my own works are done and all platoon's reports are collected.
+                if self.todays_work["allstat"] == "all done":
+                    self.doneWithToday()
+
+    # msg in json format
+    # { sender: "ip addr", type: "intro/status/report", content : "another json" }
+    # content format varies according to type.
+    def processPlatoonMsgs(self, msgString):
+        msg = json.loads(msgString)
+        found = next((x for x in fieldLinks if x["ip"] == self.peername), None)
+
+        # first, check ip and make sure this from a know vehicle.
+        if msg["type"] == "intro":
+            if found:
+                found["name"] = msg["content"]["name"]
+        elif msg["type"] == "status":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
+        elif msg["type"] == "report":
+            # collect report, the report should be already organized in json format and ready to submit to the network.
+            self.todaysReports.append(json.loads(msg["content"]))
+            # keep statistics on all platoon runs.
+            if len(self.todaysReports) == len(self.todays_work["tbd"][1]):
+                # check = all(item in List1 for item in List2)
+                # this means all reports are collected, ready to send to cloud.
+                self.todays_work["allstat"] = "all done"
 
 
+    # { sender: "ip addr", type: "intro/config/missions", content : "another json" }
+    # content format varies according to type.
+    def processCommanderMsgs(self, msgString):
+        msg = json.loads(msgString)
+        # first, check ip and make sure this from a know vehicle.
+        if msg["type"] == "intro":
+            self.commanderName = msg["content"]["name"]
+        elif msg["type"] == "config":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
+        elif msg["type"] == "missions":
+            # schedule work now..... append to array data structure and set up the pointer to the 1st task.
+            # the actual running of the tasks will be taken care of by the schduler.
+            localworks = json.loads(msg["content"])
+            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": "eastern", "current grp": None, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
+            self.updateRunStatus(self.todays_work["tbd"][1])
+
+    # just an array of the following object:
+    # MissionStatus {
+    #     mid: ID!
+    #     bid: ID!
+    #     blevel: String!
+    #     status: String!
+    #     }
+    def genRunReport(self):
+        statReport = None
+        tzi = 0
+        #only generate report when all done.
+        works = self.todays_work["tbd"][1]
+
+        if not self.hostrole == "CommanderOnly":
+            while tzi in range(len(Tzs)):
+                if len(works[tzi]) > 0:
+                    for bi in range(len(works[tzi])):
+                        if len(works[tzi][bi]["other_works"]) > 0:
+                            for oi in range(len(works[tzi][bi]["other_works"])):
+                                self.todaysReport.append({ "mid": works[tzi][bi]["other_works"][oi].mid, "bid": works[tzi][bi].bid, "blevel": "", "status": works[tzi][bi]["other_works"][oi].stat})
+
+                        if len(works[tzi][bi]["wb_works"]) > 0:
+                            for wi in range(len(works[tzi][bi]["wb_works"])):
+                                self.todaysReport.append({ "mid": works[tzi][bi]["wb_works"][wi].mid, "bid": works[tzi][bi].bid, "blevel": "", "status": works[tzi][bi]["wb_works"][wi].stat})
+
+
+        if not self.hostrole == "Platoon":
+            # generate complete report based on reports generated on this local host and the ones sent from platoons on the network.
+            rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
+            self.todaysReports.append(str.encode(json.dumps(rpt)))
+            statReport = [item for pr in self.todaysReports for item in pr]         #pr - platoon report, statReport is list of list.
+        else:
+            # generate report only for this machine.
+            statReport = self.todaysReport
+
+        return statReport
+
+    # all work done today, now
+    # 1) send report to the network,
+    # 2) save report to local logs,
+    # 3) clear today's work data structures.
+    def doneWithToday(self):
+        global commanderXport
+        # call reportStatus API to send today's report to API
+        todays_stat = self.genRunReport()
+
+        if not self.hostrole == "Platoon":
+            if todays_stat:
+                #send report to cloud
+                send_completion_status_to_cloud(self.session, todays_stat, self.tokens['AuthenticationResult']['IdToken'])
+        else:
+            rpt = {"ip": self.ip, "type": "report", "content": todays_stat}
+            commanderXport.write(str.encode(json.dumps(rpt)))
+        # 2) log reports.
+
+        # 3) clear data structure, set up for tomorrow morning.
+        self.todays_work = {"tbd": [{"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}

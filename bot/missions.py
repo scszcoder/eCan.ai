@@ -48,7 +48,7 @@ class M_Skill():
 
         self.skill_name = "browse_search_kw"
         self.all_steps = []
-        self.lsk = "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/enter_amz/enter_amz.lsk"
+        self.psk = "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/enter_amz/enter_amz.psk"
         self.csk = ""
 
         # self.
@@ -62,7 +62,7 @@ class M_Skill():
     def loadSkill(self):
         # load skill file.
         name_pf = "generic"
-        skill_file = self.lsk
+        skill_file = self.psk
         print("load skill file:", skill_file)
         self.all_steps = readSkillFile(name_pf, skill_file)
 
@@ -80,7 +80,7 @@ class M_Private_Attributes():
         self.skills = []
         self.skills.append(M_Skill())
         self.current_sk_idx = 0
-        # "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/enter_amz/enter_amz.lsk"
+        # "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/enter_amz/enter_amz.psk"
 
 
     def setItem(self, inum, seller, title, imglink, rank):
@@ -224,7 +224,7 @@ class EBMISSION(QtGui.QStandardItem):
         self.parent_settings = {"mission_id": self.pubAttributes.missionId,
                                 "session": self.parent.session,
                                 "token": self.parent.tokens['AuthenticationResult']['IdToken'],
-                                "lsk": self.privateAttributes.skills[self.privateAttributes.current_sk_idx].lsk,
+                                "psk": self.privateAttributes.skills[self.privateAttributes.current_sk_idx].psk,
                                 "csk": self.privateAttributes.skills[self.privateAttributes.current_sk_idx].csk,
                                 "skill_name": self.privateAttributes.skills[self.privateAttributes.current_sk_idx].skill_name,
                                 "uid": self.parent.uid}
@@ -267,7 +267,7 @@ class EBMISSION(QtGui.QStandardItem):
         print(json.dumps(jsd))
         return jsd
 
-    def run(self):
+    async def run(self):
         run_result = None
         print("running.....")
         for si in range(len(self.privateAttributes.skills)):

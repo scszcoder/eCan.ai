@@ -13,6 +13,7 @@ MESSAGE = b"Hello, World!"
 sel = selectors.DefaultSelector()
 
 # UDP pack broadcasted every 15 second.
+TICK = 30
 UDP_PERIOD = 15
 commanderXport = None
 commanderIP = "0.0.0.0"
@@ -20,86 +21,25 @@ platoonProtocol = None
 commanderServer = None
 fieldLinks = []
 
-async def handle_client(reader, writer):
-    request = None
-    while request != 'quit':
-        request = (await reader.read(255)).decode('utf8')
-        response = str(eval(request)) + '\n'
-        writer.write(response.encode('utf8'))
-        await writer.drain()
-    writer.close()
-
-async def run_server():
-    finished = False;
-    server = await asyncio.start_server(handle_client, 'localhost', 15555)
-    async with server:
-        await server.serve_forever()
-
-
-def start_server():
-    asyncio.run(run_server())
-
-
-def _start_async():
-    loop = asyncio.new_event_loop()
-    threading.Thread(target=loop.run_forever).start()
-    return loop
-
-
-_loop = _start_async()
-
-
-# Submits awaitable to the event loop, but *doesn't* wait for it to
-# complete. Returns a concurrent.futures.Future which *may* be used to
-# wait for and retrieve the result (or exception, if one was raised)
-def submit_async(awaitable):
-    return asyncio.run_coroutine_threadsafe(awaitable, _loop)
-
-def stop_async():
-    _loop.call_soon_threadsafe(_loop.stop)
-
-
-# With these tools in place( and possibly in a separate module), you can do things like this:
-class Commander:
-    over = False
-    usock = None
-    tsock = None
-    myip = None
-    hostname = None
-
-    def __init__(self):
-        self.usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        # Enable port reusage so we will be able to run multiple clients and servers on single (host, port).
-        # Do not use socket.SO_REUSEADDR except you using linux(kernel<3.9): goto https://stackoverflow.com/questions/14388706/how-do-so-reuseaddr-and-so-reuseport-differ for more information.
-        # For linux hosts all sockets that want to share the same address and port combination must belong to processes that share the same effective user ID!
-        # So, on linux(kernel>=3.9) you have to run multiple servers and clients under one user to share the same (host, port).
-        # Thanks to @stevenreddie
-        self.usock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-
-        # Enable broadcasting mode
-        self.usock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-
-        self.tsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        self.hostname = socket.gethostname()
-        self.myip = socket.gethostbyname(self.hostname)
-        self.tsock.bind((self.myip, TCP_PORT))
-
-
-        submit_async(self.broadcaster())
-        # ...
-
+myname = socket.gethostname()
 
 
 class CommanderTCPServerProtocol(asyncio.Protocol):
+    def __init__(self, topgui, on_con_lost):
+        self.topgui = topgui
+        self.on_con_lost = on_con_lost
+
     def connection_made(self, transport):
-        peername = transport.get_extra_info('peername')
-        print('Connection from Platoon {}'.format(peername))
+        self.peername = transport.get_extra_info('peername')
+        print('Connection from Platoon {}'.format(self.peername))
         self.transport = transport
-        fieldLinks.append({"ip": peername, "link": self})
+        fieldLinks.append({"ip": self.peername, "name": "nyk", "link": self})
 
     def data_received(self, data):
         message = data.decode()
-        print('Data received: {!r}'.format(message))
+        if not self.topgui.mainwin == None:
+            self.topgui.mainwin.appendNetLogs(['Data received: {!r}'.format(message)])
+            self.topgui.mainwin.processPlatoonMsgs(message)
 
         #print('Send: {!r}'.format(message))
         #self.transport.write(data)
@@ -107,6 +47,12 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         #print('Close the client socket')
         # self.transport.close()
 
+    def connection_lost(self, exc):
+        self.on_con_lost.set_result(True)
+        #find and delete from fieldLinks
+        lostone = next((x for x in fieldLinks if x["ip"] == self.peername), None)
+        fieldLinks.remove(lostone)
+        self.on_con_lost.set_result(True)
 
 class communicatorProtocol(asyncio.Protocol):
     def __init__(self, message, on_con_lost):
@@ -121,6 +67,7 @@ class communicatorProtocol(asyncio.Protocol):
     def data_received(self, data):
         message = data.decode()
         print('Data received: {!r}'.format(message))
+        self.topgui.mainwin.processCommanderMsgs(message)
 
         # print('Send: {!r}'.format(message))
         # self.transport.write(data)
@@ -130,8 +77,7 @@ class communicatorProtocol(asyncio.Protocol):
         self.on_con_lost.set_result(True)
 
 
-# this is the tcp server for the platoon side.
-async def communicator():
+async def tcpServer(topgui):
     # Get a reference to the event loop as we plan to use
     # low-level APIs.
     hostname = socket.gethostname()
@@ -139,28 +85,10 @@ async def communicator():
     myip = myips[len(myips)-1]
     print("my host name is: ", hostname, " and my ip is: ", myip)
     tcp_loop = asyncio.get_running_loop()
-
-    tserver = await tcp_loop.create_server(
-        lambda: PlatoonTCPServerProtocol(),
-        '192.168.1.20', TCP_PORT)
-
-    async with tserver:
-        await tserver.serve_forever()
-
-
-
-
-async def tcpServer():
-    # Get a reference to the event loop as we plan to use
-    # low-level APIs.
-    hostname = socket.gethostname()
-    myips = socket.gethostbyname_ex(hostname)[2]
-    myip = myips[len(myips)-1]
-    print("my host name is: ", hostname, " and my ip is: ", myip)
-    tcp_loop = asyncio.get_running_loop()
+    on_con_lost = tcp_loop.create_future()
 
     commanderServer = await tcp_loop.create_server(
-        lambda: CommanderTCPServerProtocol(),
+        lambda: CommanderTCPServerProtocol(topgui, on_con_lost),
         myip, TCP_PORT)
     print("commanderServer: ", commanderServer)
 
@@ -168,16 +96,8 @@ async def tcpServer():
         await commanderServer.serve_forever()
 
 
-# async def echo():
-#     stdin, stdout = await aioconsole.get_standard_streams()
-#     async for line in stdin:
-#         stdout.write(line)
 
-# loop = asyncio.get_event_loop()
-# loop.run_until_complete(echo())
-
-
-async def udpBroadcaster():
+async def udpBroadcaster(topgui):
     over = False
 
     hostname = socket.gethostname()
@@ -199,7 +119,8 @@ async def udpBroadcaster():
     usock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     while not over:
-        print("sending....")
+        if not topgui.mainwin == None:
+            topgui.mainwin.appendNetLogs(["broadcast"])
         usock.sendto(message, ('255.255.255.255', UDP_PORT))
         await asyncio.sleep(UDP_PERIOD)
     #
@@ -214,7 +135,7 @@ async def udpBroadcaster():
     #     transport.close()
 
 # this is the udp receiver on the platoon side.
-async def commanderFinder():
+async def commanderFinder(topgui):
     global commanderXport
     over = False
     hostname = socket.gethostname()
@@ -251,17 +172,26 @@ async def commanderFinder():
 
         await asyncio.sleep(UDP_PERIOD)
 
+# top level work scheduler on the commander side.
+async def topScheduler(topgui):
+    running = True
+    while running:
+        if not topgui.mainwin == None:
+            topgui.mainwin.runbotworks()
+        await asyncio.sleep(TICK)
 
 
-async def runCommanderLAN():
+
+async def runCommanderLAN(topgui):
     await asyncio.gather(
-        udpBroadcaster(),
-        tcpServer(),
+        udpBroadcaster(topgui),
+        tcpServer(topgui),
+        topScheduler(topgui),
     )
 
 
-async def runPlatoonLAN():
+async def runPlatoonLAN(topgui):
     await asyncio.gather(
-        commanderFinder(),
-        communicator(),
+        commanderFinder(topgui),
+        topScheduler(topgui),
     )

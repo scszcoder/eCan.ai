@@ -62,14 +62,14 @@ def windowlauncher():
     asyncio.set_event_loop(loop)
 
     global login
-    login = Login(app,loop)
+    login = Login(app, loop)
     login.show()
     #loop.create_task(udpBroadcaster())
     #loop.create_task(tcpServer())
 
     if login.isCommander():
         print("run as commander...")
-        loop.create_task(runCommanderLAN())
+        loop.create_task(runCommanderLAN(login))
         # w = MainWindow()
         # w.show()
         loop.run_forever()
