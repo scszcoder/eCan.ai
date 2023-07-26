@@ -1,0 +1,1758 @@
+
+{"header":
+{
+    "name": "browse_search_kw",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINADSWIN0000001",
+    "description": "Walk skill on amazon with ADSPower for Windows."
+},
+"step 5":
+{
+    "type": "App Open",
+    "action": "Run",
+    "target_type": "browser",
+    "target_link": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats1689147960.html",
+    "anchor_type": "",
+    "anchor_value": "",
+    "cargs": ""
+},
+"step 10":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 3
+},
+"step 15":
+{
+    "type": "Create Data",
+    "data_type": "json",
+    "data_name": "run_config",
+    "key_name": "NA",
+    "key_value": null
+},
+"step 20":
+{
+    "type": "Fill Data",
+    "fill_type": "direct",
+    "from": {
+        "flow_type": "down up down",
+        "products": [
+            {
+                "selType": "bs",
+                "detailLvl": 2,
+                "purchase": []
+            }
+        ]
+    },
+    "to": "run_config",
+    "result": "temp"
+},
+"step 25":
+{
+    "type": "Create Data",
+    "data_type": "string",
+    "data_name": "current_html_file",
+    "key_name": "NA",
+    "key_value": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats1689147960.html"
+},
+"step 30":
+{
+    "type": "Create Data",
+    "data_type": "string",
+    "data_name": "scroll_resolution",
+    "key_name": "NA",
+    "key_value": 250
+},
+"step 35":
+{
+    "type": "Create Data",
+    "data_type": "data",
+    "data_name": "screen_info",
+    "key_name": "NA",
+    "key_value": [
+        {
+            "loc": [
+                0,
+                0,
+                2030,
+                3330
+            ]
+        },
+        {
+            "loc": []
+        }
+    ]
+},
+"step 40":
+{
+    "type": "AMZ Scrape PL Html",
+    "action": "Scrape PL",
+    "hfname": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats1689147960.html",
+    "html_var": "current_html_file",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "product_list": "plSearchResult",
+    "page_num": 0,
+    "page_cfg": {
+        "flow_type": "down up down",
+        "products": [
+            {
+                "selType": "bs",
+                "detailLvl": 2,
+                "purchase": []
+            }
+        ]
+    }
+},
+"step 40":
+{
+    "type": "AMZ Scrape PL Html",
+    "action": "Scrape PL",
+    "hfname": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats1689147960.html",
+    "html_var": "current_html_file",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "product_list": "plSearchResult",
+    "page_num": 0,
+    "page_cfg": {
+        "flow_type": "down up down",
+        "products": [
+            {
+                "selType": "bs",
+                "detailLvl": 2,
+                "purchase": []
+            }
+        ]
+    }
+},
+"step 40":
+{
+    "type": "AMZ Scrape PL Html",
+    "action": "Scrape PL",
+    "hfname": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats1689147960.html",
+    "html_var": "current_html_file",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "product_list": "plSearchResult",
+    "page_num": 0,
+    "page_cfg": {
+        "flow_type": "down up down",
+        "products": [
+            {
+                "selType": "bs",
+                "detailLvl": 2,
+                "purchase": []
+            }
+        ]
+    }
+},
+"step 45":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nAttentions",
+    "key_name": "NA",
+    "key_value": "len(plSearchResult['attention'])"
+},
+"step 50":
+{
+    "type": "Repeat",
+    "lc_name": "browsePL2LastAtt45",
+    "until": "(nAttentions > 0)",
+    "count": "",
+    "end": ""
+},
+"step 55":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 75,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 60":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 65":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "product_list",
+    "page_data_info": "plSearchResult",
+    "theme": "light",
+    "section": "top"
+},
+"step 70":
+{
+    "type": "AMZ Match Products",
+    "action": "AMZ Match Products",
+    "screen": "screen_info",
+    "product_list": "plSearchResult",
+    "result": "pl_need_attention",
+    "flag": "any_interesting"
+},
+"step 75":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "att_count",
+    "key_name": "NA",
+    "key_value": "len(pl_need_attention)-1"
+},
+"step 80":
+{
+    "type": "Repeat",
+    "lc_name": "browseAttens45",
+    "until": "att_count >= 0",
+    "count": "",
+    "end": ""
+},
+"step 85":
+{
+    "type": "Call Extern",
+    "file": "global att_count\nprint('att_count:', att_count, pl_need_attention)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 90":
+{
+    "type": "Call Extern",
+    "file": "global plSearchResult\nprint('pl: ', plSearchResult)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 95":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "screen": "",
+    "target_name": "pl_need_attention[att_count]['txts']['box']",
+    "target_type": "expr",
+    "text": "",
+    "nth": "",
+    "offset_from": "",
+    "offset_unit": "",
+    "offset": ""
+},
+"step 100":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "end_of_detail",
+    "key_name": "NA",
+    "key_value": "False"
+},
+"step 105":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "rv_expandable",
+    "key_name": "NA",
+    "key_value": "False"
+},
+"step 110":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 2
+},
+"step 115":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "detail_level",
+    "key_name": "NA",
+    "key_value": "plSearchResult"
+},
+"step 120":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "buy_ops",
+    "key_name": "NA",
+    "key_value": "pl_need_attention[att_count]['purchase']"
+},
+"step 125":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "expandables_count",
+    "key_name": "NA",
+    "key_value": 0
+},
+"step 130":
+{
+    "type": "Check Condition",
+    "condition": "detail_level == 1",
+    "if_else": "",
+    "if_end": ""
+},
+"step 135":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "max_expandables",
+    "key_name": "NA",
+    "key_value": 3
+},
+"step 140":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": ""
+},
+"step 145":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "max_expandables",
+    "key_name": "NA",
+    "key_value": 1
+},
+"step 150":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 155":
+{
+    "type": "Repeat",
+    "lc_name": "browseDetails101",
+    "until": "end_of_detail != True",
+    "count": "",
+    "end": ""
+},
+"step 160":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 165":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 170":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "product_details",
+    "page_data_info": "plSearchResult",
+    "theme": "light",
+    "section": "top"
+},
+"step 175":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": "read_more",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "rv_expanders",
+    "status": "rv_expandable"
+},
+"step 180":
+{
+    "type": "Repeat",
+    "lc_name": "browseDetails101",
+    "until": "expandables_count < max_expandables",
+    "count": "",
+    "end": ""
+},
+"step 185":
+{
+    "type": "Check Condition",
+    "condition": "rv_expandable == True and pl_need_attention[att_count]['detailLvl'] == 2",
+    "if_else": "",
+    "if_end": ""
+},
+"step 190":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "screen": "screen_info",
+    "target_name": "read_more",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": "1",
+    "offset_from": "",
+    "offset_unit": "box",
+    "offset": "0"
+},
+"step 195":
+{
+    "type": "Call Extern",
+    "file": "global expandables_count\nexpandables_count = expandables_count + 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 200":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "product_details",
+    "page_data_info": "plSearchResult",
+    "theme": "light",
+    "section": "top"
+},
+"step 205":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": "read_more",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "rv_expanders",
+    "status": "rv_expandable"
+},
+"step 210":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": ""
+},
+"step 215":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": [
+        "see_all_reviews",
+        "no_customer_reviews"
+    ],
+    "target_types": [
+        "anchor text",
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "temp",
+    "status": "end_of_detail"
+},
+"step 220":
+{
+    "type": "Check Condition",
+    "condition": "end_of_detail == True",
+    "if_else": "",
+    "if_end": ""
+},
+"step 225":
+{
+    "type": "Call Extern",
+    "file": "global expandables_count, max_expandables\nexpandables_count = max_expandables",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 230":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": ""
+},
+"step 235":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 240":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 245":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "product_details",
+    "page_data_info": "plSearchResult",
+    "theme": "light",
+    "section": "top"
+},
+"step 250":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": "read_more",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "rv_expanders",
+    "status": "rv_expandable"
+},
+"step 255":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 260":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 265":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 270":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": [
+        "see_all_reviews",
+        "no_customer_reviews"
+    ],
+    "target_types": [
+        "anchor text",
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "temp",
+    "status": "end_of_detail"
+},
+"step 275":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 280":
+{
+    "type": "Check Condition",
+    "condition": "detail_level >= 2",
+    "if_else": "",
+    "if_end": ""
+},
+"step 285":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "screen": "screen_info",
+    "target_name": "see_all_reviews",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ]
+},
+"step 290":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nNRP",
+    "key_name": "NA",
+    "key_value": "random.randint(7, 12)"
+},
+"step 295":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nPRP",
+    "key_name": "NA",
+    "key_value": "random.randint(5, 10)"
+},
+"step 300":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nPRP_up",
+    "key_name": "NA",
+    "key_value": "nPRP"
+},
+"step 305":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "all_reviews",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 310":
+{
+    "type": "Check Condition",
+    "condition": "int('4')%2 == 0",
+    "if_else": "",
+    "if_end": ""
+},
+"step 315":
+{
+    "type": "Repeat",
+    "lc_name": "",
+    "until": "nPRP > 0",
+    "count": "",
+    "end": ""
+},
+"step 320":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 70,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 325":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 1,
+    "random_max": 3,
+    "time": 0
+},
+"step 330":
+{
+    "type": "Call Extern",
+    "file": "global nPRP\nnPRP = nPRP - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 335":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 340":
+{
+    "type": "Repeat",
+    "lc_name": "",
+    "until": "nPRP_up > 0",
+    "count": "",
+    "end": ""
+},
+"step 345":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Up",
+    "screen": "screen_info",
+    "amount": 90,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 350":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 1,
+    "random_max": 3,
+    "time": 0
+},
+"step 355":
+{
+    "type": "Call Extern",
+    "file": "global nPRP_up\nnPRP_up = nPRP_up - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 360":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 365":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 370":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": "all_critical_reviews",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "status": "hasNegativeReviews"
+},
+"step 375":
+{
+    "type": "Check Condition",
+    "condition": "hasNegativeReviews",
+    "if_else": "",
+    "if_end": ""
+},
+"step 380":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "screen": "screen_info",
+    "target_name": "all_critical_reviews",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ]
+},
+"step 385":
+{
+    "type": "Repeat",
+    "lc_name": "",
+    "until": "nNRP > 0",
+    "count": "",
+    "end": ""
+},
+"step 390":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 90,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 395":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 1,
+    "random_max": 3,
+    "time": 0
+},
+"step 400":
+{
+    "type": "Call Extern",
+    "file": "global nNRP\nnNRP = nNRP - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 405":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 410":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "alt_left",
+    "location": "",
+    "wait_after": 3
+},
+"step 415":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 420":
+{
+    "type": "Check Condition",
+    "condition": "len(buy_ops) >  0",
+    "if_else": "",
+    "if_end": ""
+},
+"step 425":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "at_pd_top",
+    "key_name": "NA",
+    "key_value": "False"
+},
+"step 430":
+{
+    "type": "Repeat",
+    "lc_name": "scrollUpProductDetails425",
+    "until": "attop != True",
+    "count": "",
+    "end": ""
+},
+"step 435":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Up",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 440":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": [
+        "add-to-cart"
+    ],
+    "target_types": [
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "useless",
+    "status": "at_pd_top"
+},
+"step 445":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 450":
+{
+    "type": "Check Condition",
+    "condition": "pl_need_attention[att_count]['purchase'][0] == 'add cart'",
+    "if_else": "",
+    "if_end": ""
+},
+"step 455":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 460":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 465":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 470":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "alt_left",
+    "location": "",
+    "wait_after": 3
+},
+"step 475":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 480":
+{
+    "type": "Call Extern",
+    "file": "global att_count\natt_count = att_count - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 485":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 490":
+{
+    "type": "Call Extern",
+    "file": "nAttentions = nAttentions - len(pl_need_attention)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 495":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 45":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nAttentions",
+    "key_name": "NA",
+    "key_value": "len(plSearchResult['attention'])"
+},
+"step 50":
+{
+    "type": "Repeat",
+    "lc_name": "browsePL2LastAtt45",
+    "until": "(nAttentions > 0)",
+    "count": "",
+    "end": ""
+},
+"step 55":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 75,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 60":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 65":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "product_list",
+    "page_data_info": "plSearchResult",
+    "theme": "light",
+    "section": "top"
+},
+"step 70":
+{
+    "type": "AMZ Match Products",
+    "action": "AMZ Match Products",
+    "screen": "screen_info",
+    "product_list": "plSearchResult",
+    "result": "pl_need_attention",
+    "flag": "any_interesting"
+},
+"step 75":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "att_count",
+    "key_name": "NA",
+    "key_value": "len(pl_need_attention)-1"
+},
+"step 80":
+{
+    "type": "Repeat",
+    "lc_name": "browseAttens45",
+    "until": "att_count >= 0",
+    "count": "",
+    "end": ""
+},
+"step 85":
+{
+    "type": "Call Extern",
+    "file": "global att_count\nprint('att_count:', att_count, pl_need_attention)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 90":
+{
+    "type": "Call Extern",
+    "file": "global plSearchResult\nprint('pl: ', plSearchResult)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 95":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "screen": "",
+    "target_name": "pl_need_attention[att_count]['txts']['box']",
+    "target_type": "expr",
+    "text": "",
+    "nth": "",
+    "offset_from": "",
+    "offset_unit": "",
+    "offset": ""
+},
+"step 100":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "end_of_detail",
+    "key_name": "NA",
+    "key_value": "False"
+},
+"step 105":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "rv_expandable",
+    "key_name": "NA",
+    "key_value": "False"
+},
+"step 110":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 2
+},
+"step 115":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "detail_level",
+    "key_name": "NA",
+    "key_value": "plSearchResult"
+},
+"step 120":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "buy_ops",
+    "key_name": "NA",
+    "key_value": "pl_need_attention[att_count]['purchase']"
+},
+"step 125":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "expandables_count",
+    "key_name": "NA",
+    "key_value": 0
+},
+"step 130":
+{
+    "type": "Check Condition",
+    "condition": "detail_level == 1",
+    "if_else": "",
+    "if_end": ""
+},
+"step 135":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "max_expandables",
+    "key_name": "NA",
+    "key_value": 3
+},
+"step 140":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": ""
+},
+"step 145":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "max_expandables",
+    "key_name": "NA",
+    "key_value": 1
+},
+"step 150":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 155":
+{
+    "type": "Repeat",
+    "lc_name": "browseDetails101",
+    "until": "end_of_detail != True",
+    "count": "",
+    "end": ""
+},
+"step 160":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 165":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 170":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "product_details",
+    "page_data_info": "plSearchResult",
+    "theme": "light",
+    "section": "top"
+},
+"step 175":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": "read_more",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "rv_expanders",
+    "status": "rv_expandable"
+},
+"step 180":
+{
+    "type": "Repeat",
+    "lc_name": "browseDetails101",
+    "until": "expandables_count < max_expandables",
+    "count": "",
+    "end": ""
+},
+"step 185":
+{
+    "type": "Check Condition",
+    "condition": "rv_expandable == True and pl_need_attention[att_count]['detailLvl'] == 2",
+    "if_else": "",
+    "if_end": ""
+},
+"step 190":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "screen": "screen_info",
+    "target_name": "read_more",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": "1",
+    "offset_from": "",
+    "offset_unit": "box",
+    "offset": "0"
+},
+"step 195":
+{
+    "type": "Call Extern",
+    "file": "global expandables_count\nexpandables_count = expandables_count + 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 200":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "product_details",
+    "page_data_info": "plSearchResult",
+    "theme": "light",
+    "section": "top"
+},
+"step 205":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": "read_more",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "rv_expanders",
+    "status": "rv_expandable"
+},
+"step 210":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": ""
+},
+"step 215":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": [
+        "see_all_reviews",
+        "no_customer_reviews"
+    ],
+    "target_types": [
+        "anchor text",
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "temp",
+    "status": "end_of_detail"
+},
+"step 220":
+{
+    "type": "Check Condition",
+    "condition": "end_of_detail == True",
+    "if_else": "",
+    "if_end": ""
+},
+"step 225":
+{
+    "type": "Call Extern",
+    "file": "global expandables_count, max_expandables\nexpandables_count = max_expandables",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 230":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": ""
+},
+"step 235":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 240":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 245":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "product_details",
+    "page_data_info": "plSearchResult",
+    "theme": "light",
+    "section": "top"
+},
+"step 250":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": "read_more",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "rv_expanders",
+    "status": "rv_expandable"
+},
+"step 255":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 260":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 265":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 270":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": [
+        "see_all_reviews",
+        "no_customer_reviews"
+    ],
+    "target_types": [
+        "anchor text",
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "temp",
+    "status": "end_of_detail"
+},
+"step 275":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 280":
+{
+    "type": "Check Condition",
+    "condition": "detail_level >= 2",
+    "if_else": "",
+    "if_end": ""
+},
+"step 285":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "screen": "screen_info",
+    "target_name": "see_all_reviews",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ]
+},
+"step 290":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nNRP",
+    "key_name": "NA",
+    "key_value": "random.randint(7, 12)"
+},
+"step 295":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nPRP",
+    "key_name": "NA",
+    "key_value": "random.randint(5, 10)"
+},
+"step 300":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nPRP_up",
+    "key_name": "NA",
+    "key_value": "nPRP"
+},
+"step 305":
+{
+    "type": "Extract Info",
+    "action": "Extract",
+    "root": "C:/Users/songc/PycharmProjects/ecbot",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "all_reviews",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 310":
+{
+    "type": "Check Condition",
+    "condition": "int('4')%2 == 0",
+    "if_else": "",
+    "if_end": ""
+},
+"step 315":
+{
+    "type": "Repeat",
+    "lc_name": "",
+    "until": "nPRP > 0",
+    "count": "",
+    "end": ""
+},
+"step 320":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 70,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 325":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 1,
+    "random_max": 3,
+    "time": 0
+},
+"step 330":
+{
+    "type": "Call Extern",
+    "file": "global nPRP\nnPRP = nPRP - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 335":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 340":
+{
+    "type": "Repeat",
+    "lc_name": "",
+    "until": "nPRP_up > 0",
+    "count": "",
+    "end": ""
+},
+"step 345":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Up",
+    "screen": "screen_info",
+    "amount": 90,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 350":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 1,
+    "random_max": 3,
+    "time": 0
+},
+"step 355":
+{
+    "type": "Call Extern",
+    "file": "global nPRP_up\nnPRP_up = nPRP_up - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 360":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 365":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 370":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": "all_critical_reviews",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "status": "hasNegativeReviews"
+},
+"step 375":
+{
+    "type": "Check Condition",
+    "condition": "hasNegativeReviews",
+    "if_else": "",
+    "if_end": ""
+},
+"step 380":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "screen": "screen_info",
+    "target_name": "all_critical_reviews",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ]
+},
+"step 385":
+{
+    "type": "Repeat",
+    "lc_name": "",
+    "until": "nNRP > 0",
+    "count": "",
+    "end": ""
+},
+"step 390":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 90,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 395":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 1,
+    "random_max": 3,
+    "time": 0
+},
+"step 400":
+{
+    "type": "Call Extern",
+    "file": "global nNRP\nnNRP = nNRP - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 405":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 410":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "alt_left",
+    "location": "",
+    "wait_after": 3
+},
+"step 415":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 420":
+{
+    "type": "Check Condition",
+    "condition": "len(buy_ops) >  0",
+    "if_else": "",
+    "if_end": ""
+},
+"step 425":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "at_pd_top",
+    "key_name": "NA",
+    "key_value": "False"
+},
+"step 430":
+{
+    "type": "Repeat",
+    "lc_name": "scrollUpProductDetails425",
+    "until": "attop != True",
+    "count": "",
+    "end": ""
+},
+"step 435":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Up",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "unit": "screen"
+},
+"step 440":
+{
+    "type": "Search",
+    "action": "Search",
+    "screen": "screen_info",
+    "names": [
+        "add-to-cart"
+    ],
+    "target_types": [
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "useless",
+    "status": "at_pd_top"
+},
+"step 445":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 450":
+{
+    "type": "Check Condition",
+    "condition": "pl_need_attention[att_count]['purchase'][0] == 'add cart'",
+    "if_else": "",
+    "if_end": ""
+},
+"step 455":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 460":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 465":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": ""
+},
+"step 470":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "alt_left",
+    "location": "",
+    "wait_after": 3
+},
+"step 475":
+{
+    "type": "Wait",
+    "action": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 480":
+{
+    "type": "Call Extern",
+    "file": "global att_count\natt_count = att_count - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 485":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"step 490":
+{
+    "type": "Call Extern",
+    "file": "nAttentions = nAttentions - len(pl_need_attention)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 495":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": ""
+},
+"dummy" : ""}
