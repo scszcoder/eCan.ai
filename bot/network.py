@@ -34,6 +34,8 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         print('Connection from Platoon {}'.format(self.peername))
         self.transport = transport
         fieldLinks.append({"ip": self.peername, "name": "nyk", "link": self})
+        if not self.topgui.mainwin == None:
+            self.topgui.mainwin.addPlatoon(self)
 
     def data_received(self, data):
         message = data.decode()
@@ -177,7 +179,7 @@ async def topScheduler(topgui):
     running = True
     while running:
         if not topgui.mainwin == None:
-            topgui.mainwin.runbotworks()
+            await topgui.mainwin.runbotworks()
         await asyncio.sleep(TICK)
 
 

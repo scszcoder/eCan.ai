@@ -18,3 +18,10 @@ Pillow~=9.3.0
 qasync~=0.23.0
 py-cpuinfo~=9.0.0
 schedule==1.1.0
+numpy==1.21.6
+opencv-python==4.7.0.68
+beautifulsoup4==4.11.2
+pywin32==305
+pdf2image==1.16.2
+pytz==2022.7
+tzlocal==4.2

@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton
 import boto3
 from signio import *
 import time
-import datetime
+from datetime import datetime
 from BorderLayout import *
 import json
 from os.path import exists
@@ -14,6 +14,7 @@ from MainGUI import *
 from PlatoonMainGUI import *
 from pycognito.aws_srp import AWSSRP
 from envi import *
+from Cloud import *
 
 import asyncio
 import qasync
@@ -328,7 +329,7 @@ class Login(QtWidgets.QDialog):
         print("hello hello hello")
 
         if self.machine_role == "Commander":
-            self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text())
+            self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text(), echomepath)
             print("Running as a commander...", commanderServer)
             self.mainwin.setOwner(self.textName.text())
             self.mainwin.show()

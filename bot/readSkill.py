@@ -1,4 +1,5 @@
 import json
+import random
 import re
 import parser
 import ast
@@ -11,197 +12,92 @@ import os
 import subprocess
 import win32gui
 import platform
+import math
+import numpy as np
+import copy
+from printLabel import *
+from scraper import *
+import webbrowser
+from difflib import SequenceMatcher
+from basicSkill import *
+from adsPowerSkill import *
+from amzBuyerSkill import *
+from amzSellerSkill import *
+from ebaySellerSkill import *
+from etsySellerSkill import *
+from labelCustomGeneneratorSkill import *
 
-# syntax for the skill file:
-# a series of steps: each step starts with
-# a single line step number:
-# followed by a json data describe the line.
-# the file can have comments starts with #
-# example:
-#  header:
-#  {
-#     name : "whatever",                # skill name.
-#     os   : "windows/mac/linux"        # platform.
-#     version: ""                       # starts from 1.0
-#     author: ""
-#     skid:   ""                        #unique ID for skill
-#     description: ""                   # max 2048 char
-#  }
-#  step 1:
-#  {
-#     type : "Loop Start",
-#  }
-#    loop ends can use "Check Condition"
-#  step 3:
-#  {
-#    type: "App Open",
-#    action: "Click",
-#    target_type: "Icon"
-#    target_link: "C:/path/to/icon/file.png"
-#    anchor_type: "Text"            #this should be just the app name. (the text below the icon)
-#    anchor_value: "ABC"
-#    anchor_loc: (up, left, down, right)
-#  }
-#  step 4:
-#  {
-#    type: "Tab Open",
-#    action: "Key Shortcut",
-#    action_value: "Ctrl-Alt-Tab"
-#    target: "NA"
-#    target_link: "NA"
-#    anchor_type: "Text"
-#    anchor_value: "ABC"
-#    anchor_loc: (up, left, down, right)
-#  }
-#  step 5:
-#  {
-#    type: "Button Click",
-#    action: "Click",              # could be Double Click, Right Click
-#    target: "NA"
-#    target_link: "NA"
-#    anchor_type: "Text"
-#    anchor_value: "ABC"
-#    anchor_loc: (up, left, down, right)  # unit is not in pixel, but in the unit of text height.
-#    condition:
-#  }
-#  step 6:
-#  {
-#    type: "Text Input",
-#    action: "Key In",
-#    action_value: "Ctrl-Alt-Tab"
-#    target: "NA"
-#    target_link: "NA"
-#    anchor_type: "Text"
-#    anchor_value: "ABC"
-#    anchor_loc: (up, left, down, right)
-#    condition:
-#  }
-#  step 7:
-#  {
-#    type: "Info Extract",
-#    action: "find text",
-#    template: "ABC"
-#    target_link: "NA"
-#    anchor_type: "Text"
-#    anchor_value: "ABC"
-#    anchor_loc: (up, left, down, right)
-#    condition: ""
-#  }
-#  step 8:
-#  {
-#    type: "Info Extract",
-#    action: "extract image",
-#    template: "C:/path/to/icon/file.png"
-#    data_sink: ""              #same syntax as python data hierarchy representation
-#    anchor_type: "Text"
-#    anchor_value: "ABC"
-#    anchor_loc: (up, left, down, right)
-#    bound_left:  "offset value"     # in unit of text letter width
-#    bound_left_type:  "Text/Icon"
-#    bound_left_value: "Text Content or link to image"
-#    bound_right:
-#    bound_right_type:
-#    bound_right_value:
-#    bound_top:  "offset value"     # in unit of text letter height
-#    bound_top_type:
-#    bound_top_value:
-#    bound_bottom:
-#    bound_bottom_type:
-#    bound_bottom_value:
-#  }
-#  step 9:
-#  {
-#    type: "Browse",
-#    action: "Scoll Down",    # could be Scroll Up as well.
-#    action_value: "5"        # number of mouse wheel roll steps....
-#    condition:
-#  }
-#  step 10:
-#  {
-#    type: "Wait",
-#    action: "Wait",            # could be Scroll Up as well.
-#    action_value: "5"          # number of seconds to wait.
-#  }
-#  step 11:
-#  {
-#    type: "Halt",
-#    action: "Halt",            # could be Scroll Up as well.
-#    action_value: "600"        # number of minutes to wait.
-#  }
-#  step 12:
-#  {
-#    type: "Done",
-#    action: "Done",            # could be Scroll Up as well.
-#  }
-#  step 13:
-#  {
-#    type: "Exception",
-#    action: "Handle Exception",            # could be Scroll Up as well.
-#  }
-#  step 14:
-#  {
-#     type: "Use Skill",
-#     name: "RunABC"
-#  }
-#  step 15:
-#  {
-#    type: "Create Data",
-#    data_type: "String",       # Int, Float, List, Data, Icon
-#    data_name: "Star"          # Score, Unit, Amount, .....
-#    data_value: "NA"
-#    size: "NA"                 # of element in a list (in case of being a list)
-#  }
-#  step 16:
-#  {
-#    type: "Fill Data",
-#    action: "Append",          # Modify
-#    data_type: "String",       # Int, Float, List, Data, Icon
-#    data_name: "Star"          # Score, Unit, Amount, .....
-#    data_value: "NA"
-#    target_link: "NA"
-#    anchor_type: "Text"
-#    anchor_value: "ABC"
-#    anchor_loc: (up, left, down, right)
-#    condition:
-#  }
-#  step 17:
-#  {
-#    type: "Check Condition",
-#    condition: "",          # can be compound with Not And Or and bracket, other keywords Exists
-#    if_true: "step number or routine name",       # Int, Float, List, Data, Icon
-#    else: "step number or routine name"          # Score, Unit, Amount, .....
-#  }
-#  step 18:
-#  {
-#    type: "Save Data",
-#    file: "file path",          # will save all data accumulated so far and save them to a file.
-#  }
-#  step 19:
-#  {
-#    type: "Load Data",
-#    file: "file path",          # will load all data from a file.
-#  }
-#  step 20:
-#  {
-#    type: "Create Anchor",
-#    anchor_name: "ABC"
-#    anchor_type: "text/image",          # will load all data from a file.
-#    anchor_value: "file path",           # either text contents or image template file path
-#  }
-# process the file in 2 passes, 1) get rid of all comments starts with #
-# 2) divide files into blocks
 
-symTab = globals()
+symTab["fout"] = ""
+symTab["fin"] = ""
 MAXNEST = 18                    # code level skill nest (skill calling skill)
 MAXRECUR = 18                   # max level of recurrsion
 MAXSTEPS = 2048                 # code level, maximum number of steps of any task. should never be more complicated.
 
 nest_level = 0
 steps = []
+skill_code = []
 last_step = -1
 next_step = 0
+STEP_GAP = 5
+first_step = 0
 
 running = False
+net_connected = False
+in_exception = False
+
+sys_stack = []
+exception_stack = []
+page_stack = []
+breakpoints = []
+mission_vars = []
+current_context = None
+
+# SC - 2023-03-07 files and dirs orgnization structure:
+#
+#     local image:  C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/date/b0m0/win_chrome_amz_home/browse_search_kw/images/scrnsongc_yahoo_1678175548.png"
+#     local skill:  C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_amz_walk/scripts/skillname.psk
+
+# VItual-Computer-RObot-Processor
+vicrop = {
+    "Halt": lambda x,y: processHalt(x, y),
+    "Wait": lambda x,y: processWait(x, y),
+    "Save Html": lambda x,y,z,k: processSaveHtml(x, y, z, k),
+    "Browse": lambda x,y: processBrowse(x, y),
+    "Extract Info": lambda x,y,z,k: processExtractInfo(x, y, z, k),
+    "Text Input": lambda x,y: processTextInput(x, y),
+    "Mouse Click": lambda x,y: processMouseClick(x, y),
+    "Mouse Scroll": lambda x,y: processMouseScroll(x, y),
+    "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
+    "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
+    "Key Input": lambda x,y: processKeyInput(x, y),
+    "App Open": lambda x,y: processOpenApp(x, y),
+    "Create Data": lambda x,y: processCreateData(x, y),
+    "Fill Data": lambda x,y: processFillData(x, y),
+    "Load Data": lambda x,y: processLoadData(x, y),
+    "Save Data": lambda x,y: processSaveData(x, y),
+    "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
+    "Repeat": lambda x,y,z: processRepeat(x, y, z),
+    "Goto": lambda x,y,z: processGoto(x, y, z),
+    "Call Function": lambda x,y,z,w: processCallFunction(x, y, z, w),
+    "Stub": lambda x,y,z,w: processStub(x, y, z, w),
+    "Call Extern": lambda x,y: processCallExtern(x, y),
+    "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
+    "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
+    "Search": lambda x,y: processSearch(x, y),
+    "Search Scroll": lambda x,y: processSearchScroll(x, y),
+    "Print Label": lambda x,y: processPrintLabel(x, y),
+    "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
+    "AMZ Scrape PL Html": lambda x, y, z, w: processAMZScrapePLHtml(x, y, z, w),
+    "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
+    "AMZ Scrape Details Html": lambda x, y: processAMZScrapeDetailsHtml(x, y),
+    "AMZ Browse Reviews": lambda x,y: processAMZBrowseReviews(x, y),
+    "AMZ Scrape Reviews Html": lambda x, y: processAMZScrapeReviewsHtml(x, y),
+    "AMZ Scrape Orders Html": lambda x, y: processAMZScrapeOrdersHtml(x, y),
+    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
+    "ETSY Scrape Orders Html": lambda x, y: processEtsyScrapeOrdersHtml(x, y),
+    "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
+}
 
 # read an psk fill into steps (json data structure)
 # input: steps - data structure to hold the results.
@@ -209,82 +105,72 @@ running = False
 #                       typically this is the cascade of userID, skill name.
 #       skill_file - full path file name of the .psk file.
 # output: None (sort of in step already)
+# step name should be in the form of "B"+BotID+"M" + MissionID + "!" + skillname + "!" + level # + step number
 # Note:
-def readSkillFile(name_prefix, skill_file, lvl = 0):
+def readSkillFile(name_space, skill_file, lvl = 0):
     global steps
     step_keys = []
+    global skill_code
+
+
     json_as_string = open(skill_file, 'r')
+    # inj = json.load(json_as_string)
     # Call this as a recursive function if your json is highly nested
+
+    # get rid of comments.
     lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
-    useful_lines = filter(lambda x: x.rstrip(), lines)
-    slines = []
+    # get rid of empty lines.
+    #new_list = list(filter(lambda x: x != '', list_with_empty_strings))
+    useful_lines = list(filter(lambda x: x.rstrip(), lines))
+    slines = ""
     key = ""
+    # reg = re.compile("step +[0-9]")
+    # reg = re.compile(r'"([^"]*)"')
+    # #if reg.match('aaa"step 123":'):
+    # if len(re.findall(r'"([^"]*)"', 'aaa"step 123":')) > 0:
+    #     print("FOUND MATCH")
+    # else:
+    #     print("NO MATCH")
+    print("NUM USEFUL:", str(len(useful_lines)))
     for l in useful_lines:
-        if re.match("^step +.*:", l) or re.match("^header.*:", l):
-            last_key = key
-            l = l[0:len(l)-1]               #get rid of :
-            if re.match("step", l):
-                stepName = (l.split())[1]   # extract the step name.
-                print(stepName)
-                key = name_prefix + "!" + "step" + stepName
-                # also need to modify the step name for condition statement if any.
-            else:
-                key = name_prefix + "!" + l
-                print("matched header....", key)
+        #need to create prefix and add the step name.
+        if len(re.findall(r'"step [0-9]+"', l)) > 0:
+            # need to handle "Use Skill" calling to sub-skill files.
+            #print("STEP line:", l)
+            step_word = re.findall(r'"([^"]*)"', l)[0]
+            #print("STEP word:", step_word)
+            sn = step_word.split(' ')[1]
+            global_sn = name_space + str(lvl) + "!" + sn
+            #print("GLOBAL NS:", global_sn)
+            #re.sub(r'"([^"]*)"', global_sn, l)
+            l = re.sub(r'"step [0-9]+"', '"'+global_sn+'"', l)
+            #print("After Replacement:", l)
 
-            if len(slines) > 0:
-                jlines = ''.join(slines)
-                print("jlines:", jlines)
-                step = json.loads(jlines)
-                symTab[last_key] = step                      # make a variable that holds the json data structure.
-                step_keys.append(last_key)               # also push this data into an list.
-                slines = []
-                print("reading in:", last_key, ", ", symTab[last_key])
-                if "type" in step:
-                    if step["type"] == "Use Skill":
-                        subskill_file = step["name"]
-                        subskill_file_name = os.path.basename(subskill_file)
-                        # assume file name is in the format of *.psk
-                        subskill_name = subskill_file_name.split('.')[0]
-                        lvl = lvl + 1
-                        if lvl > MAXNEST:
-                            print("ERROR: maximum level of nested skill reached!!!!")
-                        else:
-                            prefix = last_key + "_" + subskill_name
-                            print("opening subskill...." + subskill_file)   #now how to prevent name convention conflict/duplicate?
-                            step_keys = step_keys + readSkillFile(prefix, subskill_file, lvl)
+        #print("USEFUL: ", l)
+        slines = slines + l + "\n"
 
+    print("SLINES:", slines)
+    skill_code = json.loads(slines)
+
+    # call the sub skills
+    step_keys = list(skill_code.keys())
+    for key in step_keys:
+        if key != "header" and key != "dummy":
+            if skill_code[key]["type"] == "Use Skill":
+                new_ns = name_space + skill_code[key]["name"].split(".")[0]+"!"
+                skdir = os.path.dirname(skill_file)
+                subskname = skdir + "/" + skill_code[key]["name"]
+                # recursive calling.
+                subsk = readSkillFile(new_ns, subskname, lvl+1)
+
+                #merge dictionary: the main code and the calling code.
+                skill_code.update(subsk)
         else:
-            slines.append(l)
+            del skill_code[key]
+    print("=============================================================")
 
-    # process the last item.
-    if len(slines) > 0:
-        jlines = ''.join(slines)
-        step = json.loads(jlines)
-        symTab[key] = step  # make a variable that holds the json data structure.
-        step_keys.append(key)  # also push this data into an list.
-        slines = []
-        print("reading in last:", key, ", ", symTab[key])
-        if "type" in step:
-            if step["type"] == "Use Skill":
-                subskill_file = step["name"]
-                subskill_file_name = os.path.basename(subskill_file)
-                # assume file name is in the format of *.psk
-                subskill_name = subskill_file_name.split('.')[0]
-                lvl = lvl + 1
-                if lvl > MAXNEST:
-                    print("ERROR: maximum level of nested skill reached!!!!")
-                else:
-                    prefix = key + "_" + subskill_name
-                    print("opening subskill...." + subskill_file)  # now how to prevent name convention conflict/duplicate?
-                    step_keys = step_keys + readSkillFile(prefix, subskill_file, lvl)
-
-    #for k in step_keys:
-    #    print("steps: ", k, " -> ", symTab[k])
-    #    steps.append({k : symTab[k]})
-    #print("steps: ", steps)
-    #return steps
-    return step_keys
+    print("SKILL CODE:", len(skill_code.keys()), skill_code)
+    return skill_code
 
 # settings contains the following info:
 # reading_speed - words per minute
@@ -301,21 +187,48 @@ def readSkillFile(name_prefix, skill_file, lvl = 0):
 # on psk side, what's fundamental instructions to support above:
 #
 
-def runAllSteps(steps, settings):
+def runAllSteps(steps, mission, skill, mode="normal"):
     global last_step
     global next_step
     last_step = -1
     next_step = 0
+    next_step_index = 0
     running = True
-    print("running all steps.....")
-    for k in steps:
-        print("steps: ", k, " -> ", symTab[k])
+    run_stack = []
+    print("running all steps.....", mission)
+    stepKeys = list(steps.keys())
+    # for k in stepKeys:
+    #     print("steps: ", k, " -> ", steps[k])
     print("=====================================")
-    while next_step <= len(steps)-1 and running:
-        print("len steps:", len(steps), "next step:", next_step)
-        run1step(steps, settings)
+    while next_step_index <= len(stepKeys)-1 and running:
+        next_step_index = run1step(steps, next_step_index, mission, skill, run_stack)
 
-def runNSteps(steps, prev_step, i_step, e_step, settings):
+        # debugging mode. if the next instruction is one of the breakpoints, then stop and pendin for
+        # keyboard input. (should fix later to support GUI button press.....)
+        if next_step_index in breakpoints:
+            cmd = input("cmd for next action('<Space>' to step, 'c' to continue to run, 'q' to abort. \n")
+            if cmd == "c":
+                mode = "normal"
+            elif cmd == "q":
+                break
+
+        # in case an exeption occurred, handle the exception.
+        if in_exception:
+            print("EXCEPTION THROWN:")
+            # push next_step_index onto exception stack.
+            exception_stack.append(next_step_index)
+
+            # set the next_step_index to be the start of the exception handler, which always starts @8000000
+            next_step_index = stepKeys.index("step8000000")
+
+        print("next_step_index: ", next_step_index, "len(stepKeys)-1: ", len(stepKeys)-1)
+
+    if next_step_index > len(stepKeys)-1:
+        print("RUN COMPLETED!")
+    else:
+        print("RUN ABORTED!")
+
+def runNSteps(steps, prev_step, i_step, e_step, mission, skill, run_stack):
     global last_step
     global next_step
     last_step = prev_step
@@ -324,68 +237,37 @@ def runNSteps(steps, prev_step, i_step, e_step, settings):
     print("running N steps.....")
     while next_step <= e_step and running:
         print("len steps:", len(steps), "next step:", next_step)
-        run1step(steps, settings)
+        run1step(steps, mission, skill, run_stack)
 
 
-def run1step(steps, settings):
+def run1step(steps, si, mission, skill, stack):
     global next_step
     global last_step
-
+    settings = mission.parent_settings
     i = next_step
-    step = symTab[steps[i]]
-    print("running step [", i, "]: ",  steps[i], "step:", step)
+    stepKeys = list(steps.keys())
+    step = steps[stepKeys[si]]
+    last_si = si
+    print("running step [", si, "]: ",  step)
+
     if "type" in step:
         if step["type"] == "Halt":
-            processHalt(step)
-        elif step["type"] == "Wait":
-            processWait(step)
-        elif step["type"] == "Browse":
-            processBrowse(step)
-        elif step["type"] == "Extract Info":
-            #
-            processExtractInfo(step, steps[i], settings)
-        elif step["type"] == "Text Input":
-            processTextInput(step)
-        elif step["type"] == "Mouse Click":
-            processClick(step)
-        elif step["type"] == "Line Location":
-            processRecordLineLocation(step)
-        elif step["type"] == "Mouse Scroll":
-            processScroll(step)
-        elif step["type"] == "Calibrate Scroll":
-            processCalibrateScroll(step)
-        elif step["type"] == "Key Input":
-            processHotKey(step)
-        elif step["type"] == "App Open":
-            processOpenApp(step)
-        elif step["type"] == "Create Data":
-            processCreateData(step)
-        elif step["type"] == "Fill Data":
-            processFillData(step)
-        elif step["type"] == "Exception":
-            processException(step, steps[i])
-        elif step["type"] == "Check Condition":
-            i = processCheckCondition(step, steps[i])
-        elif step["type"] == "Load Data":
-            processLoadData(step)
-        elif step["type"] == "Save Data":
-            processSaveData(step)
-        elif step["type"] == "Search":
-            processSearch(step)
-        elif step["type"] == "Run Script":
-            processRunScript(step)
-        elif step["type"] == "Repeat":
-            processRepeat(steps, step, steps[i], settings)
+            # run step using the funcion look up table.
+            si = vicrop[step["type"]](step, si)
+        elif step["type"] == "Goto" or step["type"] == "Check Condition" or step["type"] == "Repeat":
+            # run step using the funcion look up table.
+            si = vicrop[step["type"]](step, si, stepKeys)
+        elif step["type"] == "Extract Info" or step["type"] == "Save Html" or step["type"] == "AMZ Scrape PL Html":
+            si = vicrop[step["type"]](step, si, mission, skill)
+        elif step["type"] == "Call Function" or step["type"] == "Stub" or step["type"] == "End Exception":
+            si = vicrop[step["type"]](step, si, stack, stepKeys)
         else:
-            print("skip header or unrecognized step")
+            si = vicrop[step["type"]](step, si)
 
-        last_step = next_step
-        if step["type"] != "Check Condition":
-            next_step = i + 1
-        else:
-            next_step = i
     else:
-        next_step = i + 1
+        si = si + 1
+
+    return si
 
 
 def cancelRun():
@@ -408,416 +290,479 @@ def continueRun(steps, settings):
     i = next_step
     running = True
     while i <= len(steps)-1 and running:
-        run1step(steps, settings)
+        i = run1step(steps, settings)
 
 
-def processHalt(step):
-    print("Due to supply time lag, this mission is halted till  hours later....")
-    #should kick off a timer to wait .
 
-def processDone(step):
-    print("Mission accomplished!")
-
-def processWait(step, settings):
-    print("waiting...... make mouse pointer wonder a little bit!")
-    wtime = 1
-    if step["time"] == "":
-        # calculate wait based on page contents, and reading speed.
-        print("waiting for last screen ", wtime, " seconds....")
-        screen = symTab["last_screen"]
-    elif step["time"].isnumeric() == False:
-        # calculate wait based on page contents, and reading speed.
-        screen = symTab[step["time"]]
-        print("waiting for screen ", wtime, " seconds....")
-    else:
-        wtime = int(step["time"])
-        print("waiting for ", wtime, " seconds....")
-
-    time.sleep(wtime)
-
-def processBrowse(step):
+def processBrowse(step, i):
     print("browsing the page....")
 
-
-def processExtractInfo(step, step_name, settings):
-    # mission_id, session, token, top_win, skill_name, uid
-    print("Extracting info....")
-    global screen_error
-    screen_error = False
-    time.sleep(3)
-    now = datetime.now()
-
-    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-    dt_string = str(int(now.timestamp()))
-    print("date string:", dt_string)
-    sfile = "C:/Users/Teco/PycharmProjects/ecbot/resource/songc_yahoo/win/chrome_amz_amazon_home/skills/browse_search_kw/images/"
-    #sfile = sfile + settings["uid"] + "/win/adspower/"
-    #sfile = sfile + "scrn" + settings["uid"] + "_" + dt_string + ".png"
-    sfile = sfile + "scrn" + settings["uid"] + "_" + dt_string + ".png"
-    print("sfile: ", sfile)
-
-    # window_handle = win32gui.FindWindow(None, "Chrome")
-    # window_rect = win32gui.GetWindowRect(window_handle)
-    # EnumWindows = ctypes.windll.user32.EnumWindows
-    # EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
-    #
-    # titles = []
-    #
-    # EnumWindows(EnumWindowsProc(foreach_window), 0)
-    #
-    # print(titles)
-    #
-    names = []
-
-    def winEnumHandler(hwnd, ctx):
-        if win32gui.IsWindowVisible(hwnd):
-            n = win32gui.GetWindowText(hwnd)
-            if n:
-                names.append(n)
-
-    win32gui.EnumWindows(winEnumHandler, None)
-
-    #print(names)
-    window_handle = win32gui.FindWindow(None, names[0])
-    window_rect = win32gui.GetWindowRect(window_handle)
-    print("window: ", names[0], " rect: ", window_rect)
-
-    # set window position and size.
-    win32gui.MoveWindow(window_handle, window_rect[0], window_rect[1], window_rect[0] + 3300, window_rect[0] + 2000, True)
-
-    im0 = pyautogui.screenshot(imageFilename=sfile, region=(window_rect[0], window_rect[1], window_rect[0] + 3300, window_rect[0] + 2000))
-
-    print("platform:", platform.platform())
-    #upload file onto S3
-    send_screen(sfile)  # sfile should be the full path.
-    request = [{
-        "id": settings["mission_id"],
-        "os": platform.system().lower()[0:3],
-        "app": "chrome",
-        "domain": "amz",
-        "page": step["page_name"],
-        "skill_name": settings["skill_name"],
-        "psk": settings["psk"],
-        "csk": settings["csk"],
-        "lastMove": step["sect_name"],
-        "ssk": "{}",
-        "imageFile": sfile
-    }]
-    # request for screen analysis
-    result = req_cloud_read_screen(settings["session"], request, settings["token"])
-    jresult = json.loads(result)
-    print("cloud result: ", jresult)
-    print("cloud result data: ", jresult["data"])
-    if "errors" in jresult:
-        screen_error = True
-        print("ERROR Type: ", jresult["errors"][0]["errorType"], "ERROR Info: ", jresult["errors"][0]["errorInfo"], )
+def is_uniq(word, allwords):
+    matched = [x for x in allwords if word in x["text"]]
+    print("# matched: ", len(matched))
+    if len(matched) == 1:
+        return True
     else:
-        jresponse = json.loads(jresult["data"]["reqScreenTxtRead"])
-        print("cloud result data status code: ", jresponse["statusCode"])
-        print("cloud result data body: ", jresponse["body"])
-        jbody = json.loads(jresponse["body"])
-        print("cloud result data body id: ", jbody["id"])
-        print("cloud result data body data: ", jbody["data"])
-        print("cloud result data body data length: ", len(jbody["data"]))
+        return False
 
-        # global var "last_screen" always contains information extracted from the last screen shot.
-        if len(jbody["data"]) > 0:
-            symTab["last_screen"] = jbody["data"]
-        else:
-            symTab["last_screen"] = []
+# this function finds a unique line of text nearest to the specified target location on the screen.
+def find_phrase_at_target(screen_data, target_loc):
+    print("finding text around target loc: ", target_loc)
+    found_phrase = ""
+    found_box = [0, 0, 0, 0]
+    # first, filter out all shapes and non text contents.
+    paragrphs = [x for x in screen_data if x['name'] == 'paragraph']
 
+    allwords = []
 
-def processTextInput(step):
-    print("Keyboard typing......")
-    names = []
+    for p in paragrphs:
+        for l in p["txt_struct"]:
+            for w in l["words"]:
+                allwords.append(w)
 
-    def winEnumHandler(hwnd, ctx):
-        if win32gui.IsWindowVisible(hwnd):
-            n = win32gui.GetWindowText(hwnd)
-            if n:
-                names.append(n)
+    sorted_words = sorted(allwords, key=lambda w: p2p_distance(box_center(w["box"]), target_loc), reverse=False)
 
-    win32gui.EnumWindows(winEnumHandler, None)
+    print("found paragraphs: ", len(paragrphs))
 
-    window_handle = win32gui.FindWindow(None, names[0])
-    window_rect = win32gui.GetWindowRect(window_handle)
-
-    txt_boxes = list(filter(lambda x: x["name"] == "text_input_box" and x["type"] == "info", symTab["last_screen"]))
-    print("found input locations:", len(txt_boxes))
-    if len(txt_boxes) > 0:
-        loc = txt_boxes[0]["loc"]
-        print("loc @ ", loc)
-    print("global loc@ ", int(loc[0])+window_rect[0], " ,  ", int(loc[1])+window_rect[1])
-    pyautogui.moveTo(int(loc[0])+window_rect[0], int(loc[1])+window_rect[1])
-    pyautogui.click()          # 0th position is X, 1st position is Y
-    print("typing.....", step["action_value"])
+    # then sort by paragraph center's distance to target location.
+    # box: (left, top, right, bottom)
+    # paragrphs = sorted(paragrphs, key=lambda x: p2p_distance(loc_center(x["loc"]), target_loc), reverse=False)
     time.sleep(1)
-    pyautogui.write(step["action_value"], interval=0.5)
-    time.sleep(1)
-    pyautogui.press('enter')
+    print("w0: ", sorted_words[0], "dist: ", p2p_distance(box_center(sorted_words[0]["box"]), target_loc))
+    print("w1: ", sorted_words[1], "dist: ", p2p_distance(box_center(sorted_words[1]["box"]), target_loc))
+    print("w2: ", sorted_words[2], "dist: ", p2p_distance(box_center(sorted_words[2]["box"]), target_loc))
+    # then find an unique line in that paragraph, if none found, go the next paragraph until find one.
+    for w in sorted_words:
+        # now filter out lines contains non alphabetical chars. and non-unique phrases.
+        # afterstrip = [x['text'].lstrip() for x in lines]
+        actual_w = w["text"].strip()
+        if len(actual_w) >= 6:
+            if is_uniq(actual_w, sorted_words):
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                found_phrase = actual_w
+                found_box = w['box']
+                print("found the implicit marker: ", found_phrase, " loc: ", found_box)
+                break
 
-# use target_name and target_type to find the matching item among the clickables. once found, click on that accordingly.
-def processClick(step):
-    print("Mouse Clicking .....")
-    loc = symTab[step["target_name"]]["location"]
-    pyautogui.moveTo(loc[0], loc[1])          # 0th position is X, 1st position is Y
+    return(found_phrase, found_box)
 
-    if step["action"] == "Single CLick":
-        pyautogui.click()
-    elif step["action"] == "Double CLick":
-        pyautogui.click(clicks=2, interval=0.25)
-    elif step["action"] == "Right CLick":
-        pyautogui.click(button='right')
+def find_marker_on_screen(screen_data, target_word):
+    # first, filter out all shapes and non text contents.
+    print("finding.......", target_word)
+    paragraphs = [x for x in screen_data if x['name'] == 'paragraph']
+    found_box = []
+    found_loc = None
+    for p in paragraphs:
+        for l in p["txt_struct"]:
+            for w in l["words"]:
+                if w["text"].strip() == target_word:
+                    found_box = w["box"]
+                    break
+            if found_box:
+                break
+        if found_box:
+            break
+    # no need to worry about multiple findings, there should be either 1 or 0 occurance.
 
-def processHotKey(step):
-    print("Hotkeying.....")
-    keys = step["hotkey"].split('_')
-    if len(keys) == 4:
-        pyautogui.hotkey(keys[0], keys[1], keys[2], keys[3])
-    elif len(keys) == 3:
-        pyautogui.hotkey(keys[0], keys[1], keys[2])
-    if len(keys) == 2:
-        pyautogui.hotkey(keys[0], keys[1])
-    if len(keys) == 1:
-        pyautogui.hotkey(keys[0])
+    return(found_box)
 
-# the assumption is that
-def processRecordLineLocation(step):
+
+# record the location of a specific text on screen, the result will be used to calibrate scroll amount.
+# loc: location on screen, could take value "", "middle" "bottome" "top" - meaning take some unique text that's nearest the location of the screen.
+#       the resulting text is defauly putinto the variable "ResolutionCalibrationMarker"
+# txt: text to record the location. - caller can also directly specify the text to be extracted, in such a case, loc = ""
+# screen: variable that contains the screen content data structure.
+# to: put result in this varable name.
+def processRecordTxtLineLocation(step, i):
     loc_word = step["location"]
     scrn = step["screen"]
     marker_text = step["text"]
-    marker_name = step["random_line"]
+    marker_loc = step["to"]
     found_line = None
+    found_text = None
+    screen_data = symTab[scrn]
+    symTab["last_screen_cal01"] = screen_data
+    screen_size = (screen_data[len(screen_data) - 2]['loc'][3], screen_data[len(screen_data) - 2]['loc'][2])
+    print("screen_size: ", screen_size)
 
     if marker_text == "":
         # this means just grab any line closest to the target location.
         if loc_word == "middle":
             # now go thru scrn data structure to find a line that's nearest to middle of the screen.
             # grab the full screen item in the symTab[scrn] which should always be present.
+            target_loc = (int(screen_size[0]*2/3), int(screen_size[1]*2/3))
+            found_phrase, found_box = find_phrase_at_target(screen_data, target_loc)
+
+            print("FOUND implicit marker: [", found_phrase, "] at location: ", found_box)
+
             #mid = int(abc.get_box()[1] + 0.5*abc.get_box()[3])
             # now filter out all lines above mid point and leave only text lines below the mid point,
             # sort them based on vertical position, and then take the 1st item which is vertically nearest to the mid point.
-            print("")
+            symTab["InternalMarker"] = found_phrase
 
-    symTab[marker_name] = found_line
+    else:
+        print("FINDINg text: ", marker_text, " ............ ")
+        if loc_word.isnumeric():
+            # percentage deal
+            target_loc = (int(screen_size[0] / 2), int(screen_size[1] * (int(loc_word)/100)))
+        else:
+            if loc_word == "top":
+                target_loc = (int(screen_size[0]/2), 0)
+                # find the template text that's nearest to refvloc
+            elif loc_word == "middle":
+                target_loc = (int(screen_size[0] / 2), int(screen_size[1] / 2))
+            elif loc_word == "bottom":
+                target_loc = (int(screen_size[0] / 2), int(screen_size[1]))
+            else:
+                target_loc = (int(screen_size[0] / 2), 0)
 
-def processScroll(step):
-    scroll_amount = int(step["amount"])
+        print("target_loc: ", target_loc)
 
-    if step["action"] == "Scroll Down":
-        scroll_amount = 0 - scroll_amount
+        found_box = find_marker_on_screen(screen_data, marker_text)
+        print("found_loc: ", found_box)
 
-    pyautogui.scroll(scroll_amount)
+    # symTab[marker_loc] = box_center(found_paragraph["loc"])
+    symTab[marker_loc] = box_center(found_box)
+    print("found text at loc: ", found_box, "stored in var: ", marker_loc, " with box center: ", symTab[marker_loc])
+    return i + 1
 
-def processCalibrateScroll(step):
+
+
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
+
+# find a paragraph on screen that matches the target paragraph.
+def find_paragraph_match(target, screen_data):
+    paragrphs = [x for x in screen_data if x['name'] == 'paragraph']
+    print("find_paragraph_match:", paragrphs)
+    print("Target:", target)
+    # then sort by paragraph center's distance to target location.
+    # box: (left, top, right, bottom)
+    similarity = [similar(target['text'],  x['text']) for x in paragrphs]
+    print(similarity.index(max(similarity)), ",", similarity[similarity.index(max(similarity))], ", ", paragrphs[similarity.index(max(similarity))]['text'])
+    print("similarity: ", similarity)
+    matched = [x for x in paragrphs if similar(target['text'],  x['text']) > 0.95]
+    print("matched:", matched)
+
+    if len(matched) > 0:
+        return matched[0]
+    else:
+        return None
+
+# sink, amount, screen, marker, stepN
+# "data_sink": sink
+# "amount": amount
+# "screen": screen
+# "marker": marker
+def processCalibrateScroll(step, i):
     screen_resolution = 30
-    marker_name = step["marker"]
+    marker_text = step["marker"]
     scroll_amount = int(step["amount"])
     resolution = step["data_sink"]
+    prev_loc = symTab[step["last_record"]]
+    screen = step["screen"]
     found_line = None
 
-    delta_v = 0
-    scroll_resolution = int(delta_v/scroll_amount)
+    screen_data = symTab[screen]
+    screen_size = (screen_data[len(screen_data) - 2]['loc'][3], screen_data[len(screen_data) - 2]['loc'][2])
 
+    target_loc = (int(screen_size[0] / 2), 0)
+    print("FINDing near target loc: ", target_loc)
+    # find the template text that's nearest to refvloc
+    if marker_text == "":
+        marker_text = symTab["InternalMarker"]
+        print("finding implicit marker: [", symTab["InternalMarker"], "]")
+    found_box = find_marker_on_screen(screen_data, marker_text)
+    print("calibration scroll found location:: ", found_box, " vs. previous location::", prev_loc, " in var: ", step["last_record"])
+    # matched_paragraph = find_paragraph_match(marker_paragraph, screen)
+
+    if found_box:
+        delta_v = abs(box_center(found_box)[1] - prev_loc[1])
+        print("abs delta v: ", delta_v, " for scrool_amount: ", scroll_amount)
+        scroll_resolution = delta_v/scroll_amount
+    else:
+        scroll_resolution = 0
+        print("ERROR: scroll calibration FAILED!!!!")
 
     symTab[resolution] = scroll_resolution
+    symTab[screen] = symTab["last_screen_cal01"]
+    print("scroll resolution is found as: ", scroll_resolution, " stored in var: ", resolution)
+    return i+1
 
-def processOpenApp(step):
-    print("Opening App .....", step["target_link"] + " " + step["argument"])
-    subprocess.call(step["target_link"] + " " + step["argument"])
 
 
-def processCreateData(step):
-    print("Creating Data .....")
-    if step["key_name"] == "NA":
-        # this is the case of direct assignment.
-        symTab[step["data_name"]] = step["key_value"]
-    else:
-        if not re.match("\[.*\]|\{.*\}", step["key_value"]):
-            symTab[step["data_name"]] = {step["key_name"]: step["key_value"]}
-        else:
-            symTab[step["data_name"]] = {step["key_name"]: json.loads(step["key_value"])}
 
-# this is for add an object to a list/array of object, or add another key-value pair to a json object.
-def processFillData(step):
-    print("Filling Data .....")
+def getPrevStepName(sName):
+    prev = int(sName[4, len(sName)]) - STEP_GAP
+    return "step"+str(prev)
 
-    # if not re.match("\[.*\]|\{.*\}", step["from"]):
-    from_words = re.split('\[|\(|\{', step["from"])
-    source = from_words[0]
-    print("source var:", source)
+def getNextStepName(sName):
+    next = int(sName[4, len(sName)]) + STEP_GAP
+    return "step"+str(next)
 
-    to_words = re.split('\[|\(|\{', step["to"])
-    sink = to_words[0]
-    print("sink var:", sink)
+def gen_addresses(stepcodes, nth_pass):
+    temp_stack = []
+    print("nth pass: ", nth_pass)
+    # go thruthe program as we see condition / loop / function def , push them onto stack, then pop them off as we see
+    # else, end - if, end - loop, end - function....until at last the stack is empty again.
+    # sk
+    #skcode = json.loads(sk)
+    stepkeys = list(stepcodes.keys())
+    print("total " + str(len(stepkeys)) + " steps.")
 
-    if step["result"] != "":
-        res_words = re.split('\[|\(|\{', step["result"])
-        res = to_words[0]
-        print("res var:", res)
+    if nth_pass == 1:
+        # parse thru the json objects and work on stubs.
+        for i in range(len(stepkeys)):
+            stepName = stepkeys[i]
 
-    if step["fill_type"] == "assign":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + " = " + step["from"]
-    elif step["fill_type"] == "copy":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + " = deepcopy(" + step["from"] + ")"
-    elif step["fill_type"] == "append":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + ".append(" + step["from"] + ")"
-    elif step["fill_type"] == "prepend":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + ".insert(0, " + step["from"] + ")"
-    elif step["fill_type"] == "merge":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + ".extend(" + step["from"] + ")"
-    elif step["fill_type"] == "clear":
-        statement = "global " + sink + "; " + step["to"] + ".clear()"
-    elif step["fill_type"] == "pop":
-        if step["result"] != "":
-            if step["from"].isnumeric():
-                statement = "global " + res + ", " + sink + "; " + step["result"] + " = " + step["to"] + ".pop(" + \
-                            step["from"] + ")"
+
+            if i != 0:
+                prevStepName = stepkeys[i-1]
             else:
-                statement = "global " + res + ", " + source + ", " + sink + "; " + step["result"] + " = " + step[
-                    "to"] + ".pop(" + step["from"] + ")"
+                prevStepName = stepName
+
+            if i != len(stepkeys)-1:
+                nextStepName = stepkeys[i+1]
+            else:
+                nextStepName = stepName
+
+
+            if stepcodes[stepName]["type"] == "Stub":
+                #code block
+                if stepcodes[stepName]["stub_name"] == "else":
+                    # pop from stack, modify else, then push back, assume condition step will be pushed onto stack. as it executes.
+                    tempStepName = temp_stack.pop()
+                    print("poped out due to else step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
+
+                    stepcodes[tempStepName]["if_else"] = nextStepName
+                    # now replace with current stub with a goto statement and push this onto stack.
+
+                    print("replacing else with an empty Goto which will be filled up later...")
+                    stepcodes[stepName] = {"type": "Goto", "goto": ""}
+
+                    temp_stack.append(stepName)
+                    print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
+
+                elif stepcodes[stepName]["stub_name"] == "end condition":
+                    # pop from stack
+                    tempStepName = temp_stack.pop()
+                    print("popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
+
+                    if (stepcodes[tempStepName]["type"] == "Goto"):
+                        # in case that this is a check condition with an else stub....
+                        print("poped goto.....")
+                        stepcodes[tempStepName]["goto"] = nextStepName
+                    elif ( stepcodes[tempStepName]["type"] == "Check Condition"):
+                        # in case that this is a check condition without else stub....
+                        stepcodes[tempStepName]["if_else"] = nextStepName
+
+                        # so stub "else" will be replaced by a "Goto" step instead.
+                        stepcodes[stepName] = {"type": "Goto", "goto": nextStepName}
+                elif stepcodes[stepName]["stub_name"] == "break":
+                    # push on to stack
+                    temp_stack.append(stepName)
+                    print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
+                elif stepcodes[stepName]["stub_name"] == "end loop":
+                    # pop from stack
+                    loop_start_found = False
+                    fi = 0
+                    print("working on: ", prevStepName, "(", stepcodes[prevStepName], ")")
+                    while not loop_start_found:
+                        tempStepName = temp_stack.pop()
+                        print("popped out due to end looop step[", len(temp_stack), "]: ", fi, " :: ", tempStepName, "(", stepcodes[tempStepName], ")")
+                        fi = fi + 1
+                        if stepcodes[tempStepName]["type"] == "Repeat":
+                            stepcodes[tempStepName]["end"] = nextStepName
+                            loop_start_found = True
+                            # now replace with current stub with a goto statement and push this onto stack.
+                            stepcodes[stepName] = { "type": "Goto", "goto": tempStepName }
+                        elif stepcodes[tempStepName]["type"] == "Stub":
+                            if stepcodes[tempStepName]["stub_name"] == "break":
+                                stepcodes[tempStepName] = {"type": "Goto", "goto": nextStepName}
+
+                elif stepcodes[stepName]["stub_name"] == "def function":
+                    # add function name and address pair to stepcodes - kind of a symbal table here.
+                    stepcodes[symTab[stepName]["name"]] = nextStepName
+            elif stepcodes[stepName]["type"] == "Check Condition":
+                # push ont stack
+                temp_stack.append(stepName)
+                print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
+
+            elif stepcodes[stepName]["type"] == "Repeat":
+                # push on to stack
+                temp_stack.append(stepName)
+                print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
+
+    elif nth_pass == 2:
+        #on 2nd pass replace all function call address. -- SC 2023/03/27 I don't think we need this pass anymore....at least for now..
+        for i in range(len(stepkeys)):
+            stepName = stepkeys[i]
+            if i != 0:
+                prevStepName = stepkeys[i-1]
+            else:
+                prevStepName = stepName
+
+            if i != len(stepkeys)-1:
+                nextStepName = stepkeys[i+1]
+            else:
+                nextStepName = stepName
+
+            if stepcodes[stepName]["type"] == "Call Function":
+                stepcodes[stepName]["addr"] = stepcodes[stepcodes[stepName]["name"]]
+
+
+def prepRunSkill(name_space, skill_file, lvl = 0):
+    global skill_code
+    run_steps = readSkillFile(name_space, skill_file, lvl)
+    gen_addresses(skill_code, 1)
+    print("DONE generating addressess...")
+    print("READY2RUN: ", skill_code)
+    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    return skill_code
+
+
+#======== generate individual steps into a string that can be written to a file
+
+
+
+
+
+def genNextStepNumber(currentN, steps=1):
+    nextStepN = currentN + STEP_GAP * steps
+    return nextStepN
+
+
+
+# for the detail config:
+# #   { level: 1~5, seeAll : true/false, allPos: true/false, allNeg: true/false, nExpand: ,nPosPages: , nNegPages: }
+# seeAll: whether to click on seeAll
+# allPos: whether to click on all positive review link.
+# allNeg: whether to click on all negative review link
+# nPosExpand: max number of times to expand to see a very long positive reviews
+# nNegExpand: max number of times to expand to see a very long negative reviews
+# nPosPages: number of positive review pages to browse thru.
+# nPosPages: number of negative review pages to browse thru.
+# pseudo code:
+#    if seeAll:
+#       click on seeAll which will take us to the all review page.
+#       if allPos:
+#           click on all positive reviews, this will take us to the all positive review page.
+#           for i in range(nPosPages):
+#               while not reached bottom:
+#                   view all review, (tricky, could have long reviews which span multiple screen without anchors)
+#                   scroll down
+#                   check whether reached bottom
+#           whether we have reached the last page
+#               if so:
+#                   go back. there are two strategy here, A: browse previous page. B: scroll to top and click on the product again.
+#               else:
+#                   click on "Next page"
+#
+#    else:
+#        while not reached bottom:
+#            extract screen info.
+#            if there is expand mark,
+#                if  nPosExand > 0:
+#                   click on "read more",
+#                   view expanded review, (tricky, could span multiple screen without anchors)
+#                   scroll till the end of this review.
+#                   nPosExand = nPosExand - 1
+#            are we at the bottom of the page.
+#
+#  SC - 20230506 - this routine is kind of useless for now..............
+
+def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
+    psk_words = ""
+    # grab location of the title of the "matchedProducts" and put it into variable "product_title"
+    #(action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", "1", "0", "right", "box", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", root, "screen_info", "amazon_home", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    if detail_cfg.seeAll:
+        #(action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", "1", "0", "right", "box", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(3, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+        if detail_cfg.allPos:
+            # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All positive Reviews", "anchor text", "All positive Reviews", "1", "0", "right", "box", this_step)
+            psk_words = psk_words + step_words
+
+            this_step, step_words = genStepWait(3, 0, 0, this_step)
+            psk_words = psk_words + step_words
+
+            # screen, np, nn, stepN, root, page, sect):
+            this_step, step_words = genBrowseAllReviewsPage("screen_info", 1, 1, this_step, root, "all reviews", "top")
+
+        if detail_cfg.allNeg:
+            # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All negative Reviews", "anchor text", "All negative Reviews", "1", "0", "right", "box", this_step)
+            psk_words = psk_words + step_words
+
+            this_step, step_words = genStepWait(3, 0, 0, this_step)
+            psk_words = psk_words + step_words
+
+            this_step, step_words = genBrowseAllReviewsPage("screen_info", 1, 1, this_step, root, "all reviews", "top")
+
     else:
-        statement = "global " + source + ", " + sink + "; " + step["to"] + " = " + step["from"]
+        # now simply scroll down
+        this_step, step_words = genStepCreateData("bool", "endOfReviews", "NA", "False", this_step)
+        psk_words = psk_words + step_words
 
-    print("Statement: ", statement)
-    exec(statement)
+        this_step, step_words = genStepLoop("endOfReviews != True", "", "", "browseReviews"+str(stepN), this_step)
+        psk_words = psk_words + step_words
 
-def processException(step, skey):
-    print("Handle Exception .....")
+        # (action, screen, amount, unit, stepN):
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", this_step)
+        psk_words = psk_words + step_words
 
-def processCheckCondition(step, skey):
-    print("Check Condition.....")
-    condition = step["condition"]
+        # check whether there is any match of this page's product, if matched, click into it.
+        this_step, step_words = genStepSearch("screen_info", detail_cfg.products, "text", "any", "matchedProducts", "expandable", this_step)
+        psk_words = psk_words + step_words
 
-    prefix = (skey.split("!"))[0]
-    true_words = step["if_true"].split()
-    true_branch = prefix + "!" + "step" + true_words[1]
-    false_words = step["if_true"].split()
-    false_branch = prefix + "!" + "step" + false_words[1]
+        if detail_cfg.nExpand > 0:
+            # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "read more", "anchor text", "read more", "1", "0", "right", "box", this_step)
+            psk_words = psk_words + step_words
 
-    if evalCondition(condition):
-        idx = steps.index(true_branch)
-    else:
-        idx = steps.index(false_branch)
-    return idx
+            #now scroll until the end of this review.
 
-def processRepeat(steps, step, skey, settings):
-    print("Looping.....")
-    repeat_count = int(step["count"])
-    loop_condition = step["until"]
-    end_step = step["end"]
+            detail_cfg.nExpand = detail_cfg.nExpand-1
 
-    prefix = (skey.split("!"))[0]
-    end_words = step["end"].split()
-    loop_end = prefix + "!" + "step" + end_words[1]
-    end_idx = steps.index(loop_end)
-    prev_idx = steps.index(skey)
+        this_step, step_words = genStepStub("end loop", "", this_step)
+        psk_words = psk_words + step_words
 
-    if loop_condition == "":
-        # use loop count
-        for c in range(repeat_count):
-            end_idx = steps.index(loop_end)
-    else:
-        # use loop condition.
-        while evalCondition(loop_condition):
-            runNSteps(steps, prev_idx, prev_idx+1, end_idx, settings)
+    # click into the product title.
+    # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "1 star", "anchor text", "1 star", "1", "0", "right", "box", this_step)
+    psk_words = psk_words + step_words
 
-    return end_idx+1
+    ## browse all the way down, until seeing "No customer reviews" or "See all reviews"
+    this_step, step_words = genStepLoop("reviews_eop != True", "", "", "browseListOfDetails"+str(stepN), this_step)
+    psk_words = psk_words + step_words
 
-# assumption: data is in form of a single json which can be easily dumped.
-def processLoadData(step):
-    print("Loading Data .....")
-    with open(step["file_link"], 'r') as f:
-        symTab[step["data_name"]] = json.load(f)
+    # (action, screen, amount, unit, stepN):
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", this_step)
+    psk_words = psk_words + step_words
 
-def processSaveData(step):
-    print("Saving Data .....")
-    with open(step["file_link"], 'w') as f:
-        json.dump(symTab[step["data_name"]], f)
+    this_step, step_words = genStepAMZSearchReviews("screen_info", "prod_details", "atbottom", this_step)
+    psk_words = psk_words + step_words
+
+    # here, if need to click open half hidden long reviews.....
+    this_step, step_words = genStepSearch("screen_info","See all details", "screen_info", "any", "eop_review", "reviews_eop", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
 
 
-def processRunScript(step):
-    print("Run External Script .....")
-    args_strings = json.loads(step["args"])
-    # converts string(var name) into variables in symbol table.
-    args = list(map(lambda x:symTab[x], args_strings))
-
-    cmdline = ["python", step["file"]]
-    cmdline.extend(args)
-    oargs = ["capture_output=True", "text=True"]
-    cmdline.extend(oargs)
-    print("command line: ", cmdline)
-    # we can retrieve output in result.stdout and result.stderr
-    result = subprocess.call(cmdline)
-
-# this one calculate the distance between Info/Anchor that is nearest to the Location to the location
-def processCalcInfoToLoc(step):
-    vdistance = 0                         #unit in pixel.
 
 
-def processExtractPrice(step):
-    print("")
-
-
-def processExtractRating(step):
-    print("")
-
-
-def processExtractTitle(step):
-    print("")
-
-
-def processExtractDiscount(step):
-    print("")
-
-
-# create a data structure holder for andchor....
-def processSearch(step):
-    print("Searching....", step["target"])
-
-    scrn = symTab[step["screen"]]
-    template = step["template"]           #contains anchor/info name, or the text string to matched against.
-
-    if step["target"] == "Anchor":
-        print("")
-    elif step["target"] == "Info":
-        print("")
-    elif step["target"] == "Text":
-        template = step["template"]
-        print("")
-
-    # search result should be put into the result variable.
-    symTab[step["result"]] = None
-
-# big assumptions: all involved variables have already been created in globals
-# need to do 2 things:
-# 1) get rid of all keywords and operators: and or not,  get rid of all [] "" '' pairs, compare operators > < == >= <=
-# 2) extract all varaibles and declare them global before the condition string.
-#    for example, if the original compare string is "x > 5 and y < 8", it should be "global x, y, cmp_result; cmp_result = x > 5 and y < 8"
-def evalCondition(condition):
-    global cmp_result
-    fault = False
-    root = ast.parse(condition)
-    print(ast.dump(ast.parse(condition), indent=4))
-    print("root:", root)
-    varnames = sorted({node.id for node in ast.walk(root) if isinstance(node, ast.Name)})
-    print("varnames:", varnames)
-    # now filter out special keywords such int, str, float what's left should be variable names.
-    varnames = list(filter(lambda k: not (k == "float" or k == "int" or k == "str"), varnames))
-    print("filtered varnames:", varnames)
-    prefix = "global "
-    for varname in varnames:
-        if varname in symTab:
-            prefix = prefix + varname + ", "
-        else:
-            fault = True
-            print("ERROR: variable " + varname + " does NOT exist.")
-            break
-
-    if not fault:
-        prefix = prefix + "cmp_result; cmp_result = "
-        condition = prefix + condition
-        print("TBE: " + condition)
-        exec(condition)
-        print("TBE result: ", cmp_result)
-    return cmp_result

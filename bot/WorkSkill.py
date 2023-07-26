@@ -3,9 +3,9 @@ import sys
 import random
 import boto3
 from crontab import CronTab
-import datetime
 from PySide6 import QtCore, QtGui, QtWidgets
 import json
+from readSkill import *
 
 # valid refMethod: "Absolute", "Anchor Offset"
 #  in case of "Anchor Offset", can list x/y relationship with up to 4 other anchors
@@ -143,50 +143,89 @@ class PROCEDURAL_STEP(QtGui.QStandardItem):
 
 
 class PROCEDURAL_SKILL(QtGui.QStandardItem):
-    def __init__(self):
+    def __init__(self, parent):
         super().__init__()
         self.pageName = "AMZ"
-        self.steps = []
+        self.steps = None
         self.setText(self.pageName)
         self.icon = QtGui.QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/skills-78.png')
+        self.runStepsFile= ""
         self.setIcon(self.icon)
+        self.runConfig = None
+        self.nameSpace = ""
+        self.parent = parent
+        self.path = "resource/skills/public/"
+        self.homepath = self.parent.homepath
 
-    def addStep(self, new_step):
-        self.steps.append(new_step)
 
     def getSteps(self):
+        self.steps = readSkillFile(self.homepath, self.runStepsFile)
         return self.steps
 
+    def getRunStepsFile(self):
+        return self.runStepsFile
 
-class INFO_SKILL(QtGui.QStandardItem):
-    def __init__(self):
+    def setConfig(self, cfg):
+        self.runConfig = cfg
+
+    def getConfig(self):
+        return self.runConfig
+
+    def loadJson(self,jd):
+        self.runConfig = jd["runConfig"]
+        self.runStepsFile = jd["runStepsFile"]
+
+
+class CLOUD_SKILL(QtGui.QStandardItem):
+    def __init__(self, parent):
         super().__init__()
-        self.pageName = "AMZ"
-        self.anchors = []
-        self.targets = []
+        self.parent = parent
+        self.path = "resource/skills/public/"
 
-    def set_name(self, page_name):
-        self.pageName = page_name
+    def set_path(self, path):
+        self.path = path
 
-    def add_anchor(self, new_anchor):
-        self.anchors.append(new_anchor)
+    def get_local_path(self):
+        return self.path
 
-    def add_target(self, new_target):
-        self.targets.append(new_target)
+    def loadJson(self, jd):
+        self.path = jd["path"]
 
 
 class WORKSKILL(QtGui.QStandardItem):
-    def __init__(self, skname):
+    def __init__(self, parent, skname="default skill"):
         super().__init__()
         self.name = skname
-        self.local_skill = None
-        self.cloud_skill = None
+        self.setText(self.name)
+        self.skid = 0
+        self.owner = 0
+        self.price = 0
+        self.parent = parent
+        self.price_model = ""
+        self.price_model = ""
+        self.path = "resource/skills/public/"
+        self.privacy = ""
+        self.platform = ""
+        self.app = ""
+        self.app_link = ""
+        self.app_args = ""
+        self.site_name = ""
+        self.site = ""
+        self.page = ""
+        self.private_skill = PROCEDURAL_SKILL(parent)
+        self.cloud_skill = CLOUD_SKILL(parent)
 
-    def add_local_skill(self, procedural_skill):
-        self.local_skill = procedural_skill
+    def add_private_skill(self, procedural_skill):
+        self.private_skill = procedural_skill
 
-    def get_steps(self):
-        return self.local_skill.getSteps()
+    def getSteps(self):
+        return self.private_skill.getSteps()
+
+    def getRunConfig(self):
+        return self.private_skill.getConfig()
+
+    def get_run_steps_file(self):
+        return self.private_skill.getRunStepsFile()
 
     def add_cloud_skill(self, info_skill):
         self.cloud_skill = info_skill
@@ -200,3 +239,101 @@ class WORKSKILL(QtGui.QStandardItem):
     def gen_skill_files(self):
         self.gen_csk_file()
         self.gen_psk_file()
+
+    def getSkid(self):
+        return self.skid
+
+    def getPskFileName(self):
+        return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".psk"
+
+    def getCskFileName(self):
+        return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".csk"
+
+    def getOwner(self):
+        return self.owner
+
+    def getPlatform(self):
+        return self.platform
+
+    def getApp(self):
+        return self.app
+
+    def getAppLink(self):
+        return self.app_link
+
+    def getAppArgs(self):
+        return self.app_args
+
+    def setAppLink(self, al):
+        self.app_link = al
+
+    def setAppArgs(self, aa):
+        self.app_args = aa
+
+    def getPage(self):
+        return self.page
+
+    def setPage(self, page):
+        self.page = page
+
+    def getSite(self):
+        return self.site
+
+    def getSiteName(self):
+        return self.site_name
+
+    def getName(self):
+        return self.name
+
+    def getPath(self):
+        return self.path
+
+    def setPath(self, path):
+        self.path = path
+
+    def getPriceModel(self):
+        return self.price_model
+
+    def setPriceModel(self, pm):
+        self.price_model = pm
+
+    def getPrice(self):
+        return self.price
+
+    def setPrice(self, price):
+        self.price = price
+
+    def getPrivacy(self):
+        return self.privacy
+
+    def setPrivacy(self, priv):
+        self.privacy = priv
+
+
+    def setConfig(self, cfg):
+        self.private_skill.setConfig(cfg)
+
+    def setNetRespJsonData(self, nrjd):
+        self.pubAttributes.loadNetRespJson(nrjd)
+        self.setText('mission' + str(self.getMid()))
+
+    def loadJson(self, jd):
+        self.name = jd["name"]
+        self.setText(self.name)
+
+        self.skid = jd["skid"]
+        self.owner = jd["owner"]
+        self.platform = jd["platform"]
+        self.app = jd["app"]
+        self.app_link = jd["app_link"]
+        self.app_args = jd["app_args"]
+        self.site_name = jd["site_name"]
+        self.site = jd["site"]
+        self.page = jd["page"]
+        self.privacy = jd["privacy"]
+        self.price_model = jd["price_model"]
+        self.price = jd["price"]
+        self.path = jd["path"]
+        self.private_skill.loadJson(jd["private_skill"])
+        self.cloud_skill.loadJson(jd["cloud_skill"])
+

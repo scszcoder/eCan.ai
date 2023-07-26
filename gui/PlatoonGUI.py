@@ -14,6 +14,34 @@ from BorderLayout import *
 import lzstring
 
 
+class PlatoonListView(QtWidgets.QListView):
+    def __init__(self, parent):
+        super(PlatoonListView, self).__init__()
+        self.selected_row = None
+        self.parent = parent
+
+    def mousePressEvent(self, e):
+        if e.type() == QtCore.QEvent.MouseButtonPress:
+            if e.button() == QtCore.Qt.LeftButton:
+                print("row:", self.indexAt(e.pos()).row())
+                self.selected_row = self.indexAt(e.pos()).row()
+                self.parent.updateSelectedPlatoon(self.selected_row)
+
+class PLATOON(QtGui.QStandardItem):
+    def __init__(self, ip, hostname, env):
+        super().__init__()
+        self.name = hostname
+        self.ip = ip
+        self.env = env
+
+        self.setText(self.name)
+        self.icon = QtGui.QIcon('C:/Users/songc/PycharmProjects/ecbot/resource/images/icons/vehicle1-62.png')
+        self.setIcon(self.icon)
+
+    def getData(self):
+        return self.name, self.ip, self.env
+
+
 # class MainWindow(QtWidgets.QWidget):
 class PlatoonWindow(QtWidgets.QMainWindow):
     def __init__(self, inTokens, user, xport):
@@ -791,6 +819,23 @@ class PlatoonWindow(QtWidgets.QMainWindow):
                     "Unable to save file: %s" % filename
                 )
 
+
+
+    def updateSelectedPlatoon(self, row):
+        self.selected_platoon_row = row
+        self.selected_role_item = self.roleModel.item(self.selected_platoon_row)
+        platform, level, role = self.selected_role_item.getData()
+
+        self.role_level_sel.setCurrentText(level)
+        self.role_name_sel.setCurrentText(role)
+
+        if self.role_platform_sel.findText(platform) < 0:
+            self.role_platform_sel.setCurrentText("Custom")
+            self.role_custom_platform_edit.setText(platform)
+
+        else:
+            self.role_platform_sel.setCurrentText(platform)
+            self.role_custom_platform_edit.setText("")
 
     def readCSVFiles(self):
         # read files from the local disk and. bot file in csv file format.

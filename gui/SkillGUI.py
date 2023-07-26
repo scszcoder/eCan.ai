@@ -29,6 +29,31 @@ USER_DIR = ""
 OS_DIR = ""
 PAGE_DIR = ""
 
+# skill parameters:
+# skid	int(11)	NO	PRI	NULL	auto_increment
+# owner	varchar(50)	YES		NULL
+# platform	varchar(50)	YES		NULL
+# app	varchar(50)	YES		NULL
+# site	varchar(50)	YES		NULL
+# name	varchar(30)	YES		NULL
+# path	varchar(80)	YES		NULL
+# runtime	int(11)	YES		NULL
+# price_model	varchar(50)	YES		NULL
+# price	int(11)	YES		NULL
+
+class SkillListView(QtWidgets.QListView):
+    def __init__(self, parent):
+        super(SkillListView, self).__init__()
+        self.selected_row = None
+        self.parent = parent
+
+    def mousePressEvent(self, e):
+        if e.type() == QtCore.QEvent.MouseButtonPress:
+            if e.button() == QtCore.Qt.LeftButton:
+                print("row:", self.indexAt(e.pos()).row())
+                self.selected_row = self.indexAt(e.pos()).row()
+                self.parent.updateSelectedRole(self.selected_row)
+
 class AnchorListView(QtWidgets.QListView):
     def __init__(self):
         super(AnchorListView, self).__init__()

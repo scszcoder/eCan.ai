@@ -3,9 +3,9 @@ import sys
 import random
 import boto3
 from crontab import CronTab
-import datetime
 from PySide6 import QtCore, QtGui, QtWidgets
 import json
+from WorkSkill import *
 from readSkill import *
 import os
 
@@ -15,6 +15,9 @@ import os
 # repetiton time and unit, example: run every
 # number of retry: if somehow mission is failed, how many times to retry.
 # retry wait time: minimum wait time between retrys (in minutes).
+# mission parameters:
+# mid,owner,botid,status,createon,(esd,ecd,asd,abd,aad,afd,acd),startt,esttime,runtime,cuspas,category,phrase,pseudoStore,pseudoBrand,pseudoASIN,type,config,skills,delDate
+# cuspas: custom platform, application, site (for ex: windows, chrome, amazon)
 class M_Assignment():
     def __init__(self):
         super().__init__()
@@ -27,7 +30,7 @@ class M_Assignment():
         self.url = ""
         self.app = ""
         self.file = ""
-        self.repetition
+        self.repeat = 0
 
 
 class M_Action_Items():
@@ -42,30 +45,6 @@ class M_Action_Items():
         self.abc = 1
 
 
-class M_Skill():
-    def __init__(self):
-        super().__init__()
-
-        self.skill_name = "browse_search_kw"
-        self.all_steps = []
-        self.psk = "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/enter_amz/enter_amz.psk"
-        self.csk = ""
-
-        # self.
-
-    def run(self):
-        self.abc = 1
-
-    def get_all_steps(self):
-        return self.all_steps
-
-    def loadSkill(self):
-        # load skill file.
-        name_pf = "generic"
-        skill_file = self.psk
-        print("load skill file:", skill_file)
-        self.all_steps = readSkillFile(name_pf, skill_file)
-
 
 
 class M_Private_Attributes():
@@ -73,44 +52,51 @@ class M_Private_Attributes():
         super().__init__()
         self.item_number = "0"
         self.seller = "NA"
+        self.brand = ""
         self.title = "NA"
         self.imglink = "NA"
+        self.price = 0.0
+        self.rating = ""
         self.rank = 0
+        self.feedbacks = 0
         self.fb_type = "NA"
-        self.skills = []
-        self.skills.append(M_Skill())
-        self.current_sk_idx = 0
-        # "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/enter_amz/enter_amz.psk"
+        self.customer_id = 0
 
 
-    def setItem(self, inum, seller, title, imglink, rank):
+
+    def setItem(self, inum, seller, title, imglink, rank, feedbacks, price):
         self.item_number = inum
         self.seller = seller
         self.title = title
         self.imglink = imglink
         self.rank = rank
+        self.price = price
+        self.feedbacks = feedbacks
 
-    def setSkills(self, sks):
-        self.skill = sks
+    def setFeedbacks(self, fbs):
+        self.feedbacks = fbs
 
-    def addSkill(self, sk):
-        self.skills.append(sk)
+    def setPrice(self, price):
+        self.price = price
 
+    def getFeedbacks(self):
+        return self.feedbacks
 
-    def get_all_steps(self):
-        # load skill file.
-        return self.all_steps
+    def getPrice(self):
+        return self.price
 
     def setFbType(self, fbtype):
         self.fb_type = fbtype
 
     def loadJson(self, dj):
-        self.item_number = dj.item_number
-        self.seller = dj.seller
-        self.title = dj.title
-        self.imglink = dj.imglink
-        self.rank = dj.rank
-        self.fb_type = dj.fb_type
+        self.item_number = dj["item_number"]
+        self.seller = dj["seller"]
+        self.title = dj["title"]
+        self.imglink = dj["img_link"]
+        self.price = dj["price"]
+        self.rank = dj["rank"]
+        self.feedbacks = dj["feedbacks"]
+        self.fb_type = dj["fb_type"]
 
     def genJson(self, dj):
         jd = {
@@ -118,7 +104,9 @@ class M_Private_Attributes():
                 "seller": self.seller,
                 "title": self.title,
                 "imglink": self.imglink,
+                "price": self.price,
                 "rank": self.rank,
+                "feedbacks": self.feedbacks,
                 "fb_type": self.fb_type
             }
         return jd
@@ -126,15 +114,39 @@ class M_Private_Attributes():
 class M_Pub_Attributes():
     def __init__(self):
         super().__init__()
-        self.missionId = 0
+        self.missionId = -1
+        self.ticket = 1
+        self.owner = ""
         self.assign_type = "USER"         # user assigned or cloud auto assigned.
         self.search_kw = ""               # search phrase
         self.search_cat = "NA"
         self.nex = 1                      # number of time this mission to repeated.
         self.status = "NA"
         self.ms_type = "SELL"             # buy/sell type of mission.
+        self.config = ""
         self.bot_id = 0                   # the bot associated with a mission.
-
+        self.eststartt = 0
+        self.startt = 0
+        self.esttime = 0
+        self.esd = ""
+        self.ecd = ""
+        self.asd = ""
+        self.aad = ""
+        self.abd = ""
+        self.afd = ""
+        self.acd = ""
+        self.run_time = 0
+        self.createon = ""
+        self.actual_start_time = ""
+        self.cuspas = ""
+        self.app_exe = ""
+        self.pseudo_store = ""
+        self.pseudo_brand = ""
+        self.pseudo_asin = ""
+        self.del_date = ""
+        self.skills = []
+        self.current_sk_idx = 0
+        self.platoon_id = ""
 
     def setType(self, mid, atype, mtype):
         self.missionId = mid
@@ -154,21 +166,82 @@ class M_Pub_Attributes():
         self.search_kw = kw
         self.category = cat
 
+    def setSkills(self, sks):
+        self.skill = sks
+
+    def addSkill(self, sk):
+        self.skills.append(sk)
+
+    def get_all_steps(self):
+        # load skill file.
+        return self.all_steps
+
     def loadJson(self, dj):
-        self.missionId = dj.missionId
-        self.assign_type = dj.assign_type
-        self.ms_type = dj.ms_type
-        self.nex = dj.nex
-        self.bot_id = dj.bot_id
-        self.status = dj.status
-        self.search_kw = dj.search_kw
-        self.category = dj.category
+        self.missionId = dj["missionId"]
+        self.ticket = dj["ticket"]
+        self.ms_type = dj["ms_type"]
+        self.nex = dj["repeat"]
+        self.bot_id = dj["bot_id"]
+        self.status = dj["status"]
+        self.search_kw = dj["search_kw"]
+        self.search_cat = dj["search_cat"]
+        self.config = dj["config"]
+        self.esd = dj["esd"]
+        self.ecd = dj["ecd"]
+        self.asd = dj["asd"]
+        self.abd = dj["abd"]
+        self.aad = dj["aad"]
+        self.afd = dj["afd"]
+        self.acd = dj["acd"]
+        self.run_time = dj["run_time"]
+        self.actual_start_time = dj["actual_start_time"]
+        self.eststartt = dj["eststartt"]
+        self.startt = dj["startt"]
+        self.esttime = dj["esttime"]
+        self.del_date = dj["del_date"]
+        self.pseudo_store = dj["pseudo_store"]
+        self.pseudo_brand = dj["pseudo_brand"]
+        self.pseudo_asin = dj["pseudo_asin"]
+        self.skills = dj["skills"]
+        self.cuspas = dj["cuspas"]
+        self.app_exe = dj["app_exe"]
+        self.platoon_id = dj["platoon_id"]
+        self.createon = dj["createon"]
+
+    def loadNetRespJson(self, dj):
+        self.missionId = dj["mid"]
+        self.ticket = dj["ticket"]
+        self.ms_type = dj["type"]
+        self.owner = dj["owner"]
+        self.nex = dj["trepeat"]
+        self.bot_id = dj["botid"]
+        self.status = dj["status"]
+        self.search_kw = dj["phrase"]
+        self.search_cat = dj["category"]
+        self.config = dj["config"]
+        self.esd = dj["esd"]
+        self.ecd = dj["ecd"]
+        self.asd = dj["asd"]
+        self.abd = dj["abd"]
+        self.aad = dj["aad"]
+        self.afd = dj["afd"]
+        self.acd = dj["acd"]
+        self.run_time = dj["runtime"]
+        self.esttime = dj["esttime"]
+        self.del_date = dj["delDate"]
+        self.pseudo_store = dj["pseudoStore"]
+        self.pseudo_brand = dj["pseudoBrand"]
+        self.pseudo_asin = dj["pseudoASIN"]
+        self.skills = dj["skills"]
+        self.cuspas = dj["cuspas"]
+        self.createon = dj["createon"]
 
     def genJson(self, dj):
         jd = {
                 "missionId": self.missionId,
                 "assign_type": self.assign_type,
                 "ms_type": self.ms_type,
+                "ms_config": self.config,
                 "nex": self.nex,
                 "bot_id": self.bot_id,
                 "status": self.status,
@@ -224,58 +297,396 @@ class EBMISSION(QtGui.QStandardItem):
         self.parent_settings = {"mission_id": self.pubAttributes.missionId,
                                 "session": self.parent.session,
                                 "token": self.parent.tokens['AuthenticationResult']['IdToken'],
-                                "psk": self.privateAttributes.skills[self.privateAttributes.current_sk_idx].psk,
-                                "csk": self.privateAttributes.skills[self.privateAttributes.current_sk_idx].csk,
-                                "skill_name": self.privateAttributes.skills[self.privateAttributes.current_sk_idx].skill_name,
                                 "uid": self.parent.uid}
 
     def getMid(self):
         return self.pubAttributes.missionId
 
+    def getParentSettings(self):
+        return self.parent_settings
+
+    def setMid(self, mid):
+        self.pubAttributes.missionId = mid
+
+    def getTicket(self):
+        return self.pubAttributes.ticket
+
+    def setTicket(self, ticket):
+        self.pubAttributes.ticket = ticket
+
     def getSearchKW(self):
         return self.pubAttributes.search_kw
+
+    def setSearchKW(self, skw):
+        self.pubAttributes.search_kw = skw
 
     def getSearchCat(self):
         return self.pubAttributes.search_cat
 
+    def setSearchCat(self, scat):
+        self.pubAttributes.search_cat = scat
+
     def getRepeat(self):
         return self.pubAttributes.nex
+
+    def setRepeat(self, nex):
+        self.pubAttributes.nex = nex
 
     def getMtype(self):
         return self.pubAttributes.ms_type
 
+    def setMtype(self, mtype):
+        self.pubAttributes.ms_type = mtype
+
     def getBid(self):
         return self.pubAttributes.bot_id
+
+    def setBid(self, bid):
+        self.pubAttributes.bot_id = bid
 
     def getStatus(self):
         return self.pubAttributes.status
 
+    def setStatus(self, stat):
+        self.pubAttributes.status = stat
+
     def setOwner(self, owner):
         self.pubAttributes.owner = owner
 
+    def getOwner(self):
+        return self.pubAttributes.owner
+
+    def getBD(self):
+        return self.pubAttributes.createon
+
+    def setBD(self, bd):
+        self.pubAttributes.createon = bd
+
+    def getEsd(self):
+        return self.pubAttributes.esd
+
+    def setEsd(self, esd):
+        self.pubAttributes.esd = esd
+
+    def getEcd(self):
+        return self.pubAttributes.ecd
+
+    def setEcd(self, ecd):
+        self.pubAttributes.ecd = ecd
+
+    def getAsd(self):
+        return self.pubAttributes.asd
+
+    def setAsd(self, asd):
+        self.pubAttributes.asd = asd
+
+    def getAbd(self):
+        return self.pubAttributes.abd
+
+    def setAbd(self, abd):
+        self.pubAttributes.abd = abd
+
+    def getAad(self):
+        return self.pubAttributes.aad
+
+    def setAad(self, aad):
+        self.pubAttributes.aad = aad
+
+    def getAfd(self):
+        return self.pubAttributes.afd
+
+    def setAfd(self, afd):
+        self.pubAttributes.afd = afd
+
+    def getAcd(self):
+        return self.pubAttributes.acd
+
+    def setAcd(self, acd):
+        self.pubAttributes.acd = acd
+
+    def getActualStartTime(self):
+        return self.pubAttributes.actual_start_time
+
+    def setActualStartTime(self, ast):
+        self.pubAttributes.actual_start_time = ast
+
+    def getEstimatedStartTime(self):
+        return self.pubAttributes.eststartt
+
+    def setEstimatedStartTime(self, est):
+        self.pubAttributes.eststartt = est
+
+    def getEstimatedRunTime(self):
+        return self.pubAttributes.esttime
+
+    def setEstimatedRunTime(self, ert):
+        self.pubAttributes.esttime = ert
+
+    # actual run time.
+    def getRunTime(self):
+        return self.pubAttributes.run_time
+
+    def setRunTime(self, rt):
+        self.pubAttributes.run_time = rt
+
+    # estimated run time.
+    def getEstTime(self):
+        return self.pubAttributes.esttime
+
+    def setEstTime(self, ert):
+        self.pubAttributes.esttime = ert
+
+    def getCusPAS(self):
+        return self.pubAttributes.cuspas
+
+    def setCusPAS(self, cuspas):
+        self.pubAttributes.cuspas = cuspas
+
+    def getAppExe(self):
+        return self.pubAttributes.app_exe
+
+    def setAppExe(self, appexe):
+        self.pubAttributes.app_exe = appexe
+
+    def getPlatform(self):
+        return self.pubAttributes.cuspas.split(",")[0]
+
+    def getApp(self):
+        return self.pubAttributes.cuspas.split(",")[1]
+
+    def getSite(self):
+        return self.pubAttributes.cuspas.split(",")[2]
+
+    def getPseudoStore(self):
+        return self.pubAttributes.pseudo_store
+
+    def setPseudoStore(self, pstore):
+        self.pubAttributes.pseudo_store = pstore
+
+    def getPseudoBrand(self):
+        return self.pubAttributes.pseudo_brand
+
+    def setPseudoBrand(self, pbrand):
+        self.pubAttributes.pseudo_brand = pbrand
+
+    def getPseudoASIN(self):
+        return self.pubAttributes.pseudo_asin
+
+    def setPseudoASIN(self, pasin):
+        self.pubAttributes.pseudo_asin = pasin
+
+    def getConfig(self):
+        return self.pubAttributes.config
+
+    def setConfig(self, cfg):
+        self.pubAttributes.config = cfg
+
+    def getSkills(self):
+        return self.pubAttributes.skills
+
+    def getSkillNames(self):
+        if self.pubAttributes.skills == "":
+            skill_ids = []
+        else:
+            skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
+        print("mission skill ids: ", skill_ids)
+        return [self.parent.skills[s].getName() for s in skill_ids]
+
+    def getPSKFileNames(self):
+        if self.pubAttributes.skills == "":
+            skill_ids = []
+        else:
+            skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
+        print("mission skill ids: ", skill_ids)
+        return [self.parent.skills[s].getPskFileName() for s in skill_ids]
+
+    def getCSKFileNames(self):
+        if self.pubAttributes.skills == "":
+            skill_ids = []
+        else:
+            skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
+        print("mission skill ids: ", skill_ids)
+        return [self.parent.skills[s].getCskFileName() for s in skill_ids]
+
+
+    def setSkills(self, skills):
+        self.pubAttributes.skills = skills
+
+    def getDelDate(self):
+        return self.pubAttributes.del_date
+
+    def setDelDate(self, deldate):
+        self.pubAttributes.del_date = deldate
+
+    def getASIN(self):
+        return self.privateAttributes.item_number
+
+    def setASIN(self, asin):
+        self.privateAttributes.item_number = asin
+
+    def getStore(self):
+        return self.privateAttributes.seller
+
+    def setStore(self, store):
+        self.privateAttributes.seller = store
+
+    def getBrand(self):
+        return self.privateAttributes.brand
+
+    def setBrand(self, brand):
+        self.privateAttributes.brand = brand
+
+    def getImagePath(self):
+        return self.privateAttributes.imglink
+
+    def setImage(self, imgpath):
+        self.privateAttributes.imglink = imgpath
+
+    def getTitle(self):
+        return self.privateAttributes.title
+
+    def setTitle(self, title):
+        self.privateAttributes.title = title
+
+    def getRating(self):
+        return self.privateAttributes.rating
+
+    def setRating(self, rating):
+        self.privateAttributes.rating = rating
+
+    def getFeedbacks(self):
+        return self.privateAttributes.feedbacks
+
+    def setFeedbacks(self, fbs):
+        self.privateAttributes.feedbacks = fbs
+
+    def getCustomerID(self):
+        return self.privateAttributes.customer_id
+
+    def setCustomer(self, cid):
+        self.privateAttributes.customer_id = cid
+
+    def getPlatoonID(self):
+        return self.pubAttributes.platoon_id
+
+    def setPlatoon(self, pid):
+        self.pubAttributes.platoon_id = pid
+
     # self.
     def setJsonData(self, ppJson):
-        self.pubAttributes.loadJson(ppJson.pubAttributes)
-        self.privateAttributes.loadJson(ppJson.privateAttributes)
+        self.pubAttributes.loadJson(ppJson["pubAttributes"])
+        self.privateAttributes.loadJson(ppJson["privateAttributes"])
+
+    def setNetRespJsonData(self, nrjd):
+        self.pubAttributes.loadNetRespJson(nrjd)
+        self.setText('mission' + str(self.getMid()))
 
     def genJson(self):
         print("generating Json..........>>>>")
         jsd = {
-                "pubProfile": self.pubProfile.genJson,
-                "privateProfile": self.privateProfile.genJson
+                "pubProfile": self.pubAttributes.genJson,
+                "privateProfile": self.privateAttributes.genJson,
+                "parent_settings": self.parent_settings
                 }
         print(json.dumps(jsd))
         return jsd
 
+    def loadNetRespJson(self, jd):
+        self.pubAttributes.loadNetRespJson(jd)
+
+    def loadJson(self, jd):
+        self.pubAttributes.loadJson(jd["pubAttributes"])
+        self.privateAttributes.loadJson(jd["privateAttributes"])
+        self.tasks = jd["tasks"]
+        self.parent_settings["mission_id"] = jd["parent_settings"]["mission_id"]
+        # self.parent_settings["uid"] = jd["parent_settings"]["uid"]
+
+    # load data from a row in sqlite DB.
+    # "mid": [0]
+    # "ticket": [1]
+    # "botid": [2]
+    # "owner": [3]
+    # "status": [4]
+    # "createon": [5]
+    # "esd": [6]
+    # "ecd": [7]
+    # "asd": [8]
+    # "abd": [9]
+    # "aad": [10]
+    # "afd": [11]
+    # "acd": [12]
+    # "eststartt": [13]
+    # "startt": [14]
+    # "esttime": [15]
+    # "runtime": [16]
+    # "cuspas": [17]
+    # "search_cat": [18]
+    # "search_kw": [19]
+    # "pseudo_store": [20]
+    # "pseudo_brand": [21]
+    # "pseudo_asin": [22]
+    # "repeat": [23]
+    # "mtype": [24]
+    # "mconfig": [25]
+    # "skills": [26]
+    # "delDate": [27]
+    # "asin": [28]
+    # "store": [29]
+    # "brand": [30]
+    # "image": [31]
+    # "title": [32]
+    # "rating": [33]
+    # "feedbacks": [34]
+    # "customer": [35]
+    # "platoon": [36]
+    def loadDBData(self, dbd):
+        self.setMid(dbd[0])
+        self.setTicket(dbd[1])
+        self.setBid(dbd[2])
+        self.setOwner(dbd[3])
+        self.setStatus(dbd[4])
+        self.setBD(dbd[5])
+        self.setEsd(dbd[6])
+        self.setEcd(dbd[7])
+        self.setAsd(dbd[8])
+        self.setAbd(dbd[9])
+        self.setAad(dbd[10])
+        self.setAfd(dbd[11])
+        self.setAcd(dbd[12])
+        self.setEstimatedStartTime(dbd[13])
+        self.setActualStartTime(dbd[14])
+        self.setEstTime(dbd[15])
+        self.setRunTime(dbd[16])
+        self.setCusPAS(dbd[17])
+        self.setSearchCat(dbd[18])
+        self.setSearchKW(dbd[19])
+        self.setPseudoStore(dbd[20])
+        self.setPseudoBrand(dbd[21])
+        self.setPseudoASIN(dbd[22])
+        self.setRepeat(dbd[23])
+        self.setMtype(dbd[24])
+        self.setConfig(dbd[25])
+        self.setSkills(dbd[26])
+        self.setDelDate(dbd[27])
+        self.setASIN(dbd[28])
+        self.setStore(dbd[29])
+        self.setBrand(dbd[30])
+        self.setImage(dbd[31])
+        self.setTitle(dbd[32])
+        self.setRating(dbd[33])
+        self.setFeedbacks(dbd[34])
+        self.setCustomer(dbd[35])
+        self.setPlatoon(dbd[36])
+
     async def run(self):
         run_result = None
         print("running.....")
-        for si in range(len(self.privateAttributes.skills)):
+        for si in range(len(self.pubAttributes.skills)):
             print("si:", si)
-            print("skill:", self.privateAttributes.skills[si])
-            self.privateAttributes.skills[si].loadSkill()
-            print("run all steps .....", self.privateAttributes.skills[si].get_all_steps())
+            print("skill:", self.pubAttributes.skills[si])
+            self.pubAttributes.skills[si].loadSkill()
+            print("run all steps .....", self.pubAttributes.skills[si].get_all_steps())
             print("settings:", self.parent_settings)
-            runAllSteps(self.privateAttributes.skills[si].get_all_steps(), self.parent_settings)
+            runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.parent_settings)
 
         return run_result

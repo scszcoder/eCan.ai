@@ -32,5 +32,6 @@ def getECBotHome():
                 pass
         finally:
             key.Close()
+            ecbhome = ecbhome.replace('\\', '/')
             print("ECBot Home: ", ecbhome)
             return ecbhome

@@ -3,7 +3,6 @@ import sys
 import random
 import boto3
 from crontab import CronTab
-import datetime
 import pyautogui
 
 from Cloud import *

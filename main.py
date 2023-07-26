@@ -10,6 +10,7 @@ import cpuinfo
 from readSkill import *
 from MainGUI import *
 from network import *
+from unittests import *
 import asyncio
 from qasync import asyncSlot, asyncClose, QApplication, QThreadExecutor, QEventLoop
 import qasync
@@ -79,7 +80,10 @@ def windowlauncher():
         # w = MainWindow()
         # w.show()
         loop.run_forever()
+
+
 if __name__ == '__main__':
+    test_eb_orders_scraper()
     windowlauncher()
 
     # try:

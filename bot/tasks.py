@@ -16,11 +16,13 @@ from transitions import Machine
 import random
 from Cloud import *
 import urllib3.request
+from pynput.mouse import Button, Controller
 
 
 # from QtCore import QRunnable, Qt, QThreadPool
 # Get environment variables
 USER = os.getenv('API_USER')
+mouse = Controller()
 
 # a task is a sequence of ehActions.
 class EHACTION():
@@ -104,7 +106,7 @@ class Task(QtCore.QRunnable):
     # if lots of images, could spend time on images as well.
     #
     def browse(self, scroll_cnt,  readspeed=250, length=3):
-        pyautogui.scroll(scroll_cnt)
+        mouse.scroll(0, scroll_cnt)
         print("Entering Site")
 
     def search(self, readspeed=250):
@@ -161,7 +163,7 @@ def scroll_then_snap(loc, cnt, fn):
     # read details from the page.
     pyautogui.moveTo(loc[0], loc[1])
     pyautogui.click()
-    pyautogui.scroll(cnt)
+    mouse.scroll(0, cnt)
     im = pyautogui.screenshot('fn', region=(0,0, 300, 400))
 
 
