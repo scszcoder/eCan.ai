@@ -83,7 +83,7 @@ def windowlauncher():
 
 
 if __name__ == '__main__':
-    test_eb_orders_scraper()
+    # test_eb_orders_scraper()
     windowlauncher()
 
     # try:

@@ -7,10 +7,6 @@ import random
 from calendar import isleap
 import cv2
 
-from slimit.parser import Parser
-from slimit.visitors import nodevisitor
-from slimit import ast
-
 
 def ebay_seller_fetch_order_list(html_file,  orders):
     pagefull_of_orders = {"layout": "list", "index": 0, "ol": None}
