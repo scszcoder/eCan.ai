@@ -80,6 +80,27 @@ Here are the procedures related instruction sets of the ecbots RPA virtual machi
 
 ###### Screen Search Instruction
 
+###### Time Wait Instruction
+
+###### Variable Creation Instruction
+
+###### Variable Assign Value Instruction
+
+###### Conditional Execution Instruction
+
+###### Loop Execution Instruction
+
+###### Go To Execution Instruction
+
+###### Exception Handling Instruction
+
+###### End Exception Instruction
+
+###### Stub Instruction
+
+###### Call Function Instruction
+
+###### Call External Instruction
 
 With the above basic instruction set, one can pretty much create a skill for any task flow.
 
