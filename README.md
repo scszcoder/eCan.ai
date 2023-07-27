@@ -81,3 +81,19 @@ Here are the contents related instruction sets of the ecbots RPA virtual machine
 
 With the above basic instruction set, one can pretty much define any structured screen content.
 The contents related instruction sets resides on the cloud side to facilitate screen extraction. 
+
+### Exception Handling
+An exception happens whenever there is an instance where a web page doesn't load correctly. This could be
+caused by several reason:
+- internet service provider outage
+- modem/router/switch outage
+- web server down
+- etc.
+
+in such a case, the workflow will be interrupted, and the bot can can deal with this by wait for network
+to recover and once its recovered, the work will resume from the most recent roll-back point. As the JOBS instructions
+gets executed, the most recent mouse click or keyboard action instruction is automatically memorized as a 
+potential roll-back point, in the event of an exception and recover, we can then resume
+from this roll-back point. 
+In case of a persistent outage, if a designated timeout is reached, the bot will claim failure on executing
+the current RPA mission.
