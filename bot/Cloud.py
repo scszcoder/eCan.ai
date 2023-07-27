@@ -56,7 +56,7 @@ def direct_send_screen(file_name, bucket="winrpa"):
     print(file_name)
     print(object_name)
     # Upload the file
-    s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id=AWS_KEY_ID,  aws_secret_access_key="AWS_SECRET")
+    s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
     try:
         response = s3_client.upload_file(file_name, bucket, object_name, Config=config)
     except ClientError as e:
@@ -85,7 +85,7 @@ def list_s3_file():
     # from same link, but later comments:
     _BUCKET_NAME = 'winrpa'
     _PREFIX = 'EB/'
-    s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id=AWS_KEY_ID,  aws_secret_access_key=AWS_SECRET)
+    s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
     """List files in specific S3 URL"""
     response = s3_client.list_objects(Bucket=_BUCKET_NAME, Prefix=_PREFIX)
     print("list s3 results:", response.get('Contents', []))
@@ -93,7 +93,7 @@ def list_s3_file():
         print("content::", x["Key"])
 
 def get_presigned_url(target):
-    s3_client = boto3.client('s3', region_name='us-east-1', aws_access_key_id=AWS_KEY_ID, aws_secret_access_key=AWS_SECRET )
+    s3_client = boto3.client('s3', region_name='us-east-1', aws_access_key_id="AWS_KEY_ID", aws_secret_access_key="AWS_SECRET" )
 
     # Generate the presigned URL
     response = s3_client.generate_presigned_post(Bucket='winrpa', Key=target, ExpiresIn=120)

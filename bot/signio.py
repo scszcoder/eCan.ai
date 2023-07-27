@@ -10,7 +10,6 @@ password = "#Abc1234"
 
 USER_POOL_ID = 'us-east-1_uUmKJUfB3'
 CLIENT_ID = '5400r8q5p9gfdhln2feqcpljsh'
-CLIENT_SECRET ='1r8rs1fss1acft6urg557rgmad5s041hlmmhlm5i8vk40bt3gf3h'
 
 auth_client = boto3.client("cognito-idp", region_name="us-east-1")
 
