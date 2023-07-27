@@ -70,6 +70,14 @@ Here are the procedures related instruction sets of the ecbots RPA virtual machi
 
 ###### Mouse Click Instruction
 
+###### Mouse Scroll Instruction
+
+###### Keyboard Text Input Instruction
+
+###### Keyboard Key Input Instruction
+
+###### Screen Extraction Instruction
+
 
 With the above basic instruction set, one can pretty much create a skill for any task flow.
 
