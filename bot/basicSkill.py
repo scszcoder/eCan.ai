@@ -81,7 +81,6 @@ def genStepSaveHtml(html_file_name, html_file_var_name, template, root, sink, pa
 def genStepExtractInfo(template, root, sink, page, sect, theme, stepN, page_data, option=""):
     stepjson = {
         "type": "Extract Info",
-        "action": "Extract",
         "root": root,
         "template": template,
         "option": option,
@@ -99,7 +98,6 @@ def genStepExtractInfo(template, root, sink, page, sect, theme, stepN, page_data
 def genStepSearch(screen, names, target_types, logic, result, flag, site, stepN):
     stepjson = {
         "type": "Search",
-        "action": "Search",
         "screen": screen,
         "names": names,
         "target_types": target_types,
@@ -287,7 +285,7 @@ def genStepStub(sname, fname, stepN):
 # when exception occurs, we need to know its cause, and is related data
 def genStepEndException(cause, cdata, stepN):
     stepjson = {
-        "type": "Exception",
+        "type": "End Exception",
         "cause": cause,
         "cdata": cdata
     }
@@ -309,7 +307,6 @@ def genStepExceptionHandler(cause, cdata, stepN):
 def genStepWait(wait, random_min, random_max, stepN):
     stepjson = {
         "type": "Wait",
-        "action": "Wait",
         "random_min": random_min,
         "random_max": random_max,
         "time": wait
