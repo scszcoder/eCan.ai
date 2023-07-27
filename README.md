@@ -68,6 +68,9 @@ Here are the procedures related instruction sets of the ecbots RPA virtual machi
 | Call <br>Function                 | Call a Function                                         | <pre>{<br>&nbsp;"type" : "Call Function",<br>&nbsp;&nbsp;"fname": "string",<br>&nbsp;&nbsp;"args": "string",<br>&nbsp;&nbsp;"return_to": "string",<br>&nbsp;&nbsp;"output": "string"<br>}</pre>                                                                                                                                                                                                                                                                                        | 
 | Call <br>Extern                   | Call an extern python routine.                          | <pre>{<br>&nbsp;"type" : "Call Extern",<br>&nbsp;&nbsp;"file": "string",<br>&nbsp;&nbsp;"args": "string",<br>&nbsp;&nbsp;"entity": "string",<br>&nbsp;&nbsp;"output": "string"<br>}</pre>                                                                                                                                                                                                                                                                                              | 
 
+###### Mouse Click Instruction
+
+
 With the above basic instruction set, one can pretty much create a skill for any task flow.
 
 ##### The Contents Related JOBS Instruction Set
