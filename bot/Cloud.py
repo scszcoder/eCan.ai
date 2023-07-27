@@ -15,7 +15,6 @@ import shutil
 
 # Constants Copied from AppSync API 'Settings'
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
-AWS_KEY_ID = 'AKIAZWU23DOOSVDIR6G3'
 
 def direct_send_screen(file_name, bucket="winrpa"):
     response = "nothing"
@@ -658,8 +657,6 @@ def gen_remove_skills_string(removeOrders):
 
 
 def set_up_cloud():
-    ACCESS_KEY = 'AKIAZWU23DOOSVDIR6G3'
-    SECRET_KEY = '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'
     REGION = 'us-east-1'
     session = requests.Session()
     # session.auth = AWS4Auth(
