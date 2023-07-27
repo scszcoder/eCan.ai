@@ -130,7 +130,7 @@ class Login(QtWidgets.QDialog):
             with open(ACCT_FILE, 'r') as file:
                 data = json.load(file)
                 self.textName.setText(data["user"])
-                self.textPass.setText(self.descramble(data["pw"]))
+                self.textPass.setText(self.descramble(os.environ[data["pw"]]))
                 self.lan = data["lan"]
                 self.show_visibility = data["mem_cb"]
         else:
@@ -318,7 +318,8 @@ class Login(QtWidgets.QDialog):
         #print(user)
         print("timezone:", datetime.now().astimezone().tzinfo)
         #now make this window dissappear and bring out the main windows.
-        data = {"mem_cb": True, "user": self.textName.text(), "pw": self.scramble(self.textPass.text()), "lan": "EN"}
+        os.environ["SCECBOTPW"] = self.scramble(self.textPass.text())
+        data = {"mem_cb": True, "user": self.textName.text(), "pw": "SCECBOTPW", "lan": "EN"}
         if self.mempw_cb.checkState() == QtCore.Qt.Unchecked:
             data["mem_cb"] = False
 
