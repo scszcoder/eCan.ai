@@ -369,7 +369,7 @@ class Login(QtWidgets.QDialog):
         # response = client.initiate_auth(
         #     ClientId=CLIENT_ID,
         #     AuthFlow="USER_PASSWORD_AUTH",
-        #     AuthParameters={"USERNAME": 'songc@yahoo.com', "PASSWORD": 'Sc12345!'},
+        #     AuthParameters={"USERNAME": 'songc@yahoo.com', "PASSWORD": 'XXXXXXXXX'},
         # )
 
         # if (self.textName.text() == 'foo' and
