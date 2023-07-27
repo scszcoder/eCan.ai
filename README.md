@@ -53,4 +53,4 @@ Here are the procedures related instruction sets of the ecbots RPA virtual machi
 | Anchor Specification      | Define anchors on on a page        | <pre>{<br>&nbsp;"page name" :<br>&nbsp;&nbsp;"section name1": {<br>&nbsp;&nbsp;&nbsp;&nbsp;"anchors": [...],<br>&nbsp;&nbsp;&nbsp;&nbsp;"info": [...]<br>&nbsp;&nbsp;}, ....<br>}</pre> |
 | Information Specification | Define informations on on a page   | <pre>{<br>&nbsp;"page name" :<br>&nbsp;&nbsp;"section name1": {<br>&nbsp;&nbsp;&nbsp;&nbsp;"anchors": [...],<br>&nbsp;&nbsp;&nbsp;&nbsp;"info": [...]<br>&nbsp;&nbsp;}, ....<br>}</pre> |
 
-With the above basic instruction set, one can pretty much define any structured screen content.
+With the above basic instruction set, one can pretty much define any structured screen content. 
