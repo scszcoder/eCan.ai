@@ -11,6 +11,7 @@ password = "#Abc1234"
 USER_POOL_ID = 'us-east-1_uUmKJUfB3'
 CLIENT_ID = '5400r8q5p9gfdhln2feqcpljsh'
 
+
 auth_client = boto3.client("cognito-idp", region_name="us-east-1")
 
 # cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com")
