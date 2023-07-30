@@ -84,7 +84,11 @@ def windowlauncher():
 
 if __name__ == '__main__':
     # test_eb_orders_scraper()
-    windowlauncher()
+    test_etsy_label_gen()
+    print("all test done...")
+
+
+    # windowlauncher()
 
     # try:
     #     asyncio.run(main())
