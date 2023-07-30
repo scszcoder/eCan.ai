@@ -57,6 +57,15 @@ current_context = None
 #
 #     local image:  C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/date/b0m0/win_chrome_amz_home/browse_search_kw/images/scrnsongc_yahoo_1678175548.png"
 #     local skill:  C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_amz_walk/scripts/skillname.psk
+#
+
+# SC - 2023-07-28 to make this instructionset extensible, make vicrop file based? if someone wants to extends the instruction set.
+# simply add a file in certain DIR or add thru GUI settings section?
+#
+# for example, how does a customer supply its own label purchasing function? use patch scheme? create a function overload scheme? (a name to functions mapping tables of some sort)
+# do we need code patch scheme?
+# How to add an external skill to be called?
+#
 
 # VItual-Computer-RObot-Processor
 vicrop = {
