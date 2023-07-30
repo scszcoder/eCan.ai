@@ -65,6 +65,7 @@ def genWinGetLabelTrackingCodes(lieutenant, bot_works, stepN, theme):
     this_step, step_words = genStepExtractInfo("", root, "screen_info", "orders", "top", theme, this_step, pl)
     psk_words = psk_words + step_words
 
+
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
     this_step, step_words = genStepSearch("screen_info", ["complete_order"], ["anchor icon"], "any", "foundMark", "useless", "etsy", this_step)
     psk_words = psk_words + step_words
