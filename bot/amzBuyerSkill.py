@@ -194,7 +194,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, root, page, sect, theme
     psk_words = psk_words + step_words
 
     # action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['box']", "expr", "", "", "", "", "", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['box']", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # create a loop here to click into the interested product list. Note: loop is inside genAMZBrowseDetail
@@ -269,7 +269,7 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, stepN, root, page, sect
     psk_words = psk_words + step_words
 
     # action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['txts']['box']", "expr", "", "", "", "", "", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['txts']['box']", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # create a loop here to click into the interested product list. Note: loop is inside genAMZBrowseDetail
@@ -433,7 +433,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
 
 
     # # click into "Read more"
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "read_more", "anchor text", "", "1", "", "0", "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "read_more", "anchor text", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global expandables_count\nexpandables_count = expandables_count + 1", "", "in_line", "", this_step)
@@ -523,7 +523,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     # psk_words = psk_words + step_words
     #
     # # for level 3 details, click on see_all_reviews and
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "see_all_reviews", "anchor text", "", [0, 0], "center", [0, 0], "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "see_all_reviews", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
     #
     # # go into all reviews.
@@ -681,7 +681,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepCheckCondition("hasNegativeReviews", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "all_critical_reviews", "anchor text", "", [0, 0], "center", [0, 0], "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "all_critical_reviews", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("nNRP > 0", "", "", "", this_step)
@@ -1020,7 +1020,7 @@ def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
         if run["entry_paths"]["type"] == "Top main menu":
             # click the menu item and enter that page. \
             # (action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN):
-            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", run["top_menu_item"], "anchor text", run["top_menu_item"], "1", "0", "right", "box", this_step)
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", run["top_menu_item"], "anchor text", run["top_menu_item"], "1", "0", "right", "box", 2, 0, this_step)
             psk_words = psk_words + step_words
 
             # much of this is not yet written....this could be somewhat complicated in that the product list entry might take a couple of screens in
@@ -1029,7 +1029,7 @@ def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
         elif run["entry_paths"]["type"] == "Left main menu":
             # click on the left main menu.
             # (action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN):
-            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All", "anchor text", "All", "1", "0", "right", "box", this_step)
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All", "anchor text", "All", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
             psk_words = psk_words + step_words
 
             # now scroll down and find the menu item.
@@ -1043,8 +1043,8 @@ def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
             # click, type search phrase and hit enter.
             #action, txt, speed, loc, key_after, wait_after, stepN
             # genStepKeyboardAction(action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN):
-            # this_step, step_words = genStepMouseClick("Single Click", "", "screen_info", "main_search", "anchor icon", "", [-1, 0], "left", [10, ], "box", this_step)
-            this_step, step_words = genStepMouseClick("Single Click", "", "screen_info", "main_search", "anchor text", "Search Amazon", [0, 0], "center", [0, 0], "pixel", this_step)
+            # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "main_search", "anchor icon", "", [-1, 0], "left", [10, ], "box", 2, 0, this_step)
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "main_search", "anchor text", "Search Amazon", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
             psk_words = psk_words + step_words
 
             # action, txt, speed, key_after, wait_after, stepN
@@ -1079,7 +1079,7 @@ def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
             if page_cnt != len(run["prodlist_pages"]) - 1:
                 page_cnt = page_cnt + 1
                 #(action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-                this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Next", "anchor text", "Next", "1", "0", "right", "box", this_step)
+                this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Next", "anchor text", "Next", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
                 psk_words = psk_words + step_words
             print("DEBUG", "page count: ", page_cnt, " out of total [", len(run["prodlist_pages"]), "] of pages....")
 

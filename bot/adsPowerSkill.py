@@ -26,10 +26,7 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     this_step, step_words = genStepCheckCondition("loginwin == True", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", "screen_info", "log_in", "anchor text", "Log in", [0, 0], "center", [0, 0], "pixel", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "log_in", "anchor text", "Log in", [0, 0], "center", [0, 0], "pixel", 2, 2, this_step)
     psk_words = psk_words + step_words
 
     # now that we have logged in, load profiles.
@@ -41,13 +38,13 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     psk_words = psk_words + step_words
 
     # now that we have logged in, load profiles.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "new_profile", "anchor text", "See All Reviews", "1", "0", "right", "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "new_profile", "anchor text", "See All Reviews",  [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", root, "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "batch_import", "anchor text", "See All Reviews", "1", "0", "right", "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "batch_import", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # click on account platform,  and select amazon
@@ -62,14 +59,14 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     # click and type through the file selector and select the xls file.
     # the presumption is the bots to be run in this batch are already grouped into a xls file as input to this function.
     # click OK to load the bot profiles.
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "amazon", "anchor text", "See All Reviews", "1", "0", "right", "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "amazon", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "amazon", "anchor text", "See All Reviews", "1", "0", "right", "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "amazon", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box",  2, 0, this_step)
     psk_words = psk_words + step_words
 
     # click OK to load the bot profiles.
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "ok", "anchor text", "See All Reviews", "1", "0", "right", "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "ok", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box",  2, 0, this_step)
     psk_words = psk_words + step_words
 
 

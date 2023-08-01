@@ -684,7 +684,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
     psk_words = ""
     # grab location of the title of the "matchedProducts" and put it into variable "product_title"
     #(action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", "1", "0", "right", "box", stepN)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", root, "screen_info", "amazon_home", "top", theme, this_step, None)
@@ -692,7 +692,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
 
     if detail_cfg.seeAll:
         #(action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", "1", "0", "right", "box", this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepWait(3, 0, 0, this_step)
@@ -700,7 +700,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
 
         if detail_cfg.allPos:
             # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All positive Reviews", "anchor text", "All positive Reviews", "1", "0", "right", "box", this_step)
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All positive Reviews", "anchor text", "All positive Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
             psk_words = psk_words + step_words
 
             this_step, step_words = genStepWait(3, 0, 0, this_step)
@@ -711,7 +711,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
 
         if detail_cfg.allNeg:
             # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All negative Reviews", "anchor text", "All negative Reviews", "1", "0", "right", "box", this_step)
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All negative Reviews", "anchor text", "All negative Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
             psk_words = psk_words + step_words
 
             this_step, step_words = genStepWait(3, 0, 0, this_step)
@@ -737,7 +737,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
 
         if detail_cfg.nExpand > 0:
             # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "read more", "anchor text", "read more", "1", "0", "right", "box", this_step)
+            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "read more", "anchor text", "read more", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
             psk_words = psk_words + step_words
 
             #now scroll until the end of this review.
@@ -749,7 +749,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
 
     # click into the product title.
     # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "1 star", "anchor text", "1 star", "1", "0", "right", "box", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "1 star", "anchor text", "1 star", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     ## browse all the way down, until seeing "No customer reviews" or "See all reviews"

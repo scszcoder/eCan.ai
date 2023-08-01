@@ -141,7 +141,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, root, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['txts']['box']", "expr", "", "", "", "", "",this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['txts']['box']", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket for condition ("currentPage == nOrderPages")
@@ -213,13 +213,13 @@ def genWinEtsyUpdateOrderSkill(lieutenant, bot_works, start_step, theme, stepN):
     this_step, step_words = genStepCheckCondition("foundMark == True", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "enter_tracking_number", "expr", "", "", "", "", "",this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "enter_tracking_number", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "complete_order", "expr", "", "", "", "", "",this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "complete_order", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "USPS", "expr", "", "", "", "", "",this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "USPS", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
 def genWinEtsyHandleReturnSkill(lieutenant, bot_works, start_step, theme):
