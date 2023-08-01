@@ -68,115 +68,117 @@ Here are the procedures related instruction sets of the ecbots RPA virtual machi
 | Call <br>Extern                   | Call an extern python routine.                          | <pre>{<br>&nbsp;"type" : "Call Extern",<br>&nbsp;&nbsp;"file": "string",<br>&nbsp;&nbsp;"args": "string",<br>&nbsp;&nbsp;"entity": "string",<br>&nbsp;&nbsp;"output": "string"<br>}</pre>                                                                                                                                                                                                                                                                                             | 
 
 ###### Mouse Click Instruction
-- action - can be "single click/double click/right click/drag drop"
-- action args - "" this is related to action parameter, for example one can specify 
-- save_rb - whether to save this instruction to be a roll-back point. (mostly it should be True)
-- screen - the variable name that holds the screen extraction results.
-- target_name - the name of the anchor or info or other element in "screen" variable, the location of this target item will be clicked on. this is specified in the contents related JOBS instructions on the cloud side.
-- target_type - the type of  the anchor or info or other element in "screen" variable, the location of this target item will be clicked on.this is specified in the contents related JOBS instructions on the cloud side.
-- target_type - the piece of text in "screen" variable, the location of this text will be clicked on.
-- nth - the nth occurrence of the target in case multiple targets are on the screen, [x, y] means it's the xth occurrence in horizontal direction (left to right), and yth occurrence in vertial direction (top to bottom).
-- offset from - could be "left/top/right/bottom/center", meaning that the click location is at an offset location from the target item, for example "left" means click to the left of the left edge of the target item.
-- offset unit - could be "pixel/box/screen", the offset unit.
-- offset - could be integer or fractional, this is the offset amount. For example, we could specify to click 120 pixels offset to the right of the right edge of an text anchor named "Search". 
+- *action* - can be "single click/double click/right click/drag drop"
+- *action args* - "" this is related to action parameter, for example one can specify 
+- *save_rb* - whether to save this instruction to be a roll-back point. (mostly it should be True)
+- *screen* - the variable name that holds the screen extraction results.
+- *target_name* - the name of the anchor or info or other element in "screen" variable, the location of this target item will be clicked on. this is specified in the contents related JOBS instructions on the cloud side.
+- *target_type* - the type of  the anchor or info or other element in "screen" variable, the location of this target item will be clicked on.this is specified in the contents related JOBS instructions on the cloud side.
+- *target_type* - the piece of text in "screen" variable, the location of this text will be clicked on.
+- *nth* - the nth occurrence of the target in case multiple targets are on the screen, [x, y] means it's the xth occurrence in horizontal direction (left to right), and yth occurrence in vertial direction (top to bottom).
+- *offset from* - could be "left/top/right/bottom/center", meaning that the click location is at an offset location from the target item, for example "left" means click to the left of the left edge of the target item.
+- *offset unit* - could be "pixel/box/screen", the offset unit.
+- *offset* - could be integer or fractional, this is the offset amount. For example, we could specify to click 120 pixels offset to the right of the right edge of an text anchor named "Search". 
+- *move_pause* - pause number of seconds after move the mouse pointer to target
+- *post_wait* - wait number of seconds after mouse click action
 
 ###### Mouse Scroll Instruction
-- action - can be "scroll up/scroll down"
-- action args - "" this is scroll speed
-- screen - the variable name that holds the screen extraction results.
-- amount - integer, amount to scroll (equivalent to mouse wheel is minimum step)
-- resolution - the variable's name that holds the pixel/scroll resolution varaible.
-- random min - integer, add random amount to the scroll, the random amount's range's lower limit. 
-- random max - integer, add random amount to the scroll, the random amount's range's upper limit. Setting both min and max to 0 means there is no randomness.
-- unit - the unit the scroll, could "raw/screen"
+- *action* - can be "scroll up/scroll down"
+- *action args* - "" this is scroll speed
+- *screen* - the variable name that holds the screen extraction results.
+- *amount* - integer, amount to scroll (equivalent to mouse wheel is minimum step)
+- *resolution* - the variable's name that holds the pixel/scroll resolution varaible.
+- *random min* - integer, add random amount to the scroll, the random amount's range's lower limit. 
+- *random max* - integer, add random amount to the scroll, the random amount's range's upper limit. Setting both min and max to 0 means there is no randomness.
+- *unit* - the unit the scroll, could "raw/screen"
 
 ###### Keyboard Text Input Instruction
-- action - can be "scroll up/scroll down"
-- save_rb - whether to save this instruction to be a roll-back point. (mostly it should be True)
-- text - the text to type on the keyboard
-- speed - float, type speed, time between each key stroke
-- key_after - the non-text key to hit after typing the text, for exammple "enter" means hit the <enter> key after typing.
-- wait_after - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
+- *action* - can be "scroll up/scroll down"
+- *save_rb* - whether to save this instruction to be a roll-back point. (mostly it should be True)
+- *text* - the text to type on the keyboard
+- *speed* - float, type speed, time between each key stroke
+- *key_after* - the non-text key to hit after typing the text, for exammple "enter" means hit the <enter> key after typing.
+- *wait_after* - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
 
 ###### Keyboard Key Input Instruction
-- type - can be "scroll up/scroll down"
-- action - "" this is scroll speed
-- action value - the variable name that holds the screen extraction results.
-- save_rb - whether to save this instruction to be a roll-back point. (mostly it should be True)
-- location - integer, amount to scroll (equivalent to mouse wheel is minimum step)
-- wait_after - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
+- *type* - can be "scroll up/scroll down"
+- *action* - "" this is scroll speed
+- *action* value - the variable name that holds the screen extraction results.
+- *save_rb* - whether to save this instruction to be a roll-back point. (mostly it should be True)
+- *location* - integer, amount to scroll (equivalent to mouse wheel is minimum step)
+- *wait_after* - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
 
 ###### Screen Extraction Instruction
-- root - can be "scroll up/scroll down"
-- template - "" this is scroll speed
-- option - the variable name that holds the screen extraction results.
-- data_sink - whether to save this instruction to be a roll-back point. (mostly it should be True)
-- page -  section name of the page (refer to the contents part of the JOBS-DL instruction set)
-- page_data_info - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
-- theme - 
-- section - section name of the page (refer to the contents part of the JOBS-DL instruction set)
+- *root* - can be "scroll up/scroll down"
+- *template* - "" this is scroll speed
+- *option* - the variable name that holds the screen extraction results.
+- *data_sink* - whether to save this instruction to be a roll-back point. (mostly it should be True)
+- *page* -  section name of the page (refer to the contents part of the JOBS-DL instruction set)
+- *page_data_info* - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
+- *theme* - 
+- *section* - section name of the page (refer to the contents part of the JOBS-DL instruction set)
 
 
 ###### Screen Search Instruction
-- screen - can be "scroll up/scroll down"
-- names - "" this is scroll speed
-- target_types - the variable name that holds the screen extraction results.
-- logic - whether to save this instruction to be a roll-back point. (mostly it should be True)
-- result - integer, amount to scroll (equivalent to mouse wheel is minimum step)
-- site - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
-- status - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
+- *screen* - can be "scroll up/scroll down"
+- *names* - "" this is scroll speed
+- *target_types* - the variable name that holds the screen extraction results.
+- *logic* - whether to save this instruction to be a roll-back point. (mostly it should be True)
+- *result* - integer, amount to scroll (equivalent to mouse wheel is minimum step)
+- *site* - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
+- *status* - integer, the amount of seconds to wait after the type action. for example, for waiting the web site to load after typing something.
 
 ###### Time Wait Instruction
-- random_min - add a random amount of seconds on top of the number of seconds specified in "time" parameter. This sets the lower bound of the random number.
-- random_max - add a random amount of seconds on top of the number of seconds specified in "time" parameter. This sets the upper bound of the random number.
-- time - integer number of seconds to wait
+- *random_min* - add a random amount of seconds on top of the number of seconds specified in "time" parameter. This sets the lower bound of the random number.
+- *random_max* - add a random amount of seconds on top of the number of seconds specified in "time" parameter. This sets the upper bound of the random number.
+- *time* - integer number of seconds to wait
 
 ###### Variable Creation Instruction
-- data_type - the type of the variable to be created, could be "int/string/float/obj"
-- data_name - the name of the variable to be created.
-- key_name - if data_type is obj, then this holds the name of the key to be created.
-- key_value - if data_type is obj, then this holds the value of the key to be created.
+- *data_type* - the type of the variable to be created, could be "int/string/float/obj"
+- *data_name* - the name of the variable to be created.
+- *key_name* - if data_type is obj, then this holds the name of the key to be created.
+- *key_value* - if data_type is obj, then this holds the value of the key to be created.
 
 ###### Variable Assign Value Instruction
-- from - the variable that's the souce of the data value assignment
-- to - the variable that's the sink of the data value assignment
-- result - the name of the variable that holds the result of the assignment.
+- *from* - the variable that's the souce of the data value assignment
+- *to* - the variable that's the sink of the data value assignment
+- *result* - the name of the variable that holds the result of the assignment.
 
 ###### Conditional Execution Instruction
-- condition - the condition to be checked
-- if_else - the address of the instruction to be executed if condition returns False
-- if_end - the address of the instruction at the end of the conditional execution.
+- *condition* - the condition to be checked
+- *if_else* - the address of the instruction to be executed if condition returns False
+- *if_end* - the address of the instruction at the end of the conditional execution.
 
 ###### Loop Execution Instruction
-- lc_name - the name of the loop counter
-- until - the loop end condition
-- count - the number of times to iterate the loop. (if this parameter is specified, then the until parameter will be ignored.)
-- end - the address of end of the loop
+- *lc_name* - the name of the loop counter
+- *until* - the loop end condition
+- *count* - the number of times to iterate the loop. (if this parameter is specified, then the until parameter will be ignored.)
+- *end* - the address of end of the loop
 
 ###### Go To Execution Instruction
-- goto - the instruction address to jump to
+- *goto* - the instruction address to jump to
 
 ###### Exception Handling Instruction
-- cause - cause of the exception
-- cdata - data related to the cause
+- *cause* - cause of the exception
+- *cdata* - data related to the cause
 
 ###### End Exception Instruction
-- cause - cause of the exception
-- cdata - data related to the cause
+- *cause* - cause of the exception
+- *cdata* - data related to the cause
 
 ###### Stub Instruction
-- func_name - the name of the function to be executed.
-- stub_name - "function/end function/else/end loop/end condition"
+- *func_name* - the name of the function to be executed.
+- *stub_name* - "function/end function/else/end loop/end condition"
 
 ###### Call Function Instruction
-- func_name - the name of the function to be executed.
-- stub_name - "function/end function"
+- *func_name* - the name of the function to be executed.
+- *stub_name* - "function/end function"
 
 ###### Call External Instruction
-- file - the file name or the external python code in string to be executed.
-- args - "" this is scroll speed
-- entity - integer, amount to scroll (equivalent to mouse wheel is minimum step)
-- output - the name of the variable that will hold the output of the external instructions run.
+- *file* - the file name or the external python code in string to be executed.
+- *args* - "" this is scroll speed
+- *entity* - integer, amount to scroll (equivalent to mouse wheel is minimum step)
+- *output* - the name of the variable that will hold the output of the external instructions run.
 
 
 With the above basic instruction set, one can pretty much create a skill for any task flow.

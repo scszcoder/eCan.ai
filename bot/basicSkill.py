@@ -167,7 +167,7 @@ def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, 
 
 
 
-def genStepMouseClick(action, action_args, saverb, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN):
+def genStepMouseClick(action, action_args, saverb, screen, target, target_type, template, nth, offset_from, offset, offset_unit, move_pause, post_wait, stepN):
     stepjson = {
         "type": "Mouse Click",
         "action": action,               # double click, single click, drag and drop?
@@ -180,7 +180,9 @@ def genStepMouseClick(action, action_args, saverb, screen, target, target_type, 
         "nth": nth,                     # [0,0] in case of there are multiple occurance of target on the screen, click on which one? [n, m] would be nth from left, mth from top
         "offset_from": offset_from,      # click at a offset from object's bound box side, left/top/right/bottom/center are choices. if left/right, y coordinate is default to be center, if top/bottom, x coordiate default to be center.
         "offset_unit": offset_unit,      # pixel, box
-        "offset": offset                # offset in x and y direction,
+        "offset": offset,                # offset in x and y direction,
+        "move_pause": move_pause,        # after move the mouse pointer to target, pause for certain seconds.
+        "post_wait": post_wait           # after click action, wait for a number of seconds.
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -762,7 +764,7 @@ def processMouseClick(step, i):
 
     pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
 
-    time.sleep(3)
+    time.sleep(step["move_pause"])
 
 
     if step["action"] == "Single Click":
@@ -778,6 +780,8 @@ def processMouseClick(step, i):
     elif step["action"] == "Drag Drop":
         # code drop location is embedded in action_args, the code need to added later to process that....
         pyautogui.dragTo(loc[0], loc[1], duration=2)
+
+    time.sleep(step["post_wait"])
 
     # now save for roll back if ever needed.
     # first remove the previously save rollback point, but leave up to 3 rollback points

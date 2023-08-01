@@ -2,6 +2,14 @@ from basicSkill import *
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
+from PyPDF2 import PdfReader
+import rarfile
+from rarfile import RarFile
+from rarfile import is_rarfile
+import subprocess
+import os
+
+
 
 # https://www.onlinebarcodereader.com/
 # https://online-barcode-reader.inliteresearch.com/
@@ -16,13 +24,13 @@ url = "https://goodsupply.xyz/Dashboard/Usps"
 url = "https://goodsupply.xyz/Template/Index"
 
 # bulk create
-url = "https://goodsupply.xyz/Dashboard/UploadBulk"
+ul_url = "https://goodsupply.xyz/Dashboard/UploadBulk"
 
 
 def genWinCreateBulkLabels(lieutenant, bot_works, stepN, theme):
     psk_words = ""
     url = "https://www.etsy.com/your/orders/sold"
-    this_step, step_words = genStepOpenApp("Run", True, "browser", url, "", "", lieutenant.skills[skidx].getAppArgs(), stepN)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", ul_url, "", "", lieutenant.skills[skidx].getAppArgs(), stepN)
     psk_words = psk_words + step_words
 
     dtnow = datetime.now()
@@ -67,23 +75,41 @@ def genWinGetLabelTrackingCodes(lieutenant, bot_works, stepN, theme):
 
 
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearch("screen_info", ["complete_order"], ["anchor icon"], "any", "foundMark", "useless", "etsy", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["choose_file"], ["anchor text"], "any", "bulkready", "useless", "etsy", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["orders_per_page"], ["anchor text"], "any", "startOfOrdersPage", "useless", "etsy", this_step)
+    this_step, step_words = genStepCheckCondition("bulkready == True", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("foundMark == True", "", "", this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "choose_file", "anchor text", "Choose File", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "enter_tracking_number", "expr", "", "", "", "", "",this_step)
+    this_step, step_words = genStepOpenFile(path, file_name, file_extension, "", "",this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "complete_order", "expr", "", "", "", "", "",this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "verify_data", "anchor text", "Verify Data", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "USPS", "expr", "", "", "", "", "",this_step)
+
+    this_step, step_words = genStepExtractInfo("", root, "screen_info", "orders", "top", theme, this_step, pl)
     psk_words = psk_words + step_words
+
+
+    # search "etsy, inc" and page list as indicators for the bottom of the order list page.
+    this_step, step_words = genStepSearch("screen_info", ["Total"], ["anchor text"], "any", "orderVerified", "useless", "etsy", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepMouseClick("Single Click", "", False, "Import", "import", "anchor text", "Verify Data", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # check to see whether a xls created in download dir
+
+
 
 
 
@@ -137,3 +163,47 @@ def createLabelOrderFile(orders, ofname):
 
     # Save workbook
     wb.save(ofname)
+
+# directory should be under: C:\Users\songc\PycharmProjects\ecbot\resource\runlogs\20230721\b3m3\win_chrome_amz_product_list\skills\browse_search_kw
+# there should be a generatedLabels\
+# SC - 2023-07-31 not working apparently goodsupply's RAR file is not a standard version 3 or version 5 RAR file, so need to
+# use GUI automation to actually uncopress it.
+def unCompressLabels(rarf, labdir):
+    # subprocess.check_call(['unrar', 'x', rarf])
+    RarFile.UNRAR_TOOL = r"C:\Program Files\Unrar\unrar.dll"
+
+    print("hello>>>", is_rarfile(rarf))
+
+    print("unrar :", rarf, "into: ", labdir)
+    with RarFile(rarf) as rf:
+        rf.extractall(labdir)
+
+    dir_list = os.listdir(labdir)
+
+    # create a list of full path label files.
+    label_files = [labdir+fname for fname in dir_list]
+    print("all label files:", label_files)
+
+    return label_files
+
+def searchTrackingCodes(pdffiles):
+    tcs = [searchTrackingCode(pdff) for pdff in pdffiles]
+
+def searchTrackingCode(pdffile):
+    reader = PdfReader(pdffile)
+
+    # printing number of pages in pdf file
+    # print(len(reader.pages))
+
+    # getting a specific page from the pdf file
+    page = reader.pages[0]
+
+    # extracting text from page
+    text = page.extract_text()
+
+    # luckily, for good supply generated label, there is only 1 line of text in the pdf which is the tracking code.
+    words = text.split()
+    tc = ""
+    tc = tc.join(words)
+    print("tracking code:["+tc+"]")
+    return tc
