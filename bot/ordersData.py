@@ -1,63 +1,105 @@
 class Buyer:
-    def __init__(self, full_name, street1, city, state, zip, street2="", street3=""):
+    def __init__(self, buyer_id, full_name, street1, city, state, zip, street2=""):
         self.fn = ""
         self.mn = ""
         self.ln = ""
         self.suffix = ""
         self.full_name = full_name
+        self.id = buyer_id
         self.street1 = street1
         self.street2 = street2
-        self.street3 = street3
         self.city = city
         self.state = state
         self.zip = zip
 
+    def setStreet1(self, str1):
+        self.street1 = str1
+
+    def setStreet2(self, str2):
+        self.street2 = str2
+
+    def setCity(self, city):
+        self.city = city
+
+    def setState(self, state):
+        self.state = state
+
+    def setZip(self, zipcode):
+        self.zip = zipcode
+
+    def setId(self, bid):
+        self.id = bid
+
+    def setFullName(self, fullname):
+        self.full_name = fullname
 
     def toJson(self):
         return {
-            "short_name": self.short_name,
-            "summery": self.summery.toJson(),
-            "reviews": self.reviewsToJson(),
-            "qas": self.qasToJson(),
-            "point_summery": self.point_summery,
-            "description": self.description,
-            "start_date": self.start_date,
-            "department": self.department,
-            "ranks": self.ranks,
-            "dimensions": self.dimensions,
-            "weight": self.weight
+            "full_name": self.full_name,
+            "id": self.id,
+            "street1": self.street1,
+            "street2": self.street2,
+            "city": self.city,
+            "state": self.state,
+            "zip": self.zip
         }
 
 class Shipping:
-    def __init__(self, vendor, service, tracking, price=0, disti="", disti_site=""):
+    def __init__(self, vendor, service, tracking, price=0, disti="", disti_site="", dimension = [9, 6, 3], weight = 1.0):
         self.vendor = vendor
         self.service = service
         self.tracking = tracking
         self.price = price
         self.disti = disti
         self.disti_site = disti_site
+        self.dimension_inches = dimension                  # inches
+        self.weight_lbs = weight                        # lbs
         self.status = ""
 
+    def setVendor(self, vendor):
+        self.vendor = vendor
+
+    def setService(self, service):
+        self.service = service
+
+    def setTracking(self, tracking):
+        self.tracking = tracking
+
+    def setPrice(self, price):
+        self.price = price
+
+    def setDisti(self, disti):
+        self.disti = disti
+
+    def setDistiSite(self, disti_site):
+        self.disti_site = disti_site
+
+    def setDimension(self, dimension):
+        self.dimension_inches = dimension
+
+    def setWeight(self, weight):
+        self.weight_lbs = weight
+
+    def setStatus(self, status):
+        self.status = status
 
     def toJson(self):
         return {
-            "short_name": self.short_name,
-            "summery": self.summery.toJson(),
-            "reviews": self.reviewsToJson(),
-            "qas": self.qasToJson(),
-            "point_summery": self.point_summery,
-            "description": self.description,
-            "start_date": self.start_date,
-            "department": self.department,
-            "ranks": self.ranks,
-            "dimensions": self.dimensions,
-            "weight": self.weight
+            "vendor": self.vendor,
+            "service": self.service,
+            "tracking": self.tracking,
+            "price": self.price,
+            "disti": self.disti,
+            "disti_site": self.disti_site,
+            "dimension_inches": self.dimension_inches,
+            "weight_lbs": self.weight_lbs,
+            "status": self.status
         }
 
 class OrderedProducts:
-    def __init__(self, pid, pname, price, quantity):
+    def __init__(self, pid, ptitle, price, quantity):
         self.pid = pid
-        self.pname = pname
+        self.ptitle = ptitle
         self.price = price
         self.quantity = quantity
 
@@ -67,11 +109,11 @@ class OrderedProducts:
     def getPid(self):
         return self.pid
 
-    def setPname(self, pname):
-        self.pname = pname
+    def setPtitle(self, ptitle):
+        self.ptitle = ptitle
 
-    def getPname(self):
-        return self.pname
+    def getPtitle(self):
+        return self.ptitle
 
     def setPrice(self, price):
         self.price = price
@@ -88,7 +130,7 @@ class OrderedProducts:
     def toJson(self):
         return {
             "pid": self.pid,
-            "pname": self.pname,
+            "ptitle": self.ptitle,
             "price": self.price,
             "quantity": self.quantity
         }
@@ -97,63 +139,41 @@ class ORDER:
     def __init__(self, oid, products, buyer, shipping, status, createdOn):
         self.oid = oid
         self.products = products    #[{"pid":***, "pname":****, "quantity":***, "price":***}...]
-        self.price = 0.0
+        self.total_price = 0.0
         self.buyer = buyer
         self.shipping = shipping
         self.status = status
         self.createdOn = createdOn
 
-    def setPid(self, pid):
-        self.pid = pid
+    def setOid(self, oid):
+        self.oid = oid
 
-    def setReviews(self, rvs):
-        self.reviews = rvs
+    def setBuyer(self, buyer):
+        self.buyer = buyer
 
-    def setQAs(self, qas):
-        self.qas = qas
+    def setProducts(self, pds):
+        self.products = pds
+        self.total_price = sum(float(pd.getPrice()) * int(pd.getQuantity()) for pd in pds)
 
-    def set7pts(self, pt7):
-        self.point_summery = pt7
+    def setShipping(self, shipping):
+        self.shipping = shipping
 
-    def setRanks(self, ranks):
-        self.ranks = ranks
+    def setTotalPrice(self, tp):
+        self.total_price = tp
 
-    def setSizeWeight(self, size, weight):
-        self.dimensions = size
-        self.weight = weight
+    def setCreationDate(self, odate):
+        self.createdOn = odate
 
-    def setDescription(self, des):
-        self.description = des
-
-    def setStartDate(self, sdt):
-        self.start_date = sdt
-
-    def setDepartment(self, dept):
-        self.department = dept
-
-    def qasToJson(self):
-        qas = []
-        for qa in self.qas:
-            qas.append(qa.toJson())
-        return qas
-
-    def reviewsToJson(self):
-        rvs = []
-        for rv in self.reviews:
-            rvs.append(rv.toJson())
-        return rvs
+    def setStatus(self, status):
+        self.status = status
 
     def toJson(self):
         return {
-            "short_name": self.short_name,
-            "summery": self.summery.toJson(),
-            "reviews": self.reviewsToJson(),
-            "qas": self.qasToJson(),
-            "point_summery": self.point_summery,
-            "description": self.description,
-            "start_date": self.start_date,
-            "department": self.department,
-            "ranks": self.ranks,
-            "dimensions": self.dimensions,
-            "weight": self.weight
+            "oid": self.oid,
+            "buyer": self.buyer.toJson(),
+            "products": [p.toJson() for p in self.products],
+            "shipping": self.shipping.toJson(),
+            "total_price": self.total_price,
+            "createOn": self.createdOn,
+            "status": self.status
         }
