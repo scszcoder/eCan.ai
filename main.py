@@ -1,19 +1,10 @@
-
-import sys
-import random
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
-from ui_settings import *
-from BorderLayout import *
 from LoginoutGUI import *
-import cpuinfo
-from readSkill import *
 from MainGUI import *
 from network import *
 from unittests import *
 import asyncio
-from qasync import asyncSlot, asyncClose, QApplication, QThreadExecutor, QEventLoop
-import qasync
+from qasync import QApplication, QEventLoop
+
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
@@ -83,8 +74,8 @@ def windowlauncher():
 
 
 if __name__ == '__main__':
-    # test_eb_orders_scraper()
-    test_etsy_label_gen()
+    test_eb_orders_scraper()
+    # test_etsy_label_gen()
     print("all test done...")
 
 
