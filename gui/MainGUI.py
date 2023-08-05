@@ -26,6 +26,7 @@ import TestAll
 import sqlite3
 from scraper import *
 from pynput.mouse import Button, Controller
+from genSkills import *
 
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
@@ -466,6 +467,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.mainWidget)
 
         self.setWindowTitle("Main Bot&Mission Scheduler")
+
+        # Done with all UI stuff, now do the instruction set extension work.
+        is_extension_file = self.homepath + "/resource/skills/my/is_extension.json"
+        if os.path.isfile(is_extension_file):
+            with open(is_extension_file, 'r') as f_is_extension:
+                vicrop.update(json.load(f_is_extension))
+
+        # now hand daily tasks
 
         self.todays_work = {"tbd": [], "allstat": "working"}
         self.todays_work["tbd"].append({"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
@@ -1229,6 +1238,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         print("worksTBD: ", worksTBD)
         # get parent settings which contains tokens to allow the machine to communicate with cloud side.
+        botid = works[tz][bidx]["bid"]
         mid = works[tz][bidx][grp][idx]["mid"]
         midx = next((i for i, m in enumerate(self.missions) if m.getMid() == mid), -1)
         settings = self.missions[midx].parent_settings
@@ -1243,12 +1253,26 @@ class MainWindow(QtWidgets.QMainWindow):
         if rpaName == "walk_routine":
             # generate walk skills on the fly.
             running_mission = self.missions[works[tz][bidx][grp][idx]["mid"]]
-            rpaSkills = running_mission.getSkills()
+            rpaSkillIds = running_mission.getSkills()
 
-            # bot_works, skills, path_prefix, start_step
+            # get skills data structure by IDs
+            relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
 
-            name_space, skfname = genWinAMZWalkSkill(self, worksTBD, first_step, "light")
-            rpa_script = prepRunSkill(name_space, skfname)
+            all_skill_codes = []
+            for sk in relevant_skills:
+                skname = sk.getName()
+                name_space = "B" + str(botid) + "M" + str(mid) + "!" + skname + "!"
+                skfname = self.homepath +"/" + sk.getPskFileName()
+
+                genSkillCode(skname, skfname,  worksTBD, first_step, "light")
+                all_skill_codes.append({"ns": name_space, "skfile": skfname})
+
+
+            # for testing...
+            # name_space, skfname = genWinChromeAMZWalkSkill(self, worksTBD, first_step, "light")
+            # rpa_script = prepRunSkill(name_space, skfname)
+
+            rpa_script = prepRunSkill(all_skill_codes)
             print("generated psk:", rpa_script)
 
             rpaScripts = [rpa_script]
@@ -1257,7 +1281,13 @@ class MainWindow(QtWidgets.QMainWindow):
             rpaSkills = self.missions[works[tz][bidx][grp][idx]["mid"]].getSkills()
             print("rpaSkills: ", rpaSkills)
 
-            rpaScripts = [self.loadSkillFile(skname) for skname in rpaSkills]
+            # rpaScripts = [self.loadSkillFile(skname) for skname in rpaSkills]
+
+            name_space, skfname = genWinSkills(self, worksTBD, first_step, "light")
+            rpa_script = prepRunSkill(name_space, skfname)
+            print("generated psk:", rpa_script)
+
+            rpaScripts = [rpa_script]
 
         print("rpaScripts:[", len(rpaScripts), "] ", rpaScripts)
 

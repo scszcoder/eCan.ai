@@ -74,12 +74,12 @@ def windowlauncher():
 
 
 if __name__ == '__main__':
-    test_eb_orders_scraper()
+    # test_eb_orders_scraper()
     # test_etsy_label_gen()
-    print("all test done...")
+    # print("all unit test done...")
 
 
-    # windowlauncher()
+    windowlauncher()
 
     # try:
     #     asyncio.run(main())
@@ -87,9 +87,3 @@ if __name__ == '__main__':
     #     sys.exit(0)
 
     # quit(app)
-
-# if __name__ == "__main__":
-#     try:
-#         qasync.run(main())
-#     except asyncio.exceptions.CancelledError:
-#         sys.exit(0)

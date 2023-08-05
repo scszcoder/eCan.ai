@@ -3,15 +3,13 @@ from scraperEtsy import *
 
 SAME_ROW_THRESHOLD = 16
 
+
 # this skill simply obtain a list of name/address/phone/order amount/products of the pending orders
 # 1） open the orders page
 # 2） save and scrape HTML
 # 3） if more than 1 page, go thru all pages. get all.
-def genWinEtsyHandleOrderSkill(lieutenant, root, page, sect, stepN, theme):
+def genWinEtsyHandleOrderSkill(lieutenant, page, sect, stepN, theme):
     psk_words = ""
-    url = "https://www.etsy.com/your/orders/sold"
-    this_step, step_words = genStepOpenApp("Run", True, "browser", url, "", "", lieutenant.skills[skidx].getAppArgs(), stepN)
-    psk_words = psk_words + step_words
 
     dtnow = datetime.now()
     dt_string = str(int(dtnow.timestamp()))
@@ -19,22 +17,24 @@ def genWinEtsyHandleOrderSkill(lieutenant, root, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("bool", "endOfOrderList", "NA", "False", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("bool", "endOfOrdersPage", "NA", "False", stepN)
+    this_step, step_words = genStepCreateData("bool", "endOfOrdersPage", "NA", "False", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "nNewOrders", "NA", 0, stepN)
+    this_step, step_words = genStepCreateData("int", "nNewOrders", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "nOrderPages", "NA", 0, stepN)
+    this_step, step_words = genStepCreateData("int", "nOrderPages", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "currentPage", "NA", 0, stepN)
+    this_step, step_words = genStepCreateData("int", "currentPage", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "pagelist", "[]", "", stepN)
+    this_step, step_words = genStepCreateData("expr", "pagelist", "[]", "", this_step)
     psk_words = psk_words + step_words
 
 
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("endOfOrderList != True", "", "", "browseEtsyOL" + str(stepN), this_step)
     psk_words = psk_words + step_words
@@ -43,7 +43,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, root, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", root, "screen_info", "orders", "top", theme, this_step, pl)
+    this_step, step_words = genStepExtractInfo("", lieutenant.homepath, "screen_info", "etsy_orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # extract the number of new orders on the page.
@@ -85,7 +85,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, root, page, sect, stepN, theme):
     this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "useless", "etsy", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchEtsyOrders("screen_info", ["n_new_orders"], ["info text"], "any", "useless", "nNewOrders", "etsy", this_step)
+    this_step, step_words = genStepEtsySearchOrders("screen_info", "pageOfOrders", "errorPage", this_step)
     psk_words = psk_words + step_words
 
     # the scroll to the bottom of the page.
@@ -99,7 +99,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, root, page, sect, stepN, theme):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", root, "screen_info", "orders", "top", theme, this_step, pl)
+    this_step, step_words = genStepExtractInfo("", lieutenant.homepath, "screen_info", "etsy_orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
@@ -109,7 +109,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, root, page, sect, stepN, theme):
     this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "useless", "etsy", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchEtsyOrders("screen_info", ["n_new_orders"], ["info text"], "any", "useless", "nNewOrders", "etsy", this_step)
+    this_step, step_words = genStepEtsySearchOrders("screen_info", "pageOfOrders", "errorPage", this_step)
     psk_words = psk_words + step_words
 
     # # close bracket
@@ -162,12 +162,44 @@ def genWinEtsyHandleOrderSkill(lieutenant, root, page, sect, stepN, theme):
 
     return this_step, psk_words
 
+def genStepEtsySearchOrders(screen, orderDataName, errFlagName, stepN):
+    stepjson = {
+        "type": "Search Etsy Orders",
+        "screen": screen,
+        "order_data": orderDataName,
+        "error_flag": errFlagName
+    }
 
-# no need for this function because Etsy seller orders site does NOT contain shipping address, you need to click on it anyways.
-def processEtsyScrapeOrdersHtml(step, i, mission, skill):
-    print("Extract Order List from HTML: ", step)
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-#
+
+def processEtsySearchOrders(step, i):
+    print("Searching....", step["target_types"])
+    global in_exception
+    scrn = symTab[step["screen"]]
+    target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
+    target_types = step["target_types"]
+    logic = step["logic"]
+    fault_names = ["site_not_reached", "bad_request"]
+    fault_found = []
+
+    found = []
+    n_targets_found = 0
+
+    print("status: ", symTab[step["status"]])
+
+    # didn't find anything, check fault situation.
+    if symTab[step["status"]] == False:
+        fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
+        site_conn = ping(step["site"])
+        if len(fault_found) > 0 or (not site_conn):
+            # exception has occured, flag it.
+            in_exception = True
+
+    return i + 1
+
+
+# puchase shipping labels....
 def genWinEtsyObtainLabelsSkill(lieutenant, bot_works, start_step, theme):
     all_labels = []
 
@@ -180,14 +212,14 @@ def genWinEtsyUpdateOrderSkill(lieutenant, bot_works, start_step, theme, stepN):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepCreateData("bool", "startOfOrdersPage", "NA", "False", stepN)
+    this_step, step_words = genStepCreateData("bool", "startOfOrdersPage", "NA", "False", this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepCreateData("int", "nTrackingUpdated", "NA", 0, stepN)
+    this_step, step_words = genStepCreateData("int", "nTrackingUpdated", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepLoop("nTrackingUpdated >= 0", "", "", "allTrackCodeUpdated" + str(stepN), stepN)
+    this_step, step_words = genStepLoop("nTrackingUpdated >= 0", "", "", "allTrackCodeUpdated" + str(stepN), this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global startOfOrdersPage\nstartOfOrdersPage = False", "", "in_line", "", this_step)
@@ -200,7 +232,7 @@ def genWinEtsyUpdateOrderSkill(lieutenant, bot_works, start_step, theme, stepN):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", root, "screen_info", "orders", "top", theme, this_step, pl)
+    this_step, step_words = genStepExtractInfo("", lieutenant.homepath, "screen_info", "etsy_orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
@@ -224,3 +256,8 @@ def genWinEtsyUpdateOrderSkill(lieutenant, bot_works, start_step, theme, stepN):
 
 def genWinEtsyHandleReturnSkill(lieutenant, bot_works, start_step, theme):
     all_labels = []
+
+
+# scrape the html for everything about the orders, except the street address which still needs to be grabbed by click+screen analysis.
+def genWinEtsyScrapeOrderList():
+    print("scraping etsy orders html")

@@ -1,0 +1,153 @@
+
+from basicSkill import *
+from amzBuyerSkill import *
+from etsySellerSkill import *
+from ebaySellerSkill import *
+
+def getWorkSettings(lieutenant, bot_works):
+    works = bot_works["works"]
+    tz = bot_works["current tz"]
+    grp = bot_works["current grp"]
+    bidx = bot_works["current bidx"]  # buy task index
+    widx = bot_works["current widx"]  # walk task index
+    oidx = bot_works["current oidx"]  # other task index
+    if grp == "other_works":
+        idx = oidx
+    else:
+        idx = widx
+
+    print("works:", works)
+    print("tz: ", tz, "grp: ", grp, "bidx: ", bidx, "widx: ", widx, "oidx: ", oidx, "idx: ", idx)
+
+    print("bot_works: ", bot_works)
+    # get parent settings which contains tokens to allow the machine to communicate with cloud side.
+    settings = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getParentSettings()
+    platform = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getPlatform()
+    site = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getSite()
+    app = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getApp()
+    app_exe = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getAppExe()
+    print("settings: ", settings)
+
+
+    rpaConfig = works[tz][bidx][grp][idx]["config"]
+    rpaName = works[tz][bidx][grp][idx]["name"]
+
+    required_skids = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getSkills()
+    print("mission required skill IDs: ", required_skids)
+
+    print("number of skills loade: ", len(lieutenant.skills))
+    print("first skill id: ", lieutenant.skills[0].getSkid())
+    iidx = (i for i, sk in enumerate(lieutenant.skills) if i >= 0)
+    print("is: ", iidx)
+
+    # use skill ID to find the index of the skill among the list of skills.
+    skidx = next((i for i, sk in enumerate(lieutenant.skills) if sk.getSkid() == required_skids[0]), -1)
+    print("skidx: ", skidx)
+
+    # derive full path skill file name.
+    skfname = lieutenant.homepath + "/" + lieutenant.skills[skidx].getPskFileName()
+
+    skname = os.path.basename(lieutenant.skills[skidx].getName())
+    print("GENERATING STEPS into: ", skfname, "  skill name: ", skname)
+
+    cargs = lieutenant.skills[skidx].getAppArgs()
+
+    bot_id = works[tz][bidx]["bid"]
+    mission_id = works[tz][bidx][grp][idx]["mid"]
+    name_space = "B" + str(bot_id) + "M" + str(mission_id) + "!" + skname + "!"
+
+    run_config = works[tz][bidx][grp][idx]["config"]
+    root_path = lieutenant.homepath
+    return {
+            "skname": skname,
+            "skfname": skfname,
+            "works": works,
+            "run_config": run_config,
+            "root_path": root_path,
+            "settings": settings,
+            "platform": platform,
+            "site": site,
+            "app": app,
+            "app_exe": app_exe,
+            "cargs": cargs,
+            "rpaConfig": rpaConfig,
+            "rpaName": rpaName,
+            "name_space": name_space
+            }
+
+
+def genWinSkillCode(worksettings, start_step, theme):
+
+    skf = open(worksettings["skfname"], "w")
+    skf.write("\n")
+
+    psk_words = "{"
+    # create header section.
+    if worksettings["app"] == "ads" and worksettings["site"] == "amz" and worksettings["rpaName"] == "walk_routine":
+        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001",
+                                                       "Walk skill on amazon with ADSPower for Windows.", start_step)
+        site_url = "https://www.amazon.com"
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["rpaName"] == "walk_routine":
+        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ0000001",
+                                                       "Walk skill on amazon with Chrome for Windows.", start_step)
+        site_url = "https://www.amazon.com"
+    elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
+        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY0000001",
+                                                       "sell skill on ebay with Chrome for Windows.", start_step)
+        site_url = "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT"
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["rpaName"] == "sell":
+        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY0000001",
+                                                       "sell skill on etsy with Chrome for Windows.", start_step)
+        site_url = "https://www.etsy.com/your/orders/sold"
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
+        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINCHROMEEBAY0000001",
+                                                       "sell skill on ebay with Chrome for Windows.", start_step)
+        site_url = "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT"
+
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    psk_words = psk_words + step_words
+
+
+    if worksettings["app"] == "ads" and worksettings["site"] == "amz" and worksettings["rpaName"] == "walk_routine":
+        this_step, step_words = genWinADSAMZWalkSkill(worksettings, this_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["rpaName"] == "walk_routine":
+        this_step, step_words = genWinChromeAMZWalkSkill(worksettings, this_step, theme)
+    elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
+        this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "ebay_orders", "top", this_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["rpaName"] == "sell":
+        this_step, step_words = genWinEtsyHandleOrderSkill(worksettings, "etsy_orders", "top", this_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
+        this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "ebay_orders", "top", this_step, theme)
+    psk_words = psk_words + step_words
+
+    # finally handle the purchase, if there is any.
+    # if len(run_config["purchases"]) > 0:
+    #     # purchase could be done in multiple days usually (put in cart first, then finish payment in a few days)
+    #     this_step, step_words = genPurchase(run_config)
+    #     psk_words = psk_words + step_words
+
+    # generate exceptino code, must have.... and this must be at the final step of skill.
+    this_step, step_words = genException()
+    psk_words = psk_words + step_words
+
+    # generate addresses for all subroutines.
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "ready to add stubs...." + psk_words)
+
+    skf.write(psk_words)
+    skf.close()
+
+def genMacSkillCode(worksettings, start_step, theme):
+    print("hello")
+
+
+    # nothing to return.
+def genSkillCode(lieutenant, bot_works, start_step, theme):
+    worksettings = getWorkSettings(lieutenant, bot_works)
+
+    if worksettings["platform"] == "win":
+        genWinSkillCode(worksettings, bot_works, start_step, theme)
+    elif worksettings["platform"] == "mac":
+        genMacSkillCode(worksettings, bot_works, start_step, theme)
