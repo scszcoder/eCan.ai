@@ -36,7 +36,6 @@ MAXSTEPS = 2048                 # code level, maximum number of steps of any tas
 
 nest_level = 0
 steps = []
-skill_code = []
 last_step = -1
 next_step = 0
 STEP_GAP = 5
@@ -50,7 +49,10 @@ sys_stack = []
 exception_stack = []
 page_stack = []
 breakpoints = []
-mission_vars = []
+skill_code = None
+skill_table = None
+function_table = None
+
 current_context = None
 
 # SC - 2023-03-07 files and dirs orgnization structure:
@@ -68,6 +70,19 @@ current_context = None
 #
 
 # VItual-Computer-RObot-Processor
+# SC 08/05/2023 - to extend this instruction set, have user create an extended IS json file, we'll reading this json file and attached it to
+# the existing one., the question really is about how to run it. the user would have a .py script file that contains the function
+# processXXXX itself, the question is how to make our code recognize to call extern on that???
+# solution, make instruction naming convention, like starts with "EXT:", then, at our run1step function,
+# whenever we see EXT: in front of the name, we use call extern instead.
+# Q: how to specify the extended instruction? it should be done locally on PC, per 1 user account. should cloud know anything about it?
+# A: from what we know so far, cloud has no need to know the details of the private skill.
+# where should the extension IS file be? - skills/my/is_extension.json this should be read in during initialization.
+# Note: this extension file as well as the custom skill should be transported to networked vehicle machines, so that they can run it too.
+#        then the question Q: is how we do that? A: during initiallization the commander machine archive the skills/my dir and send to all
+#        networked machines.
+# the development and testing of the IS should be done in-app or separately? if in app, need GUI support, where on GUI?
+# A: preferrably in app, but not high priority, initially can get by without having it in-app.
 vicrop = {
     "Halt": lambda x,y: processHalt(x, y),
     "Wait": lambda x,y: processWait(x, y),
@@ -89,6 +104,8 @@ vicrop = {
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
     "Goto": lambda x,y,z: processGoto(x, y, z),
     "Call Function": lambda x,y,z,w: processCallFunction(x, y, z, w),
+    "Use Skill": lambda x,y,z,w: processUseSkill(x, y, z, w),
+    "Overload Skill": lambda x,y,z,w: processOverloadSkill(x, y, z, w),
     "Stub": lambda x,y,z,w: processStub(x, y, z, w),
     "Call Extern": lambda x,y: processCallExtern(x, y),
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
@@ -104,9 +121,10 @@ vicrop = {
     "AMZ Scrape Reviews Html": lambda x, y: processAMZScrapeReviewsHtml(x, y),
     "AMZ Scrape Orders Html": lambda x, y: processAMZScrapeOrdersHtml(x, y),
     "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
-    "ETSY Scrape Orders Html": lambda x, y: processEtsyScrapeOrdersHtml(x, y),
+    "ETSY Search Orders": lambda x, y: processEtsySearchOrders(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
 }
+
 
 # read an psk fill into steps (json data structure)
 # input: steps - data structure to hold the results.
@@ -120,7 +138,6 @@ def readSkillFile(name_space, skill_file, lvl = 0):
     global steps
     step_keys = []
     global skill_code
-
 
     json_as_string = open(skill_file, 'r')
     # inj = json.load(json_as_string)
@@ -159,27 +176,16 @@ def readSkillFile(name_space, skill_file, lvl = 0):
         slines = slines + l + "\n"
 
     print("SLINES:", slines)
-    skill_code = json.loads(slines)
+    this_skill_code = json.loads(slines)
 
     # call the sub skills
-    step_keys = list(skill_code.keys())
+    step_keys = list(this_skill_code.keys())
     for key in step_keys:
-        if key != "header" and key != "dummy":
-            if skill_code[key]["type"] == "Use Skill":
-                new_ns = name_space + skill_code[key]["name"].split(".")[0]+"!"
-                skdir = os.path.dirname(skill_file)
-                subskname = skdir + "/" + skill_code[key]["name"]
-                # recursive calling.
-                subsk = readSkillFile(new_ns, subskname, lvl+1)
-
-                #merge dictionary: the main code and the calling code.
-                skill_code.update(subsk)
-        else:
-            del skill_code[key]
+        if key == "header" or key == "dummy":
+            del this_skill_code[key]
     print("=============================================================")
-
-    print("SKILL CODE:", len(skill_code.keys()), skill_code)
-    return skill_code
+    print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
+    return this_skill_code
 
 # settings contains the following info:
 # reading_speed - words per minute
@@ -268,8 +274,12 @@ def run1step(steps, si, mission, skill, stack):
             si = vicrop[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html" or step["type"] == "AMZ Scrape PL Html":
             si = vicrop[step["type"]](step, si, mission, skill)
-        elif step["type"] == "Call Function" or step["type"] == "Stub" or step["type"] == "End Exception":
+        elif step["type"] == "Call Function" or step["type"] == "Stub" or step["type"] == "End Exception" or step["type"] == "Use Skill":
             si = vicrop[step["type"]](step, si, stack, stepKeys)
+        elif step["type"].index("EXT:") == 0:
+            # this is an extension instruction, execute differently, simply call extern. as to what to actually call, it's all
+            # embedded in the step dictionary.
+            si = processCallExtern(step, si)
         else:
             si = vicrop[step["type"]](step, si)
 
@@ -510,6 +520,8 @@ def getNextStepName(sName):
     return "step"+str(next)
 
 def gen_addresses(stepcodes, nth_pass):
+    global skill_table
+    global function_table
     temp_stack = []
     print("nth pass: ", nth_pass)
     # go thruthe program as we see condition / loop / function def , push them onto stack, then pop them off as we see
@@ -520,6 +532,32 @@ def gen_addresses(stepcodes, nth_pass):
     print("total " + str(len(stepkeys)) + " steps.")
 
     if nth_pass == 1:
+        # parse thru the json objects and work on stubs.
+        for i in range(len(stepkeys)):
+            stepName = stepkeys[i]
+
+            if i != 0:
+                prevStepName = stepkeys[i - 1]
+            else:
+                prevStepName = stepName
+
+            if i != len(stepkeys) - 1:
+                nextStepName = stepkeys[i + 1]
+            else:
+                nextStepName = stepName
+
+            if stepcodes[stepName]["type"] == "Stub":
+                # code block
+                # build up function table, and skill table.
+                if stepcodes[stepName]["stub_name"] == "start skill":
+                    # this effectively includes the skill overload function. - SC
+                    skill_table[stepcodes[stepName]["skill_name"]] = nextStepName
+                elif stepcodes[stepName]["stub_name"] == "start function":
+                    # this effectively includes the skill overload function. - SC
+                    function_table[stepcodes[stepName]["function_name"]] = nextStepName
+
+
+    elif nth_pass == 2:
         # parse thru the json objects and work on stubs.
         for i in range(len(stepkeys)):
             stepName = stepkeys[i]
@@ -538,6 +576,7 @@ def gen_addresses(stepcodes, nth_pass):
 
             if stepcodes[stepName]["type"] == "Stub":
                 #code block
+
                 if stepcodes[stepName]["stub_name"] == "else":
                     # pop from stack, modify else, then push back, assume condition step will be pushed onto stack. as it executes.
                     tempStepName = temp_stack.pop()
@@ -602,8 +641,8 @@ def gen_addresses(stepcodes, nth_pass):
                 temp_stack.append(stepName)
                 print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
 
-    elif nth_pass == 2:
-        #on 2nd pass replace all function call address. -- SC 2023/03/27 I don't think we need this pass anymore....at least for now..
+    elif nth_pass == 3:
+        #on 3nd pass replace all function call address. -- SC 2023/03/27 I don't think we need this pass anymore....at least for now..
         for i in range(len(stepkeys)):
             stepName = stepkeys[i]
             if i != 0:
@@ -618,23 +657,44 @@ def gen_addresses(stepcodes, nth_pass):
 
             if stepcodes[stepName]["type"] == "Call Function":
                 stepcodes[stepName]["addr"] = stepcodes[stepcodes[stepName]["name"]]
+            elif stepcodes[stepName]["type"] == "Use Skill":
+                stepcodes[stepName]["addr"] = stepcodes[stepcodes[stepName]["name"]]
 
 
-def prepRunSkill(name_space, skill_file, lvl = 0):
+# def prepRunSkill(name_space, skill_file, lvl = 0):
+#     global skill_code
+#     run_steps = readSkillFile(name_space, skill_file, lvl)
+#
+#     # generate real address for stubs and functions. (essentially update the addresses or the closing brackets...)
+#     gen_addresses(skill_code, 1)
+#     print("DONE generating addressess...")
+#     print("READY2RUN: ", skill_code)
+#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+#     return skill_code
+
+def prepRunSkill(all_skill_codes):
     global skill_code
-    run_steps = readSkillFile(name_space, skill_file, lvl)
+
+    skidx = 0
+    for sk in all_skill_codes:
+        run_steps = readSkillFile(sk["ns"], sk["skfile"], skidx)
+        if skill_code:
+            skill_code.update(run_steps)
+        else:
+            skill_code = run_steps
+
+        skidx = skidx + 1
+
+    # 1st pass: get obvious addresses defined. if else end-if, loop end-loop,
     gen_addresses(skill_code, 1)
+
+    #2nd pass: resolve overload.
+    gen_addresses(skill_code, 2)
+
     print("DONE generating addressess...")
     print("READY2RUN: ", skill_code)
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     return skill_code
-
-
-#======== generate individual steps into a string that can be written to a file
-
-
-
-
 
 def genNextStepNumber(currentN, steps=1):
     nextStepN = currentN + STEP_GAP * steps

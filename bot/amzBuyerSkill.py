@@ -883,52 +883,27 @@ def genAMZBrowseProductLists(pageCfgsName, pageCfgs, ith, lastone, flows, stepN,
 #   for the detailLvl, the data structure is as following:
 #   { level: 1~5, seeAll : true/false, allPos: true/false, allNeg: true/false, nPosExpand: , nNegExpand:,  nPosPages: , nNegPages: }
 
-def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
+def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     # this creates the local private skill file.
     #f = open("C:/Users/songc/PycharmProjects/ecbot/resource/junk.txt", "a")
     # skill name should be some like: browse_search_kw
     # find out skill ID from mission ID,
-    works = bot_works["works"]
-    tz = bot_works["current tz"]
-    grp = bot_works["current grp"]
-    bidx = bot_works["current bidx"]  # buy task index
-    widx = bot_works["current widx"]  # walk task index
-    oidx = bot_works["current oidx"]  # other task index
-    if grp == "other_works":
-        idx = oidx
-    else:
-        idx = widx
 
-    print("works:", works)
-    print("tz: ", tz, "grp: ", grp, "bidx: ", bidx, "widx: ", widx, "oidx: ", oidx, "idx: ", idx)
 
-    print("bot_works: ", bot_works)
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
-    settings = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getParentSettings()
-    site = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getSite()
-    app = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getApp()
-    ads_cmd = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getAppExe()
+    settings = worksettings["settings"]
+    site = worksettings["site"]
+    app = worksettings["app"]
+    app_exe = worksettings["app"]
     print("settings: ", settings)
 
-    rpaConfig = works[tz][bidx][grp][idx]["config"]
-    rpaName = works[tz][bidx][grp][idx]["name"]
-
-    required_skids = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getSkills()
-    print("mission required skill IDs: ", required_skids)
-
-    print("number of skills loade: ", len(lieutenant.skills))
-    print("first skill id: ", lieutenant.skills[0].getSkid())
-    iidx = (i for i, sk in enumerate(lieutenant.skills) if i >= 0)
-    print("is: ", iidx)
-
-    # use skill ID to find the index of the skill among the list of skills.
-    skidx = next((i for i, sk in enumerate(lieutenant.skills) if sk.getSkid() == required_skids[0]), -1)
-    print("skidx: ", skidx)
+    rpaConfig = worksettings["rpaConfig"]
+    rpaName = worksettings["rpaName"]
 
     # derive full path skill file name.
-    skfname = lieutenant.homepath +"/" + lieutenant.skills[skidx].getPskFileName()
+    skfname = worksettings["skfname"]
 
-    skname = os.path.basename(lieutenant.skills[skidx].getName())
+    skname = worksettings["skname"]
     print("GENERATING STEPS into: ", skfname, "  skill name: ", skname)
 
     skf = open(skfname, "w")
@@ -962,10 +937,10 @@ def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
         url = "https://www.amazon.com/"
 
     if app == "chrome":
-        this_step, step_words = genStepOpenApp("Run", True, "browser", url, "", "", lieutenant.skills[skidx].getAppArgs(), this_step)
+        this_step, step_words = genStepOpenApp("Run", True, "browser", url, "", "", worksettings["cargs"], this_step)
         psk_words = psk_words + step_words
     elif app == "ads":
-        this_step, step_words = genLaunchADSPower(ads_cmd, url, lieutenant.skills[skidx].getAppArgs(), "", "", this_step)
+        this_step, step_words = genLaunchADSPower(app_exe, url, worksettings["cargs"], "", "", this_step)
         psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(3, 0, 0, this_step)
@@ -1015,7 +990,7 @@ def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
 
     # go thru each entry path.this will be the only loop that we unroll, all other loops within the session will be generated
     # as part of the psk.
-    run_config = works[tz][bidx][grp][idx]["config"]
+    run_config = worksettings["run_config"]
     for run in run_config["searches"]:
         if run["entry_paths"]["type"] == "Top main menu":
             # click the menu item and enter that page. \
@@ -1069,7 +1044,7 @@ def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
             this_step, step_words = genStepFillData("direct", run["prodlist_pages"][i], "run_config", "temp", this_step)
             psk_words = psk_words + step_words
 
-            this_step, step_words = genAMZBrowseProductLists("run_config", run["prodlist_pages"][i], i, i == len(run["prodlist_pages"])-1, flows, this_step, lieutenant.homepath, hfname, "product_list", "top", theme)
+            this_step, step_words = genAMZBrowseProductLists("run_config", run["prodlist_pages"][i], i, i == len(run["prodlist_pages"])-1, flows, this_step, worksettings["root_path"], hfname, "product_list", "top", theme)
             print("this_step, step_words:", this_step, step_words)
             psk_words = psk_words + step_words
 
@@ -1100,13 +1075,13 @@ def genWinAMZWalkSkill(lieutenant, bot_works, start_step, theme):
     skf.write(psk_words)
     skf.close()
 
-    botid = works[tz][bidx]["bid"]
-    name_space = "B"+str(botid)+"M"+str(works[tz][bidx][grp][idx]["mid"])+"!"+skname+"!"
+    name_space = worksettings["settings"]
 
     return name_space, skfname
 
 
-
+def genWinADSAMZWalkSkill(lieutenant, bot_works, start_step, theme):
+    print("hello")
 
 def genStepAMZScrapeDetailsHtml(html_file_name, html_file_var_name, root, sink, stepN):
     stepjson = {

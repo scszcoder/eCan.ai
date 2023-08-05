@@ -21,6 +21,8 @@ STEP_GAP = 5
 symTab = globals()
 mouse = Controller()
 
+mission_vars = []
+
 def genStepHeader(skillname, los, ver, author, skid, description, stepN):
     header = {
         "name": skillname,
@@ -36,7 +38,7 @@ def genStepHeader(skillname, los, ver, author, skid, description, stepN):
 
 
 
-def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, args, stepN):
+def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, args, wait, stepN):
     stepjson = {
         "type": "App Open",
         "action": action,
@@ -45,7 +47,8 @@ def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor
         "target_link": target_link,
         "anchor_type": anchor_type,
         "anchor_value": anchor_value,
-        "cargs": args
+        "cargs": args,
+        "wait":wait
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -351,6 +354,36 @@ def genStepCallFunction(fname, args, output, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+# fname: function name.
+# args: function arguments
+# return_point: where does function return. (maybe not needed with stack.)
+# output: function returned result
+def genStepUseSkill(skname, args, output, stepN):
+    stepjson = {
+        "type": "Use Skill",
+        "skill_name": skname,
+        "args": args,
+        "return_to": str(stepN+STEP_GAP),
+        "output": output
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+# fname: function name.
+# args: function arguments
+# return_point: where does function return. (maybe not needed with stack.)
+# output: function returned result
+def genStepOverloadSkill(skname, args, output, stepN):
+    stepjson = {
+        "type": "Call Function",
+        "skill_name": skname,
+        "args": args,
+        "return_to": str(stepN+STEP_GAP),
+        "output": output
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 def genStepCreateData(dtype, dname, keyname, keyval, stepN):
     stepjson = {
@@ -380,7 +413,7 @@ def genStepFillData(fill_type, src, sink, result, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 def genException():
-    psk_words = []
+    psk_words = ""
     this_step, step_words = genStepExceptionHandler("", "", 8000000)
     psk_words = psk_words + step_words
 
@@ -389,7 +422,7 @@ def genException():
     return this_step, psk_words
 
 
-def  read_screen(site_page, page_sect, page_theme, layout, mission, sfile):
+def read_screen(site_page, page_sect, page_theme, layout, mission, sfile):
     names = []
     settings = mission.parent_settings
     def winEnumHandler(hwnd, ctx):
@@ -885,9 +918,10 @@ def processOpenApp(step, i):
     if step["target_type"] == "browser":
         url = step["target_link"]
         webbrowser.open(url, new=0, autoraise=True)
-        time.sleep(3)
     else:
         subprocess.call(step["target_link"] + " " + step["cargs"])
+
+    time.sleep(step["wait"])
     return i+1
 
 # create a new variable in the name space and assign initial value to it.
@@ -1166,14 +1200,12 @@ def processCallExtern(step, i):
 
     return i+1
 
-
-
 # this is for call a skill function.
 # fname: function name.
 # args: function arguments
 # return_point: where does function return. (maybe not needed with stack.)
 # output: function returned result
-def processCallFunction(step, i, stack, step_keys):
+def processUseSkill(step, i, stack, step_keys):
     global skill_code
 
     # push current address pointer onto stack,
@@ -1195,6 +1227,62 @@ def processCallFunction(step, i, stack, step_keys):
 
     return idx
 
+# this is for call a skill function.
+# fname: function name.
+# args: function arguments
+# return_point: where does function return. (maybe not needed with stack.)
+# output: function returned result
+def processOverloadSkill(step, i, stack, step_keys):
+    global skill_code
+    global skill_table
+    # push current address pointer onto stack,
+    stack.append(i)
+
+    #save current fin, fout whatever that is.
+    stack.append(symTab["fout"])
+    stack.append(symTab["fin"])
+
+    # push function output var to the stack
+    stack.append(step["output"])
+
+    # push input args onto stack
+    stack.append(step["args"])
+
+    # start execuation on the function, find the function name's address, and set next pointer to it.
+    # the function name address key value pair was created in gen_addresses
+    idx = step_keys.index(skill_table[step["skill_name"]])
+
+    return idx
+
+
+# this is for call a skill function.
+# fname: function name.
+# args: function arguments
+# return_point: where does function return. (maybe not needed with stack.)
+# output: function returned result
+def processCallFunction(step, i, stack, step_keys):
+    global skill_code
+    global function_table
+
+    # push current address pointer onto stack,
+    stack.append(i+1)
+
+    #save current fin, fout whatever that is.
+    stack.append(symTab["fout"])
+    stack.append(symTab["fin"])
+
+    # push function output var to the stack
+    stack.append(step["output"])
+
+    # push input args onto stack
+    stack.append(step["args"])
+
+    # start execuation on the function, find the function name's address, and set next pointer to it.
+    # the function name address key value pair was created in gen_addresses
+    idx = step_keys.index(function_table[step["function_name"]])
+
+    return idx
+
 # this is a stub/marker for end of if-else, end of function, end of loop etc. SC - 20230723 total mistake of this function....
 # whatever written here should be in address generation.
 def processStub(step, i, stack, step_keys):
@@ -1202,23 +1290,20 @@ def processStub(step, i, stack, step_keys):
 
     # note, end condition, else, end loop will not even exist because they will be replaced by "Goto" during
     # the gen_addresses step.
-    if step["stub_name"] == "def function":
-        print("mark start of a func",  step["func_name"])
-        # at run time, pop out input argument and output pointer befor executing the code.
-        symTab["fin"] = stack.pop()
-        symTab["fout"] = stack.pop()
-
-    elif step["stub_name"] == "end function":
+    if step["stub_name"] == "end skill" or step["stub_name"] == "end function":
         # restore caller's fin and fout.
         symTab["fin"] = stack.pop()
         symTab["fout"] = stack.pop()
 
-        # pop up the call function step
-        call_step = stack.pop()
         #  set the pointer to the return to pointer.
-        next_i = step_keys.index(call_step["return_to"])
-    elif step["stub_name"] == "end exception":
-        print()
+        next_i = stack.pop()
+    elif step["stub_name"] == "start skill" or step["stub_name"] == "start function":
+        # obtain the input put and output of the current function or skill
+        symTab["fin"] = stack.pop()
+        symTab["fout"] = stack.pop()
+
+        #  set the pointer to the next line, which is the 1st real line of the code in this functino or skill.
+        next_i = i+1
 
     return next_i
 

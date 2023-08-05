@@ -244,7 +244,7 @@ def gen_screen_read_icon_request_string(query):
 
 
 def gen_schedule_request_string():
-    query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": true, \\\"test_name\\\": \\\"6000\\\"}\") } "
+    query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": true, \\\"test_name\\\": \\\"5000\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
