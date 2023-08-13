@@ -34,7 +34,7 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     psk_words = psk_words + step_words
 
     # close bracket
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # now that we have logged in, load profiles.

@@ -151,3 +151,52 @@ def genSkillCode(lieutenant, bot_works, start_step, theme):
         genWinSkillCode(worksettings, bot_works, start_step, theme)
     elif worksettings["platform"] == "mac":
         genMacSkillCode(worksettings, bot_works, start_step, theme)
+
+
+
+def genWinTestSkill(worksettings, start_step):
+    skf = open(worksettings["skfname"], "w")
+    skf.write("\n")
+
+    psk_words = "{"
+    this_step, step_words = genStepHeader("test skill", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "test skill for Windows.", start_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "counter1", "NA", 3, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "tresult", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallFunction("doubler", "counter1", "tresult", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global tresult\nprint('tresut....',tresult)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "test skill", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("start function", "doubler", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fin, dout\nprint('fin....',fin)\ndout = fin * 2", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepReturn("dout", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end function", "doubler", "", this_step)
+    psk_words = psk_words + step_words
+
+    # generate exceptino code, must have.... and this must be at the final step of skill.
+    this_step, step_words = genException()
+    psk_words = psk_words + step_words
+
+    # generate addresses for all subroutines.
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "ready to add stubs...." + psk_words)
+
+    skf.write(psk_words)
+    skf.close()

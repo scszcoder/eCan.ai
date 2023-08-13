@@ -49,7 +49,7 @@ def genAMZScrollProductListToBottom(stepN, root, start, page, sect):
     this_step, step_words = genStepWait(0, 1, 3, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     print("scroll reached BOTTOM of the page")
@@ -81,7 +81,7 @@ def genAMZScrollProductListToTop(up_cnt, stepN, start, root, page, sect):
     this_step, step_words = genStepWait(0, 1, 3, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     print("scroll reached TOP of the page")
@@ -104,7 +104,7 @@ def genAMZScrollProductDetailsToTop(pagesize, stepN, root, page, sect):
     this_step, step_words = genStepSearch("screen_info", ["add-to-cart"], ["anchor text"], "any", "useless", "at_pd_top", "amz", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     print("scroll reached TOP of the product details page")
@@ -206,7 +206,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, root, page, sect, theme
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -217,7 +217,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, root, page, sect, theme
     this_step, step_words = genStepSearch("screen_info", "prev_next", "info", "any", "useless", "atbottom", "amz", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -281,7 +281,7 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, stepN, root, page, sect
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("nAttentions = nAttentions - len(pl_need_attention)", "", "in_line", "", this_step)
@@ -295,7 +295,7 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, stepN, root, page, sect
     # this_step, step_words = genStepSearch("screen_info", "add_to_cart", "info", "any", "useless", "attop", this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     # we can easily add a few more dumb scroll down actions here.
@@ -374,14 +374,14 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
     # # close bracket
-    this_step, step_words = genStepStub("else", "", this_step)
+    this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "max_expandables", "NA", 1, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # browse all the way down, until seeing "No customer reviews" or "See all reviews"
@@ -450,7 +450,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
 
 
     # else for if rv_expandable == True and " + lvl + " == 2
-    this_step, step_words = genStepStub("else", "", this_step)
+    this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", this_step)
@@ -462,7 +462,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     this_step, step_words = genStepCallExtern("global expandables_count, max_expandables\nexpandables_count = max_expandables", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("else", "", this_step)
+    this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -482,23 +482,23 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
     # # close bracket: end_of_detail == True
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # # close bracket for if rv_expandable == True and " + lvl + " == 2
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
 
     # close for loop: expandables_count < max_expandables
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", this_step)
     psk_words = psk_words + step_words
 
     # close for loop: end_of_detail != True
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -533,7 +533,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
 
 
     #
-    # this_step, step_words = genStepStub("else", "", this_step)
+    # this_step, step_words = genStepStub("else", "", "", this_step)
     # psk_words = psk_words + step_words
     #
     # # set flag to mark the end of the product detail browsing....
@@ -541,11 +541,11 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     # psk_words = psk_words + step_words
     #
     # # close on check len(ncv)
-    # this_step, step_words = genStepStub("end condition", "", this_step)
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
     # psk_words = psk_words + step_words
     #
     # # close on check level <= 2
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -570,11 +570,11 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
     # close on check purchase + "[0] == 'add cart'"
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # close on len(buy_ops) >  0
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # back to produc list page...
@@ -650,7 +650,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepCallExtern("global nPRP\nnPRP = nPRP - 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("nPRP_up > 0", "", "", "", this_step)
@@ -667,12 +667,12 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepCallExtern("global nPRP_up\nnPRP_up = nPRP_up - 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     # scroll back up to the top.
 
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", "all_critical_reviews", "anchor text", "any", "useless", "hasNegativeReviews", "amz", this_step)
@@ -698,7 +698,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepCallExtern("global nNRP\nnNRP = nNRP - 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     # now scroll back to top, no need really
@@ -733,7 +733,7 @@ def genScroll1StarReviewsPage(stepN, start):
     this_step, step_words = genStepWait(0, 1, 3, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     print("scroll reached BOTTOM of the page")
@@ -884,6 +884,7 @@ def genAMZBrowseProductLists(pageCfgsName, pageCfgs, ith, lastone, flows, stepN,
 #   { level: 1~5, seeAll : true/false, allPos: true/false, allNeg: true/false, nPosExpand: , nNegExpand:,  nPosPages: , nNegPages: }
 
 def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
+    psk_words = ""
     # this creates the local private skill file.
     #f = open("C:/Users/songc/PycharmProjects/ecbot/resource/junk.txt", "a")
     # skill name should be some like: browse_search_kw
@@ -891,29 +892,17 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
 
 
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
-    settings = worksettings["settings"]
     site = worksettings["site"]
     app = worksettings["app"]
     app_exe = worksettings["app"]
-    print("settings: ", settings)
 
     rpaConfig = worksettings["rpaConfig"]
     rpaName = worksettings["rpaName"]
 
     # derive full path skill file name.
-    skfname = worksettings["skfname"]
 
     skname = worksettings["skname"]
-    print("GENERATING STEPS into: ", skfname, "  skill name: ", skname)
 
-    skf = open(skfname, "w")
-    skf.write("\n")
-
-    psk_words = "{"
-    # create header section.
-    this_step, step_words = genStepHeader(skname, "win", "1.0", "AIPPS LLC", "PUBWINADSWIN0000001",
-                                                       "Walk skill on amazon with ADSPower for Windows.", start_step)
-    psk_words = psk_words + step_words
 
     # open browser with amzon web site
     # this_step, step_words = genStepOpenApp("Run", "browser", "https://www.amazon.com", "", "", lieutenant.skills[skidx].getAppArgs(), this_step)
@@ -927,23 +916,8 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     # this url points to all review page.
     # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats168914806.html"
 
-    if site == "amz":
-        url = "https://www.amazon.com/"
-    elif site == "ebay":
-        url = "https://www.ebay.com/"
-    elif site == "ebay":
-        url = "https://www.etsy.com/"
-    else:
-        url = "https://www.amazon.com/"
 
-    if app == "chrome":
-        this_step, step_words = genStepOpenApp("Run", True, "browser", url, "", "", worksettings["cargs"], this_step)
-        psk_words = psk_words + step_words
-    elif app == "ads":
-        this_step, step_words = genLaunchADSPower(app_exe, url, worksettings["cargs"], "", "", this_step)
-        psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    this_step, step_words = genStepWait(3, 0, 0, start_step)
     psk_words = psk_words + step_words
 
     # extract the amazon home page info.
@@ -1064,20 +1038,10 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     #     this_step, step_words = genPurchase(run_config)
     #     psk_words = psk_words + step_words
 
-    # generate exceptino code, must have.... and this must be at the final step of skill.
-    this_step, step_words = genException()
-    psk_words = psk_words + step_words
-
-    # generate addresses for all subroutines.
-    psk_words = psk_words + "\"dummy\" : \"\"}"
     print("DEBUG", "ready to add stubs...." + psk_words)
 
-    skf.write(psk_words)
-    skf.close()
 
-    name_space = worksettings["settings"]
-
-    return name_space, skfname
+    return this_step, step_words
 
 
 def genWinADSAMZWalkSkill(lieutenant, bot_works, start_step, theme):
