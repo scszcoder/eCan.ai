@@ -19,7 +19,6 @@ from printLabel import *
 from scraper import *
 import webbrowser
 from difflib import SequenceMatcher
-from basicSkill import *
 from adsPowerSkill import *
 from amzBuyerSkill import *
 from amzSellerSkill import *
@@ -51,7 +50,7 @@ page_stack = []
 breakpoints = []
 skill_code = None
 skill_table = None
-function_table = None
+function_table = {"nothing": ""}
 
 current_context = None
 
@@ -103,7 +102,8 @@ vicrop = {
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
     "Goto": lambda x,y,z: processGoto(x, y, z),
-    "Call Function": lambda x,y,z,w: processCallFunction(x, y, z, w),
+    "Call Function": lambda x,y,z,v,w: processCallFunction(x, y, z, v, w),
+    "Return": lambda x,y,z,w: processReturn(x, y, z, w),
     "Use Skill": lambda x,y,z,w: processUseSkill(x, y, z, w),
     "Overload Skill": lambda x,y,z,w: processOverloadSkill(x, y, z, w),
     "Stub": lambda x,y,z,w: processStub(x, y, z, w),
@@ -258,7 +258,7 @@ def runNSteps(steps, prev_step, i_step, e_step, mission, skill, run_stack):
 def run1step(steps, si, mission, skill, stack):
     global next_step
     global last_step
-    settings = mission.parent_settings
+    # settings = mission.parent_settings
     i = next_step
     stepKeys = list(steps.keys())
     step = steps[stepKeys[si]]
@@ -274,12 +274,15 @@ def run1step(steps, si, mission, skill, stack):
             si = vicrop[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html" or step["type"] == "AMZ Scrape PL Html":
             si = vicrop[step["type"]](step, si, mission, skill)
-        elif step["type"] == "Call Function" or step["type"] == "Stub" or step["type"] == "End Exception" or step["type"] == "Use Skill":
+        elif step["type"] == "Stub" or step["type"] == "End Exception" or step["type"] == "Use Skill" or step["type"] == "Return":
             si = vicrop[step["type"]](step, si, stack, stepKeys)
-        elif step["type"].index("EXT:") == 0:
-            # this is an extension instruction, execute differently, simply call extern. as to what to actually call, it's all
-            # embedded in the step dictionary.
-            si = processCallExtern(step, si)
+        elif step["type"] == "Call Function":
+            si = vicrop[step["type"]](step, si, stack, function_table, stepKeys)
+        elif "EXT:" in step["type"]:
+            if step["type"].index("EXT:") == 0:
+                # this is an extension instruction, execute differently, simply call extern. as to what to actually call, it's all
+                # embedded in the step dictionary.
+                si = processCallExtern(step, si)
         else:
             si = vicrop[step["type"]](step, si)
 
@@ -535,6 +538,7 @@ def gen_addresses(stepcodes, nth_pass):
         # parse thru the json objects and work on stubs.
         for i in range(len(stepkeys)):
             stepName = stepkeys[i]
+            print("working on: ", stepName)
 
             if i != 0:
                 prevStepName = stepkeys[i - 1]
@@ -554,8 +558,8 @@ def gen_addresses(stepcodes, nth_pass):
                     skill_table[stepcodes[stepName]["skill_name"]] = nextStepName
                 elif stepcodes[stepName]["stub_name"] == "start function":
                     # this effectively includes the skill overload function. - SC
-                    function_table[stepcodes[stepName]["function_name"]] = nextStepName
-
+                    print(stepcodes[stepName]["func_name"])
+                    function_table[stepcodes[stepName]["func_name"]] = nextStepName
 
     elif nth_pass == 2:
         # parse thru the json objects and work on stubs.
@@ -661,16 +665,21 @@ def gen_addresses(stepcodes, nth_pass):
                 stepcodes[stepName]["addr"] = stepcodes[stepcodes[stepName]["name"]]
 
 
-# def prepRunSkill(name_space, skill_file, lvl = 0):
-#     global skill_code
-#     run_steps = readSkillFile(name_space, skill_file, lvl)
-#
-#     # generate real address for stubs and functions. (essentially update the addresses or the closing brackets...)
-#     gen_addresses(skill_code, 1)
-#     print("DONE generating addressess...")
-#     print("READY2RUN: ", skill_code)
-#     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-#     return skill_code
+def prepRun1Skill(name_space, skill_file, lvl = 0):
+    global skill_code
+    global function_table
+    run_steps = readSkillFile(name_space, skill_file, lvl)
+    print("DONE reading skill file...")
+
+    # generate real address for stubs and functions. (essentially update the addresses or the closing brackets...)
+    gen_addresses(run_steps, 1)
+    # 2nd pass: resolve overload.
+    gen_addresses(run_steps, 2)
+    print("DONE generating addressess...")
+    print("READY2RUN: ", run_steps)
+    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    print("function table:", function_table)
+    return run_steps
 
 def prepRunSkill(all_skill_codes):
     global skill_code
@@ -679,7 +688,7 @@ def prepRunSkill(all_skill_codes):
     for sk in all_skill_codes:
         run_steps = readSkillFile(sk["ns"], sk["skfile"], skidx)
         if skill_code:
-            skill_code.update(run_steps)
+            skill_code.update(run_steps)         # merge run steps.
         else:
             skill_code = run_steps
 
@@ -804,7 +813,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
 
             detail_cfg.nExpand = detail_cfg.nExpand-1
 
-        this_step, step_words = genStepStub("end loop", "", this_step)
+        this_step, step_words = genStepStub("end loop", "", "", this_step)
         psk_words = psk_words + step_words
 
     # click into the product title.
@@ -827,7 +836,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
     this_step, step_words = genStepSearch("screen_info","See all details", "screen_info", "any", "eop_review", "reviews_eop", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     return this_step, psk_words

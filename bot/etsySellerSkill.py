@@ -75,7 +75,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # else stub
-    this_step, step_words = genStepStub("else", "", this_step)
+    this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
@@ -113,11 +113,11 @@ def genWinEtsyHandleOrderSkill(lieutenant, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # # close bracket
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     # # close bracket
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # if currentPage == nOrderPages:
@@ -133,7 +133,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # else stub
-    this_step, step_words = genStepStub("else", "", this_step)
+    this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     # update currentPage counter
@@ -145,11 +145,11 @@ def genWinEtsyHandleOrderSkill(lieutenant, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # # close bracket for condition ("currentPage == nOrderPages")
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # end of loop for while (endOfOrderList != True)
-    this_step, step_words = genStepStub("end loop", "", this_step)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + step_words

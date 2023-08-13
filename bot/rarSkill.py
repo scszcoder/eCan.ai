@@ -48,13 +48,13 @@ def genWinUnRarSkill(lieutenant, bot_works, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Extract_To", "anchor text", "Extract To", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
     psk_words = psk_words + step_words
     # # close bracket
-    this_step, step_words = genStepStub("else", "", this_step)
+    this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Extract_To", "anchor text", "Extract To", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
     psk_words = psk_words + step_words
     # # close bracket
-    this_step, step_words = genStepStub("end condition", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
 

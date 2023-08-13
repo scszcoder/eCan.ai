@@ -2,6 +2,8 @@ import os
 import winreg
 from PySide6 import QtCore, QtWidgets, QtGui
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+import botocore
+from botocore.exceptions import ClientError
 import boto3
 from signio import *
 import time
@@ -31,6 +33,10 @@ class Login(QtWidgets.QDialog):
         self.cog = None
         self.mainwin = None
         self.platoonwin = None
+        self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
+
+        self.aws_srp = None
+
         self.mode = "Sign In"
         self.machine_role = "Platoon"
         self.get_role()
@@ -296,49 +302,64 @@ class Login(QtWidgets.QDialog):
         global commanderServer
         global commanderXport
 
-        self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
-        self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID, client_id=CLIENT_ID, client=self.aws_client)
-        self.tokens = self.aws_srp.authenticate_user()
+        try:
+            self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID, client_id=CLIENT_ID, client=self.aws_client)
+            self.tokens = self.aws_srp.authenticate_user()
 
 
 
-        #cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com", botocore_config=Config(signature_version=UNSIGNED))
-        #cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com")
-        self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(), refresh_token='optional-refresh-token', access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
-        #self.cog.check_tokens()
-        #response = self.cog.authenticate(password=self.textPass.text())
-        time.sleep(1)
-        #user = self.cog.get_user()
-        time.sleep(1)
-        #cog.check_tokens()  # Optional, if you want to maybe renew the tokens
-        # self.cog.verify_tokens()
-        #print(self.cog.id_token)
-        #print(self.cog.access_token)
-        #print(self.cog.refresh_token)
-        #print(user)
-        print("timezone:", datetime.now().astimezone().tzinfo)
-        #now make this window dissappear and bring out the main windows.
-        os.environ["SCECBOTPW"] = self.scramble(self.textPass.text())
-        data = {"mem_cb": True, "user": self.textName.text(), "pw": "SCECBOTPW", "lan": "EN"}
-        if self.mempw_cb.checkState() == QtCore.Qt.Unchecked:
-            data["mem_cb"] = False
+            #cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com", botocore_config=Config(signature_version=UNSIGNED))
+            #cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com")
+            self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(), refresh_token='optional-refresh-token', access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
+            #self.cog.check_tokens()
+            #response = self.cog.authenticate(password=self.textPass.text())
 
-        print(data)
-        with open(ACCT_FILE, 'w') as jsonfile:
-            json.dump(data, jsonfile)
-        self.hide()
-        print("hello hello hello")
+            time.sleep(1)
+            # user = self.cog.get_user()
+            time.sleep(1)
+            # cog.check_tokens()  # Optional, if you want to maybe renew the tokens
+            # self.cog.verify_tokens()
+            # print(self.cog.id_token)
+            # print(self.cog.access_token)
+            # print(self.cog.refresh_token)
+            # print(user)
+            print("timezone:", datetime.now().astimezone().tzinfo)
+            # now make this window dissappear and bring out the main windows.
+            os.environ["SCECBOTPW"] = self.scramble(self.textPass.text())
+            data = {"mem_cb": True, "user": self.textName.text(), "pw": "SCECBOTPW", "lan": "EN"}
+            if self.mempw_cb.checkState() == QtCore.Qt.Unchecked:
+                data["mem_cb"] = False
 
-        if self.machine_role == "Commander":
-            self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text(), echomepath)
-            print("Running as a commander...", commanderServer)
-            self.mainwin.setOwner(self.textName.text())
-            self.mainwin.show()
-        else:
-            self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-            print("Running as a platoon...")
-            self.platoonwin.setOwner(self.textName.text())
-            self.platoonwin.show()
+            print(data)
+            with open(ACCT_FILE, 'w') as jsonfile:
+                json.dump(data, jsonfile)
+            self.hide()
+            print("hello hello hello")
+
+            if self.machine_role == "Commander":
+                self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text(), echomepath)
+                print("Running as a commander...", commanderServer)
+                self.mainwin.setOwner(self.textName.text())
+                self.mainwin.show()
+            else:
+                self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
+                print("Running as a platoon...")
+                self.platoonwin.setOwner(self.textName.text())
+                self.platoonwin.show()
+
+        except botocore.errorfactory.ClientError as e:
+            # except ClientError as e:
+            print("Exception Error:", e)
+            msgBox = QtWidgets.QMessageBox()
+            if "UserNotConfirmedException" in str(e):
+                msgBox.setText("User email confirmed is needed.  Try go to your email box and confirm the email first!")
+            elif "NotAuthorizedException" in str(e):
+                msgBox.setText("Password Incorrect!")
+            else:
+                msgBox.setText("Login Error.  Try again...")
+
+            ret = msgBox.exec()
+
 
     def fakeLogin(self):
             print("logging in....")
@@ -359,44 +380,32 @@ class Login(QtWidgets.QDialog):
             self.mainwin.setOwner("Nobody")
             self.mainwin.show()
 
-        #self..show()
-
-        # client = boto3.client("cognito-idp", region_name="us-east-1", config=Config(signature_version=UNSIGNED))
-        #
-        # print(CLIENT_ID)
-        #
-        # # Initiating the Authentication,
-        # response = client.initiate_auth(
-        #     ClientId=CLIENT_ID,
-        #     AuthFlow="USER_PASSWORD_AUTH",
-        #     AuthParameters={"USERNAME": 'songc@yahoo.com', "PASSWORD": 'XXXXXXXXX'},
-        # )
-
-        # if (self.textName.text() == 'foo' and
-        #     self.textPass.text() == 'bar'):
-        #     self.accept()
-        # else:
-        #     QtWidgets.QMessageBox.warning(
-        #         self, 'Error', 'Bad user or password')
 
 
     def handleSignUp(self):
-        print("logging up...." + self.textName.text() + "...." + self.textPass.text())
+        print("Signing up...." + self.textName.text() + "...." + self.textPass.text())
         if (self.textPass.text() ==  self.textPass2.text()):
-            self.cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username=self.textName.text())
-            self.cog.set_base_attributes(email=self.textName.text())
-            response = self.cog.register(self.textName.text(), self.textPass.text())
+            try:
 
-            # response = auth_client.sign_up(
-            #     ClientId=CLIENT_ID,
-            #     Username="songc@yahoo.com",
-            #     Password="Sc12345!",
-            #     UserAttributes=[{"Name": "email", "Value": "songc@yahoo.com"}],
-            # )
-            print(response)
+                response = self.aws_client.sign_up(
+                    ClientId=CLIENT_ID,
+                    Username=self.textName.text(),
+                    Password=self.textPass.text(),
+                    UserAttributes=[{"Name": "email", "Value": self.textName.text()}]
+                )
+                print(response)
+                msgBox = QtWidgets.QMessageBox()
+                msgBox.setText("Please confirm that you have received the verification email and verified it.")
 
-            msgBox = QtWidgets.QMessageBox()
-            msgBox.setText("Please confirm that you have received the verification email and verified it.")
+            except botocore.errorfactory.ClientError as e:
+            # except ClientError as e:
+                print("Exception Error:", type(e))
+                msgBox = QtWidgets.QMessageBox()
+                if "UsernameExistsException" in str(e):
+                    msgBox.setText("Oops! User already exists.  Try again...")
+                else:
+                    msgBox.setText("Sign up Error.  Try again...")
+
             #msgBox.setInformativeText("Do you want to save your changes?")
             #msgBox.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
             #msgBox.setDefaultButton(QMessageBox.Save)
@@ -427,9 +436,9 @@ class Login(QtWidgets.QDialog):
     def handleForgotPassword(self):
         print("forgot password...." + self.textName.text())
         if (not self.textName.text() ==  ""):
-            self.cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username=self.textName.text())
 
-            self.cog.initiate_forgot_password()
+            self.aws_client.forgot_password(ClientId=CLIENT_ID, Username=self.textName.text())
+
             self.confirm_code_label.setVisible(True)
             self.textConfirmCode.setVisible(True)
             self.pw_label.setText(QtWidgets.QLabel.tr("Set New Password:"))
@@ -456,9 +465,9 @@ class Login(QtWidgets.QDialog):
 
     def handleConfirmForgotPassword(self):
         print("forgot password...." + self.textPass.text())
-        self.cog.confirm_forgot_password(self.textConfirmCode.text(), self.textPass.text())
 
-        self.cog.initiate_forgot_password()
+        response = self.aws_client.confirm_forgot_password(ClientId=CLIENT_ID, Username=self.textName.text(), ConfirmationCode=self.textConfirmCode.text(), Password=self.textPass.text())
+
         self.confirm_code_label.setVisible(False)
         self.textConfirmCode.setVisible(False)
         self.pw_label.setText(QtWidgets.QLabel.tr("Password:"))
@@ -470,6 +479,27 @@ class Login(QtWidgets.QDialog):
         self.buttonLogin.setText(QtWidgets.QPushButton.tr("Login"))
         self.buttonLogin.clicked.disconnect(self.handleConfirmForgotPassword)
         self.buttonLogin.clicked.connect(self.handleLogin)
+
+    def renew_access_token(self):
+        """
+        Sets a new access token on the User using the refresh token.
+        """
+        auth_params = {'REFRESH_TOKEN': self.refresh_token}
+        self._add_secret_hash(auth_params, 'SECRET_HASH')
+        refresh_response = self.client.initiate_auth(
+            ClientId=self.client_id,
+            AuthFlow='REFRESH_TOKEN',
+            AuthParameters=auth_params,
+        )
+
+        self._set_attributes(
+            refresh_response,
+            {
+                'access_token': refresh_response['AuthenticationResult']['AccessToken'],
+                'id_token': refresh_response['AuthenticationResult']['IdToken'],
+                'token_type': refresh_response['AuthenticationResult']['TokenType']
+            }
+        )
 
     def scramble(self, word):
         min = 33
