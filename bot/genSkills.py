@@ -168,7 +168,8 @@ def genWinTestSkill(worksettings, start_step):
     this_step, step_words = genStepCreateData("int", "tresult", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallFunction("doubler", "counter1", "tresult", this_step)
+    # this_step, step_words = genStepCallFunction("doubler", "counter1", "tresult", this_step)
+    this_step, step_words = genStepUseSkill("doubler", "", "counter1", "tresult", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global tresult\nprint('tresut....',tresult)", "", "in_line", "", this_step)
@@ -177,17 +178,17 @@ def genWinTestSkill(worksettings, start_step):
     this_step, step_words = genStepStub("end skill", "test skill", "", this_step)
     psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepStub("start function", "doubler", "", this_step)
+    # this_step, step_words = genStepStub("start function", "doubler", "", this_step)
+    this_step, step_words = genStepStub("start skill", "doubler", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global fin, dout\nprint('fin....',fin)\ndout = fin * 2", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepReturn("dout", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepReturn("dout", this_step)
+    # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end function", "doubler", "", this_step)
+    this_step, step_words = genStepStub("end skill", "doubler", "dout", this_step)
     psk_words = psk_words + step_words
 
     # generate exceptino code, must have.... and this must be at the final step of skill.

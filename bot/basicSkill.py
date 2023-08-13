@@ -24,6 +24,7 @@ mouse = Controller()
 
 mission_vars = []
 # global function_table
+MAX_STEPS = 1000000000
 
 def genStepHeader(skillname, los, ver, author, skid, description, stepN):
     header = {
@@ -373,12 +374,12 @@ def genStepReturn(output, stepN):
 # args: function arguments
 # return_point: where does function return. (maybe not needed with stack.)
 # output: function returned result
-def genStepUseSkill(skname, args, output, stepN):
+def genStepUseSkill(skname, skfname, skargs, output, stepN):
     stepjson = {
         "type": "Use Skill",
         "skill_name": skname,
-        "args": args,
-        "return_to": str(stepN+STEP_GAP),
+        "skill_file_name": skfname,
+        "skill_args": skargs,
         "output": output
     }
 
@@ -1220,11 +1221,12 @@ def processCallExtern(step, i):
 # args: function arguments
 # return_point: where does function return. (maybe not needed with stack.)
 # output: function returned result
-def processUseSkill(step, i, stack, step_keys):
+def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
     global skill_code
 
     # push current address pointer onto stack,
-    stack.append(i)
+    stack.append(i+1)
+    sk_stack.append(step["skill_name"])
 
     #save current fin, fout whatever that is.
     stack.append(symTab["fout"])
@@ -1234,11 +1236,15 @@ def processUseSkill(step, i, stack, step_keys):
     stack.append(step["output"])
 
     # push input args onto stack
-    stack.append(step["args"])
+    stack.append(step["skill_args"])
+
+    fin_par = stack.pop()
+    symTab["fin"] = symTab[fin_par]
+    print("geting skill call input parameter: ", fin_par, " [val: ", symTab[fin_par])
 
     # start execuation on the function, find the function name's address, and set next pointer to it.
     # the function name address key value pair was created in gen_addresses
-    idx = step_keys.index(skill_code[step["fname"]])
+    idx = step_keys.index(sk_table[step["skill_name"]])
 
     return idx
 
@@ -1326,20 +1332,40 @@ def processReturn(step, i, stack, step_keys):
 
 # this is a stub/marker for end of if-else, end of function, end of loop etc. SC - 20230723 total mistake of this function....
 # whatever written here should be in address generation.
-def processStub(step, i, stack, step_keys):
+def processStub(step, i, stack, sk_stack, sk_table, step_keys):
     next_i = i + 1
 
     # note, end condition, else, end loop will not even exist because they will be replaced by "Goto" during
     # the gen_addresses step.
     if step["stub_name"] == "end function":
         # restore caller's fin and fout.
+        # when reaching here, there is nothing to return. so, the return receiver var is a junk.
         junk = stack.pop()
+
+        # restore fin and fout.
         symTab["fin"] = stack.pop()
         symTab["fout"] = stack.pop()
 
         #  set the pointer to the return to pointer.
         next_i = stack.pop()
 
+    if step["stub_name"] == "end skill":
+        print("end of a skill", step["func_name"], "reached.")
+        if len(sk_stack) == 0:
+            #set next_i to be a huage number, that wuold stop the code.
+            next_i = MAX_STEPS
+        else:
+            junk = sk_stack.pop()
+
+            return_var_name = stack.pop()
+            if return_var_name != "" and step["fargs"] != "":
+                symTab[return_var_name] = symTab[step["fargs"]]
+
+            symTab["fin"] = stack.pop()
+            symTab["fout"] = stack.pop()
+
+            #  set the pointer to the return to pointer.
+            next_i = stack.pop()
 
     return next_i
 
