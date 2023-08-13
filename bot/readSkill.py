@@ -49,8 +49,9 @@ exception_stack = []
 page_stack = []
 breakpoints = []
 skill_code = None
-skill_table = None
+skill_table = {"nothing": ""}
 function_table = {"nothing": ""}
+skill_stack = []
 
 current_context = None
 
@@ -104,9 +105,9 @@ vicrop = {
     "Goto": lambda x,y,z: processGoto(x, y, z),
     "Call Function": lambda x,y,z,v,w: processCallFunction(x, y, z, v, w),
     "Return": lambda x,y,z,w: processReturn(x, y, z, w),
-    "Use Skill": lambda x,y,z,w: processUseSkill(x, y, z, w),
+    "Use Skill": lambda x,y,z,u,v,w: processUseSkill(x, y, z, u, v, w),
     "Overload Skill": lambda x,y,z,w: processOverloadSkill(x, y, z, w),
-    "Stub": lambda x,y,z,w: processStub(x, y, z, w),
+    "Stub": lambda x,y,z,u,v,w: processStub(x, y, z, u, v, w),
     "Call Extern": lambda x,y: processCallExtern(x, y),
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
@@ -274,8 +275,10 @@ def run1step(steps, si, mission, skill, stack):
             si = vicrop[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html" or step["type"] == "AMZ Scrape PL Html":
             si = vicrop[step["type"]](step, si, mission, skill)
-        elif step["type"] == "Stub" or step["type"] == "End Exception" or step["type"] == "Use Skill" or step["type"] == "Return":
+        elif step["type"] == "End Exception" or step["type"] == "Return":
             si = vicrop[step["type"]](step, si, stack, stepKeys)
+        elif step["type"] == "Stub" or step["type"] == "Use Skill":
+            si = vicrop[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
         elif step["type"] == "Call Function":
             si = vicrop[step["type"]](step, si, stack, function_table, stepKeys)
         elif "EXT:" in step["type"]:
@@ -555,7 +558,7 @@ def gen_addresses(stepcodes, nth_pass):
                 # build up function table, and skill table.
                 if stepcodes[stepName]["stub_name"] == "start skill":
                     # this effectively includes the skill overload function. - SC
-                    skill_table[stepcodes[stepName]["skill_name"]] = nextStepName
+                    skill_table[stepcodes[stepName]["func_name"]] = nextStepName
                 elif stepcodes[stepName]["stub_name"] == "start function":
                     # this effectively includes the skill overload function. - SC
                     print(stepcodes[stepName]["func_name"])
