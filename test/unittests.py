@@ -22,14 +22,40 @@ def test_etsy_label_gen():
 
 # can use the following to test any skill file, except the extractInfo one which requiers cloud service.
 def test_use_func_instructions():
-    test_settings = {"skfname": "unitest0"}
+    psk0 = "C:/Users/songc/PycharmProjects/testdata/ut0sk1.psk"
+    test_settings = {"skfname": psk0}
 
     # a test skill will be writen
     genWinTestSkill(test_settings, 0)
 
     print("done generating skill============================>")
 
-    rpa_script = prepRun1Skill("UT000", "unitest0")
+    rpa_script = prepRun1Skill("UT000", psk0)
+
+    print("done all address gen.................")
+
+    # set mission to be None, skill to be None, since we won't be testing extractInfo step.
+    # test_m = EBMISSION()
+    runAllSteps(rpa_script, None, None)
+
+    print("done testing.................")
+
+# can use the following to test any skill file, except the extractInfo one which requiers cloud service.
+def test_multi_skills():
+
+    psk1 = "C:/Users/songc/PycharmProjects/testdata/ut1sk1.psk"
+    psk2 = "C:/Users/songc/PycharmProjects/testdata/ut1sk2.psk"
+    test_settings = {"skfname": psk1}
+    # a test skill will be writen
+    genWinTestSkill1(test_settings, 0)
+
+    test_settings = {"skfname": psk2}
+    # a test skill will be writen
+    genWinTestSkill2(test_settings, 0)
+
+    print("done generating skill============================>")
+    skodes = [{"ns": "UT1SK1", "skfile": psk1}, {"ns": "UT1SK2", "skfile": psk2}]
+    rpa_script = prepRunSkill(skodes)
 
     print("done all address gen.................")
 

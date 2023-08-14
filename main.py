@@ -76,7 +76,8 @@ def windowlauncher():
 if __name__ == '__main__':
     # test_eb_orders_scraper()
     # test_etsy_label_gen()
-    test_use_func_instructions()
+    # test_use_func_instructions()
+    test_multi_skills()
     # print("all unit test done...")
 
 
