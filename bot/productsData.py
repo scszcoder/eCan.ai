@@ -104,6 +104,7 @@ class PRODUCT_SUMMERY:
         self.weekly_sales = 0
         self.free_delivery = False
         self.badges = []
+        self.platform = ""
 
     def setTitle(self, tt):
         self.title = tt
@@ -150,6 +151,12 @@ class PRODUCT_SUMMERY:
 
     def setFreeDelivery(self, fd):
         self.free_delivery = fd
+
+    def setPlatform(self, platform):
+        self.platform = platform
+
+    def getPlatform(self):
+        return(self.platform)
 
     def toJson(self):
         return {

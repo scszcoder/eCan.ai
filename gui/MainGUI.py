@@ -1218,90 +1218,56 @@ class MainWindow(QtWidgets.QMainWindow):
         stepKeys = readSkillFile(skname, skill_file, lvl=0)
         return stepKeys
 
-    # run one bot one time slot at a time.
+    # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
     async def runRPA(self, worksTBD):
         global rpaConfig
         global skill_code
-        works = worksTBD["works"]
-        tz = worksTBD["current tz"]
-        grp = worksTBD["current grp"]
-        bidx = worksTBD["current bidx"]             # buy task index
-        widx = worksTBD["current widx"]             # walk task index
-        oidx = worksTBD["current oidx"]             # other task index
-        if grp == "other_works":
-            idx = oidx
-        else:
-            idx = widx
 
-        print("works:", works)
-        print("tz: ", tz, "grp: ", grp, "bidx: ", bidx, "widx: ", widx, "oidx: ", oidx, "idx: ", idx)
+        worksettings = getWorkSettings(self, worksTBD)
+        print("worksettings: ", worksettings)
 
-        print("worksTBD: ", worksTBD)
-        # get parent settings which contains tokens to allow the machine to communicate with cloud side.
-        botid = works[tz][bidx]["bid"]
-        mid = works[tz][bidx][grp][idx]["mid"]
-        midx = next((i for i, m in enumerate(self.missions) if m.getMid() == mid), -1)
-        settings = self.missions[midx].parent_settings
+        rpaScripts = []
 
-        print("settings: ", settings)
+        # generate walk skills on the fly.
+        running_mission = self.missions[worksettings["midx"]]
+        rpaSkillIdWords = running_mission.getSkills().split(",")
+        rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
-        rpaConfig = works[tz][bidx][grp][idx]["config"]
-        rpaName = works[tz][bidx][grp][idx]["name"]
+        print("rpaSkillIds:", rpaSkillIds, type(rpaSkillIds[0]))
 
-        print("rpaConfig: ", rpaConfig)
+        # get skills data structure by IDs
+        relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
 
-        if rpaName == "walk_routine":
-            # generate walk skills on the fly.
-            running_mission = self.missions[works[tz][bidx][grp][idx]["mid"]]
-            rpaSkillIds = running_mission.getSkills()
+        all_skill_codes = []
+        for sk in relevant_skills:
+            setWorkSettingsSkill(worksettings, sk)
 
-            # get skills data structure by IDs
-            relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
+            genSkillCode(worksettings, first_step, "light")
 
-            all_skill_codes = []
-            for sk in relevant_skills:
-                skname = sk.getName()
-                name_space = "B" + str(botid) + "M" + str(mid) + "!" + skname + "!"
-                skfname = self.homepath +"/" + sk.getPskFileName()
+            all_skill_codes.append({"ns": worksettings["name_space"], "skfile": worksettings["skfname"]})
 
-                genSkillCode(skname, skfname,  worksTBD, first_step, "light")
-                all_skill_codes.append({"ns": name_space, "skfile": skfname})
+        print("all_skill_codes: ", all_skill_codes)
 
 
-            # for testing...
-            # name_space, skfname = genWinChromeAMZWalkSkill(self, worksTBD, first_step, "light")
-            # rpa_script = prepRunSkill(name_space, skfname)
+        rpa_script = prepRunSkill(all_skill_codes)
+        print("generated psk:", rpa_script)
 
-            rpa_script = prepRunSkill(all_skill_codes)
-            print("generated psk:", rpa_script)
+        rpaScripts.append(rpa_script)
 
-            rpaScripts = [rpa_script]
-
-        else:
-            rpaSkills = self.missions[works[tz][bidx][grp][idx]["mid"]].getSkills()
-            print("rpaSkills: ", rpaSkills)
-
-            # rpaScripts = [self.loadSkillFile(skname) for skname in rpaSkills]
-
-            name_space, skfname = genWinSkills(self, worksTBD, first_step, "light")
-            rpa_script = prepRunSkill(name_space, skfname)
-            print("generated psk:", rpa_script)
-
-            rpaScripts = [rpa_script]
 
         print("rpaScripts:[", len(rpaScripts), "] ", rpaScripts)
 
         #now run the steps
         for script in rpaScripts:
             # (steps, mission, skill, mode="normal"):
-            it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkills[0])
-            print("it_items: ", it_items)
-            for it in it_items:
-                print("item: ", it.getSkid())
-            running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkills[0])), -1)
-            print("running skid:", rpaSkills[0], "len(self.skills): ", len(self.skills), "skill 0 skid: ", self.skills[0].getSkid())
-            print("running skill: ", running_skill)
-            runAllSteps(script, self.missions[works[tz][bidx][grp][idx]["mid"]], running_skill)
+            # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
+            # print("it_items: ", it_items)
+            # for it in it_items:
+            #     print("item: ", it.getSkid())
+            # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
+            # print("running skid:", rpaSkillIds[0], "len(self.skills): ", len(self.skills), "skill 0 skid: ", self.skills[0].getSkid())
+            # print("running skill: ", running_skill)
+            runAllSteps(script, self.missions[worksettings["midx"]], relevant_skills[0])
 
         #now update the pointer, status, and so on.....
         self.updateRunStatus(worksTBD)

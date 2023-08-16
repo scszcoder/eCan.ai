@@ -882,7 +882,7 @@ def genAMZBrowseProductLists(pageCfgsName, pageCfgs, ith, lastone, flows, stepN,
 #                  it's up to the cloud side to arrange no products in the 1st flow down.
 #   for the detailLvl, the data structure is as following:
 #   { level: 1~5, seeAll : true/false, allPos: true/false, allNeg: true/false, nPosExpand: , nNegExpand:,  nPosPages: , nNegPages: }
-
+# (step, i, mission, skill)
 def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     psk_words = ""
     # this creates the local private skill file.
