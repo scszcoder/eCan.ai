@@ -66,3 +66,6 @@ def test_multi_skills():
 
     print("done testing.................")
 
+def test_scrape_etsy_orders():
+    html_file = "c:/temp/Etsy - 3Sold Orders.html"
+    orders = etsy_seller_fetch_order_list(html_file, 0)

@@ -8,7 +8,7 @@ SAME_ROW_THRESHOLD = 16
 # 1） open the orders page
 # 2） save and scrape HTML
 # 3） if more than 1 page, go thru all pages. get all.
-def genWinEtsyHandleOrderSkill(lieutenant, page, sect, stepN, theme):
+def genWinEtsyHandleOrderSkill(worksettings, page, sect, stepN, theme):
     psk_words = ""
 
     dtnow = datetime.now()
@@ -43,7 +43,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", lieutenant.homepath, "screen_info", "etsy_orders", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "etsy_orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # extract the number of new orders on the page.
@@ -99,7 +99,7 @@ def genWinEtsyHandleOrderSkill(lieutenant, page, sect, stepN, theme):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", lieutenant.homepath, "screen_info", "etsy_orders", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "etsy_orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
@@ -200,11 +200,11 @@ def processEtsySearchOrders(step, i):
 
 
 # puchase shipping labels....
-def genWinEtsyObtainLabelsSkill(lieutenant, bot_works, start_step, theme):
+def genWinEtsyObtainLabelsSkill(worksettings, bot_works, start_step, theme):
     all_labels = []
 
 # fill in the order tracking number for each order, starting backward from the last order to the first order.
-def genWinEtsyUpdateOrderSkill(lieutenant, bot_works, start_step, theme, stepN):
+def genWinEtsyUpdateOrderSkill(worksettings, bot_works, start_step, theme, stepN):
     psk_words = ""
     # assume the order data is in all_orders variable (tracking code already added to the data).
     # assume n_pages variable holds # of pages of the products.
@@ -232,7 +232,7 @@ def genWinEtsyUpdateOrderSkill(lieutenant, bot_works, start_step, theme, stepN):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", lieutenant.homepath, "screen_info", "etsy_orders", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "etsy_orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.

@@ -490,15 +490,29 @@ class EBMISSION(QtGui.QStandardItem):
         else:
             skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
         print("mission skill ids: ", skill_ids)
-        return [self.parent.skills[s].getName() for s in skill_ids]
+        sk_names = []
+        for s in skill_ids:
+            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            if skidx >= 0:
+                sk_names.append(self.parent.skills[skidx].getName())
+        print("skill names:", sk_names)
+        return sk_names
 
     def getPSKFileNames(self):
         if self.pubAttributes.skills == "":
             skill_ids = []
         else:
             skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
+
         print("mission skill ids: ", skill_ids)
-        return [self.parent.skills[s].getPskFileName() for s in skill_ids]
+        psk_names = []
+        for s in skill_ids:
+            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            if skidx >= 0:
+                psk_names.append(self.parent.skills[skidx].getPskFileName())
+
+        print("procedural skill names:", psk_names)
+        return psk_names
 
     def getCSKFileNames(self):
         if self.pubAttributes.skills == "":
@@ -506,7 +520,14 @@ class EBMISSION(QtGui.QStandardItem):
         else:
             skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
         print("mission skill ids: ", skill_ids)
-        return [self.parent.skills[s].getCskFileName() for s in skill_ids]
+        csk_names = []
+        for s in skill_ids:
+            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            if skidx >= 0:
+                csk_names.append(self.parent.skills[skidx].getCskFileName())
+
+        print("Content skill names:", csk_names)
+        return csk_names
 
 
     def setSkills(self, skills):

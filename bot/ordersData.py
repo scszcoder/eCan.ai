@@ -153,7 +153,8 @@ class ORDER:
 
     def setProducts(self, pds):
         self.products = pds
-        self.total_price = sum(float(pd.getPrice()) * int(pd.getQuantity()) for pd in pds)
+        if pds[0].getPrice() != "":
+            self.total_price = sum(float(pd.getPrice()) * int(pd.getQuantity()) for pd in pds)
 
     def setShipping(self, shipping):
         self.shipping = shipping
