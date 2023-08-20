@@ -78,11 +78,11 @@ if __name__ == '__main__':
     # test_etsy_label_gen()
     # test_use_func_instructions()
     # test_multi_skills()
-    test_scrape_etsy_orders()
+    # test_scrape_etsy_orders()
     # print("all unit test done...")
 
 
-    # windowlauncher()
+    windowlauncher()
 
     # try:
     #     asyncio.run(main())

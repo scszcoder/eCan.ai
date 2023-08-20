@@ -8,8 +8,22 @@ from calendar import isleap
 import cv2
 from ordersData import *
 
+global symTab
+global STEP_GAP
 
-def etsy_seller_fetch_order_list(html_file,  pidx):
+def genStepEtsyScrapeOrders(html, pidx, outvar, stepN,):
+    stepjson = {
+        "type": "ETSY Scrape Orders",
+        "pidx": pidx,
+        "html_file": html,
+        "result": outvar
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+def processEtsyScrapeOrders(step, i):
+    pidx = step["pidx"]
+    html_file = step["html_file"]
     pagefull_of_orders = {"page": pidx, "ol": None}
     orders = []
 
@@ -19,19 +33,19 @@ def etsy_seller_fetch_order_list(html_file,  pidx):
         # per order information blocks
         divItems = soup.findAll("div", attrs={"class": "orders-full-width-panel-on-mobile panel panel-no-footer mb-xs-4"})
         for item in divItems:
-            # extract buyer info.
+            # extract recipient info.
             order = ORDER("", "", "", "", "", "")
             products = []
 
-            buyerItems = item.findAll("div", attrs={"class": "break-word"})
-            for bi in buyerItems:
-                buyer_loc_tags = bi.findAll("span", attrs={"data-test-id": 'unsanitize'})
-                if len(buyer_loc_tags) == 3:
-                    print("buyer_loc_tags:", buyer_loc_tags)
-                    buyer = Buyer("", "", "", "", "", "")
-                    buyer.setFullName(buyer_loc_tags[0].text)
-                    buyer.setCity(buyer_loc_tags[1].text)
-                    buyer.setState(buyer_loc_tags[2].text)
+            recipientItems = item.findAll("div", attrs={"class": "break-word"})
+            for bi in recipientItems:
+                recipient_loc_tags = bi.findAll("span", attrs={"data-test-id": 'unsanitize'})
+                if len(recipient_loc_tags) == 3:
+                    print("recipient_loc_tags:", recipient_loc_tags)
+                    recipient = OrderPerson("", "", "", "", "", "")
+                    recipient.setFullName(recipient_loc_tags[0].text)
+                    recipient.setCity(recipient_loc_tags[1].text)
+                    recipient.setState(recipient_loc_tags[2].text)
 
                 # oid_tags = item.findAll("span", attrs={"data-test-id": 'unsanitize'})
 
@@ -40,7 +54,7 @@ def etsy_seller_fetch_order_list(html_file,  pidx):
             for aitem in aItems:
                 product = OrderedProducts("", "", "", "")
                 print("product title:", aitem["title"])
-                product.setPtitle(aitem['title'])
+                product.setPTitle(aitem['title'])
                 products.append(product)
 
             liItems = item.findAll("li", attrs={"class": "clearfix"})
@@ -61,7 +75,7 @@ def etsy_seller_fetch_order_list(html_file,  pidx):
             order.setTotalPrice(float(aItems[0].text[1:]))
 
             order.setProducts(products)
-            order.setBuyer(buyer)
+            order.setRecipient(recipient)
             shipping = Shipping("", "", "", "", "", "", "", "")
             order.setShipping(shipping)
             orders.append(order)
@@ -72,4 +86,7 @@ def etsy_seller_fetch_order_list(html_file,  pidx):
     print("# of orders:", len(orders))
     print([o.toJson() for o in orders])
     print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
-    return pagefull_of_orders
+
+    symTab[step["result"]] = pagefull_of_orders
+
+    return i + 1

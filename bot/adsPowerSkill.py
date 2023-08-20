@@ -9,7 +9,7 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     psk_words = ""
     print("DEBUG", "genAMZBrowseDetails...")
 
-    this_step, step_words = genStepOpenApp("run", True, adsPowerLink, url, "", "", aargs, stepN)
+    this_step, step_words = genStepOpenApp("run", True, adsPowerLink, url, "", "", aargs, 3, stepN)
     psk_words = psk_words + step_words
 
     # some steps here to adjust window size and location here...
@@ -74,7 +74,7 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
 # from given bots information, generate profiles for ADS power to load.
 # assumption: there will be a large .xlsx that contains the correct profiles for all bots.
 # and we will select x number of bots that are scheduled to run at this time,
-def genADSBatchImportProfiles(xlsfile):
+def genWinADSBatchImportSkill(xlsfile):
     print("ADS: load profiles")
 
     # click on Batch Import
@@ -93,7 +93,7 @@ def genADSBatchImportProfiles(xlsfile):
 
 
 
-def genADSRemoveProfiles(cfg):
+def genWinADSRemoveProfilesSkill(cfg):
     print("ADS: remove all profiles")
 
     # Click on Profiles
@@ -103,8 +103,8 @@ def genADSRemoveProfiles(cfg):
     # click on the trash can icon to remove.
 
 
-def processADSOpenBotBrowser(cfg):
-    print("ADS: close bot browser")
+def genWinADSOpenSkill(cfg):
+    print("ADS: open profile.(assume profiles already loaded.)")
 
     # find bot profile and its corresponding Open button,
 

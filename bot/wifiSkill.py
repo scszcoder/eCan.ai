@@ -1,7 +1,7 @@
 from basicSkill import *
 
 
-def genWinWiFiReconnectSkill(lieutenant, bot_works, stepN, theme):
+def genWinWiFiLocalReconnectLanSkill(lieutenant, bot_works, stepN, theme):
     psk_words = []
 
     # extract screen info,

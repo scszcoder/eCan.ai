@@ -27,6 +27,8 @@ import sqlite3
 from scraper import *
 from pynput.mouse import Button, Controller
 from genSkills import *
+import importlib
+import sys
 
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
@@ -469,10 +471,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Main Bot&Mission Scheduler")
 
         # Done with all UI stuff, now do the instruction set extension work.
-        is_extension_file = self.homepath + "/resource/skills/my/is_extension.json"
-        if os.path.isfile(is_extension_file):
-            with open(is_extension_file, 'r') as f_is_extension:
-                vicrop.update(json.load(f_is_extension))
+        sk_extension_file = self.homepath + "/resource/skills/my/skill_extension.json"
+        if os.path.isfile(sk_extension_file):
+            with open(sk_extension_file, 'r') as sk_extension:
+                addon = json.load(sk_extension)
+                added_module_names = addon['modules']
+                print("added module names:", added_module_names)
+                added_module0 = importlib.import_module(added_module_names[0])
+                vicrop_extension = getattr(added_module0, 'extended_vicrop')
+                vicrop.update(vicrop_extension)
 
         # now hand daily tasks
 

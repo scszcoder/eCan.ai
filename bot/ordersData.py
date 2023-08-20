@@ -1,5 +1,5 @@
-class Buyer:
-    def __init__(self, buyer_id, full_name, street1, city, state, zip, street2=""):
+class OrderPerson:
+    def __init__(self, buyer_id, role, full_name, street1, city, state, zip, street2="", phone="", email=""):
         self.fn = ""
         self.mn = ""
         self.ln = ""
@@ -11,6 +11,9 @@ class Buyer:
         self.city = city
         self.state = state
         self.zip = zip
+        self.phone = phone
+        self.email = email
+        self.role = role
 
     def setStreet1(self, str1):
         self.street1 = str1
@@ -33,6 +36,12 @@ class Buyer:
     def setFullName(self, fullname):
         self.full_name = fullname
 
+    def setPhone(self, phone):
+        self.phone = phone
+
+    def setRole(self, role):
+        self.role = role
+
     def toJson(self):
         return {
             "full_name": self.full_name,
@@ -41,7 +50,8 @@ class Buyer:
             "street2": self.street2,
             "city": self.city,
             "state": self.state,
-            "zip": self.zip
+            "zip": self.zip,
+            "phone": self.phone
         }
 
 class Shipping:
@@ -109,11 +119,11 @@ class OrderedProducts:
     def getPid(self):
         return self.pid
 
-    def setPtitle(self, ptitle):
-        self.ptitle = ptitle
+    def getPTitle(self):
+        return(self.ptitle)
 
-    def getPtitle(self):
-        return self.ptitle
+    def setPTitle(self, ptitle):
+        self.ptitle = ptitle
 
     def setPrice(self, price):
         self.price = price
@@ -136,20 +146,29 @@ class OrderedProducts:
         }
 
 class ORDER:
-    def __init__(self, oid, products, buyer, shipping, status, createdOn):
+    def __init__(self, oid, products, buyer, recipient, shipping, status, createdOn):
         self.oid = oid
         self.products = products    #[{"pid":***, "pname":****, "quantity":***, "price":***}...]
         self.total_price = 0.0
         self.buyer = buyer
+        self.recipient = recipient
         self.shipping = shipping
         self.status = status
         self.createdOn = createdOn
+        self.total_weight = 0           # in ozs
+        self.total_length = 0           # in inches
+        self.total_width = 0
+        self.total_height = 0
+
 
     def setOid(self, oid):
         self.oid = oid
 
     def setBuyer(self, buyer):
         self.buyer = buyer
+
+    def setRecipient(self, recipient):
+        self.recipient = recipient
 
     def setProducts(self, pds):
         self.products = pds
@@ -158,6 +177,78 @@ class ORDER:
 
     def setShipping(self, shipping):
         self.shipping = shipping
+
+    def getRecipientName(self):
+        return self.buyer.full_name
+
+    def getRecipientAddrState(self):
+        return self.buyer.state
+
+    def getRecipientAddrZip(self):
+        return self.buyer.zip
+
+    def getRecipientAddrCity(self):
+        return self.buyer.city
+
+    def getRecipientAddrStreet1(self):
+        return self.buyer.street1
+
+    def getRecipientAddrStreet2(self):
+        return self.buyer.street2
+
+    def getOrderWeightInOzs(self, product_book):
+        self.total_weight = 0
+        for p in self.products:
+            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            if found:
+                self.total_weight = self.total_weight + found.getWeight()*p.getQuantity()
+
+        self.total_weight = self.total_weight + 3               #3oz as the container weight
+        return self.total_weight
+
+    def getOrderWeightInLbs(self, product_book):
+        self.total_weight = 0
+        for p in self.products:
+            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            if found:
+                self.total_weight = self.total_weight + found.getWeight()*p.getQuantity()
+
+        self.total_weight = self.total_weight + 3           # 3oz as the container weight
+        if self.total_weight >= 16:
+            self.total_weight = self.total_weight * 1.2     # for heavy item, add 20% extra weight as container weight.
+
+        return int(self.total_weight/16)
+
+    def getOrderLengthInInches(self, product_book):
+        all_len = []
+        for p in self.products:
+            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            if found:
+                all_len.append(found.getDimensions()[0]*p.getQuantity())
+
+        self.total_length = max(all_len) + 5
+        return self.total_length
+
+    def getOrderWidthInInches(self, product_book):
+        all_wid = []
+        for p in self.products:
+            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            if found:
+                all_wid.append(found.getDimensions()[1])
+
+        self.total_width = max(all_wid) + 5
+        return self.total_width
+
+    def getOrderHeightInInches(self, product_book):
+        all_hei = []
+        for p in self.products:
+            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            if found:
+                all_hei.append(found.getDimensions()[2])
+
+        self.total_height = max(all_hei) + 5
+        return self.total_height
+
 
     def setTotalPrice(self, tp):
         self.total_price = tp
@@ -172,6 +263,7 @@ class ORDER:
         return {
             "oid": self.oid,
             "buyer": self.buyer.toJson(),
+            "recipient": self.recipient.toJson(),
             "products": [p.toJson() for p in self.products],
             "shipping": self.shipping.toJson(),
             "total_price": self.total_price,

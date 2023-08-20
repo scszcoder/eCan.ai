@@ -109,6 +109,9 @@ class PRODUCT_SUMMERY:
     def setTitle(self, tt):
         self.title = tt
 
+    def getTitle(self):
+        return(self.title)
+
     def setBrand(self, brand):
         self.brand = brand
 
@@ -182,13 +185,22 @@ class PRODUCT:
         self.summery = None
         self.reviews = []
         self.qas = []
-        self.point_summery = []     #amazon's 7 bullet points description.
+        self.point_summery = []         #amazon's 7 bullet points description.
         self.description = ""
         self.start_date = ""
         self.department = ""
         self.ranks = []
-        self.dimensions = ""
-        self.weight = ""
+        self.dimensions = [0, 0, 0]     # length, width, height in inches.
+        self.weight = 0                 #unit in ozs
+
+    def getTitle(self):
+        return(self.summery.getTitle())
+
+    def getWeight(self):
+        return(self.weight)
+
+    def getDimensions(self):
+        return(self.dimensions)
 
     def setSummery(self, summery):
         self.summery = summery

@@ -1,5 +1,5 @@
 from scraperEbay import *
-from labelCustomGeneneratorSkill import *
+from labelSkill import *
 from missions import *
 from rarSkill import *
 from genSkills import *

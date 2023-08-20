@@ -377,6 +377,21 @@ class EBBOT(QtGui.QStandardItem):
     def getLocation(self):
         return self.pubProfile.location
 
+    def getAddrStreet1(self):
+        return self.privateProfile.shipping_addrl1
+
+    def getAddrStreet2(self):
+        return self.privateProfile.shipping_addrl2
+
+    def getAddrCity(self):
+        return self.privateProfile.shipping_addrcity
+
+    def getAddrState(self):
+        return self.privateProfile.shipping_addrstate
+
+    def getAddrZip(self):
+        return self.privateProfile.shipping_addrzip
+
     def getInterests(self):
         return self.pubProfile.interests
 

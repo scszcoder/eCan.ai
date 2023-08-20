@@ -905,7 +905,7 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
 
 
     # open browser with amzon web site
-    # this_step, step_words = genStepOpenApp("Run", "browser", "https://www.amazon.com", "", "", lieutenant.skills[skidx].getAppArgs(), this_step)
+    # this_step, step_words = genStepOpenApp("Run", "browser", "https://www.amazon.com", "", "", lieutenant.skills[skidx].getAppArgs(), 3, this_step)
 
     # this url points to a product list page after a keyword search
     # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats1689147960.html"
