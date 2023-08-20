@@ -1,4 +1,5 @@
-
+import os
+import os.path
 import json
 import win32gui
 import pyautogui
@@ -286,6 +287,27 @@ def genStepStub(sname, fname, fargs, stepN):
         "stub_name": sname,
         "func_name": fname,
         "fargs": fargs
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepListDir(dirname, fargs, result_var, stepN):
+    stepjson = {
+        "type": "List Dir",
+        "dir": dirname,
+        "fargs": fargs,
+        "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepCheckExistence(fname, result_var, stepN):
+    stepjson = {
+        "type": "List Dir",
+        "file": fname,
+        "result": result_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -735,16 +757,16 @@ def get_clickable_loc(box, off_from, offset, offset_unit):
         box_height = 1
 
     if off_from == "left":
-        click_loc = (box[1] - offset[0]*box_length, center[0])
+        click_loc = (box[1] - int(offset[0]*box_length), center[0])
     elif off_from == "right":
-        click_loc = (box[3] + offset[0]*box_length, center[0])
+        click_loc = (box[3] + int(offset[0]*box_length), center[0])
     elif off_from == "top":
-        click_loc = (center[1], box[0] - offset[1]*box_height)
+        click_loc = (center[1], box[0] - int(offset[1]*box_height))
     elif off_from == "bottom":
-        click_loc = (center[1], box[2] + offset[1]*box_height)
+        click_loc = (center[1], box[2] + int(offset[1]*box_height))
     else:
         #offset from center case
-        click_loc = ((center[1] + offset[0]*box_length, center[0] + offset[1]*box_height))
+        click_loc = ((center[1] + int(offset[0]*box_length), center[0] + int(offset[1]*box_height)))
 
     return click_loc
 
@@ -847,7 +869,7 @@ def processKeyInput(step, i):
     global page_stack
     global current_context
     print("Keyboard Action..... hot keys")
-    keys = step["action_value"].split('_')
+    keys = step["action_value"].split(',')
 
     if len(keys) == 4:
         pyautogui.hotkey(keys[0], keys[1], keys[2], keys[3])
@@ -1375,6 +1397,14 @@ def processGoto(step, i,  step_keys):
     return step_keys.index(step["goto"])
 
 
+def processListDir(step, i):
+    lof = os.listdir(step["dir"])
+    symTab[step["result"]] = [f for f in lof if x.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
+    return i + 1
+
+def processCheckExistence(step, i):
+    symTab[step["result"]] = os.path.isfile(step["file"])
+    return i + 1
 
 # create a data structure holder for anchor....
 # "type": "Search",

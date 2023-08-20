@@ -93,7 +93,7 @@ def list_s3_file():
         print("content::", x["Key"])
 
 def get_presigned_url(target):
-    s3_client = boto3.client('s3', region_name='us-east-1', aws_access_key_id="AWS_KEY_ID", aws_secret_access_key="AWS_SECRET" )
+    s3_client = boto3.client('s3', region_name='us-east-1', aws_access_key_id="AWS_KEY_ID", aws_secret_access_key="AWS_SECRET")
 
     # Generate the presigned URL
     response = s3_client.generate_presigned_post(Bucket='winrpa', Key=target, ExpiresIn=120)

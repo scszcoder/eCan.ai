@@ -24,7 +24,7 @@ from amzBuyerSkill import *
 from amzSellerSkill import *
 from ebaySellerSkill import *
 from etsySellerSkill import *
-from labelCustomGeneneratorSkill import *
+from labelSkill import *
 
 
 symTab["fout"] = ""
@@ -113,6 +113,8 @@ vicrop = {
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search": lambda x,y: processSearch(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
+    "List Dir": lambda x, y: processListDir(x, y),
+    "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Print Label": lambda x,y: processPrintLabel(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z, w: processAMZScrapePLHtml(x, y, z, w),
@@ -122,7 +124,7 @@ vicrop = {
     "AMZ Scrape Reviews Html": lambda x, y: processAMZScrapeReviewsHtml(x, y),
     "AMZ Scrape Orders Html": lambda x, y: processAMZScrapeOrdersHtml(x, y),
     "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
-    "ETSY Search Orders": lambda x, y: processEtsySearchOrders(x, y),
+    "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
 }
 
@@ -275,7 +277,7 @@ def run1step(steps, si, mission, skill, stack):
             si = vicrop[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html" or step["type"] == "AMZ Scrape PL Html":
             si = vicrop[step["type"]](step, si, mission, skill)
-        elif step["type"] == "End Exception" or step["type"] == "Return":
+        elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si = vicrop[step["type"]](step, si, stack, stepKeys)
         elif step["type"] == "Stub" or step["type"] == "Use Skill":
             si = vicrop[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)

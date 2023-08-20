@@ -3,6 +3,10 @@ from basicSkill import *
 from amzBuyerSkill import *
 from etsySellerSkill import *
 from ebaySellerSkill import *
+from fileSkill import *
+from rarSkill import *
+from labelSkill import *
+from wifiSkill import *
 
 def getWorkSettings(lieutenant, bot_works):
     works = bot_works["works"]
@@ -22,6 +26,7 @@ def getWorkSettings(lieutenant, bot_works):
     print("bot_works: ", bot_works)
     mission_id = works[tz][bidx][grp][idx]["mid"]
     midx = next((i for i, mission in enumerate(lieutenant.missions) if mission.getMid() == mission_id), -1)
+
     print("mission_id: ", mission_id, "midx: ", midx)
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
     settings = lieutenant.missions[midx].getParentSettings()
@@ -30,7 +35,6 @@ def getWorkSettings(lieutenant, bot_works):
     app = lieutenant.missions[midx].getApp()
     app_exe = lieutenant.missions[midx].getAppExe()
     print("settings: ", settings)
-
 
     rpaConfig = works[tz][bidx][grp][idx]["config"]
     rpaName = works[tz][bidx][grp][idx]["name"]
@@ -56,6 +60,9 @@ def getWorkSettings(lieutenant, bot_works):
     # cargs = lieutenant.skills[skidx].getAppArgs()
 
     bot_id = works[tz][bidx]["bid"]
+    bot_idx = next((i for i, bot in enumerate(lieutenant.bots) if bot.getBid() == bot_id), -1)
+
+
     name_space = "B" + str(bot_id) + "M" + str(mission_id) + "!" + "" + "!"
 
     run_config = works[tz][bidx][grp][idx]["config"]
@@ -67,6 +74,7 @@ def getWorkSettings(lieutenant, bot_works):
             "cargs": "",
             "works": works,
             "botid": bot_id,
+            "bot": lieutenant.bots[bot_idx],
             "mid": mission_id,
             "midx": midx,
             "run_config": run_config,
@@ -134,9 +142,20 @@ def genWinSkillCode(worksettings, start_step, theme):
     elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
         this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "ebay_orders", "top", this_step, theme)
     elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["rpaName"] == "sell":
-        this_step, step_words = genWinEtsyHandleOrderSkill(worksettings, "etsy_orders", "top", this_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
-        this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "ebay_orders", "top", this_step, theme)
+        this_step, step_words = genWinChromeEtsyFullfillOrdersSkill(worksettings, "etsy_orders", "top", this_step, theme)
+    elif worksettings["app"] == "rar" and worksettings["site"] == "local" and worksettings["rpaName"] == "zip_unzip_archive":
+        this_step, step_words = genWinRARLocalUnzipSkill(worksettings, "winrar", "top", this_step, theme)
+    elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["rpaName"] == "open_profile":
+        this_step, step_words = genWinADSOpenSkill(worksettings, "file_dialog", "top", this_step, theme)
+    elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["rpaName"] == "batch_import_xls":
+        this_step, step_words = genWinADSBatchImportSkill(worksettings, "file_dialog", "top", this_step, theme)
+    elif worksettings["app"] == "file" and worksettings["site"] == "local" and worksettings["rpaName"] == "open":
+        this_step, step_words = genWinFileLocalOpenSaveSkill(worksettings, "file_dialog", "top", this_step, theme)
+    elif worksettings["app"] == "wifi" and worksettings["site"] == "local" and worksettings["rpaName"] == "reconnect_lan":
+        this_step, step_words = genWinWiFiLocalReconnectLanSkill(worksettings, "wifi", "top", this_step, theme)
+    else:
+        this_step, step_words = genWinCustomSkill(worksettings, "custom", "top", this_step, theme)
+
     psk_words = psk_words + step_words
 
     # finally handle the purchase, if there is any.
@@ -146,8 +165,8 @@ def genWinSkillCode(worksettings, start_step, theme):
     #     psk_words = psk_words + step_words
 
     # generate exceptino code, must have.... and this must be at the final step of skill.
-    this_step, step_words = genException()
-    psk_words = psk_words + step_words
+    # this_step, step_words = genException()
+    # psk_words = psk_words + step_words
 
     # generate addresses for all subroutines.
     psk_words = psk_words + "\"dummy\" : \"\"}"
