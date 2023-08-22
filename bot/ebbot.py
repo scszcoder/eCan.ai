@@ -274,10 +274,11 @@ class BOT_PUB_PROFILE():
         self.status = stat
 
     def loadJson(self, dj):
+        self.bid = dj["bid"]
         self.pseudo_nick_name = dj["pseudo_nick_name"]
         self.pseudo_name = dj["pseudo_name"]
         self.location = dj["location"]
-        self.pubbirthday = dj["birthday"]
+        self.pubbirthday = dj["pubbirthday"]
         self.gender = dj["gender"]
         self.interests = dj["interests"]
         self.roles = dj["roles"]
@@ -341,7 +342,7 @@ class BOT_PUB_PROFILE():
 
 
 class EBBOT(QtGui.QStandardItem):
-    def __init__(self):
+    def __init__(self, icon_path):
         super().__init__()
         self.pubProfile = BOT_PUB_PROFILE()
         self.privateProfile = BOT_PRIVATE_PROFILE()
@@ -349,7 +350,7 @@ class EBBOT(QtGui.QStandardItem):
 
         self.ebType = "AMZ"
         self.setText('bot'+str(self.getBid()))
-        self.icon = QtGui.QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/c_robot64_0.png')
+        self.icon = QtGui.QIcon(icon_path)
         self.setIcon(self.icon)
 
 
@@ -467,6 +468,7 @@ class EBBOT(QtGui.QStandardItem):
         self.pubProfile.loadJson(nbJson["pubProfile"])
         self.privateProfile.loadJson(nbJson["privateProfile"])
         self.settings.loadJson(nbJson["settings"])
+        self.setText('bot' + str(self.getBid()))
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)

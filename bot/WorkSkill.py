@@ -203,7 +203,7 @@ class WORKSKILL(QtGui.QStandardItem):
         self.parent = parent
         self.price_model = ""
         self.price_model = ""
-        self.path = "resource/skills/public/"
+        self.path = "/resource/skills/public/"
         self.privacy = ""
         self.platform = ""
         self.app = ""
@@ -214,6 +214,9 @@ class WORKSKILL(QtGui.QStandardItem):
         self.page = ""
         self.private_skill = PROCEDURAL_SKILL(parent)
         self.cloud_skill = CLOUD_SKILL(parent)
+        self.setText('Skill'+str(self.getSkid()))
+        self.icon = QtGui.QIcon(parent.skill_icon_path)
+        self.setIcon(self.icon)
 
     def add_private_skill(self, procedural_skill):
         self.private_skill = procedural_skill
