@@ -1230,10 +1230,13 @@ class MainWindow(QtWidgets.QMainWindow):
         skillsubnames = skname.split("_")
         actionname = ''.join(skillsubnames[2:len(skillsubnames)])
         if pub:
-            skill_file = self.homepath + "resource/skills/public/" + skname + "/scripts/" + skname + ".lsk"
+            skill_file = self.homepath + "resource/skills/public/" + skname + "/scripts/" + skname + ".psk"
         else:
-            skill_file = self.homepath + "resource/skills/my/" + skname + "/scripts/" + skname + ".lsk"
+            skill_file = self.homepath + "resource/skills/my/" + skname + "/scripts/" + skname + ".psk"
+
+        print("loadSKILLFILE: ", skill_file)
         stepKeys = readSkillFile(skname, skill_file, lvl=0)
+
         return stepKeys
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
@@ -1258,6 +1261,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         all_skill_codes = []
         for sk in relevant_skills:
+            print("settingSKKKKKKKK: ", sk)
             setWorkSettingsSkill(worksettings, sk)
 
             genSkillCode(worksettings, first_step, "light")
