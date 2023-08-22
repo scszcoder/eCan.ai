@@ -115,6 +115,7 @@ def getWorkSettings(lieutenant, bot_works):
 
 def setWorkSettingsSkill(worksettings, sk):
     # derive full path skill file name.
+    print(">>>>>>>getting psk file name:", sk.getPskFileName())
     worksettings["skfname"] = worksettings["root_path"] + "/" + sk.getPskFileName()
 
     worksettings["skname"] = os.path.basename(sk.getName())
@@ -126,8 +127,8 @@ def setWorkSettingsSkill(worksettings, sk):
 
 
 def genWinSkillCode(worksettings, start_step, theme):
-
-    skf = open(worksettings["skfname"], "w")
+    print("opening ksill file: ", worksettings["skfname"])
+    skf = open(worksettings["skfname"], "w+")
     skf.write("\n")
 
     psk_words = "{"

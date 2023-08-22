@@ -71,6 +71,9 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + "\"dummy\" : \"\"}"
     print("DEBUG", "generated skill for windows file operation...." + psk_words)
 
+    return this_step, psk_words
+
+
 # this skill simply obtain a list of name/address/phone/order amount/products of the pending orders
 # 1） open the orders page
 # 2） save and scrape HTML
@@ -264,6 +267,8 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
     print("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    return this_step, psk_words
 
 
 def genStepEtsySearchOrders(screen, orderDataName, errFlagName, stepN):

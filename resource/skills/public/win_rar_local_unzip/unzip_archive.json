@@ -1,10 +1,10 @@
 {
-    "name": "zip_unzip_archive",
+    "name": "unzip_archive",
     "skid": 20,
     "owner": "public",
     "price": 0,
     "price_model": "free",
-    "path": "resource/skills/public",
+    "path": "resource/skills/public/",
     "privacy": "public",
     "platform": "win",
     "app": "rar",
@@ -12,7 +12,7 @@
     "app_args": "",
     "site_name": "local",
     "site": "",
-    "page": "rar",
+    "page": "unzip",
     "private_skill": {
         "nameSpace": "",
         "runStepsFile": "",
@@ -21,6 +21,6 @@
         }
     },
     "cloud_skill": {
-        "path": "pubilc/win_rar_local_unzip/zip_unzip_archive"
+        "path": "pubilc/win_rar_local_unzip/unzip_archive"
     }
 }
