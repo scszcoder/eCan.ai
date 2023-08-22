@@ -9,6 +9,7 @@ from datetime import datetime
 SAME_ROW_THRESHOLD = 16
 tracking_code = ""
 
+
 # this skill simply obtain a list of name/address/phone/order amount/products of the new orders
 # 1） collect new orders from website
 # 2） generate bulk buy order for label purchase website goodsupply(assume an user account already exists here)
@@ -46,7 +47,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     fdir = fdir + worksettings["platform"] + "_" + worksettings["app"] + "_" + worksettings["site"] + "_" + page + "/skills/"
     fdir = fdir + worksettings["skname"] + "/"
 
-    this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", worksettings["bot"], fdir, this_step)
+    this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", worksettings["seller"], fdir, this_step)
     psk_words = psk_words + step_words
 
     # purchase labels, gs_orders contains a list of [{"service": "usps ground", "file": xls file name}, ...]
@@ -99,7 +100,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("int", "currentPage", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "pagelist", "[]", "", this_step)
+    this_step, step_words = genStepCreateData("expr", "pagelist", "NA", "[]", this_step)
     psk_words = psk_words + step_words
 
     # Pseudo code algorithm for obtain all orderi information.
@@ -343,7 +344,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, orders, bot_works, start
     psk_words = psk_words + step_words
 
     lcvarname = "ud_count" + str(stepN)
-    this_step, step_words = genStepCreateData("expr", lcvarname, "", "len[complete_buttons]", stepN)
+    this_step, step_words = genStepCreateData("expr", lcvarname, "NA", "len[complete_buttons]", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("ud_count>0", "", "", lcvarname, this_step)
@@ -414,13 +415,14 @@ def genWinEtsyHandleReturnSkill(lieutenant, bot_works, start_step, theme):
     all_labels = []
 
 
-def genStepPrepGSOrder(order_var_name, gs_order_var_name, bot, fpath, stepN):
+def genStepPrepGSOrder(order_var_name, gs_order_var_name, seller, fpath, stepN):
+
     stepjson = {
         "type": "Prep GS Order",
         "ec_order": order_var_name,
         "gs_order": gs_order_var_name,
         "file_path": fpath,
-        "bot": bot
+        "seller": seller
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -442,14 +444,14 @@ def createLabelOrderFile(seller, weight_unit, orders, ofname):
     if weight_unit == "ozs":
         allorders = [{
             "No": "1",
-            "FromName": seller.getName(),
-            "PhoneFrom": seller.getPhone(),
-            "Address1From": seller.getAddrStreet1(),
+            "FromName": seller["FromName"],
+            "PhoneFrom": seller["PhoneFrom"],
+            "Address1From": seller["Address1From"],
             "CompanyFrom": "",
-            "Address2From": seller.getAddrStreet2(),
-            "CityFrom": seller.getAddrCity(),
-            "StateFrom": seller.getAddrState(),
-            "ZipCodeFrom": seller.getAddrZip(),
+            "Address2From": seller["Address2From"],
+            "CityFrom": seller["CityFrom"],
+            "StateFrom": seller["StateFrom"],
+            "ZipCodeFrom": seller["ZipCodeFrom"],
             "NameTo": o.getRecipientName(),
             "PhoneTo": o.getRecipientPhone(),
             "Address1To": o.getRecipientAddrStreet1(),
@@ -516,7 +518,7 @@ def processPrepGSOrder(step, i):
     next_i = i + 1
     gs_label_orders = []
 
-    seller = step["bot"]
+    seller = step["seller"]
     new_orders = symTab[step["ec_order"]]
     # collaps all pages of order list into a single list or orders.
     flatlist=[element for sublist in new_orders for element in sublist]

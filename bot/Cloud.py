@@ -243,8 +243,11 @@ def gen_screen_read_icon_request_string(query):
 
 
 
-def gen_schedule_request_string():
-    query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": true, \\\"test_name\\\": \\\"5000\\\"}\") } "
+def gen_schedule_request_string(test_name, schedule_settings):
+    if test_name != "":
+        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": true, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
+    else:
+        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
@@ -674,7 +677,7 @@ def set_up_cloud():
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_schedule_request_to_cloud(session, token, logfile='C:/CrawlerData/scrape_log.txt'):
+def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings, logfile='C:/CrawlerData/scrape_log.txt'):
 
     status = 0
     dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -692,7 +695,7 @@ def send_schedule_request_to_cloud(session, token, logfile='C:/CrawlerData/scrap
         'cache-control': "no-cache",
     }
 
-    mutation = gen_schedule_request_string()
+    mutation = gen_schedule_request_string(ts_name, schedule_settings)
 
 
     print('QUERY-------------->')

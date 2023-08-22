@@ -288,7 +288,7 @@ class EBMISSION(QtGui.QStandardItem):
         super().__init__()
         self.parent = parent
         self.setText('mission')
-        self.icon = QtGui.QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/c_mission96_1.png')
+        self.icon = QtGui.QIcon(parent.mission_icon_path)
         self.setIcon(self.icon)
 
         self.pubAttributes = M_Pub_Attributes()
@@ -597,6 +597,7 @@ class EBMISSION(QtGui.QStandardItem):
     def setJsonData(self, ppJson):
         self.pubAttributes.loadJson(ppJson["pubAttributes"])
         self.privateAttributes.loadJson(ppJson["privateAttributes"])
+        self.setText('mission' + str(self.getMid()))
 
     def setNetRespJsonData(self, nrjd):
         self.pubAttributes.loadNetRespJson(nrjd)

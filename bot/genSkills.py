@@ -25,7 +25,11 @@ def getWorkSettings(lieutenant, bot_works):
 
     print("bot_works: ", bot_works)
     mission_id = works[tz][bidx][grp][idx]["mid"]
-    midx = next((i for i, mission in enumerate(lieutenant.missions) if mission.getMid() == mission_id), -1)
+    midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == mission_id), -1)
+    for m in lieutenant.missions:
+        print("MissionIDs:", m.getMid())
+    if midx < 0 or midx >= len(lieutenant.missions):
+        print("ERROR: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
 
     print("mission_id: ", mission_id, "midx: ", midx)
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
@@ -60,7 +64,14 @@ def getWorkSettings(lieutenant, bot_works):
     # cargs = lieutenant.skills[skidx].getAppArgs()
 
     bot_id = works[tz][bidx]["bid"]
-    bot_idx = next((i for i, bot in enumerate(lieutenant.bots) if bot.getBid() == bot_id), -1)
+    print("bot_id: ", bot_id)
+
+    for b in lieutenant.bots:
+        print("BID:", b.getBid())
+    bot_idx = next((i for i, bot in enumerate(lieutenant.bots) if str(bot.getBid()) == str(bot_id)), -1)
+    if bot_idx < 0 or bot_idx >= len(lieutenant.bots):
+        print("ERROR: Designated BOT " + str(bot_id) + "(out of "+str(len(lieutenant.bots))+" bots) not found!!!!")
+    print("bot_idx: ", bot_idx)
 
 
     name_space = "B" + str(bot_id) + "M" + str(mission_id) + "!" + "" + "!"
@@ -68,13 +79,26 @@ def getWorkSettings(lieutenant, bot_works):
     run_config = works[tz][bidx][grp][idx]["config"]
     root_path = lieutenant.homepath
 
+    bot = lieutenant.bots[bot_idx]
+    sij = {
+        "No": "1",
+        "FromName": bot.getName(),
+        "PhoneFrom": bot.getPhone(),
+        "Address1From": bot.getAddrStreet1(),
+        "CompanyFrom": "",
+        "Address2From": bot.getAddrStreet2(),
+        "CityFrom": bot.getAddrCity(),
+        "StateFrom": bot.getAddrState(),
+        "ZipCodeFrom": bot.getAddrZip()
+    }
+
     return {
             "skname": "",
             "skfname": "",
             "cargs": "",
             "works": works,
             "botid": bot_id,
-            "bot": lieutenant.bots[bot_idx],
+            "seller": sij,
             "mid": mission_id,
             "midx": midx,
             "run_config": run_config,
