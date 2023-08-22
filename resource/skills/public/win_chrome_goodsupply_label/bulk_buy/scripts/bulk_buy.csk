@@ -1,0 +1,101 @@
+[
+    {
+        "goodsupply_bulkbuy": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "create_bulk",
+                        "anchor_type"  : "text",
+                        "template"     : "Create Bulk",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "choose_file",
+                        "anchor_type"  : "text",
+                        "template"     : "Choose File",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "verify_data",
+                        "anchor_type"  : "text",
+                        "template"     : "Verify Data",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "import",
+                        "anchor_type"  : "text",
+                        "template"     : "Import",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "total",
+                        "anchor_type"  : "text",
+                        "template"     : "Total",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    }
+                ], 
+                "info": [
+                ]
+            }
+	    },
+        "file_open": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "refresh_icon",
+                        "anchor_type"  : "icon",
+                        "template"     : "refresh.png",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "file_name",
+                        "anchor_type"  : "text",
+                        "template"     : "File Name:",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "open",
+                        "anchor_type"  : "text",
+                        "template"     : "Open",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    }
+                ], 
+                "info": [
+                ]
+            }
+	    }
+	}
+    
+]

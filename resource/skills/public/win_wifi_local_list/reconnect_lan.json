@@ -1,0 +1,26 @@
+{
+    "name": "reconnect_lan",
+    "skid": 40,
+    "owner": "public",
+    "price": 0,
+    "price_model": "free",
+    "path": "resource/skills/public",
+    "privacy": "public",
+    "platform": "win",
+    "app": "wifi",
+    "app_link": "cmd",
+    "app_args": "",
+    "site_name": "local",
+    "site": "",
+    "page": "wifi",
+    "private_skill": {
+        "nameSpace": "",
+        "runStepsFile": "",
+        "runConfig": {
+            "estRunTime" : 0
+        }
+    },
+    "cloud_skill": {
+        "path": "pubilc/win_wifi_local_list/reconnect_lan"
+    }
+}
