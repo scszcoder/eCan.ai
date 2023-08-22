@@ -1,0 +1,26 @@
+{
+    "name": "bulk_buy",
+    "skid": 30,
+    "owner": "public",
+    "price": 0,
+    "price_model": "free",
+    "path": "resource/skills/public",
+    "privacy": "public",
+    "platform": "win",
+    "app": "chrome",
+    "app_link": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    "app_args": "",
+    "site_name": "goodsupply",
+    "site": "https://goodsupply.xyz/Dashboard/UploadBulk",
+    "page": "orders",
+    "private_skill": {
+        "nameSpace": "",
+        "runStepsFile": "",
+        "runConfig": {
+            "estRunTime" : 1
+        }
+    },
+    "cloud_skill": {
+        "path": "pubilc/win_chrome_goodsupply_label/bulk_buy"
+    }
+}

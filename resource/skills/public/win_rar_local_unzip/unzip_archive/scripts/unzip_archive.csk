@@ -1,0 +1,103 @@
+[
+    {
+        "winrar_dialog": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "buy_license",
+                        "anchor_type"  : "text",
+                        "template"     : "Please purchase WinRAR",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "expired_notification",
+                        "anchor_type"  : "text",
+                        "template"     : "Expired Notification",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "close_win_icon",
+                        "anchor_type"  : "icon",
+                        "template"     : "close_win.png",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "close",
+                        "anchor_type"  : "text",
+                        "template"     : "Close",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "extract_to",
+                        "anchor_type"  : "text",
+                        "template"     : "Extract to",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "new_folder",
+                        "anchor_type"  : "text",
+                        "template"     : "New folder",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "ok",
+                        "anchor_type"  : "text",
+                        "template"     : "Ok",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "cancel",
+                        "anchor_type"  : "text",
+                        "template"     : "Cancel",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "refresh",
+                        "anchor_type"  : "icon",
+                        "template"     : "refresh0.png",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    }
+                ], 
+                "info": [
+                ]
+            }
+	    }
+	}
+    
+]

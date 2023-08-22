@@ -1,0 +1,52 @@
+[
+    {
+        "file": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "file_name",
+                        "anchor_type"  : "text",
+                        "template"     : "File name:",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "file_open",
+                        "anchor_type"  : "icon",
+                        "template"     : "Open",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "file_save",
+                        "anchor_type"  : "text",
+                        "template"     : "Save",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "save_as",
+                        "anchor_type"  : "text",
+                        "template"     : "Save as type",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    }
+                ], 
+                "info": [
+                ]
+            }
+        }
+	}
+]
