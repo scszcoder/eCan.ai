@@ -916,6 +916,7 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     # this url points to all review page.
     # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats168914806.html"
 
+    site_url = "https://www.amazon.com"
 
     this_step, step_words = genStepWait(3, 0, 0, start_step)
     psk_words = psk_words + step_words

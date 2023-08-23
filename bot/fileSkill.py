@@ -16,14 +16,14 @@ fopen_f_name = ""
 
 # this skill assumes the following input "fin": [file path, file name, file operation name ("open"/"save")]
 # the caller skill must get these ready. There will be no error handling here.
-def genWinFileLocalOpenSaveSkill(root_path, stepN, theme):
-    psk_words = ""
+def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
+    psk_words = "{"
 
     this_step, step_words = genStepHeader("win_file_local_open_save_as", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001",
                                           "File Open Dialog Handling for Windows.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "open_save_as", "", this_step)
+    this_step, step_words = genStepStub("start skill", "public/win_file_local_op/open_save_as", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global fopen_f_path\nfopen_f_path = fin[0]", "", "in_line", "", this_step)
@@ -36,7 +36,7 @@ def genWinFileLocalOpenSaveSkill(root_path, stepN, theme):
     print("fopen_f_path: ", fopen_f_path, "fopen_f_name: ", fopen_f_name)
 
     # readn screen
-    this_step, step_words = genStepExtractInfo("", root_path, "screen_info", "file_dialog", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "file_dialog", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # click on path input win
@@ -105,9 +105,11 @@ def genWinFileLocalOpenSaveSkill(root_path, stepN, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "win_file_all_op", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_file_local_op/open_save_as", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
     print("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    return this_step, psk_words
 

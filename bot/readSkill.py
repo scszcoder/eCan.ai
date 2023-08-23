@@ -178,7 +178,7 @@ def readSkillFile(name_space, skill_file, lvl = 0):
         #print("USEFUL: ", l)
         slines = slines + l + "\n"
 
-    print("SLINES:", slines)
+    # print("SLINES:", slines)
     this_skill_code = json.loads(slines)
 
     # call the sub skills
@@ -543,7 +543,7 @@ def gen_addresses(stepcodes, nth_pass):
         # parse thru the json objects and work on stubs.
         for i in range(len(stepkeys)):
             stepName = stepkeys[i]
-            print("working on: ", stepName)
+            # print("working on: ", stepName)
 
             if i != 0:
                 prevStepName = stepkeys[i - 1]
@@ -560,6 +560,7 @@ def gen_addresses(stepcodes, nth_pass):
                 # build up function table, and skill table.
                 if stepcodes[stepName]["stub_name"] == "start skill":
                     # this effectively includes the skill overload function. - SC
+                    print("ADDING TO SKILL TABLE: ", stepcodes[stepName]["func_name"], nextStepName)
                     skill_table[stepcodes[stepName]["func_name"]] = nextStepName
                 elif stepcodes[stepName]["stub_name"] == "start function":
                     # this effectively includes the skill overload function. - SC
@@ -691,6 +692,7 @@ def prepRunSkill(all_skill_codes):
 
     skidx = 0
     for sk in all_skill_codes:
+        print("READING SKILL CODE:", sk["ns"], sk["skfile"], skidx)
         run_steps = readSkillFile(sk["ns"], sk["skfile"], skidx)
         if skill_code:
             skill_code.update(run_steps)         # merge run steps.

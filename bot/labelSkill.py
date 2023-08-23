@@ -32,17 +32,17 @@ gs_unzipped_dir = ""
 
 # this skill assumes the following input "fin": [file path, file name, shipping service name (ex. "USPS Ground"), cost]
 # the caller skill must get these ready. There will be no error handling here.
-def genWinChromeGSLabelBuySkill(root_path, cargs, stepN, theme):
-    psk_words = ""
+def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
+    psk_words = "{"
 
-    this_step, step_words = genStepHeader("win_chrome_gslabel_buy", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001", "File Open Dialog Handling for Windows.", stepN)
+    this_step, step_words = genStepHeader("win_chrome_goodsupply_label/bulk_buy", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001", "File Open Dialog Handling for Windows.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "win_chrome_gslabel_buy", "", this_step)
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_goodsupply_label/bulk_buy", "", this_step)
     psk_words = psk_words + step_words
 
     # open the web page.
-    this_step, step_words = genStepOpenApp("Run", True, "browser", ul_url, "", "", cargs, 2, this_step)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", ul_url, "", "", worksettings["cargs"], 2, this_step)
     psk_words = psk_words + step_words
 
     # fin is the input, which contains usps service type, xls file name, and total price.
@@ -80,7 +80,7 @@ def genWinChromeGSLabelBuySkill(root_path, cargs, stepN, theme):
     this_step, step_words = genStepCallExtern("global gs_service\ngs_service = fin[2]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", root_path, "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", "fund_left", "info text", "any", "available_fund", "foundFund", "goodsupply", this_step)
@@ -109,7 +109,7 @@ def genWinChromeGSLabelBuySkill(root_path, cargs, stepN, theme):
     psk_words = psk_words + step_words
 
     # readn screen again after verify data.
-    this_step, step_words = genStepExtractInfo("", root_path, "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
 
@@ -184,13 +184,13 @@ def genWinChromeGSLabelBuySkill(root_path, cargs, stepN, theme):
 
     # now that the labels are unzipped, extract tracking code from them and update the order list data structure
 
-    this_step, step_words = genStepStub("end skill", "win_chrome_gslabel_buy", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_goodsupply_label/bulk_buy", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
     print("DEBUG", "generated skill for buy shipping labels in bulk...." + psk_words)
 
-
+    return this_step, psk_words
 
 
 

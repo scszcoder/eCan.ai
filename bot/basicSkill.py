@@ -289,6 +289,8 @@ def genStepStub(sname, fname, fargs, stepN):
         "fargs": fargs
     }
 
+    if sname == "start skill":
+        print("GEN STEP STUB START SKILL: ", fname)
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
@@ -396,11 +398,11 @@ def genStepReturn(output, stepN):
 # args: function arguments
 # return_point: where does function return. (maybe not needed with stack.)
 # output: function returned result
-def genStepUseSkill(skname, skfname, skargs, output, stepN):
+def genStepUseSkill(skname, skpath, skargs, output, stepN):
     stepjson = {
         "type": "Use Skill",
         "skill_name": skname,
-        "skill_file_name": skfname,
+        "skill_path": skpath,
         "skill_args": skargs,
         "output": output
     }
@@ -1263,10 +1265,12 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
     fin_par = stack.pop()
     symTab["fin"] = symTab[fin_par]
     print("geting skill call input parameter: ", fin_par, " [val: ", symTab[fin_par])
+    print("current skill table: ", sk_table)
 
     # start execuation on the function, find the function name's address, and set next pointer to it.
     # the function name address key value pair was created in gen_addresses
-    idx = step_keys.index(sk_table[step["skill_name"]])
+    skname = step["skill_path"] + "/" + step["skill_name"]
+    idx = step_keys.index(sk_table[skname])
 
     return idx
 

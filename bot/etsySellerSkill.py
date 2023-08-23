@@ -16,21 +16,30 @@ tracking_code = ""
 # 3） get tracking code from labels and update them back to orders website
 # 4)  reformat the shipping labels and print them.
 def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
-    psk_words = ""
+    psk_words = "{"
+    site_url = "https://www.etsy.com/your/orders/sold"
+
     this_step, step_words = genStepHeader("win_chrome_etsy_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY001",
                                           "Etsy Fullfill New Orders On Windows.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "fullfill_orders", "", this_step)
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("string", "etsy_status", "NA", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "etsy_orders", "NA", "[]", stepN)
+    this_step, step_words = genStepCreateData("expr", "etsy_orders", "NA", "[]", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepUseSkill("win_chrome_etsy_collect_orders", "public", "", "etsy_status", this_step)
+    this_step, step_words = genStepCreateData("expr", "dummy_in", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
+
+    #skname, skfname, in-args, output, step number
+    this_step, step_words = genStepUseSkill("collect_orders", "public/win_chrome_etsy_orders", "dummy_in", "etsy_status", this_step)
     psk_words = psk_words + step_words
 
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
@@ -65,7 +74,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepUseSkill("win_printer_print_reformat_print", "public", "label_list", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "win_file_all_op", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_etsy_orders/fullfill_orders", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
@@ -79,13 +88,13 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
 # 2） save and scrape HTML
 # 3） if more than 1 page, go thru all pages. get all.
 def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
-    psk_words = ""
+    psk_words = "{"
 
     this_step, step_words = genStepHeader("win_chrome_etsy_collect_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY001",
                                           "Etsy Collect New Orders On Windows.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "collect_orders", "", this_step)
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/collect_orders", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("bool", "endOfOrderList", "NA", "False", this_step)
@@ -262,7 +271,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
     # now reformat and print out the shipping labels.
 
-    this_step, step_words = genStepStub("end skill", "win_file_all_op", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_etsy_orders/collect_orders", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
@@ -310,14 +319,14 @@ def processEtsySearchOrders(step, i):
 
 
 # this skill assumes tracking code ready in the orders list data structure, and update tracking code to the orders on website.
-def genWinEtsyUpdateShipmentTrackingSkill(worksettings, orders, bot_works, start_step, theme, stepN):
-    psk_words = ""
+def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme):
+    psk_words = "{"
 
     this_step, step_words = genStepHeader("win_chrome_etsy_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY001",
                                           "Etsy Fullfill New Orders On Windows.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "fullfill_orders", "", this_step)
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/update_tracking", "", this_step)
     psk_words = psk_words + step_words
 
     # assume the order data is in all_orders variable (tracking code already added to the data).
@@ -349,7 +358,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, orders, bot_works, start
     psk_words = psk_words + step_words
 
     lcvarname = "ud_count" + str(stepN)
-    this_step, step_words = genStepCreateData("expr", lcvarname, "NA", "len[complete_buttons]", stepN)
+    this_step, step_words = genStepCreateData("expr", lcvarname, "NA", "len[complete_buttons]", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("ud_count>0", "", "", lcvarname, this_step)
@@ -398,7 +407,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, orders, bot_works, start
     this_step, step_words = genStepCheckCondition("totoalVisited == nOrders", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "word", "word", page_index, [0, 0], "right", [1, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "word", "word", "current_page_index", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -407,7 +416,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, orders, bot_works, start
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "win_file_all_op", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_etsy_orders/update_tracking", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"

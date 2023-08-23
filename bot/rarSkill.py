@@ -24,15 +24,14 @@ zipped_full_path = ""
 unziped_path = ""
 # this skill assumes the following input "fin": [file full path, result_path]
 # the caller skill must get these ready. There will be no error handling here.
-def genWinRARLocalUnzipSkill(root_path, stepN, theme):
-    psk_words = []
-    psk_words = ""
+def genWinRARLocalUnzipSkill(rworksettings, page, sect, stepN, theme):
+    psk_words = "{"
 
     this_step, step_words = genStepHeader("win_file_all_op", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001",
                                           "File Open Dialog Handling for Windows.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "win_file_all_op", "", this_step)
+    this_step, step_words = genStepStub("start skill", "public/win_rar_local_unzip/unzip_archive", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global zipped_full_path\nzipped_full_path = fin[0]", "", "in_line", "", this_step)
@@ -54,7 +53,7 @@ def genWinRARLocalUnzipSkill(root_path, stepN, theme):
     # verify the popup,
 
     # extract screen info,
-    this_step, step_words = genStepExtractInfo("", root_path, "screen_info", "winrar", "top", theme, stepN, None)
+    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, stepN, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", ["free_trial_ended"], ["anchor text"], "any", "useless", "rar_trial_end_popped", "amz", this_step)
@@ -83,14 +82,14 @@ def genWinRARLocalUnzipSkill(root_path, stepN, theme):
 
 
     # click on "Extract to"
-    this_step, step_words = genStepExtractInfo("", root_path, "screen_info", "winrar", "top", theme, stepN, None)
+    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, stepN, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Extract_To", "anchor text", "Extract To", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # read the file dialog popup
-    this_step, step_words = genStepExtractInfo("", root_path, "screen_info", "winrar", "top", theme, stepN, None)
+    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, stepN, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)
@@ -115,11 +114,13 @@ def genWinRARLocalUnzipSkill(root_path, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("end skill", "win_file_all_op", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_rar_local_unzip/unzip_archive", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
     print("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    return this_step, psk_words
 
 
 def genWinRarSkill(fpath, dest_dir, dest_name, theme, page, sect, ):

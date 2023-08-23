@@ -3,6 +3,8 @@ from scraperEbay import *
 
 SAME_ROW_THRESHOLD = 16
 
+site_url = "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT"
+
 
 # this skill simply obtain a list of name/address/phone/order amount/products of the pending orders
 # 1） open the orders page
@@ -57,6 +59,8 @@ def processEbayScrapeOrdersHtml(step, i, mission, skill):
 #
 def genWinEbayObtainLabelsSkill(lieutenant, bot_works, start_step, theme):
     all_labels = []
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    psk_words = psk_words + step_words
 
 
 def genWinEbayUpdateOrderSkill(lieutenant, bot_works, start_step, theme):

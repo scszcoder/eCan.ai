@@ -4,7 +4,7 @@
     "owner": "public",
     "price": 0,
     "price_model": "free",
-    "path": "resource/skills/public",
+    "path": "resource/skills/public/",
     "privacy": "public",
     "platform": "win",
     "app": "chrome",

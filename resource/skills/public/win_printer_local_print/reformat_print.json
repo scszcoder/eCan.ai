@@ -1,6 +1,6 @@
 {
     "name": "reformat_print",
-    "skid": 40,
+    "skid": 90,
     "owner": "public",
     "price": 0,
     "price_model": "free",
@@ -21,6 +21,6 @@
         }
     },
     "cloud_skill": {
-        "path": "pubilc/win_printer_print/reformat_print"
+        "path": "pubilc/win_printer_local_print/reformat_print"
     }
 }
