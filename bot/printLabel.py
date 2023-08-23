@@ -14,6 +14,26 @@ from datetime import date
 from datetime import datetime
 from basicSkill import *
 
+
+def genWinPrinterLocalReformatPrintSkill(worksettings, page, sect, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_printer_local_print", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY001",
+                                          "Reformat Default Shipping Label and Print them On Windows.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_printer_local_print/reformat_print", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_printer_local_print/reformat_print", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    return this_step, psk_words
+
+
 def genStepPrintLabels(labdir, printer, stat_name, stepN):
     stepjson = {
         "type": "Print Labels",

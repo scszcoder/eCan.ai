@@ -7,6 +7,7 @@ from fileSkill import *
 from rarSkill import *
 from labelSkill import *
 from wifiSkill import *
+from printLabel import *
 
 def getWorkSettings(lieutenant, bot_works):
     works = bot_works["works"]
@@ -108,6 +109,7 @@ def getWorkSettings(lieutenant, bot_works):
             "site": site,
             "app": app,
             "app_exe": app_exe,
+            "page": "",
             "rpaConfig": rpaConfig,
             "rpaName": rpaName,
             "name_space": name_space
@@ -117,85 +119,63 @@ def setWorkSettingsSkill(worksettings, sk):
     # derive full path skill file name.
     print(">>>>>>>getting psk file name:", sk.getPskFileName())
     worksettings["skfname"] = worksettings["root_path"] + "/" + sk.getPskFileName()
+    worksettings["platform"] = sk.getPlatform()
+    worksettings["app"] = sk.getApp()
+    worksettings["app_exe"] = sk.getAppLink()
+    worksettings["site"] = sk.getSiteName()
+
+    worksettings["page"] = sk.getPage()
 
     worksettings["skname"] = os.path.basename(sk.getName())
     print("GENERATING STEPS into: ", worksettings["skfname"], "  skill name: ", worksettings["skname"])
 
-    worksettings["name_space"] = "B" + str(worksettings["botid"]) + "M" + str(worksettings["mid"]) + "!" + worksettings["skname"] + "!"
+    pas = sk.getNameSapcePrefix()
+
+    worksettings["name_space"] = "B" + str(worksettings["botid"]) + "M" + str(worksettings["mid"]) + "!" + pas + "!" + worksettings["skname"] + "!"
 
     worksettings["cargs"] = sk.getAppArgs()
 
 
 def genWinSkillCode(worksettings, start_step, theme):
-    print("opening ksill file: ", worksettings["skfname"])
+    print("opening skill file: ", worksettings["skfname"], worksettings["app"], worksettings["site"])
     skf = open(worksettings["skfname"], "w+")
     skf.write("\n")
+    psk_words = ""
 
-    psk_words = "{"
-    # create header section.
-    if worksettings["app"] == "ads" and worksettings["site"] == "amz" and worksettings["rpaName"] == "walk_routine":
-        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001",
-                                                       "Walk skill on amazon with ADSPower for Windows.", start_step)
-        site_url = "https://www.amazon.com"
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["rpaName"] == "walk_routine":
-        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ0000001",
-                                                       "Walk skill on amazon with Chrome for Windows.", start_step)
-        site_url = "https://www.amazon.com"
-    elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
-        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY0000001",
-                                                       "sell skill on ebay with Chrome for Windows.", start_step)
-        site_url = "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT"
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["rpaName"] == "sell":
-        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY0000001",
-                                                       "sell skill on etsy with Chrome for Windows.", start_step)
-        site_url = "https://www.etsy.com/your/orders/sold"
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
-        this_step, step_words = genStepHeader(worksettings["skname"], "win", "1.0", "AIPPS LLC", "PUBWINCHROMEEBAY0000001",
-                                                       "sell skill on ebay with Chrome for Windows.", start_step)
-        site_url = "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT"
-
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
-    psk_words = psk_words + step_words
-
-
-    if worksettings["app"] == "ads" and worksettings["site"] == "amz" and worksettings["rpaName"] == "walk_routine":
-        this_step, step_words = genWinADSAMZWalkSkill(worksettings, this_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["rpaName"] == "walk_routine":
-        this_step, step_words = genWinChromeAMZWalkSkill(worksettings, this_step, theme)
-    elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["rpaName"] == "sell":
-        this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "ebay_orders", "top", this_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["rpaName"] == "sell":
-        this_step, step_words = genWinChromeEtsyFullfillOrdersSkill(worksettings, "etsy_orders", "top", this_step, theme)
-    elif worksettings["app"] == "rar" and worksettings["site"] == "local" and worksettings["rpaName"] == "zip_unzip_archive":
-        this_step, step_words = genWinRARLocalUnzipSkill(worksettings, "winrar", "top", this_step, theme)
-    elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["rpaName"] == "open_profile":
-        this_step, step_words = genWinADSOpenSkill(worksettings, "file_dialog", "top", this_step, theme)
-    elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["rpaName"] == "batch_import_xls":
-        this_step, step_words = genWinADSBatchImportSkill(worksettings, "file_dialog", "top", this_step, theme)
-    elif worksettings["app"] == "file" and worksettings["site"] == "local" and worksettings["rpaName"] == "open":
-        this_step, step_words = genWinFileLocalOpenSaveSkill(worksettings, "file_dialog", "top", this_step, theme)
-    elif worksettings["app"] == "wifi" and worksettings["site"] == "local" and worksettings["rpaName"] == "reconnect_lan":
-        this_step, step_words = genWinWiFiLocalReconnectLanSkill(worksettings, "wifi", "top", this_step, theme)
+    if worksettings["app"] == "ads" and worksettings["site"] == "amz" and worksettings["skname"] == "walk_routine":
+        this_step, step_words = genWinADSAMZWalkSkill(worksettings, start_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["skname"] == "walk_routine":
+        this_step, step_words = genWinChromeAMZWalkSkill(worksettings, start_step, theme)
+    elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["skname"] == "sell":
+        this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "ebay_orders", "top", start_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "fullfill_orders":
+        this_step, step_words = genWinChromeEtsyFullfillOrdersSkill(worksettings, "etsy_orders", "top", start_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "collect_orders":
+        this_step, step_words = genWinEtsyCollectOrderListSkill(worksettings, "etsy_orders", "top", start_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "update_tracking":
+        this_step, step_words = genWinEtsyUpdateShipmentTrackingSkill(worksettings, "etsy_orders", "top", start_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "goodsupply" and worksettings["skname"] == "bulk_buy":
+        this_step, step_words = genWinChromeGSLabelBulkBuySkill(worksettings, "goodsupply_bulkbuy", "top", start_step, theme)
+    elif worksettings["app"] == "rar" and worksettings["site"] == "local" and worksettings["skname"] == "unzip_archive":
+        this_step, step_words = genWinRARLocalUnzipSkill(worksettings, "winrar", "top", start_step, theme)
+    elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["skname"] == "open_profile":
+        this_step, step_words = genWinADSOpenSkill(worksettings, "file_dialog", "top", start_step, theme)
+    elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["skname"] == "batch_import":
+        this_step, step_words = genWinADSBatchImportSkill(worksettings, "file_dialog", "top", start_step, theme)
+    elif worksettings["app"] == "file" and worksettings["site"] == "local" and worksettings["skname"] == "open_save_as":
+        this_step, step_words = genWinFileLocalOpenSaveSkill(worksettings, "file_dialog", "top", start_step, theme)
+    elif worksettings["app"] == "printer" and worksettings["site"] == "local" and worksettings["skname"] == "reformat_print":
+        this_step, step_words = genWinPrinterLocalReformatPrintSkill(worksettings, "file_dialog", "top", start_step, theme)
+    elif worksettings["app"] == "wifi" and worksettings["site"] == "local" and worksettings["skname"] == "reconnect_lan":
+        this_step, step_words = genWinWiFiLocalReconnectLanSkill(worksettings, "wifi", "top", start_step, theme)
     else:
-        this_step, step_words = genWinCustomSkill(worksettings, "custom", "top", this_step, theme)
+        this_step, step_words = genWinCustomSkill(worksettings, "custom", "top", start_step, theme)
 
     psk_words = psk_words + step_words
 
-    # finally handle the purchase, if there is any.
-    # if len(run_config["purchases"]) > 0:
-    #     # purchase could be done in multiple days usually (put in cart first, then finish payment in a few days)
-    #     this_step, step_words = genPurchase(run_config)
-    #     psk_words = psk_words + step_words
-
-    # generate exceptino code, must have.... and this must be at the final step of skill.
-    # this_step, step_words = genException()
-    # psk_words = psk_words + step_words
 
     # generate addresses for all subroutines.
-    psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "ready to add stubs...." + psk_words)
+    print("DEBUG", "Created PSK: " + psk_words)
 
     skf.write(psk_words)
     skf.close()

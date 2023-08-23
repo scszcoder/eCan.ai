@@ -252,6 +252,9 @@ class WORKSKILL(QtGui.QStandardItem):
     def getCskFileName(self):
         return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".csk"
 
+    def getNameSapcePrefix(self):
+        return self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page
+
     def getOwner(self):
         return self.owner
 

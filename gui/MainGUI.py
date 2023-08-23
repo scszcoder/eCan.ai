@@ -1261,9 +1261,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         all_skill_codes = []
         for sk in relevant_skills:
-            print("settingSKKKKKKKK: ", sk)
+            # print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
-
+            print("settingSKKKKKKKK: ", worksettings)
             genSkillCode(worksettings, first_step, "light")
 
             all_skill_codes.append({"ns": worksettings["name_space"], "skfile": worksettings["skfname"]})
@@ -2427,8 +2427,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         for file_path in skill_def_files:
             with open(file_path) as json_file:
-                print("loading skill f: ", file_path)
                 data = json.load(json_file)
+                print("loading skill f: ", data["skid"], file_path)
                 new_skill = WORKSKILL(self, data["name"])
                 new_skill.loadJson(data)
                 self.skills.append(new_skill)
