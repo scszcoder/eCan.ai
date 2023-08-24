@@ -46,7 +46,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     # delete everything there
     # do some overall review scroll, should be mostly positive.
     lcvarname = "fopen" + str(stepN)
-    this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, stepN)
+    this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("", "50", "", lcvarname, this_step)
@@ -70,7 +70,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     # delete everything there
     # do some overall review scroll, should be mostly positive.
     lcvarname = "fopen" + str(stepN)
-    this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, stepN)
+    this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("", "30", "", lcvarname, this_step)

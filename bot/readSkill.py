@@ -266,7 +266,7 @@ def run1step(steps, si, mission, skill, stack):
     stepKeys = list(steps.keys())
     step = steps[stepKeys[si]]
     last_si = si
-    print("running step [", si, "]: ",  step)
+    print("============>running step [", si, "]: ",  step)
 
     if "type" in step:
         if step["type"] == "Halt":
@@ -603,12 +603,14 @@ def gen_addresses(stepcodes, nth_pass):
 
                 elif stepcodes[stepName]["stub_name"] == "end condition":
                     # pop from stack
+                    print("before popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
+
                     tempStepName = temp_stack.pop()
                     print("popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
 
                     if (stepcodes[tempStepName]["type"] == "Goto"):
                         # in case that this is a check condition with an else stub....
-                        print("poped goto.....")
+                        print("popped goto.....")
                         stepcodes[tempStepName]["goto"] = nextStepName
                     elif ( stepcodes[tempStepName]["type"] == "Check Condition"):
                         # in case that this is a check condition without else stub....
@@ -641,6 +643,9 @@ def gen_addresses(stepcodes, nth_pass):
                 elif stepcodes[stepName]["stub_name"] == "def function":
                     # add function name and address pair to stepcodes - kind of a symbal table here.
                     stepcodes[symTab[stepName]["name"]] = nextStepName
+                elif stepcodes[stepName]["stub_name"] == "end skill":
+                    # add function name and address pair to stepcodes - kind of a symbal table here.
+                    print("END OF SKILL - do nothing...", stepcodes[stepName]["func_name"])
             elif stepcodes[stepName]["type"] == "Check Condition":
                 # push ont stack
                 temp_stack.append(stepName)
@@ -682,7 +687,7 @@ def prepRun1Skill(name_space, skill_file, lvl = 0):
     # 2nd pass: resolve overload.
     gen_addresses(run_steps, 2)
     print("DONE generating addressess...")
-    print("READY2RUN: ", run_steps)
+    print("READY2RUN1: ", run_steps)
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print("function table:", function_table)
     return run_steps

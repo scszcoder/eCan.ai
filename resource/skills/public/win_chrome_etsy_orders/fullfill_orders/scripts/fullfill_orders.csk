@@ -64,6 +64,16 @@
                         }
                     },
                     {
+                        "anchor_name"  : "no_orders",
+                        "anchor_type"  : "text",
+                        "template"     : "No orders here right now",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",

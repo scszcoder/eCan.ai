@@ -112,6 +112,7 @@ def getWorkSettings(lieutenant, bot_works):
             "page": "",
             "rpaConfig": rpaConfig,
             "rpaName": rpaName,
+            "wifis" : lieutenant.getWifis(),
             "name_space": name_space
             }
 

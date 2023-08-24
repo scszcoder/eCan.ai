@@ -53,7 +53,7 @@ def genWinRARLocalUnzipSkill(rworksettings, page, sect, stepN, theme):
     # verify the popup,
 
     # extract screen info,
-    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, stepN, None)
+    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", ["free_trial_ended"], ["anchor text"], "any", "useless", "rar_trial_end_popped", "amz", this_step)
@@ -82,14 +82,14 @@ def genWinRARLocalUnzipSkill(rworksettings, page, sect, stepN, theme):
 
 
     # click on "Extract to"
-    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, stepN, None)
+    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Extract_To", "anchor text", "Extract To", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # read the file dialog popup
-    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, stepN, None)
+    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)
@@ -101,7 +101,7 @@ def genWinRARLocalUnzipSkill(rworksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # fill in the to be extracted dir
-    this_step, step_words = genStepTextInput("type", unziped_path, 1, "enter", 2, this_step)
+    this_step, step_words = genStepTextInput("type", False, unziped_path, 1, "enter", 2, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "OK", "anchor text", "OK", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
