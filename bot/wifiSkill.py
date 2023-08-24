@@ -1,7 +1,7 @@
 from basicSkill import *
 
 
-def genWinWiFiLocalReconnectLanSkill(worksettings, stepN, theme):
+def genWinWiFiLocalReconnectLanSkill(worksettings, page, sect, stepN, theme):
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_wifi_all_op", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001",
@@ -33,7 +33,7 @@ def genWinWiFiLocalReconnectLanSkill(worksettings, stepN, theme):
     this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "all_reviews", "top", theme, stepN, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", [preferred_wifi_name], ["anchor text"], "any", "useless", "wifi_found", "win", this_step)
+    this_step, step_words = genStepSearch("screen_info", worksettings["wifis"], ["anchor text"], "any", "useless", "wifi_found", "win", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Disconnect", "anchor icon", "Disconnect", [0, 0], "center", [0, 0], "pixel", 1, 1, this_step)
@@ -42,7 +42,7 @@ def genWinWiFiLocalReconnectLanSkill(worksettings, stepN, theme):
     this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "all_reviews", "top", theme, stepN, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", [preferred_wifi_name], ["anchor text"], "any", "useless", "wifi_found", "win", this_step)
+    this_step, step_words = genStepSearch("screen_info", worksettings["wifis"], ["anchor text"], "any", "useless", "wifi_found", "win", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Connect", "anchor text", "Connect", [0, 0], "center", [0, 0], "pixel", 1, 1, this_step)

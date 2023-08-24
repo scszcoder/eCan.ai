@@ -192,6 +192,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # make sure designated tables exists in DB, if not create those tables.
         self.dbCursor = self.dbcon.cursor()
+        self.wifis = []
 
         # create tables.
         sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
@@ -476,6 +477,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Main Bot&Mission Scheduler")
         # ================= DONE with GUI ==============================
 
+        # get current wifi ssid and store it.
+        print("OS platform: ", self.platform)
+        if  self.platform=="win":
+            wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
+            wifi_data = wifi_info.decode('utf-8')
+            wifi_lines = wifi_data.split("\n")
+            ssidline = [l for l in wifi_lines if " SSID" in l]
+            if len(ssidline) == 1:
+                ssid = ssidline[0].split(":")[1].strip()
+                self.wifis.append(ssid)
+
         # load skills into memory.
         self.loadLocalSkills()
         self.loadLocalBots()
@@ -511,7 +523,8 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.logConsole.setVisible(False)
 
-
+    def getWifis(self):
+        return self.wifis
 
     #async def networking(self, platoonCallBack):
     def setHostRole(self, role):
@@ -1258,9 +1271,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # get skills data structure by IDs
         relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
+        relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
+
+
+        if len(relevant_skill_ids) < len(rpaSkillIds):
+            s = set(relevant_skill_ids)
+            missing = [x for x in rpaSkillIds if x not in s]
+            print("ERROR: Required Skills not found:", missing)
+        else:
+            ordered_relevant_skills = sorted(relevant_skills, key=lambda x: rpaSkillIds.index(x.getSkid()))
 
         all_skill_codes = []
-        for sk in relevant_skills:
+        for sk in ordered_relevant_skills:
             # print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
             print("settingSKKKKKKKK: ", worksettings)

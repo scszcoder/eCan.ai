@@ -257,11 +257,16 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
     # purchase labels
-    this_step, step_words = genStepUseSkill("win_chrome_gslabel_buy", "public", "USPS Ground Advantage Signature", "total_label_cost", this_step)
+    this_step, step_words = genStepCreateData("expr", "label_service", "NA", "['USPS Ground Advantage Signature']", this_step)
     psk_words = psk_words + step_words
 
-    # Update Tracking
-    this_step, step_words = genStepUseSkill("win_chrome_gslabel_buy", "public", "USPS Priority Signature v4", "total_label_cost", this_step)
+    this_step, step_words = genStepUseSkill("win_chrome_gslabel_buy", "public", "label_service", "total_label_cost", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global label_service\nlabel_service = ['USPS Priority Signature v4']", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepUseSkill("win_chrome_gslabel_buy", "public", "label_service", "total_label_cost", this_step)
     psk_words = psk_words + step_words
 
     # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
