@@ -1,0 +1,25 @@
+
+{"header":
+{
+    "name": "win_printer_local_print",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINCHROMEETSY001",
+    "description": "Reformat Default Shipping Label and Print them On Windows."
+},
+"step 5":
+{
+    "type": "Stub",
+    "stub_name": "start skill",
+    "func_name": "public/win_printer_local_print/reformat_print",
+    "fargs": ""
+},
+"step 10":
+{
+    "type": "Stub",
+    "stub_name": "end skill",
+    "func_name": "public/win_printer_local_print/reformat_print",
+    "fargs": ""
+},
+"dummy" : ""}

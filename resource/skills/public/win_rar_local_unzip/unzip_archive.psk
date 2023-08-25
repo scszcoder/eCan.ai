@@ -1,0 +1,368 @@
+
+{"header":
+{
+    "name": "win_file_all_op",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINFILEOP001",
+    "description": "File Open Dialog Handling for Windows."
+},
+"step 5":
+{
+    "type": "Stub",
+    "stub_name": "start skill",
+    "func_name": "public/win_rar_local_unzip/unzip_archive",
+    "fargs": ""
+},
+"step 10":
+{
+    "type": "Call Extern",
+    "file": "global zipped_full_path\nzipped_full_path = fin[0]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 15":
+{
+    "type": "Call Extern",
+    "file": "global unziped_path\nunziped_path = fin[1]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 20":
+{
+    "type": "App Open",
+    "action": "cmd",
+    "save_rb": true,
+    "target_type": "shell",
+    "target_link": "explorer",
+    "anchor_type": "",
+    "anchor_value": "",
+    "cargs": "/root,\"\"",
+    "wait": 2
+},
+"step 25":
+{
+    "type": "Extract Info",
+    "settings": {
+        "skname": "unzip_archive",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "allen smith",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "101 ABC ST.",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Los Angeles",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "90001"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/win_file_local_op/skills/open_save_as/win_rar_local_unzip/skills/unzip_archive/",
+        "platform": "win",
+        "site": "local",
+        "app": "rar",
+        "app_exe": "cmd",
+        "page": "unzip",
+        "rpaName": "sell",
+        "wifis": [
+            "OrbiSongChenHome"
+        ],
+        "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
+    },
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "winrar",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 30":
+{
+    "type": "Search",
+    "screen": "screen_info",
+    "names": [
+        "free_trial_ended"
+    ],
+    "target_types": [
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "useless",
+    "site": "amz",
+    "status": "rar_trial_end_popped"
+},
+"step 35":
+{
+    "type": "Search",
+    "screen": "screen_info",
+    "names": [
+        "please_purchase_license"
+    ],
+    "target_types": [
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "useless",
+    "site": "amz",
+    "status": "rar_license_popped"
+},
+"step 40":
+{
+    "type": "Check Condition",
+    "condition": "rar_trial_end_popped",
+    "if_else": "",
+    "if_end": ""
+},
+"step 45":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "alt,f4",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 0
+},
+"step 50":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 55":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "close",
+    "target_type": "anchor text",
+    "text": "Extract To",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "pixel",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 0,
+    "post_wait": 0
+},
+"step 60":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 65":
+{
+    "type": "Extract Info",
+    "settings": {
+        "skname": "unzip_archive",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "allen smith",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "101 ABC ST.",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Los Angeles",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "90001"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/win_file_local_op/skills/open_save_as/win_rar_local_unzip/skills/unzip_archive/",
+        "platform": "win",
+        "site": "local",
+        "app": "rar",
+        "app_exe": "cmd",
+        "page": "unzip",
+        "rpaName": "sell",
+        "wifis": [
+            "OrbiSongChenHome"
+        ],
+        "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
+    },
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "winrar",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 70":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "Extract_To",
+    "target_type": "anchor text",
+    "text": "Extract To",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "pixel",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_wait": 0
+},
+"step 75":
+{
+    "type": "Extract Info",
+    "settings": {
+        "skname": "unzip_archive",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "allen smith",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "101 ABC ST.",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Los Angeles",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "90001"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/win_file_local_op/skills/open_save_as/win_rar_local_unzip/skills/unzip_archive/",
+        "platform": "win",
+        "site": "local",
+        "app": "rar",
+        "app_exe": "cmd",
+        "page": "unzip",
+        "rpaName": "sell",
+        "wifis": [
+            "OrbiSongChenHome"
+        ],
+        "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
+    },
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "winrar",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 80":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "backspace",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 0
+},
+"step 85":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "new_folder",
+    "target_type": "anchor text",
+    "text": "New folder",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "left",
+    "offset_unit": "box",
+    "offset": [
+        2,
+        0
+    ],
+    "move_pause": 2,
+    "post_wait": 0
+},
+"step 90":
+{
+    "type": "Text Input",
+    "action": "type",
+    "save_rb": false,
+    "text": "",
+    "speed": 1,
+    "key_after": "enter",
+    "wait_after": 2
+},
+"step 95":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "OK",
+    "target_type": "anchor text",
+    "text": "OK",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "pixel",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_wait": 0
+},
+"step 100":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "alt,f4",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 0
+},
+"step 105":
+{
+    "type": "Stub",
+    "stub_name": "end skill",
+    "func_name": "public/win_rar_local_unzip/unzip_archive",
+    "fargs": ""
+},
+"dummy" : ""}

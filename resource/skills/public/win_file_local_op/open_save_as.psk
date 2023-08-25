@@ -1,0 +1,309 @@
+
+{"header":
+{
+    "name": "win_file_local_open_save_as",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINFILEOP001",
+    "description": "File Open Dialog Handling for Windows."
+},
+"step 5":
+{
+    "type": "Stub",
+    "stub_name": "start skill",
+    "func_name": "public/win_file_local_op/open_save_as",
+    "fargs": ""
+},
+"step 10":
+{
+    "type": "Call Extern",
+    "file": "global f_op\nf_op = fin[0]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 15":
+{
+    "type": "Call Extern",
+    "file": "global fopen_f_path\nfopen_f_path = fin[1]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 20":
+{
+    "type": "Call Extern",
+    "file": "global fopen_f_name\nfopen_f_name = fin[2]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 25":
+{
+    "type": "Extract Info",
+    "settings": {
+        "skname": "open_save_as",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_file_local_op/open_save_as.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "allen smith",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "101 ABC ST.",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Los Angeles",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "90001"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/win_file_local_op/skills/open_save_as/",
+        "platform": "win",
+        "site": "local",
+        "app": "file",
+        "app_exe": "cmd",
+        "page": "op",
+        "rpaName": "sell",
+        "wifis": [
+            "OrbiSongChenHome"
+        ],
+        "name_space": "B3M3!win_file_local_op!open_save_as!"
+    },
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "file_dialog",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 30":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "refresh",
+    "target_type": "anchor icon",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "left",
+    "offset_unit": "box",
+    "offset": [
+        3,
+        0
+    ],
+    "move_pause": 2,
+    "post_wait": 0
+},
+"step 35":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "fopen0",
+    "key_name": "NA",
+    "key_value": 0
+},
+"step 40":
+{
+    "type": "Fill Data",
+    "fill_type": "direct",
+    "from": 0,
+    "to": "fopen0",
+    "result": ""
+},
+"step 45":
+{
+    "type": "Repeat",
+    "lc_name": "fopen0",
+    "until": "",
+    "count": "50",
+    "end": ""
+},
+"step 50":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "backspace",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 0
+},
+"step 55":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 60":
+{
+    "type": "Text Input",
+    "action": "type",
+    "save_rb": false,
+    "text": [
+        ""
+    ],
+    "speed": 1,
+    "key_after": "enter",
+    "wait_after": 2
+},
+"step 65":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "",
+    "target_name": "open",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "right",
+    "offset_unit": "box",
+    "offset": [
+        1,
+        0
+    ],
+    "move_pause": 2,
+    "post_wait": 0
+},
+"step 70":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "fopen0",
+    "key_name": "NA",
+    "key_value": 0
+},
+"step 75":
+{
+    "type": "Fill Data",
+    "fill_type": "direct",
+    "from": 0,
+    "to": "fopen0",
+    "result": ""
+},
+"step 80":
+{
+    "type": "Repeat",
+    "lc_name": "fopen0",
+    "until": "",
+    "count": "30",
+    "end": ""
+},
+"step 85":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "backspace",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 0
+},
+"step 90":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 95":
+{
+    "type": "Text Input",
+    "action": "type",
+    "save_rb": false,
+    "text": "",
+    "speed": 1,
+    "key_after": "",
+    "wait_after": 2
+},
+"step 100":
+{
+    "type": "Check Condition",
+    "condition": "fin[2] == 'open'",
+    "if_else": "",
+    "if_end": ""
+},
+"step 105":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "",
+    "target_name": "open",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 0,
+    "post_wait": 0
+},
+"step 110":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 115":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "",
+    "target_name": "save",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 0,
+    "post_wait": 0
+},
+"step 120":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 125":
+{
+    "type": "Stub",
+    "stub_name": "end skill",
+    "func_name": "public/win_file_local_op/open_save_as",
+    "fargs": ""
+},
+"dummy" : ""}

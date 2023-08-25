@@ -1,0 +1,121 @@
+
+{"header":
+{
+    "name": "win_chrome_etsy_fullfill_orders",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINCHROMEETSY001",
+    "description": "Etsy Fullfill New Orders On Windows."
+},
+"step 5":
+{
+    "type": "Stub",
+    "stub_name": "start skill",
+    "func_name": "public/win_chrome_etsy_orders/fullfill_orders",
+    "fargs": ""
+},
+"step 10":
+{
+    "type": "App Open",
+    "action": "cmd",
+    "save_rb": true,
+    "target_type": "browser",
+    "target_link": "https://www.etsy.com/your/orders/sold",
+    "anchor_type": "",
+    "anchor_value": "",
+    "cargs": "",
+    "wait": 5
+},
+"step 15":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 5
+},
+"step 20":
+{
+    "type": "Create Data",
+    "data_type": "string",
+    "data_name": "etsy_status",
+    "key_name": "NA",
+    "key_value": ""
+},
+"step 25":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "etsy_orders",
+    "key_name": "NA",
+    "key_value": "[]"
+},
+"step 30":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "dummy_in",
+    "key_name": "NA",
+    "key_value": "[]"
+},
+"step 35":
+{
+    "type": "Use Skill",
+    "skill_name": "collect_orders",
+    "skill_path": "public/win_chrome_etsy_orders",
+    "skill_args": "dummy_in",
+    "output": "etsy_status"
+},
+"step 40":
+{
+    "type": "Prep GS Order",
+    "ec_order": "etsy_orders",
+    "gs_order": "gs_orders",
+    "file_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_etsy_orders/skills/fullfill_orders/",
+    "seller": {
+        "No": "1",
+        "FromName": "allen smith",
+        "PhoneFrom": "925-601-1002",
+        "Address1From": "101 ABC ST.",
+        "CompanyFrom": "",
+        "Address2From": "",
+        "CityFrom": "Los Angeles",
+        "StateFrom": "CA",
+        "ZipCodeFrom": "90001"
+    }
+},
+"step 45":
+{
+    "type": "Use Skill",
+    "skill_name": "bulk_buy",
+    "skill_path": "public/win_chrome_goodsupply_label",
+    "skill_args": [
+        "gs_orders",
+        "etsy_orders"
+    ],
+    "output": "buy_status"
+},
+"step 50":
+{
+    "type": "Use Skill",
+    "skill_name": "update_tracking",
+    "skill_path": "public/win_chrome_etsy_orders",
+    "skill_args": "USPS Priority Signature v4",
+    "output": "total_label_cost"
+},
+"step 55":
+{
+    "type": "Use Skill",
+    "skill_name": "reformat_print",
+    "skill_path": "public/win_printer_local_print",
+    "skill_args": "label_list",
+    "output": ""
+},
+"step 60":
+{
+    "type": "Stub",
+    "stub_name": "end skill",
+    "func_name": "public/win_chrome_etsy_orders/fullfill_orders",
+    "fargs": ""
+},
+"dummy" : ""}
