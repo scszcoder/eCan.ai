@@ -67,7 +67,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
 
     # type in the path
     #action, saverb, txt, speed, key_after, wait_after, stepN
-    this_step, step_words = genStepTextInput("type", False, fopen_f_path, 1, "enter", 2, this_step)
+    this_step, step_words = genStepTextInput("type", False, [fopen_f_path], 1, "enter", 2, this_step)
     psk_words = psk_words + step_words
 
     # click on file name input win
