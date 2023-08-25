@@ -477,9 +477,9 @@ class EBBOT(QtGui.QStandardItem):
     def genJson(self):
         print("generating Json..........>>>>")
         jsd = {
-                "pubProfile": self.pubProfile.genJson,
-                "privateProfile": self.privateProfile.genJson,
-                "settings": self.settings.genJson
+                "pubProfile": self.pubProfile.genJson(),
+                "privateProfile": self.privateProfile.genJson(),
+                "settings": self.settings.genJson()
                 }
         print(json.dumps(jsd))
         return jsd

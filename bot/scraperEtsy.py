@@ -7,16 +7,19 @@ import random
 from calendar import isleap
 import cv2
 from ordersData import *
+from basicSkill import *
 
 global symTab
 global STEP_GAP
 
-def genStepEtsyScrapeOrders(html, pidx, outvar, stepN,):
+# html: html file name, pidx: page index,
+def genStepEtsyScrapeOrders(html, pidx, outvar, statusvar, stepN):
     stepjson = {
         "type": "ETSY Scrape Orders",
         "pidx": pidx,
         "html_file": html,
-        "result": outvar
+        "result": outvar,
+        "status": statusvar
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))

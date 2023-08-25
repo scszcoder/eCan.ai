@@ -11,7 +11,10 @@ import os
 from datetime import datetime
 import time
 
+from basicSkill import *
 
+global symTab
+global STEP_GAP
 
 # https://www.onlinebarcodereader.com/
 # https://online-barcode-reader.inliteresearch.com/
@@ -80,7 +83,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCallExtern("global gs_service\ngs_service = fin[2]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", "fund_left", "info text", "any", "available_fund", "foundFund", "goodsupply", this_step)
@@ -102,14 +105,14 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "", "choose_file", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepUseSkill("win_file_all_op", "public", [gs_order_file_path, gs_order_file_name, "open"], "", this_step)
+    this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", [gs_order_file_path, gs_order_file_name, "open"], "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "", "verify_data", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # readn screen again after verify data.
-    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
 
@@ -176,7 +179,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # now that shipping labels generated, use unrar skill to unzip it.
-    this_step, step_words = genStepUseSkill("win_rar_local_unzip", "public", [gs_zipped_label_file, gs_unzipped_dir], "", this_step)
+    this_step, step_words = genStepUseSkill("unzip_archive", "public/win_rar_local_unzip", [gs_zipped_label_file, gs_unzipped_dir], "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)

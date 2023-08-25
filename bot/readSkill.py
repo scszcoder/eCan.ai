@@ -46,14 +46,12 @@ in_exception = False
 
 sys_stack = []
 exception_stack = []
-page_stack = []
 breakpoints = []
 skill_code = None
 skill_table = {"nothing": ""}
 function_table = {"nothing": ""}
 skill_stack = []
 
-current_context = None
 
 # SC - 2023-03-07 files and dirs orgnization structure:
 #

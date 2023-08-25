@@ -4,6 +4,8 @@ import platform
 import errno
 from basicSkill import *
 
+global symTab
+global STEP_GAP
 
 def is_tool(name):
     try:
@@ -24,7 +26,7 @@ zipped_full_path = ""
 unziped_path = ""
 # this skill assumes the following input "fin": [file full path, result_path]
 # the caller skill must get these ready. There will be no error handling here.
-def genWinRARLocalUnzipSkill(rworksettings, page, sect, stepN, theme):
+def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_file_all_op", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001",
@@ -53,7 +55,7 @@ def genWinRARLocalUnzipSkill(rworksettings, page, sect, stepN, theme):
     # verify the popup,
 
     # extract screen info,
-    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", ["free_trial_ended"], ["anchor text"], "any", "useless", "rar_trial_end_popped", "amz", this_step)
@@ -82,14 +84,14 @@ def genWinRARLocalUnzipSkill(rworksettings, page, sect, stepN, theme):
 
 
     # click on "Extract to"
-    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "Extract_To", "anchor text", "Extract To", [0, 0], "center", [0, 0], "pixel", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # read the file dialog popup
-    this_step, step_words = genStepExtractInfo("", rworksettings["root_path"], "screen_info", "winrar", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)

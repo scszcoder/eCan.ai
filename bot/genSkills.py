@@ -39,9 +39,8 @@ def getWorkSettings(lieutenant, bot_works):
     site = lieutenant.missions[midx].getSite()
     app = lieutenant.missions[midx].getApp()
     app_exe = lieutenant.missions[midx].getAppExe()
-    print("settings: ", settings)
+    # print("settings: ", settings)
 
-    rpaConfig = works[tz][bidx][grp][idx]["config"]
     rpaName = works[tz][bidx][grp][idx]["name"]
 
     # required_skids = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getSkills()
@@ -80,6 +79,14 @@ def getWorkSettings(lieutenant, bot_works):
     run_config = works[tz][bidx][grp][idx]["config"]
     root_path = lieutenant.homepath
 
+    dtnow = datetime.now()
+
+    date_word = dtnow.strftime("%Y%m%d")
+    print("date word:", date_word)
+
+    fdir = root_path + "/resource/runlogs/" + date_word + "/"
+    log_path = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
+
     bot = lieutenant.bots[bot_idx]
     sij = {
         "No": "1",
@@ -97,20 +104,20 @@ def getWorkSettings(lieutenant, bot_works):
             "skname": "",
             "skfname": "",
             "cargs": "",
-            "works": works,
+            # "works": works,
             "botid": bot_id,
             "seller": sij,
             "mid": mission_id,
             "midx": midx,
             "run_config": run_config,
             "root_path": root_path,
-            "settings": settings,
+            "log_path": log_path,
+            # "settings": settings,
             "platform": platform,
             "site": site,
             "app": app,
             "app_exe": app_exe,
             "page": "",
-            "rpaConfig": rpaConfig,
             "rpaName": rpaName,
             "wifis" : lieutenant.getWifis(),
             "name_space": name_space
@@ -129,6 +136,8 @@ def setWorkSettingsSkill(worksettings, sk):
 
     worksettings["skname"] = os.path.basename(sk.getName())
     print("GENERATING STEPS into: ", worksettings["skfname"], "  skill name: ", worksettings["skname"])
+
+    worksettings["log_path"] = worksettings["log_path"] + worksettings["platform"] + "_" + worksettings["app"] + "_" + worksettings["site"] + "_" + worksettings["page"] + "/skills/" + worksettings["skname"] + "/"
 
     pas = sk.getNameSapcePrefix()
 
