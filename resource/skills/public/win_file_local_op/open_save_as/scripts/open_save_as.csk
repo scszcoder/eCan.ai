@@ -1,6 +1,6 @@
 [
     {
-        "file": {
+        "op": {
             "top" : {
                 "anchors": [
                     {
@@ -15,7 +15,7 @@
                     },
                     {
                         "anchor_name"  : "file_open",
-                        "anchor_type"  : "icon",
+                        "anchor_type"  : "text",
                         "template"     : "Open",
                         "ref_method"   : "0",
                         "ref_location" : {
@@ -27,6 +27,16 @@
                         "anchor_name"  : "file_save",
                         "anchor_type"  : "text",
                         "template"     : "Save",
+                        "ref_method"   : "0",
+                        "ref_location" : {
+                            "dir": "within",
+                            "refs" : []
+                        }
+                    },
+                    {
+                        "anchor_name"  : "refresh",
+                        "anchor_type"  : "icon",
+                        "template"     : "file_refresh.png",
                         "ref_method"   : "0",
                         "ref_location" : {
                             "dir": "within",

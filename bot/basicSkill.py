@@ -26,6 +26,9 @@ mouse = Controller()
 mission_vars = []
 # global function_table
 MAX_STEPS = 1000000000
+page_stack = []
+current_context = None
+
 
 def genStepHeader(skillname, los, ver, author, skid, description, stepN):
     header = {
@@ -85,10 +88,10 @@ def genStepSaveHtml(html_file_name, html_file_var_name, template, root, sink, pa
 # sect: which section of the page is this extraction about?
 # page_data: data on the page extracted from analyzing html file contents. this info will help image analysis
 # option: in case this page has no anchor, needs extra help.....
-def genStepExtractInfo(template, root, sink, page, sect, theme, stepN, page_data, option=""):
+def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_data, option=""):
     stepjson = {
         "type": "Extract Info",
-        "root": root,
+        "settings": settings,
         "template": template,
         "option": option,
         "data_sink": sink,
@@ -462,7 +465,7 @@ def genException():
     return this_step, psk_words
 
 
-def read_screen(site_page, page_sect, page_theme, layout, mission, sfile):
+def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile):
     names = []
     settings = mission.parent_settings
     def winEnumHandler(hwnd, ctx):
@@ -490,9 +493,10 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sfile):
     #upload screen to S3
     upload_file(settings["session"], sfile, settings["token"], "screen")
 
-    m_skill_names = mission.getSkillNames()
-    m_psk_names = mission.getPSKFileNames()
-    m_csk_names = mission.getCSKFileNames()
+    m_skill_names = [sk_settings["skname"]]
+    m_psk_names = [sk_settings["skfname"]]
+    csk_name = sk_settings["skfname"].replace("psk", "csk")
+    m_csk_names = [csk_name]
 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -500,10 +504,10 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sfile):
     request = [{
         "id": mission.getMid(),
         "bid": mission.getBid(),
-        "os": mission.getPlatform(),
-        "app": mission.getApp(),
-        "domain": mission.getSite(),
-        "page": site_page,
+        "os": sk_settings["platform"],
+        "app": sk_settings["app"],
+        "domain": sk_settings["site"],
+        "page": sk_settings["page"],
         "layout": layout,
         "skill_name": m_skill_names[0],
         "psk": m_psk_names[0],
@@ -620,18 +624,18 @@ def processExtractInfo(step, i, mission, skill):
         ppword = mission.parent_settings["uid"]
 
     print("mission[", mission.getMid(), "] cuspas: ", mission.getCusPAS())
-    platform = mission.getPlatform()
-    app = mission.getApp()
-    site = mission.getSite()
+    platform = step["settings"]["platform"]
+    app = step["settings"]["app"]
+    site = step["settings"]["site"]
     #     local image:  C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/date/b0m0/win_chrome_amz_home/browse_search_kw/images/scrnsongc_yahoo_1678175548.png"
 
-    fdir = step["root"] + "/resource/runlogs/"
+    fdir = step["settings"]["root_path"] + "/resource/runlogs/"
     fdir = fdir + date_word + "/"
 
-    fdir = fdir + "b" + str(mission.getMid()) + "m" + str(mission.getBid()) + "/"
+    fdir = fdir + "b" + str(step["settings"]["botid"]) + "m" + str(step["settings"]["mid"]) + "/"
     # fdir = fdir + ppword + "/"
     fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
-    fdir = fdir + skill.getName() + "/images/"
+    fdir = fdir + step["settings"]["skname"] + "/images/"
     sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
     print("sfile: ", sfile)
 
@@ -639,7 +643,7 @@ def processExtractInfo(step, i, mission, skill):
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
-    result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, sfile)
+    result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step["settings"], sfile)
     symTab[step["data_sink"]] = result
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 

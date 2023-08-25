@@ -1285,7 +1285,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for sk in ordered_relevant_skills:
             # print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
-            print("settingSKKKKKKKK: ", worksettings)
+            print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
             genSkillCode(worksettings, first_step, "light")
 
             all_skill_codes.append({"ns": worksettings["name_space"], "skfile": worksettings["skfname"]})

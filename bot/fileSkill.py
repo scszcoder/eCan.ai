@@ -10,6 +10,10 @@ import subprocess
 import os
 from datetime import datetime
 import time
+from basicSkill import *
+
+global symTab
+global STEP_GAP
 
 fopen_f_path = ""
 fopen_f_name = ""
@@ -26,21 +30,24 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_file_local_op/open_save_as", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global fopen_f_path\nfopen_f_path = fin[0]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global f_op\nf_op = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global fopen_f_name\nfopen_f_name = fin[1]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global fopen_f_path\nfopen_f_path = fin[1]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fopen_f_name\nfopen_f_name = fin[2]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
 
     print("fopen_f_path: ", fopen_f_path, "fopen_f_name: ", fopen_f_name)
 
     # readn screen
-    this_step, step_words = genStepExtractInfo("", worksettings["root_path"], "screen_info", "file_dialog", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "file_dialog", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # click on path input win
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "refresh", "anchor icon", "", [0, 0], "left", [3, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, 0], "left", [3, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # delete everything there

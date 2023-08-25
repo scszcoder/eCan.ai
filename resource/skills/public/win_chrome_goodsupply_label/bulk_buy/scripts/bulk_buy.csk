@@ -1,6 +1,6 @@
 [
     {
-        "goodsupply_bulkbuy": {
+        "label": {
             "top" : {
                 "anchors": [
                     {
@@ -58,7 +58,7 @@
                 ]
             }
 	    },
-        "file_open": {
+        "op": {
             "top" : {
                 "anchors": [
                     {
