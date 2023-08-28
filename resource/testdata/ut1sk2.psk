@@ -1,0 +1,45 @@
+
+{"header":
+{
+    "name": "doubler",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINADSAMZ0000001",
+    "description": "test skill for Windows."
+},
+"step 5":
+{
+    "type": "Stub",
+    "stub_name": "start skill",
+    "func_name": "doubler",
+    "fargs": ""
+},
+"step 10":
+{
+    "type": "Call Extern",
+    "file": "global fin, dout\nprint('fin....',fin)\ndout = fin * 2",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 15":
+{
+    "type": "Stub",
+    "stub_name": "end skill",
+    "func_name": "doubler",
+    "fargs": "dout"
+},
+"step 8000000":
+{
+    "type": "Exception Handler",
+    "cause": "",
+    "cdata": ""
+},
+"step 8000005":
+{
+    "type": "End Exception",
+    "cause": "",
+    "cdata": ""
+},
+"dummy" : ""}

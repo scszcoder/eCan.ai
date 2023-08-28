@@ -1,0 +1,69 @@
+
+{"header":
+{
+    "name": "test_skill1",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINADSAMZ0000001",
+    "description": "test skill for Windows."
+},
+"step 5":
+{
+    "type": "Stub",
+    "stub_name": "start skill",
+    "func_name": "test_skill1",
+    "fargs": ""
+},
+"step 10":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "counter1",
+    "key_name": "NA",
+    "key_value": 3
+},
+"step 15":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "tresult",
+    "key_name": "NA",
+    "key_value": 0
+},
+"step 20":
+{
+    "type": "Use Skill",
+    "skill_name": "doubler",
+    "skill_file_name": "",
+    "skill_args": "counter1",
+    "output": "tresult"
+},
+"step 25":
+{
+    "type": "Call Extern",
+    "file": "global tresult\nprint('tresut....',tresult)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 30":
+{
+    "type": "Stub",
+    "stub_name": "end skill",
+    "func_name": "test skill",
+    "fargs": ""
+},
+"step 8000000":
+{
+    "type": "Exception Handler",
+    "cause": "",
+    "cdata": ""
+},
+"step 8000005":
+{
+    "type": "End Exception",
+    "cause": "",
+    "cdata": ""
+},
+"dummy" : ""}
