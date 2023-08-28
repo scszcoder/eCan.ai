@@ -1,0 +1,30 @@
+[
+    {
+        "pubProfile" : {
+            "pseudo_nick_name" : "", 
+            "location" : "", 
+            "age" : "", 
+            "gender" : "", 
+            "interests" : "", 
+            "role" : ""
+        },
+        "privateProfile" : {
+            "first_name" : "", 
+            "last_name" : "", 
+            "email" : "", 
+            "email_pw" : "", 
+            "phone" : "", 
+            "backup_email" : "", 
+            "acct_pw" : "", 
+            "file" : ""
+        },
+        "settings" : {
+            "platform" : "", 
+            "os" : "", 
+            "machine" : "", 
+            "browser" : "", 
+            "tasks" : "", 
+            "schedule" : ""
+        }
+    }
+]
