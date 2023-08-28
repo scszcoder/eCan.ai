@@ -33,7 +33,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCallExtern("global f_op\nf_op = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global fopen_f_path\nfopen_f_path = fin[1]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global fopen_f_path\nfopen_f_path = fin[1]\nprint('fopen_f_path:', fopen_f_path)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global fopen_f_name\nfopen_f_name = fin[2]", "", "in_line", "", this_step)
@@ -67,11 +67,11 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
 
     # type in the path
     #action, saverb, txt, speed, key_after, wait_after, stepN
-    this_step, step_words = genStepTextInput("type", False, [fopen_f_path], 1, "enter", 2, this_step)
+    this_step, step_words = genStepTextInput("var", False, "fopen_f_path", 1, "enter", 5, this_step)
     psk_words = psk_words + step_words
 
     # click on file name input win
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "open", "anchor text", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_name", "anchor text", "", [0, 0], "right", [2, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # delete everything there
@@ -84,29 +84,30 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)
+
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     # type in the path
-    this_step, step_words = genStepTextInput("type", False, fopen_f_name, 1, "", 2, this_step)
+    this_step, step_words = genStepTextInput("var", False, "fopen_f_name", 1, "", 2, this_step)
     psk_words = psk_words + step_words
 
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepCheckCondition("fin[2] == 'open'", "", "", this_step)
+    this_step, step_words = genStepCheckCondition("fin[0] == 'open'", "", "", this_step)
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "open", "anchor text", "", [0, 0], "center", [0, 0], "box", 0, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_open", "anchor text", "", [0, 0], "center", [0, 0], "box", 0, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "save", "anchor text", "", [0, 0], "center", [0, 0], "box", 0, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_cancel", "anchor text", "", [0, 0], "left", [2, 0], "box", 0, 5, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)

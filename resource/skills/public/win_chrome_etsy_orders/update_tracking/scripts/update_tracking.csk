@@ -1,6 +1,6 @@
 [
     {
-        "etsy_orders": {
+        "orders": {
             "top" : {
                 "anchors": [
                     {
@@ -8,80 +8,62 @@
                         "anchor_type"  : "text",
                         "template"     : "New",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "orders_per_page",
                         "anchor_type"  : "text",
                         "template"     : "orders per page",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "page",
                         "anchor_type"  : "text",
                         "template"     : "Page",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "of0",
                         "anchor_type"  : "text",
                         "template"     : "of",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "ship_to",
                         "anchor_type"  : "text",
                         "template"     : "Ship to",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : [{
+                                "dir": "<",
+                                "ref": "bottom",
+                                "offset": 90;
+                                "offset_unit": "%";
+                            }
+                        ]
                     },
                     {
-                        "anchor_name"  : "quantity",
+                        "anchor_name"  : "no_orders",
                         "anchor_type"  : "text",
-                        "template"     : "Quantity",
+                        "template"     : "No orders here right now",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     }
                 ], 
                 "info": [
@@ -94,376 +76,145 @@
                         "anchor_type"  : "text",
                         "template"     : "Ship to",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "quantity",
-                        "anchor_type"  : "text",
-                        "template"     : "Quantity",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },                    
+                        "ref_constraints" : [{
+                                "dir": "<",
+                                "ref": "bottom",
+                                "offset": 90;
+                                "offset_unit": "%";
+                            }
+                        ]
+                    },                  
                     {
                         "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
                         "template"     : "Etsy, Inc",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
-                        "anchor_name"  : "site_not_reached",
-                        "anchor_type"  : "text",
-                        "template"     : "unexpectedly closed the connection",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    }
-                ], 
-                "info": [
-                ]
-            },
-            "fullfill" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "usps_priority",
-                        "anchor_type"  : "text",
-                        "template"     : "USPS Priority Mail",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "complete_order_icon",
+                        "anchor_name"  : "complete_order",
                         "anchor_type"  : "icon",
                         "template"     : "complete_order.png",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "bad_request",
-                        "anchor_type"  : "text",
-                        "template"     : "Bad Request",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     }
                 ], 
                 "info": [
+                    {
+                        "info_name"  : "ship_to_summery",
+                        "info_type"  : "lines 5",
+                        "template"     : "",
+                        "ref_method"   : "1",
+                        "refs" : [{
+                                "dir": "below",
+                                "ref": "ship_to",
+                                "offset": 0;
+                                "offset_unit": "box";
+                            }
+                        ]
+                    }, 
+                    {
+                        "info_name"  : "order_number",
+                        "info_type"  : "lines 1",
+                        "template"     : "#[0-9]+",
+                        "ref_method"   : "2",
+                        "refs" : [{
+                                "dir": "above",
+                                "ref": "complete_order",
+                                "offset": 0;
+                                "offset_unit": "box";
+                            }
+                        ]
+                    }, 
                 ]
             },
             "completion" : {
                 "anchors": [
                     {
-                        "anchor_name"  : "shipping_carrier",
+                        "anchor_name"  : "ship_to",
                         "anchor_type"  : "text",
-                        "template"     : "Shipping carrier",
+                        "template"     : "Ship to",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
+                        "ref_constraints" : [{
+                                "dir": "<",
+                                "ref": "bottom",
+                                "offset": 90;
+                                "offset_unit": "%";
+                            }
+                        ]
+                    },                  
                     {
-                        "anchor_name"  : "enter_tracking",
+                        "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
-                        "template"     : "Enter tracking number",
+                        "template"     : "Etsy, Inc",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "tracking_number",
-                        "anchor_type"  : "text",
-                        "template"     : "Tracking number",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "complete_order",
-                        "anchor_type"  : "text",
-                        "template"     : "Complete order",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "complete_order",
+                        "anchor_type"  : "icon",
+                        "template"     : "complete_order.png",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
                     },
                     {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
                         "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
+                        "ref_constraints" : []
                     }
                 ], 
                 "info": [
-                ]
-            }
-	    }
-	},
-    {
-        "winrar_dialog": {
-            "top" : {
-                "anchors": [
                     {
-                        "anchor_name"  : "buy_license",
-                        "anchor_type"  : "text",
-                        "template"     : "Please purchase WinRAR",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
+                        "info_name"  : "ship_to_summery",
+                        "info_type"  : "lines 5",
+                        "template"     : "",
+                        "ref_method"   : "1",
+                        "refs" : [{
+                                "dir": "below",
+                                "ref": "ship_to",
+                                "offset": 0;
+                                "offset_unit": "box";
+                            }
+                        ]
+                    }, 
                     {
-                        "anchor_name"  : "expired_notification",
-                        "anchor_type"  : "text",
-                        "template"     : "Expired Notification",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "close_win_icon",
-                        "anchor_type"  : "icon",
-                        "template"     : "close_win.png",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "close",
-                        "anchor_type"  : "text",
-                        "template"     : "Close",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "extract_to",
-                        "anchor_type"  : "text",
-                        "template"     : "Extract to",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "new_folder",
-                        "anchor_type"  : "text",
-                        "template"     : "New folder",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "ok",
-                        "anchor_type"  : "text",
-                        "template"     : "Ok",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "cancel",
-                        "anchor_type"  : "text",
-                        "template"     : "Cancel",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "refresh",
-                        "anchor_type"  : "icon",
-                        "template"     : "refresh0.png",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    }
-                ], 
-                "info": [
-                ]
-            }
-	    }
-	},
-    {
-        "goodsupply_bulkbuy": {
-            "top" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "create_bulk",
-                        "anchor_type"  : "text",
-                        "template"     : "Create Bulk",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "choose_file",
-                        "anchor_type"  : "text",
-                        "template"     : "Choose File",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "verify_data",
-                        "anchor_type"  : "text",
-                        "template"     : "Verify Data",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "import",
-                        "anchor_type"  : "text",
-                        "template"     : "Import",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "total",
-                        "anchor_type"  : "text",
-                        "template"     : "Total",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    }
-                ], 
-                "info": [
-                ]
-            }
-	    },
-        "file_open": {
-            "top" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "refresh_icon",
-                        "anchor_type"  : "icon",
-                        "template"     : "refresh.png",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "ok",
-                        "anchor_type"  : "text",
-                        "template"     : "OK",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "file_name",
-                        "anchor_type"  : "text",
-                        "template"     : "File Name:",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    },
-                    {
-                        "anchor_name"  : "open",
-                        "anchor_type"  : "text",
-                        "template"     : "Open",
-                        "ref_method"   : "0",
-                        "ref_location" : {
-                            "dir": "within",
-                            "refs" : []
-                        }
-                    }
-                ], 
-                "info": [
+                        "info_name"  : "order_number",
+                        "info_type"  : "lines 1",
+                        "template"     : "#[0-9]+",
+                        "ref_method"   : "2",
+                        "refs" : [{
+                                "dir": "above",
+                                "ref": "complete_order",
+                                "offset": 0;
+                                "offset_unit": "box";
+                            }
+                        ]
+                    }, 
                 ]
             }
 	    }
 	}
-    
 ]

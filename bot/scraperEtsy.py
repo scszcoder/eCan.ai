@@ -37,7 +37,7 @@ def processEtsyScrapeOrders(step, i):
         divItems = soup.findAll("div", attrs={"class": "orders-full-width-panel-on-mobile panel panel-no-footer mb-xs-4"})
         for item in divItems:
             # extract recipient info.
-            order = ORDER("", "", "", "", "", "")
+            order = ORDER("", "", "", "", "", "", "")
             products = []
 
             recipientItems = item.findAll("div", attrs={"class": "break-word"})
@@ -45,7 +45,7 @@ def processEtsyScrapeOrders(step, i):
                 recipient_loc_tags = bi.findAll("span", attrs={"data-test-id": 'unsanitize'})
                 if len(recipient_loc_tags) == 3:
                     print("recipient_loc_tags:", recipient_loc_tags)
-                    recipient = OrderPerson("", "", "", "", "", "")
+                    recipient = OrderPerson("", "", "", "", "", "", "")
                     recipient.setFullName(recipient_loc_tags[0].text)
                     recipient.setCity(recipient_loc_tags[1].text)
                     recipient.setState(recipient_loc_tags[2].text)
