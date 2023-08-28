@@ -110,9 +110,11 @@ vicrop = {
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search": lambda x,y: processSearch(x, y),
+    "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
+    "Create Dir": lambda x, y: processCreateDir(x, y),
     "Print Label": lambda x,y: processPrintLabel(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z, w: processAMZScrapePLHtml(x, y, z, w),
@@ -123,6 +125,8 @@ vicrop = {
     "AMZ Scrape Orders Html": lambda x, y: processAMZScrapeOrdersHtml(x, y),
     "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
     "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
+    "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
+    "Etsy Set Order Clicked Status": lambda x, y: processEtsySetOrderClickedStatus(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
 }
 

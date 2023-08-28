@@ -159,6 +159,7 @@ class ORDER:
         self.total_length = 0           # in inches
         self.total_width = 0
         self.total_height = 0
+        self.ui_checked = False
 
 
     def setOid(self, oid):
@@ -179,22 +180,40 @@ class ORDER:
         self.shipping = shipping
 
     def getRecipientName(self):
-        return self.buyer.full_name
+        return self.recipient.full_name
+
+    def setRecipientName(self, fn):
+        self.recipient.full_name = fn
 
     def getRecipientAddrState(self):
-        return self.buyer.state
+        return self.recipient.state
+
+    def setRecipientAddrState(self, state):
+        self.recipient.state = state
 
     def getRecipientAddrZip(self):
-        return self.buyer.zip
+        return self.recipient.zip
+
+    def setRecipientAddrZip(self, zip):
+        self.recipient.zip = zip
 
     def getRecipientAddrCity(self):
-        return self.buyer.city
+        return self.recipient.city
+
+    def setRecipientAddrCity(self, city):
+        self.recipient.city = city
 
     def getRecipientAddrStreet1(self):
-        return self.buyer.street1
+        return self.recipient.street1
+
+    def setRecipientAddrStreet1(self, st1):
+        self.recipient.street1 = st1
 
     def getRecipientAddrStreet2(self):
-        return self.buyer.street2
+        return self.recipient.street2
+
+    def setRecipientAddrStreet2(self, st2):
+        self.recipient.street2 = st2
 
     def getOrderWeightInOzs(self, product_book):
         self.total_weight = 0
@@ -259,10 +278,16 @@ class ORDER:
     def setStatus(self, status):
         self.status = status
 
+    def getChecked(self):
+        return self.ui_checked
+
+    def setChecked(self, status):
+        self.ui_checked = status
+
     def toJson(self):
         return {
             "oid": self.oid,
-            "buyer": self.buyer.toJson(),
+            "buyer": "",
             "recipient": self.recipient.toJson(),
             "products": [p.toJson() for p in self.products],
             "shipping": self.shipping.toJson(),

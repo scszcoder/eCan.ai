@@ -203,8 +203,79 @@ On any screen, we define a set of "anchors" on the screen, these are the texts o
 texts and icons to form the distinct features of the interested contents. Anchors will help us keep track the 
 locations on the page while we scroll up and down the page.
 
+Anchor types:
+
+| Types       | Description      | Syntax                                                                 | Attributes                                                                                                                 |
+|-------------|------------------|------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| "text"      | a piece of text  | template is the text itself  | <br> * anchor text could be regular expression <br> * anchor can have location restraints which is defined  in ref section |
+| "icon"      | an icon image    | template is the file name of the image of the icon. |
+| "icon group" | a group of icons |                                                                        | nearest could be specified in both x and y direction, targeted info could be a regular expression definition               |
+
+Anchor Reference Methods:
+
+| Ref Method | Description                                       | Syntax                                                                 | Attributes                                                                                                                 |
+|------------|---------------------------------------------------|------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| 0          | a dinstinct piece of text or icon on a page       | template is the text itself or the file name of the image of the icon. | <br> * anchor text could be regular expression <br> * anchor can have location restraints which is defined  in ref section |
+| 1          | a polygan shape                                   |                                                                        |
+| 2          | a line                                            |                                                                        | nearest could be specified in both x and y direction, targeted info could be a regular expression definition               |
+| 3          | anchor group, a group of icons (example, 5 stars) |                                                                        | nearest could be specified in both x and y direction, targeted info could be a regular expression definition               |
+
+For type 0 anchors, one can also specify certain constraints, for example, in the ref_location method, one can do something like this:
+
+ <pre>"ref_constraints": [{<br>&nbsp;&nbsp;&nbsp;&nbsp;"dir": "<",<br>&nbsp;&nbsp;&nbsp;&nbsp;"ref": "bottom",<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset": 90;<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset_unit": "%";<br>},...]</pre>
+
+For type 3 anchors, one can also specify certain constraints, for example, in the ref_location method, one can do something like this:
+
+ <pre>"ref_constraints": [{<br>&nbsp;&nbsp;&nbsp;&nbsp;"dir": "<",<br>&nbsp;&nbsp;&nbsp;&nbsp;"ref": "star",<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset": 1;<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset_unit": "box";<br>},...]</pre>
 
 ![](resource/images/icons/anchor_def.png)
+
+Info section:
+
+Info json elements defines a piece of screen area that contains interested/structred information, 
+the area is referred by previously defined anchors one way or another.
+
+
+![](resource/images/icons/info0.png)
+
+
+there are multiple ways of referring to anchors and define the area that contains the useful text:
+
+Info types:
+
+| Types           | Description             | Syntax                                                                                | Attributes                                                                                                                 |
+|-----------------|-------------------------|---------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| "lines, 5"      | at most N lines of text | template could be the regular expression pattern that the lines of text must contain. | <br> * anchor text could be regular expression |
+| "bound box"     | an virtual bound box    |                                   |
+| "words, 5"      | at most N words         |                                                                                       | nearest could be specified in both x and y direction, targeted info could be a regular expression definition               |
+| "paragraphs, 5" | at most N paragraphs    |                                                                                       | nearest could be specified in both x and y direction, targeted info could be a regular expression definition               |
+
+
+Info Reference Methods:
+
+| Ref Methods | Description                                  | Syntax                                                                 | Attributes                                                                                                                                                                                                            |
+|-------------|----------------------------------------------|------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0           | bound box bounded by at least 2 anchors      |                                                                        | the anchors should define the upper left corner and lower right cornerof the bounded area. (Note, the bound could be special keywords, "top", "left" "right" "bottom" which represent the boundry of the screen image |
+| 1           | a piece of text adjacent to certain anchors. | for example: at most 7 lines below an anchor.                          |
+| 2           | a piece of text nearest to certain anchor    | for example: a line contains "$" on +y direction nearest to an anchor. |
+| 3           | info adjacent to info.                       |                                                                        |
+| 4           | info nearest to info.                        |                                                                        |
+
+For type 0 anchors, one can also specify certain constraints, for example, in the ref_location method, one can do something like this:
+
+ <pre>"refs": [{<br>&nbsp;&nbsp;&nbsp;&nbsp;"dir": "top, left",<br>&nbsp;&nbsp;&nbsp;&nbsp;"ref": "anchor0",<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset": 0;<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset_unit": "box";<br>},<br>{<br>&nbsp;&nbsp;&nbsp;&nbsp;"dir": "bottom, right",<br>&nbsp;&nbsp;&nbsp;&nbsp;"ref": "anchor1",<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset": 0;<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset_unit": "box";<br>},</br>...]</pre>
+
+
+For type 1 infos, one can also specify certain constraints, for example, in the ref_location method, one can do something like this:
+
+ <pre>"refs": [{<br>&nbsp;&nbsp;&nbsp;&nbsp;"dir": "below",<br>&nbsp;&nbsp;&nbsp;&nbsp;"ref": "anchor0",<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset": 0;<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset_unit": "box";<br>},<br>{<br>&nbsp;&nbsp;&nbsp;&nbsp;"dir": "bottom, right",<br>&nbsp;&nbsp;&nbsp;&nbsp;"ref": "anchor1",<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset": 0;<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset_unit": "box";<br>},</br>...]</pre>
+
+
+For type 2 infos, one can also specify certain constraints, for example, in the ref_location method, one can do something like this:
+
+ <pre>"refs": [{<br>&nbsp;&nbsp;&nbsp;&nbsp;"dir": "above, left",<br>&nbsp;&nbsp;&nbsp;&nbsp;"ref": "anchor0",<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset": 0;<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset_unit": "box";<br>},<br>{<br>&nbsp;&nbsp;&nbsp;&nbsp;"dir": "bottom, right",<br>&nbsp;&nbsp;&nbsp;&nbsp;"ref": "anchor1",<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset": 0;<br>&nbsp;&nbsp;&nbsp;&nbsp;"offset_unit": "box";<br>},</br>...]</pre>
+
+For type 3, 4 infos, the specification is similar to type 1 & 2, except the anchor names are info names instead.
 
 ### Exception Handling
 An exception happens whenever there is an instance where a web page doesn't load correctly. This could be

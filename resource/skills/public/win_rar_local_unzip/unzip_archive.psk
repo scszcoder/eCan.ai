@@ -68,7 +68,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/win_file_local_op/skills/open_save_as/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -196,7 +197,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/win_file_local_op/skills/open_save_as/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -264,7 +266,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/win_file_local_op/skills/open_save_as/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -319,7 +322,7 @@
 "step 90":
 {
     "type": "Text Input",
-    "action": "type",
+    "txt_type": "type",
     "save_rb": false,
     "text": "",
     "speed": 1,

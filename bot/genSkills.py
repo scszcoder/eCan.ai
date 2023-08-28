@@ -85,7 +85,7 @@ def getWorkSettings(lieutenant, bot_works):
     print("date word:", date_word)
 
     fdir = root_path + "/resource/runlogs/" + date_word + "/"
-    log_path = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
+    log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     bot = lieutenant.bots[bot_idx]
     sij = {
@@ -111,7 +111,8 @@ def getWorkSettings(lieutenant, bot_works):
             "midx": midx,
             "run_config": run_config,
             "root_path": root_path,
-            "log_path": log_path,
+            "log_path_prefix": log_path_prefix,
+            "log_path": "",
             # "settings": settings,
             "platform": platform,
             "site": site,
@@ -137,8 +138,8 @@ def setWorkSettingsSkill(worksettings, sk):
     worksettings["skname"] = os.path.basename(sk.getName())
     print("GENERATING STEPS into: ", worksettings["skfname"], "  skill name: ", worksettings["skname"])
 
-    worksettings["log_path"] = worksettings["log_path"] + worksettings["platform"] + "_" + worksettings["app"] + "_" + worksettings["site"] + "_" + worksettings["page"] + "/skills/" + worksettings["skname"] + "/"
-
+    worksettings["log_path"] = worksettings["log_path_prefix"] + worksettings["platform"] + "_" + worksettings["app"] + "_" + worksettings["site"] + "_" + worksettings["page"] + "/skills/" + worksettings["skname"] + "/"
+    print("LOG PATH: ", worksettings["log_path"])
     pas = sk.getNameSapcePrefix()
 
     worksettings["name_space"] = "B" + str(worksettings["botid"]) + "M" + str(worksettings["mid"]) + "!" + pas + "!" + worksettings["skname"] + "!"

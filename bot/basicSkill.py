@@ -103,6 +103,17 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepFillRecipients(texts_var, orders_var, site, stepN, option=""):
+    stepjson = {
+        "type": "Fill Recipient",
+        "texts_var": texts_var,
+        "orders_var": orders_var,
+        "site": site,
+        "option": option
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 # search information on a screen with a given name and type.
 def genStepSearch(screen, names, target_types, logic, result, flag, site, stepN):
@@ -216,10 +227,10 @@ def genStepKeyInput(action, saverb, val, loc, wait_after, stepN):
 #  speed: type speed.
 #  key_after: key to hit after textinput. (could be "", "enter",
 #  wait_after: number of seconds to wait after key_after action.
-def genStepTextInput(action, saverb, txt, speed, key_after, wait_after, stepN):
+def genStepTextInput(txt_type, saverb, txt, speed, key_after, wait_after, stepN):
     stepjson = {
         "type": "Text Input",
-        "action": action,
+        "txt_type": txt_type,
         "save_rb": saverb,
         "text": txt,
         "speed": speed,
@@ -310,12 +321,24 @@ def genStepListDir(dirname, fargs, result_var, stepN):
 
 def genStepCheckExistence(fname, result_var, stepN):
     stepjson = {
-        "type": "List Dir",
+        "type": "Check Existence",
         "file": fname,
         "result": result_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepCreateDir(dirname, result_var, stepN):
+    stepjson = {
+        "type": "Create Dir",
+        "dir": dirname,
+        "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 # when exception occurs, we need to know its cause, and is related data
@@ -649,6 +672,50 @@ def processExtractInfo(step, i, mission, skill):
 
     return i+1
 
+
+# this is function is more or less for Etsy or others...
+# needs to accomodate mistakes like this:
+# Vincent
+# 250 E 14th St, Bloomington, IN 47408
+# Apt. 1209 A
+# Bloomington, IN 47408
+#
+#
+# Mason Stachowicz
+# 817 E Shaw Ln, East Lansing, MI 48825
+# East 666
+# EAST LANSING, MI 48825
+# or canadian addresses......
+
+def processFillRecipients(step, i):
+    symTab[step["texts_var"]]
+    for txt_bloc in symTab[step["texts_var"]]:
+        fullname = txt_bloc[0].strip()
+        city_state_zip = txt_bloc[len(txt_bloc)-1].strip().split(",")
+        city = city_state_zip[0].strip()
+        state_zip = city_state_zip[1].strip().split()
+        state = state_zip[0].strip()
+        zip = state_zip[1].strip()
+        if len(txt_bloc) == 4:
+            street2 = txt_bloc[2].strip()
+        else:
+            street2 = ""
+
+        street1 = txt_bloc[1].split(",")[0].strip()
+
+        # find a match of name in the orders data structure.
+        match = next((x for x in symTab[step["orders_var"]] if x.getRecipientName() == fullname and x.getRecipientCity() == city), None)
+        if match:
+            match.setRecipientAddrState(street1)
+            match.setRecipientAddrState(street2)
+            match.setRecipientAddrState(zip)
+        else:
+            # need to add a recipient
+            print("ERROR, how could the name be not found?")
+
+        # once found, update the relavant field. such as
+
+
 # text input, type only, the click onto the correction place to type should happen before this.
 # action: action to perform here - simply text input
 #  text: txt to be input.
@@ -686,12 +753,15 @@ def processTextInput(step, i):
 
     #pyautogui.moveTo(loc[0], loc[1])
     #pyautogui.click()          # 0th position is X, 1st position is Y
-    pyautogui.doubleClick()
+    # pyautogui.doubleClick()
     print("typing.....", step["text"][0])
-    time.sleep(5)
+    time.sleep(2)
     pyautogui.click()
-    pyautogui.write(step["text"][0],  interval=0.5)
-    pyautogui.press('enter')
+    if step["txt_type"] == "var":
+        pyautogui.write(symTab[step["text"]])
+    else:
+        pyautogui.write(step["text"])
+
     time.sleep(1)
     pyautogui.press(step['key_after'])
     if step['key_after'] != "":
@@ -736,16 +806,25 @@ def find_clickable_object(sd, target, template, target_type, nth):
         for ob in ysorted:
             ri = math.floor((ob["loc"][1] - ysorted[0]["loc"][1])/cell_height)
             ci =  math.floor((ob["loc"][0] - xsorted[0]["loc"][0])/cell_width)
+            print("Filling in row:", ri, " col:", ci)
             my_array[ri, ci] = ob
 
         # now, take out the nth element
-        if nth[0] >= 0 and nth[1] >= 0:
-            found = my_array[nth[0], nth[1]]
-        elif nth[1] >= 0:
-            found = ysorted[nth[1]]
-        else:
-            found = xsorted[nth[0]]
-
+        if type(nth) == list:
+            if len(nth) == 2:
+                if nth[0] >= 0 and nth[1] >= 0:
+                    found = my_array[nth[0], nth[1]]
+                elif nth[1] >= 0:
+                    found = ysorted[nth[1]]
+                else:
+                    found = xsorted[nth[0]]
+            else:
+                found = objs[nth[0]]
+        elif type(nth) == str:
+            # nth is a variable
+            found = objs[symTab[nth]]
+        elif type(nth) == int:
+            found = objs[nth]
         # the code is incomplete at the moment....
     elif len(objs) == 1:
         found = objs[0]
@@ -1389,7 +1468,7 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
 
             return_var_name = stack.pop()
             if return_var_name != "" and step["fargs"] != "":
-                symTab[return_var_name] = symTab[step["fargs"]]
+                symTab[return_var_name] = symTab[step["fargs"]]             # assign return value
 
             symTab["fin"] = stack.pop()
             symTab["fout"] = stack.pop()
@@ -1410,10 +1489,16 @@ def processListDir(step, i):
     symTab[step["result"]] = [f for f in lof if x.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
     return i + 1
 
+
 def processCheckExistence(step, i):
     symTab[step["result"]] = os.path.isfile(step["file"])
     return i + 1
 
+
+def processCreateDir(step, i):
+    if not os.path.exists(step["dir"]):
+        os.makedirs(step["dir"])
+    return i + 1
 # create a data structure holder for anchor....
 # "type": "Search",
 # "action": "Search",

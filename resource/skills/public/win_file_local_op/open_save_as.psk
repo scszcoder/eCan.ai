@@ -26,7 +26,7 @@
 "step 15":
 {
     "type": "Call Extern",
-    "file": "global fopen_f_path\nfopen_f_path = fin[1]",
+    "file": "global fopen_f_path\nfopen_f_path = fin[1]\nprint('fopen_f_path:', fopen_f_path)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -64,7 +64,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230824/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/win_file_local_op/skills/open_save_as/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_file_local_op/skills/open_save_as/",
         "platform": "win",
         "site": "local",
         "app": "file",
@@ -150,14 +151,12 @@
 "step 60":
 {
     "type": "Text Input",
-    "action": "type",
+    "txt_type": "var",
     "save_rb": false,
-    "text": [
-        ""
-    ],
+    "text": "fopen_f_path",
     "speed": 1,
     "key_after": "enter",
-    "wait_after": 2
+    "wait_after": 5
 },
 "step 65":
 {
@@ -165,8 +164,8 @@
     "action": "Single Click",
     "action_args": "",
     "save_rb": true,
-    "screen": "",
-    "target_name": "open",
+    "screen": "screen_info",
+    "target_name": "file_name",
     "target_type": "anchor text",
     "text": "",
     "nth": [
@@ -176,7 +175,7 @@
     "offset_from": "right",
     "offset_unit": "box",
     "offset": [
-        1,
+        2,
         0
     ],
     "move_pause": 2,
@@ -225,9 +224,9 @@
 "step 95":
 {
     "type": "Text Input",
-    "action": "type",
+    "txt_type": "var",
     "save_rb": false,
-    "text": "",
+    "text": "fopen_f_name",
     "speed": 1,
     "key_after": "",
     "wait_after": 2
@@ -235,7 +234,7 @@
 "step 100":
 {
     "type": "Check Condition",
-    "condition": "fin[2] == 'open'",
+    "condition": "fin[0] == 'open'",
     "if_else": "",
     "if_end": ""
 },
@@ -245,8 +244,8 @@
     "action": "Single Click",
     "action_args": "",
     "save_rb": true,
-    "screen": "",
-    "target_name": "open",
+    "screen": "screen_info",
+    "target_name": "file_open",
     "target_type": "anchor text",
     "text": "",
     "nth": [
@@ -275,22 +274,22 @@
     "action": "Single Click",
     "action_args": "",
     "save_rb": true,
-    "screen": "",
-    "target_name": "save",
+    "screen": "screen_info",
+    "target_name": "file_cancel",
     "target_type": "anchor text",
     "text": "",
     "nth": [
         0,
         0
     ],
-    "offset_from": "center",
+    "offset_from": "left",
     "offset_unit": "box",
     "offset": [
-        0,
+        2,
         0
     ],
     "move_pause": 0,
-    "post_wait": 0
+    "post_wait": 5
 },
 "step 120":
 {
