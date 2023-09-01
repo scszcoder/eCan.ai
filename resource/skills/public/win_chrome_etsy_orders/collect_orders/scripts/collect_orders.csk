@@ -106,6 +106,13 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "check_box",
+                        "anchor_type"  : "icon",
+                        "template"     : "checkBox.png",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
@@ -134,6 +141,31 @@
                         "ref_method"   : "2",
                         "refs" : [{
                                 "dir": "above",
+                                "ref": "complete_order",
+                                "offset": 0;
+                                "offset_unit": "box";
+                            }
+                        ]
+                    }, 
+                    {
+                        "info_name"  : "order_info",
+                        "info_type"  : "bound box",
+                        "template"     : "",
+                        "ref_method"   : "0",
+                        "refs" : [{
+                                "dir": "top, left",
+                                "ref": "check_box",
+                                "offset": 0;
+                                "offset_unit": "box";
+                            },
+                            {
+                                "dir": "bottom",
+                                "ref": "copy_adress",
+                                "offset": 0;
+                                "offset_unit": "box";
+                            },
+                            {
+                                "dir": "right",
                                 "ref": "complete_order",
                                 "offset": 0;
                                 "offset_unit": "box";
