@@ -108,7 +108,7 @@
                     {
                         "anchor_name"  : "check_box",
                         "anchor_type"  : "icon",
-                        "template"     : "checkBox.png",
+                        "template"     : "check_box.png",
                         "ref_method"   : "0",
                         "ref_constraints" : []
                     },
