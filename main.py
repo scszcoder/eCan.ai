@@ -79,10 +79,11 @@ if __name__ == '__main__':
     # test_use_func_instructions()
     # test_multi_skills()
     # test_scrape_etsy_orders()
-    # print("all unit test done...")
+    test_basic()
+    print("all unit test done...")
 
 
-    windowlauncher()
+    # windowlauncher()
 
     # try:
     #     asyncio.run(main())

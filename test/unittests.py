@@ -4,6 +4,7 @@ from missions import *
 from rarSkill import *
 from genSkills import *
 from readSkill import *
+import re
 
 
 def test_eb_orders_scraper():
@@ -69,3 +70,18 @@ def test_multi_skills():
 def test_scrape_etsy_orders():
     html_file = "c:/temp/Etsy - 3Sold Orders.html"
     orders = etsy_seller_fetch_order_list(html_file, 0)
+
+
+def test_basic():
+    order = "#345AAA67"
+    order_pattern = re.compile("#[0-9]+")
+
+    matched = order_pattern.search(order)
+
+    if matched:
+        print("found!!!!")
+    else:
+        print("NOT FOUND!!!!")
+
+
+
