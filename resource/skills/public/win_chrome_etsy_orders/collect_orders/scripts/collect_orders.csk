@@ -67,6 +67,19 @@
                     }
                 ], 
                 "info": [
+                    {
+                        "info_name"  : "ship_to_summery",
+                        "info_type"  : "lines 5",
+                        "template"     : "",
+                        "ref_method"   : "2",
+                        "refs" : [{
+                                "dir": "below",
+                                "ref": "ship_to",
+                                "offset": 0,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    }
                 ]
             },
             "body" : {
@@ -83,7 +96,61 @@
                                 "offset_unit": "%"
                             }
                         ]
+                    },
+                    {
+                        "anchor_name"  : "copy_address",
+                        "anchor_type"  : "text",
+                        "template"     : "Copy address",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
                     },                  
+                    {
+                        "anchor_name"  : "etsy_inc",
+                        "anchor_type"  : "text",
+                        "template"     : "Etsy, Inc",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "bad_request",
+                        "anchor_type"  : "text",
+                        "template"     : "Bad Request",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "site_not_reached",
+                        "anchor_type"  : "text",
+                        "template"     : "unexpectedly closed the connection",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    }
+                ], 
+                "info": [
+                ]
+            },
+            "completion" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "ship_to",
+                        "anchor_type"  : "text",
+                        "template"     : "Ship to",
+                        "ref_method"   : "0",
+                        "ref_constraints" : [{
+                                "dir": "<",
+                                "ref": "bottom",
+                                "offset": 90,
+                                "offset_unit": "%"
+                            }
+                        ]
+                    },        
+                    {
+                        "anchor_name"  : "copy_address",
+                        "anchor_type"  : "text",
+                        "template"     : "Copy address",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },            
                     {
                         "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
@@ -125,7 +192,7 @@
                         "info_name"  : "ship_to_summery",
                         "info_type"  : "lines 5",
                         "template"     : "",
-                        "ref_method"   : "1",
+                        "ref_method"   : "2",
                         "refs" : [{
                                 "dir": "below",
                                 "ref": "ship_to",
@@ -138,7 +205,7 @@
                         "info_name"  : "order_number",
                         "info_type"  : "lines 1",
                         "template"     : "#[0-9]+",
-                        "ref_method"   : "2",
+                        "ref_method"   : "1",
                         "refs" : [{
                                 "dir": "above",
                                 "ref": "complete_order",
@@ -160,85 +227,12 @@
                             },
                             {
                                 "dir": "bottom",
-                                "ref": "copy_adress",
+                                "ref": "copy_address",
                                 "offset": 0,
                                 "offset_unit": "box"
                             },
                             {
                                 "dir": "right",
-                                "ref": "complete_order",
-                                "offset": 0,
-                                "offset_unit": "box"
-                            }
-                        ]
-                    }
-                ]
-            },
-            "completion" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "ship_to",
-                        "anchor_type"  : "text",
-                        "template"     : "Ship to",
-                        "ref_method"   : "0",
-                        "ref_constraints" : [{
-                                "dir": "<",
-                                "ref": "bottom",
-                                "offset": 90,
-                                "offset_unit": "%"
-                            }
-                        ]
-                    },                  
-                    {
-                        "anchor_name"  : "etsy_inc",
-                        "anchor_type"  : "text",
-                        "template"     : "Etsy, Inc",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
-                    {
-                        "anchor_name"  : "bad_request",
-                        "anchor_type"  : "text",
-                        "template"     : "Bad Request",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
-                    {
-                        "anchor_name"  : "complete_order",
-                        "anchor_type"  : "icon",
-                        "template"     : "complete_order.png",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
-                    {
-                        "anchor_name"  : "site_not_reached",
-                        "anchor_type"  : "text",
-                        "template"     : "unexpectedly closed the connection",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
-                    }
-                ], 
-                "info": [
-                    {
-                        "info_name"  : "ship_to_summery",
-                        "info_type"  : "lines 5",
-                        "template"     : "",
-                        "ref_method"   : "1",
-                        "refs" : [{
-                                "dir": "below",
-                                "ref": "ship_to",
-                                "offset": 0,
-                                "offset_unit": "box"
-                            }
-                        ]
-                    },
-                    {
-                        "info_name"  : "order_number",
-                        "info_type"  : "lines 1",
-                        "template"     : "#[0-9]+",
-                        "ref_method"   : "2",
-                        "refs" : [{
-                                "dir": "above",
                                 "ref": "complete_order",
                                 "offset": 0,
                                 "offset_unit": "box"

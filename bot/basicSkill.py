@@ -116,7 +116,7 @@ def genStepFillRecipients(texts_var, orders_var, site, stepN, option=""):
 
 
 # search information on a screen with a given name and type.
-def genStepSearch(screen, names, target_types, logic, result, flag, site, stepN):
+def genStepSearch(screen, names, target_types, logic, result, flag, site, break_here, stepN):
     stepjson = {
         "type": "Search",
         "screen": screen,
@@ -125,6 +125,7 @@ def genStepSearch(screen, names, target_types, logic, result, flag, site, stepN)
         "logic": logic,
         "result": result,
         "site": site,
+        "breakpoint": break_here,
         "status": flag
     }
 
@@ -172,7 +173,7 @@ def genStepRecordTxtLineLocation(loc, txt, screen, tovar, stepN):
 
 
 # this could be either "Scroll Up" or "Scroll Down", screen is the screen data pointer, val is the amount to scroll up or down in terms of screen size.
-def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, stepN):
+def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, break_here, stepN):
     stepjson = {
         "type": "Mouse Scroll",
         "action": action,
@@ -181,6 +182,7 @@ def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, 
         "resolution": resolution,
         "random_min": ran_min,
         "random_max": ran_max,
+        "breakpoint": break_here,
         "unit": unit
     }
 
@@ -1033,6 +1035,10 @@ def processMouseScroll(step, i):
 
     print("after randomized Scroll Amount: ", scroll_amount)
     mouse.scroll(0, scroll_amount)
+
+    if step["breapoint"]:
+        input("type any key to continue")
+
     return i + 1
 
 
@@ -1565,6 +1571,8 @@ def processSearch(step, i):
             # exception has occured, flag it.
             in_exception = True
 
+    if step["breakpoint"]:
+        input("type any key to continuue")
     return i + 1
 
 
@@ -1639,7 +1647,7 @@ def genScrollDownUntil(target_anchor, tilpos, stepN, root, page, sect, site, the
     psk_words = psk_words + step_words
 
     # (action, screen, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", root, "screen_info", "product_list", "top", theme, this_step, None)

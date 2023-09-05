@@ -68,13 +68,25 @@ def test_multi_skills():
     print("done testing.................")
 
 def test_scrape_etsy_orders():
-    html_file = "c:/temp/Etsy - 3Sold Orders.html"
-    orders = etsy_seller_fetch_order_list(html_file, 0)
+    # html_file = "c:/temp/EtsySoldOrders090423.html"
+    html_file = "c:/temp/EtsySoldOrders090523.html"
+
+    # html_file = "c:/temp/Etsy -All Sold Orders P1.html"
+    # html_file = "c:/temp/Etsy - All Sold Orders P3.html"
+
+    step = {
+            "type": "ETSY Scrape Orders",
+            "pidx": 0,
+            "html_file": html_file,
+            "result": "orderListPage",
+            "status": "scrapeStat"
+    }
+    next_step = processEtsyScrapeOrders(step, 10)
 
 
 def test_basic():
-    order = "#345AAA67"
-    order_pattern = re.compile("#[0-9]+")
+    order = "$340.049"
+    order_pattern = re.compile("\$[0-9]+\.[0-9]+")
 
     matched = order_pattern.search(order)
 

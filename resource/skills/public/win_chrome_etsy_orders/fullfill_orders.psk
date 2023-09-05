@@ -71,7 +71,7 @@
     "type": "Prep GS Order",
     "ec_order": "etsy_orders",
     "gs_order": "gs_orders",
-    "file_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_chrome_etsy_etsy_orders/skills/fullfill_orders/",
+    "file_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_chrome_etsy_etsy_orders/skills/fullfill_orders/",
     "seller": {
         "No": "1",
         "FromName": "allen smith",

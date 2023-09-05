@@ -59,6 +59,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     fdir = fdir + worksettings["platform"] + "_" + worksettings["app"] + "_" + worksettings["site"] + "_" + page + "/skills/"
     fdir = fdir + worksettings["skname"] + "/"
 
+    # this is an app specific step.
     this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", worksettings["seller"], fdir, this_step)
     psk_words = psk_words + step_words
 
@@ -67,6 +68,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     # buy_status will be "success" or "fail reason****"
     this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", ["gs_orders", "etsy_orders"], "buy_status", this_step)
     psk_words = psk_words + step_words
+
 
     # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
     # now update tracking coded back to the orderlist
@@ -119,7 +121,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateDir(worksettings["log_path"], "fileStatus", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepKeyInput("", True, "ctrl,s", "", 2, this_step)
+    this_step, step_words = genStepKeyInput("", True, "ctrl,s", "", 4, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', '" + worksettings["log_path"] + "', '" + hfname +"']", this_step)
@@ -136,7 +138,10 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     # html, pidx, outvar, statusvar, stepN):
     # hfile = 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1692998813.html'
     # this_step, step_words = genStepEtsyScrapeOrders(hfile, "currentPage", "pageOfOrders",  "", this_step)
+    hfile = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1693857164.html"
+
     this_step, step_words = genStepEtsyScrapeOrders(worksettings["log_path"]+hfname, "currentPage", "pageOfOrders",  "", this_step)
+    # this_step, step_words = genStepEtsyScrapeOrders(hfile, "pageOfOrders", "fileStatus", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -194,20 +199,20 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
 
     # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "etsy_orders", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # extract the number of new orders on the page.
-    this_step, step_words = genStepSearch("screen_info", ["n_new_orders"], ["info text"], "any", "useless", "nNewOrders", "etsy", this_step)
+    this_step, step_words = genStepCallExtern("global n_new_orders\nn_new_orders = pageOfOrders['n_new_orders']", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["page_index"], ["info text"], "any", "endOfOrdersPage", "currentPage", "etsy", this_step)
+    this_step, step_words = genStepCallExtern("global page_index\npage_index = pageOfOrders['page']", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["n_pages"], ["info text"], "any", "useless", "nOrderPages", "etsy", this_step)
+    this_step, step_words = genStepCallExtern("global nOrderPages\nnOrderPages = pageOfOrders['num_pages']", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["anchor text"], "any", "useless", "shipTos", "etsy", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["anchor text"], "any", "shipTos", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
     # if there no new orders atall, then done.
@@ -234,13 +239,12 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # use nth ship to to find its related ship-to-summery, use name, city, state in that summery to find this order's click status.
-    this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "thisOrderItem", "found_index", "nthChecked", this_step)
+    this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "found_index", "nthChecked", this_step)
     psk_words = psk_words + step_words
 
     # check whether the "Ship To" is already clicked.
     this_step, step_words = genStepCheckCondition("not nthChecked", "", "", this_step)
     psk_words = psk_words + step_words
-
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ship_to", "anchor text", "", [0, 0], "center", "nShipTo", "box", 0, 0, this_step)
     psk_words = psk_words + step_words
@@ -264,10 +268,10 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # now read screen again, and to extract addresses.
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "etsy_orders", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["info text"], "any", "useless", "shipTos", "etsy", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["info text"], "any", "useless", "shipTos", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepFillRecipients("shipTos", "etsy_orders", "etsy", this_step)
@@ -279,17 +283,17 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
     # now scroll to the next screen.
     # (action, action_args, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, True, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearch("screen_info", ["page_num_list"], ["info text"], "any", "endOfOrdersPage", "pageList", "etsy", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["page_num_list"], ["info text"], "any", "endOfOrdersPage", "pageList", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "useless", "etsy", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
     #  end of loop for scoll till the end of the page.
@@ -311,7 +315,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
 
 
-    # # close bracket
+    # # close bracket for "if nNewOrders == 0:"
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -349,27 +353,8 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
     psk_words = psk_words + step_words
 
-    # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
-    # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
-    # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
-    # purchase labels
-    this_step, step_words = genStepCreateData("expr", "label_service", "NA", "['USPS Ground Advantage Signature']", this_step)
-    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "label_service", "total_label_cost", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global label_service\nlabel_service = ['USPS Priority Signature v4']", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "label_service", "total_label_cost", this_step)
-    psk_words = psk_words + step_words
-
-    # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
-    # now update tracking coded back to the orderlist
-    this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "USPS Priority Signature v4", "total_label_cost", this_step)
-    psk_words = psk_words + step_words
 
     # now reformat and print out the shipping labels.
 
@@ -452,11 +437,11 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     this_step, step_words = genStepCallExtern("global startOfOrdersPage\nstartOfOrdersPage = False", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "etsy_orders", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearch("screen_info", ["complete_order"], ["anchor icon"], "any", "complete_buttons", "useless", "etsy", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["complete_order"], ["anchor icon"], "any", "complete_buttons", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
     lcvarname = "ud_count" + str(stepN)
@@ -496,7 +481,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     psk_words = psk_words + step_words
 
     # (action, action_args, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)

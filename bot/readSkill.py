@@ -127,6 +127,7 @@ vicrop = {
     "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
     "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
     "Etsy Set Order Clicked Status": lambda x, y: processEtsySetOrderClickedStatus(x, y),
+    "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
 }
 
@@ -240,6 +241,9 @@ def runAllSteps(steps, mission, skill, mode="normal"):
 
             # set the next_step_index to be the start of the exception handler, which always starts @8000000
             next_step_index = stepKeys.index("step8000000")
+
+        if mode == "debug":
+            input("hit any key to continue")
 
         print("next_step_index: ", next_step_index, "len(stepKeys)-1: ", len(stepKeys)-1)
 
@@ -811,11 +815,11 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
         psk_words = psk_words + step_words
 
         # (action, screen, amount, unit, stepN):
-        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", this_step)
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", False, this_step)
         psk_words = psk_words + step_words
 
         # check whether there is any match of this page's product, if matched, click into it.
-        this_step, step_words = genStepSearch("screen_info", detail_cfg.products, "text", "any", "matchedProducts", "expandable", this_step)
+        this_step, step_words = genStepSearch("screen_info", detail_cfg.products, "text", "any", "matchedProducts", "expandable", False, this_step)
         psk_words = psk_words + step_words
 
         if detail_cfg.nExpand > 0:
@@ -840,14 +844,14 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
     # (action, screen, amount, unit, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepAMZSearchReviews("screen_info", "prod_details", "atbottom", this_step)
     psk_words = psk_words + step_words
 
     # here, if need to click open half hidden long reviews.....
-    this_step, step_words = genStepSearch("screen_info","See all details", "screen_info", "any", "eop_review", "reviews_eop", this_step)
+    this_step, step_words = genStepSearch("screen_info","See all details", "screen_info", "any", "eop_review", "reviews_eop", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
