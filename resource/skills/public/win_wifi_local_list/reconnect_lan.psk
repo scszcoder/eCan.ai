@@ -40,8 +40,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -49,7 +49,7 @@
         "page": "list",
         "rpaName": "sell",
         "wifis": [
-            "OrbiSongChenHome"
+            "ARRIS-8679"
         ],
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
     },
@@ -74,6 +74,7 @@
     "logic": "any",
     "result": "useless",
     "site": "amz",
+    "breakpoint": false,
     "status": "rar_trial_end_popped"
 },
 "step 10":
@@ -124,8 +125,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -133,7 +134,7 @@
         "page": "list",
         "rpaName": "sell",
         "wifis": [
-            "OrbiSongChenHome"
+            "ARRIS-8679"
         ],
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
     },
@@ -158,6 +159,7 @@
     "logic": "any",
     "result": "useless",
     "site": "amz",
+    "breakpoint": false,
     "status": "rar_trial_end_popped"
 },
 "step 10":
@@ -208,8 +210,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -217,7 +219,7 @@
         "page": "list",
         "rpaName": "sell",
         "wifis": [
-            "OrbiSongChenHome"
+            "ARRIS-8679"
         ],
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
     },
@@ -234,7 +236,7 @@
     "type": "Search",
     "screen": "screen_info",
     "names": [
-        "OrbiSongChenHome"
+        "ARRIS-8679"
     ],
     "target_types": [
         "anchor text"
@@ -242,6 +244,7 @@
     "logic": "any",
     "result": "useless",
     "site": "win",
+    "breakpoint": false,
     "status": "wifi_found"
 },
 "step 10":
@@ -292,8 +295,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -301,7 +304,7 @@
         "page": "list",
         "rpaName": "sell",
         "wifis": [
-            "OrbiSongChenHome"
+            "ARRIS-8679"
         ],
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
     },
@@ -318,7 +321,7 @@
     "type": "Search",
     "screen": "screen_info",
     "names": [
-        "OrbiSongChenHome"
+        "ARRIS-8679"
     ],
     "target_types": [
         "anchor text"
@@ -326,6 +329,7 @@
     "logic": "any",
     "result": "useless",
     "site": "win",
+    "breakpoint": false,
     "status": "wifi_found"
 },
 "step 10":

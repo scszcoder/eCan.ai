@@ -42,7 +42,7 @@ def genAMZScrollProductListToBottom(stepN, root, start, page, sect):
     this_step, step_words = genStepLoop("", str(rand_count), "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 100, "screen", "scroll_resolution", 0, 30, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 100, "screen", "scroll_resolution", 0, 30, False, this_step)
     psk_words = psk_words + step_words
 
     # wait - sort of equivalent to screen read time
@@ -74,7 +74,7 @@ def genAMZScrollProductListToTop(up_cnt, stepN, start, root, page, sect):
     this_step, step_words = genStepLoop("", str(up_cnt), "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll up", "screen_info", 100, "screen", "scroll_resolution", 0, 15, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll up", "screen_info", 100, "screen", "scroll_resolution", 0, 15, False, this_step)
     psk_words = psk_words + step_words
 
     # wait - sort of equivalent to screen read time
@@ -98,10 +98,10 @@ def genAMZScrollProductDetailsToTop(pagesize, stepN, root, page, sect):
     this_step, step_words = genStepLoop("attop != True", "", "", "scrollUpProductDetails"+str(stepN), this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 50, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 50, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["add-to-cart"], ["anchor text"], "any", "useless", "at_pd_top", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["add-to-cart"], ["anchor text"], "any", "useless", "at_pd_top", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -161,7 +161,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, root, page, sect, theme
     psk_words = psk_words + step_words
 
     ## scroll down 80% of the screen height.
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     # scroll page until the next product's bottom is near bottom 10% of the page height.
@@ -214,7 +214,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, root, page, sect, theme
     # check whether we have reached the end of the page.
 
     # need now click into the target product.
-    this_step, step_words = genStepSearch("screen_info", "prev_next", "info", "any", "useless", "atbottom", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", "prev_next", "info", "any", "useless", "atbottom", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -238,7 +238,7 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, stepN, root, page, sect
     psk_words = psk_words + step_words
 
     # (action, action_args, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -292,7 +292,7 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, stepN, root, page, sect
     # check whether we have reached the end of the page.
 
     # need now click into the target product.
-    # this_step, step_words = genStepSearch("screen_info", "add_to_cart", "info", "any", "useless", "attop", this_step)
+    # this_step, step_words = genStepSearch("screen_info", "add_to_cart", "info", "any", "useless", "attop", False, this_step)
     # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -389,7 +389,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
     #(action, screen, amount, unit, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
 
@@ -400,7 +400,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # while end of detail not reached:
@@ -445,7 +445,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
     psk_words = psk_words + step_words
 
 
@@ -453,7 +453,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("end_of_detail == True", "", "", this_step)
@@ -469,7 +469,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     # psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -478,7 +478,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     this_step, step_words = genStepExtractInfo("", root, "screen_info", "product_details", "top", theme, this_step, pl)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket: end_of_detail == True
@@ -494,7 +494,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # close for loop: end_of_detail != True
@@ -639,7 +639,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepLoop("nPRP > 0", "", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 70, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 70, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     # wait - sort of equivalent to screen read time
@@ -656,7 +656,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepLoop("nPRP_up > 0", "", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 90, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 90, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     # wait - sort of equivalent to screen read time
@@ -675,7 +675,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", "all_critical_reviews", "anchor text", "any", "useless", "hasNegativeReviews", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", "all_critical_reviews", "anchor text", "any", "useless", "hasNegativeReviews", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("hasNegativeReviews", "", "", this_step)
@@ -687,7 +687,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepLoop("nNRP > 0", "", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 90, "screen", "scroll_resolution", 0, 0, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 90, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     # wait - sort of equivalent to screen read time
@@ -726,7 +726,7 @@ def genScroll1StarReviewsPage(stepN, start):
     this_step, step_words = genStepLoop("", str(rand_count), "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 90, "screen", "scroll_resolution", 0, 30, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 90, "screen", "scroll_resolution", 0, 30, False, this_step)
     psk_words = psk_words + step_words
 
     # wait - sort of equivalent to screen read time
@@ -931,7 +931,7 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     # psk_words = psk_words + step_words
 
     # now scroll down 30 unit.
-    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 1, "raw", "scroll_resolution", 0, 0, this_step)
+    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 1, "raw", "scroll_resolution", 0, 0, False, this_step)
     # psk_words = psk_words + step_words
 
     # this_step, step_words = genStepWait(2, 0, 0, this_step)
@@ -947,7 +947,7 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     # psk_words = psk_words + step_words
 
     # scroll back up so that we can start search.
-    # this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 1, "raw", "scroll_resolution", 0, 0, this_step)
+    # this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 1, "raw", "scroll_resolution", 0, 0, False, this_step)
     # psk_words = psk_words + step_words
 
     # SC hacking for speed up the test   ---- uncomment above.

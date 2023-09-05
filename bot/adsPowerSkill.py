@@ -20,7 +20,7 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     psk_words = psk_words + step_words
 
     # check whether there is any match of this page's product, if matched, click into it.
-    this_step, step_words = genStepSearch("screen_info", "log_in", "anchor text", "any", "useless", "loginwin", "ads", this_step)
+    this_step, step_words = genStepSearch("screen_info", "log_in", "anchor text", "any", "useless", "loginwin", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("loginwin == True", "", "", this_step)
@@ -48,7 +48,7 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     psk_words = psk_words + step_words
 
     # click on account platform,  and select amazon
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", False, this_step)
     psk_words = psk_words + step_words
 
 

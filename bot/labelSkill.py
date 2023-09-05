@@ -71,6 +71,9 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("string", "gen_label_status", "NA", "Success", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("bool", "gs_signed_in", "NA", "False", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCallExtern("global gs_order_file_path\ngs_order_file_path = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -83,18 +86,49 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCallExtern("global gs_service\ngs_service = fin[2]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "goodsupply_bulkbuy", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", "fund_left", "info text", "any", "available_fund", "foundFund", "goodsupply", this_step)
+    this_step, step_words = genStepSearch("screen_info", "gs_sign_in", "anchor text", "any", "junk", "gs_signed_in", "goodsupply", False, this_step)
     psk_words = psk_words + step_words
 
-    # click on OPEN button to complete the drill
+    this_step, step_words = genStepCheckCondition("not gs_signed_in", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # click on sign in button to sign in and after sign in, extract screen again and get ready to
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "gs_sign_in", "anchor text", "", [0, 0], "center", [0, 0], "box", 1, 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearch("screen_info", "create_bulk", "anchor text", "any", "junk", "page_load_status", "goodsupply", False, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # check whether we have enough money in the account, if so, then proceed to purchasing labels....
+    # this routine could be optimized later to purchase as much as the remaining fund allows.
+    # the principle is to spent on Ground Service labels as much as possible, because of the lower ISP.
+    # this should be a separate instruction or a skill routine?
     this_step, step_words = genStepCheckCondition("float(available_fund) >= float(fin[3])", "", "", this_step)
     psk_words = psk_words + step_words
 
+    #action, action_args, saverb, screen, target, target_type, template, nth, offset_from, offset, offset_unit, move_pause, post_wait, stepN
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "export_template", "anchor text", "", [0, 0], "left", [2, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "create_bulk", "anchor text", "", [0, 0], "center", [0, 0], "box", 1, 3, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearch("screen_info", "export_template", "anchor text", "any", "junk", "page_load_status", "goodsupply", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_template", "anchor text", "", [0, 0], "left", [2, 0], "box", 1, 3, this_step)
     psk_words = psk_words + step_words
 
     # type in the shipping service to be used.
@@ -102,13 +136,13 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # bring up the file open dialog
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "choose_file", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "choose_file", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", [gs_order_file_path, gs_order_file_name, "open"], "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "verify_data", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "verify_data", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # readn screen again after verify data.
@@ -116,7 +150,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepSearch("screen_info", "total", "anchor text", "any", "total_price", "found_total", "goodsupply", this_step)
+    this_step, step_words = genStepSearch("screen_info", "total", "anchor text", "any", "total_price", "found_total", "goodsupply", False, this_step)
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
@@ -137,7 +171,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "import", "anchor text", "", [0, 0], "center",
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "import", "anchor text", "", [0, 0], "center",
                                               [0, 0], "box", 0, 10, this_step)
     psk_words = psk_words + step_words
 

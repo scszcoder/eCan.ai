@@ -58,10 +58,10 @@ def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["free_trial_ended"], ["anchor text"], "any", "useless", "rar_trial_end_popped", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["free_trial_ended"], ["anchor text"], "any", "useless", "rar_trial_end_popped", "amz", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["please_purchase_license"], ["anchor text"], "any", "useless", "rar_license_popped", "amz", this_step)
+    this_step, step_words = genStepSearch("screen_info", ["please_purchase_license"], ["anchor text"], "any", "useless", "rar_license_popped", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # and click on upper right corner to close the pop up or click on Close button to close the pop-up window depends on which popup it is.

@@ -88,8 +88,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -97,14 +97,14 @@
         "page": "orders",
         "rpaName": "sell",
         "wifis": [
-            "OrbiSongChenHome"
+            "ARRIS-8679"
         ],
         "name_space": "B3M3!win_chrome_etsy_orders!update_tracking!"
     },
     "template": "",
     "option": "",
     "data_sink": "screen_info",
-    "page": "etsy_orders",
+    "page": "orders",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
@@ -122,6 +122,7 @@
     "logic": "any",
     "result": "complete_buttons",
     "site": "etsy",
+    "breakpoint": false,
     "status": "useless"
 },
 "step 50":
@@ -243,6 +244,7 @@
     "resolution": "scroll_resolution",
     "random_min": 0,
     "random_max": 0,
+    "breakpoint": false,
     "unit": "screen"
 },
 "step 105":
