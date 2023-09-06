@@ -46,7 +46,7 @@ def processEtsyScrapeOrders(step, i):
                 print(option_tags)
 
         ahItems = soup.findAll("a", attrs={"class": "text-gray active"})
-        page_number = -1
+        page_number = 1
         for ah in ahItems:
             if "page=" in ah.get('href') and "order_id" in ah.get('href'):
                 pieces = ah.get('href').split("&")
@@ -56,7 +56,7 @@ def processEtsyScrapeOrders(step, i):
                         print("found page number: ", page_number)
                         break
 
-            if page_number > 0:
+            if page_number > 1:
                 break
 
         scriptItems = soup.findAll("script")
@@ -98,6 +98,12 @@ def processEtsyScrapeOrders(step, i):
             recipientItems = item.findAll("div", attrs={"class": "break-word"})
             for bi in recipientItems:
                 recipient_loc_tags = bi.findAll("span", attrs={"data-test-id": 'unsanitize'})
+                recipient_addr_1st_line_tags = bi.findAll("span", attrs={"class": 'first-line'})
+                recipient_addr_2nd_line_tags = bi.findAll("span", attrs={"class": 'second-line'})
+                recipient_addr_3rd_line_tags = bi.findAll("span", attrs={"class": 'third-line'})
+                recipient_addr_zip_tags = bi.findAll("span", attrs={"class": 'zip'})
+                recipient_addr_zip_tags = bi.findAll("span", attrs={"class": 'country-name'})
+
                 if len(recipient_loc_tags) == 3:
                     print("recipient_loc_tags:", recipient_loc_tags)
                     recipient = OrderPerson("", "", "", "", "", "", "")
@@ -143,10 +149,15 @@ def processEtsyScrapeOrders(step, i):
 
     pagefull_of_orders["ol"] = orders
 
+    pagefull_of_orders["n_new_orders"] = orders
+
+    pagefull_of_orders["page"] = page_number
+
+
     if len(option_tags) > 0:
-        print(option_tags[len(option_tags)-1].text)
+        pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
     else:
-        print("all only 1 page.")
+        pagefull_of_orders["num_pages"] = 1
     print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
     # print(json.dumps(pagefull_of_orders))
     print("# of orders:", len(orders))
