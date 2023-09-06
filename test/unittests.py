@@ -70,6 +70,8 @@ def test_multi_skills():
 def test_scrape_etsy_orders():
     # html_file = "c:/temp/EtsySoldOrders090423.html"
     html_file = "c:/temp/EtsySoldOrders090523.html"
+    html_file = "c:/temp/EtsySoldOrdersDetails9523.html"
+    html_file = "c:/temp/EtsySoldOrdersNoDetails9523.html"
 
     # html_file = "c:/temp/Etsy -All Sold Orders P1.html"
     # html_file = "c:/temp/Etsy - All Sold Orders P3.html"

@@ -240,6 +240,73 @@
                         ]
                     }
                 ]
+            },
+            "bottom" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "previous_page",
+                        "anchor_type"  : "icon",
+                        "template"     : "start_pages.png",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },        
+                    {
+                        "anchor_name"  : "next_page",
+                        "anchor_type"  : "icon",
+                        "template"     : "end_pages.png",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },               
+                    {
+                        "anchor_name"  : "etsy_inc",
+                        "anchor_type"  : "text",
+                        "template"     : "Etsy, Inc",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "bad_request",
+                        "anchor_type"  : "text",
+                        "template"     : "Bad Request",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "complete_order",
+                        "anchor_type"  : "icon",
+                        "template"     : "complete_order.png",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "site_not_reached",
+                        "anchor_type"  : "text",
+                        "template"     : "unexpectedly closed the connection",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    }
+                ], 
+                "info": [
+                    {
+                        "info_name"  : "page_index_list",
+                        "info_type"  : "horizontal info line",
+                        "template"     : "",
+                        "ref_method"   : "3",
+                        "refs" : [{
+                                "dir": "start",
+                                "ref": "previous_page",
+                                "offset": 0,
+                                "offset_unit": "box"
+                            }, 
+                            {
+                                "dir": "end",
+                                "ref": "next_page",
+                                "offset": 0,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    }
+                ]
             }
 	    }
 	}
