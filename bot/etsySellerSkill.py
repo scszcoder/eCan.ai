@@ -118,37 +118,42 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
     print("SAVE HTML FILE: ", hfname)
 
-    this_step, step_words = genStepCreateDir(worksettings["log_path"], "fileStatus", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepKeyInput("", True, "ctrl,s", "", 4, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', '" + worksettings["log_path"] + "', '" + hfname +"']", this_step)
-    psk_words = psk_words + step_words
-
-    # save the html file.
-    this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepWait(18, 0, 0, this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepCreateDir(worksettings["log_path"], "fileStatus", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepKeyInput("", True, "ctrl,s", "", 4, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', '" + worksettings["log_path"] + "', '" + hfname +"']", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # save the html file.
+    # this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepWait(18, 0, 0, this_step)
+    # psk_words = psk_words + step_words
 
     # html, pidx, outvar, statusvar, stepN):
     # hfile = 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1692998813.html'
     # this_step, step_words = genStepEtsyScrapeOrders(hfile, "currentPage", "pageOfOrders",  "", this_step)
-    hfile = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1693857164.html"
+    hfile = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230906/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1694023239.html"
 
-    this_step, step_words = genStepEtsyScrapeOrders(worksettings["log_path"]+hfname, "currentPage", "pageOfOrders",  "", this_step)
-    # this_step, step_words = genStepEtsyScrapeOrders(hfile, "pageOfOrders", "fileStatus", "", this_step)
+    # this_step, step_words = genStepEtsyScrapeOrders(worksettings["log_path"]+hfname, "currentPage", "pageOfOrders",  "", this_step)
+    this_step, step_words = genStepEtsyScrapeOrders(hfile, 0, "pageOfOrders", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepCreateData("bool", "endOfOrderList", "NA", "False", this_step)
+    this_step, step_words = genStepCallExtern("global pageOfOrders\nprint('PAGE OF ORDERS:', pageOfOrders)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("bool", "endOfOrdersPage", "NA", "False", this_step)
+    this_step, step_words = genStepCreateData("bool", "endOfOrderList", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("bool", "nthOrderChecked", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("bool", "endOfOrdersPage", "NA", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "nNewOrders", "NA", 0, this_step)
@@ -167,6 +172,12 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "clickedList", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "shipToSummeries", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "shipTos", "NA", "[]", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "thisOrderItem", "NA", "None", this_step)
@@ -203,20 +214,36 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # extract the number of new orders on the page.
-    this_step, step_words = genStepCallExtern("global n_new_orders\nn_new_orders = pageOfOrders['n_new_orders']", "", "in_line", "", this_step)
+    # this_step, step_words = genStepCallExtern("global n_new_orders\nn_new_orders = pageOfOrders['n_new_orders']", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern("global page_index\npage_index = pageOfOrders['page']", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern("global nOrderPages\nnOrderPages = pageOfOrders['num_pages']", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+
+    #extract the number of new orders on the page.
+    this_step, step_words = genStepCallExtern("global nNewOrders\nnNewOrders = 9", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global page_index\npage_index = pageOfOrders['page']", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global page_index\npage_index = 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global nOrderPages\nnOrderPages = pageOfOrders['num_pages']", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global nOrderPages\nnOrderPages = 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["anchor text"], "any", "shipTos", "useless", "etsy", False, this_step)
     # psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
-    this_step, step_words = genStepSearch("screen_info", ["ship_to_summery"], ["info"], "any", "shipTos", "useless", "etsy", False, this_step)
+    this_step, step_words = genStepSearch("screen_info", ["ship_to_summery"], ["info 2"], "any", "shipToSummeries", "useless", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["anchor text"], "any", "shipTos", "useless", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global shipTos\nprint('SHIP TOS:', shipTos)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # if there no new orders at all, then done.
@@ -243,17 +270,23 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # use nth ship to to find its related ship-to-summery, use name, city, state in that summery to find this order's click status.
-    this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "found_index", "nthChecked", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "found_index", "nthChecked", this_step)
+    # psk_words = psk_words + step_words
 
     # check whether the "Ship To" is already clicked.
-    this_step, step_words = genStepCheckCondition("not nthChecked", "", "", this_step)
+    this_step, step_words = genStepCallExtern("global nthOrderChecked\nprint('NTH CHECKED:', nthOrderChecked)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ship_to", "anchor text", "", [0, 0], "center", "nShipTo", "box", 0, 0, this_step)
+    this_step, step_words = genStepCheckCondition("nthOrderChecked == False", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global nShipTo\nnShipTo = nShipTo + 1", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global nthOrderChecked\nprint('NTH CHECKED:', nthOrderChecked)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ship_to", "anchor text", "", "nthShipTo", "center", [0, 0], "box", 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nthShipTo\nnthShipTo = nthShipTo + 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # update the status for this order item.
@@ -269,7 +302,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # update counter of how many shiptos are handled
-    this_step, step_words = genStepCallExtern("global nShipToClicked\nnShipToClicked = nShipToClicked + nShipTo", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global nShipToClicked\nnShipToClicked = nShipToClicked + nthShipTo", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # SC - 2023-09-05 alternatively could finishing clicking all ship to on the html page, and re-scrape html again to
@@ -288,9 +321,6 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
     # check end of page information again
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearch("screen_info", ["page_num_list"], ["info"], "any", "pageIndexListTexts", "endOfOrdersPage", "etsy", False, this_step)
-    psk_words = psk_words + step_words
-
     this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
@@ -358,6 +388,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCheckCondition("page_index == nOrderPages", "", "", this_step)
     psk_words = psk_words + step_words
 
+    # set the flag, we have completed collecting all orders information at this point.
     this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -369,8 +400,8 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCallExtern("global currentPage\ncurrentPage = currentPage + 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    # action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['txts']['box']", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
+    # go to the next page.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "next_page", "anchor icon", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket for condition ("currentPage == nOrderPages")
@@ -446,92 +477,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/update_tracking", "", this_step)
     psk_words = psk_words + step_words
 
-    # assume the order data is in all_orders variable (tracking code already added to the data).
-    # assume n_pages variable holds # of pages of the products.
-    this_step, step_words = genStepCreateData("bool", "foundMark", "NA", "False", this_step)
-    psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepCreateData("bool", "startOfOrdersPage", "NA", "False", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "totoalVisited", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "nTrackingUpdated", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepLoop("nTrackingUpdated >= 0", "", "", "allTrackCodeUpdated" + str(stepN), this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global startOfOrdersPage\nstartOfOrdersPage = False", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearch("screen_info", ["complete_order"], ["anchor icon"], "any", "complete_buttons", "useless", "etsy", False, this_step)
-    psk_words = psk_words + step_words
-
-    lcvarname = "ud_count" + str(stepN)
-    this_step, step_words = genStepCreateData("expr", lcvarname, "NA", "len[complete_buttons]", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepLoop("ud_count>0", "", "", lcvarname, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "enter_tracking_number", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
-    psk_words = psk_words + step_words
-
-    # obtain tracking code.
-    this_step, step_words = genStepCallExtern("global tracking_code\ntracking_code = etsyOrders[track_idx]", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # type in the trackingcode.
-    this_step, step_words = genStepTextInput("type", False, tracking_code, 1, "enter", 2, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "complete_order", "expr", "", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global totoalVisited\ntotoalVisited = totoalVisited+1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # update loop counter
-    this_step, step_words = genStepCallExtern("global "+lcvarname+"\n"+lcvarname+" = "+lcvarname+"+1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # end of loop, updated all tracking code on the current screen.
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # if not reached page bottom, keep on scrolling down.
-    this_step, step_words = genStepCheckCondition("reached_bottom == False", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # (action, action_args, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    #now we reached bottom, check to see whether there is next page to walk into.
-    this_step, step_words = genStepCheckCondition("totoalVisited == nOrders", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "word", "word", "current_page_index", [0, 0], "right", [1, 0], "box", 2, 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_chrome_etsy_orders/update_tracking", "", this_step)
     psk_words = psk_words + step_words
