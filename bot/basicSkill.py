@@ -782,6 +782,106 @@ def processTextInput(step, i):
     return i + 1
 
 
+# calculate an object’s row col position in a virtual table, given the object's position, origin, table cell width, table cell height.
+def calc_loc(box, cell_w, cell_h, origin):
+    ci = round((box[0] - origin[0])/cell_w)
+    ri = round((box[1] - origin[1])/cell_h)
+
+    loc =[ci, ri]
+    # print("location:", loc)
+    return loc
+
+# calculate an object’s sequence in a virtual table, given the object's position, origin, table cell width, table cell height, and row width.
+def calc_seq(box, cell_w, cell_h, origin, ncols):
+    loc = calc_loc(box, cell_w, cell_h, origin)
+    seq = loc[1] * ncols + loc[0]
+    print("sequence:", seq)
+    return seq
+
+# sort a list of boxes spatially, if we already know they're placed in a tabular fasion. (i.e. rows and cols, roughtly)
+# will automatically calculate # of rows and cols, and cell width, height, and then sort the boxes in rows and cols.
+# and calcualte each box's row and col index.
+def convert_to_2d_array(object_list):
+    if not object_list:
+        return []
+
+    # Sort the objects by their y-coordinates (rows).
+    sorted_objects = sorted(object_list, key=lambda obj: obj[1])
+
+    xs = [o[0] for o in object_list]
+    xs.sort()
+    print("xs:", xs)
+
+    ys = [o[1] for o in object_list]
+    ys.sort()
+    print("ys:", ys)
+
+    xgroups = group_1D(xs)
+
+    ygroups = group_1D(ys)
+
+    xgrp_avgs = [sum(grp)/len(grp) for grp in xgroups]
+    xgaps = []
+    for x, y in zip(xgrp_avgs[0::], xgrp_avgs[1::]):
+        xgaps.append(y - x)
+
+    print("xgrp_avgs:", xgrp_avgs, "xgaps:", xgaps)
+
+    ygrp_avgs = [sum(grp)/len(grp) for grp in ygroups]
+    ygaps = []
+    for x, y in zip(ygrp_avgs[0::], ygrp_avgs[1::]):
+        ygaps.append(y - x)
+
+    xgap = min(xgaps)
+    ygap = min(ygaps)
+
+    print("ygrp_avgs:", ygrp_avgs, "ygaps:", ygaps)
+
+
+    rows = round((ygrp_avgs[len(ygrp_avgs)-1] - ygrp_avgs[0])/ygap) + 1
+    cols = round((xgrp_avgs[len(xgrp_avgs)-1] - xgrp_avgs[0])/xgap) + 1
+
+    print("cols:", cols)
+    print("rows:", rows)
+
+    # Find calculate the origial list member's table index (col., row) (i.e. (x, y) coordinate)
+    coords = [calc_loc(o, xgap, ygap, [xgrp_avgs[0], ygrp_avgs[0]]) for o in object_list]
+    print("coords:", coords)
+
+    xy_sorted = sorted(object_list, key=lambda x: calc_seq(x, xgap, ygap, [xgrp_avgs[0], ygrp_avgs[0]], cols), reverse=False)
+    print("x-y sorted:", xy_sorted)
+    coords = [calc_loc(o, xgap, ygap, [xgrp_avgs[0], ygrp_avgs[0]]) for o in xy_sorted]
+    print("coords:", coords)
+
+    return xy_sorted
+
+# group a 1d list of integers by clusters. with a distanc threshold
+def group_1D(int_list, threshold=25):
+    if not int_list:
+        return []
+
+    int_list.sort()  # Sort the input list in ascending order.
+    grouped = [[int_list[0]]]  # Initialize the first group with the first integer.
+
+    for i in range(1, len(int_list)):
+        current_int = int_list[i]
+        previous_group = grouped[-1]
+
+        if abs(current_int - previous_group[-1]) <= threshold:
+            # If the current integer is within the threshold of the previous group,
+            # add it to the same group.
+            previous_group.append(current_int)
+        else:
+            # Otherwise, start a new group.
+            grouped.append([current_int])
+
+    return grouped
+
+# sd - screen data
+# target_name
+# template text
+# target_type
+# nth - which target， if multiple are found
 def find_clickable_object(sd, target, template, target_type, nth):
     print("LOOKING FOR:", target, "   ", template,  "   ", target_type, "   ", nth)
     found = {"loc": None}
@@ -824,8 +924,11 @@ def find_clickable_object(sd, target, template, target_type, nth):
                 found = objs[nth[0]]
         elif type(nth) == str:
             # nth is a variable
-            found = objs[symTab[nth]]
+            if "[" not in nth and "]" not in nth:
+                print("nth as a variable name is:", symTab[nth])
+                found = objs[symTab[nth]]
         elif type(nth) == int:
+            print("nth as an integer is:", nth)
             found = objs[nth]
         # the code is incomplete at the moment....
     elif len(objs) == 1:
@@ -853,6 +956,7 @@ def get_clickable_loc(box, off_from, offset, offset_unit):
         click_loc = (center[1], box[2] + int(offset[1]*box_height))
     else:
         #offset from center case
+        print("CENTER: ", center, "OFFSET:", offset)
         click_loc = ((center[1] + int(offset[0]*box_length), center[0] + int(offset[1]*box_height)))
 
     return click_loc
@@ -890,11 +994,11 @@ def processMouseClick(step, i):
     else:
         # the location is already calculated directly and stored here.
         if step["target_type"] == "direct":
-            print("obtain directly.....")
+            print("obtain directly..... from a variable which is a box type i.e. [l, t, r, b]")
             box = symTab[step["target_name"]]
             loc = box_center(box)
         else:
-            print("obtain thru expression.....", step["target_name"])
+            print("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]", step["target_name"])
             exec("global click_target\nclick_target = " + step["target_name"])
             print("box: ", symTab["click_target"])
             loc = box_center(symTab["click_target"])

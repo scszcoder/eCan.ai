@@ -27,6 +27,7 @@ def genStepEtsyScrapeOrders(html, pidx, outvar, statusvar, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 def processEtsyScrapeOrders(step, i):
+    next_i = i + 1
     pidx = step["pidx"]
     html_file = step["html_file"]
     pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
@@ -166,4 +167,4 @@ def processEtsyScrapeOrders(step, i):
 
     symTab[step["result"]] = pagefull_of_orders
 
-    return i + 1
+    return next_i
