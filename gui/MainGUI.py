@@ -5,6 +5,7 @@ from PlatoonGUI import *
 from SkillGUI import *
 
 from ebbot import *
+from inventories import *
 from csv import reader
 from tasks import *
 from signio import *
@@ -149,9 +150,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.product_icon_path = homepath + '/resource/images/icons/product80_0.png'
         self.vehicle_icon_path = homepath + '/resource/images/icons/vehicle1_62.png'
         self.commander_icon_path = homepath + '/resource/images/icons/general1_4.png'
-
         self.BOTS_FILE = homepath+"/resource/bots.json"
         self.MISSIONS_FILE = homepath+"/resource/missions.json"
+        self.SELLER_INVENTORY_FILE = homepath+"/resource/inventory.json"
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.tcpServer = tcpserver
@@ -163,7 +164,13 @@ class MainWindow(QtWidgets.QMainWindow):
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
         self.platform = platform.system().lower()[0:3]
+
+        self.sellerInventoryJsonData = None
+        self.botJsonData = None
+        self.inventories = []
+
         self.readBotJsonFile()
+        self.readSellerInventoryJsonFile("")
         self.vehicles = []                      # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
         self.missions = []
@@ -1814,6 +1821,36 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
         else:
             print("Bot file does NOT exist.")
+
+    def translateInventoryJson(self):
+        # print("Translating JSON to data.......", len(self.sellerInventoryJsonData))
+        for bj in self.sellerInventoryJsonData:
+            new_inventory = INVENTORY()
+            new_inventory.setJsonData(bj)
+            self.inventories.append(new_inventory)
+
+
+    def readSellerInventoryJsonFile(self, inv_file):
+        if inv_file == "":
+            inv_file_name = self.SELLER_INVENTORY_FILE
+        else:
+            inv_file_name = inv_file
+
+        print("INVENTORY file: ", inv_file_name)
+        if exists(inv_file_name):
+            print("Reading inventory file: ", inv_file_name)
+            with open(inv_file_name, 'r') as file:
+                self.sellerInventoryJsonData = json.load(file)
+                self.translateInventoryJson()
+        else:
+            print("NO inventory file found!")
+
+
+    def getBotsInventory(self, botid):
+        print("botid type:", type(botid), len(self.inventories))
+        print(self.inventories[0].products[0].genJson())
+        found = next((x for x in self.inventories if botid in x.getAllowedBids()), None)
+        return found
 
     # This function translate bots data structure matching ebbot.py to Json format for file storage.
     def genMissionsJson(self):

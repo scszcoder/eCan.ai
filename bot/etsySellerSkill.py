@@ -1,4 +1,5 @@
 import copy
+import os
 from basicSkill import *
 from scraperEtsy import *
 import pandas as pd
@@ -35,11 +36,21 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("string", "etsy_status", "NA", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "product_book", "NA", worksettings["products"], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global product_book\nprint('product_book:', product_book[0])", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("expr", "etsy_orders", "NA", "[]", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "dummy_in", "NA", "[]", this_step)
     psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 253, this_step)
+    psk_words = psk_words + step_words
+
 
     #skname, skfname, in-args, output, step number
     this_step, step_words = genStepUseSkill("collect_orders", "public/win_chrome_etsy_orders", "dummy_in", "etsy_status", this_step)
@@ -60,7 +71,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     fdir = fdir + worksettings["skname"] + "/"
 
     # this is an app specific step.
-    this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", worksettings["seller"], fdir, this_step)
+    this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", "product_book", worksettings["seller"], fdir, this_step)
     psk_words = psk_words + step_words
 
     # purchase labels, gs_orders contains a list of [{"service": "usps ground", "file": xls file name}, ...]
@@ -121,28 +132,6 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     # this_step, step_words = genStepCreateDir(worksettings["log_path"], "fileStatus", this_step)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepKeyInput("", True, "ctrl,s", "", 4, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', '" + worksettings["log_path"] + "', '" + hfname +"']", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # save the html file.
-    # this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
-    # psk_words = psk_words + step_words
-    #
-    #
-    # this_step, step_words = genStepWait(18, 0, 0, this_step)
-    # psk_words = psk_words + step_words
-
-    # html, pidx, outvar, statusvar, stepN):
-    # hfile = 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1692998813.html'
-    # this_step, step_words = genStepEtsyScrapeOrders(hfile, "currentPage", "pageOfOrders",  "", this_step)
-    hfile = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230906/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1694023239.html"
-
-    # this_step, step_words = genStepEtsyScrapeOrders(worksettings["log_path"]+hfname, "currentPage", "pageOfOrders",  "", this_step)
-    this_step, step_words = genStepEtsyScrapeOrders(hfile, 0, "pageOfOrders", "fileStatus", this_step)
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global pageOfOrders\nprint('PAGE OF ORDERS:', pageOfOrders)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
@@ -150,29 +139,9 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("bool", "endOfOrderList", "NA", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("bool", "nthOrderChecked", "NA", False, this_step)
-    psk_words = psk_words + step_words
-
     this_step, step_words = genStepCreateData("bool", "endOfOrdersPage", "NA", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "nNewOrders", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "nOrderPages", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "nShipToClicked", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "nShipToObtained", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "pagelist", "NA", "[]", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "clickedList", "NA", "[]", this_step)
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "shipToSummeries", "NA", "[]", this_step)
     psk_words = psk_words + step_words
@@ -180,8 +149,6 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "shipTos", "NA", "[]", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "thisOrderItem", "NA", "None", this_step)
-    psk_words = psk_words + step_words
 
     # Pseudo code algorithm for obtain all orderi information.
     #   read and obtain # of orders and # of pages.
@@ -209,32 +176,13 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
 
+    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
+    this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
+    psk_words = psk_words + step_words
+
     # now extract the screen info.
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
-
-    # extract the number of new orders on the page.
-    # this_step, step_words = genStepCallExtern("global n_new_orders\nn_new_orders = pageOfOrders['n_new_orders']", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern("global page_index\npage_index = pageOfOrders['page']", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern("global nOrderPages\nnOrderPages = pageOfOrders['num_pages']", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-
-    #extract the number of new orders on the page.
-    this_step, step_words = genStepCallExtern("global nNewOrders\nnNewOrders = 9", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global page_index\npage_index = 1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global nOrderPages\nnOrderPages = 1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["anchor text"], "any", "shipTos", "useless", "etsy", False, this_step)
-    # psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
     this_step, step_words = genStepSearch("screen_info", ["ship_to_summery"], ["info 2"], "any", "shipToSummeries", "useless", "etsy", False, this_step)
@@ -243,90 +191,70 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["anchor text"], "any", "shipTos", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("expr", "numShipTos", "NA", "len(shipTos)-1", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepEtsyRemoveAlreadyExpanded("shipTos", "shipToSummeries", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCallExtern("global shipTos\nprint('SHIP TOS:', shipTos)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    # if there no new orders at all, then done.
-    this_step, step_words = genStepCheckCondition("nNewOrders == 0", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # else stub of nNewOrders == 0
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
 
     # otherwise, try to go thru the orders....
-    this_step, step_words = genStepCreateData("int", "nthShipTo", "NA", 0, this_step)
+    this_step, step_words = genStepCreateData("expr", "nthShipTo", "NA", "len(shipTos)-1", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "lastShipTo", "NA", "numShipTos - nthShipTo", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nthShipTo\nnthShipTo = numShipTos", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
-    this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
-    psk_words = psk_words + step_words
-
-    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
-    this_step, step_words = genStepLoop("nthShipTo < len(shipTos)", "", "", "dummy" + str(stepN), this_step)
+    this_step, step_words = genStepLoop("nthShipTo >= lastShipTo", "", "", "dummy" + str(stepN), this_step)
     psk_words = psk_words + step_words
 
     # use nth ship to to find its related ship-to-summery, use name, city, state in that summery to find this order's click status.
     # this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "found_index", "nthChecked", this_step)
     # psk_words = psk_words + step_words
 
-    # check whether the "Ship To" is already clicked.
-    this_step, step_words = genStepCallExtern("global nthOrderChecked\nprint('NTH CHECKED:', nthOrderChecked)", "", "in_line", "", this_step)
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ship_to", "anchor text", "", "nthShipTo", "center", [0, 0], "box", 2, 2, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("nthOrderChecked == False", "", "", this_step)
+    this_step, step_words = genStepWait(2, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global nthOrderChecked\nprint('NTH CHECKED:', nthOrderChecked)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ship_to", "anchor text", "", "nthShipTo", "center", [0, 0], "box", 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global nthShipTo\nnthShipTo = nthShipTo + 1", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global nthShipTo\nnthShipTo = nthShipTo - 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # update the status for this order item.
-    this_step, step_words = genStepEtsySetOrderClickedStatus("pageOfOrders", "found_index", this_step)
-    psk_words = psk_words + step_words
-
-    # end if nth shipto is not clicked.
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepEtsySetOrderClickedStatus("pageOfOrders", "found_index", this_step)
+    # psk_words = psk_words + step_words
 
     # end loop for going thru all shiptos on the screen
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # update counter of how many shiptos are handled
-    this_step, step_words = genStepCallExtern("global nShipToClicked\nnShipToClicked = nShipToClicked + nthShipTo", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
     # SC - 2023-09-05 alternatively could finishing clicking all ship to on the html page, and re-scrape html again to
     # fill the detailed address. the benefit here is, no need to extract again which is expensive and time consuming...
 
-    # now read screen again, and to extract addresses.
-    # this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "top", theme, this_step, None)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepSearch("screen_info", ["ship_to_summery"], ["info text"], "any", "shipTos", "useless", "etsy", False, this_step)
-    # psk_words = psk_words + step_words
-
-    # now the shiptos contains recipient's detaild address，
-    # this_step, step_words = genStepFillRecipients("shipTos", "etsy_orders", "etsy", this_step)
-    # psk_words = psk_words + step_words
+    # don't get bottom page position until there is nothing to click, otherwise, the end of page will move.
+    this_step, step_words = genStepCheckCondition("len(shipTos) == 0", "", "", this_step)
+    psk_words = psk_words + step_words
 
     # check end of page information again
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
     this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
     # now scroll to the next screen.
     # (action, action_args, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, True, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -338,11 +266,21 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     ##############################################################################################
-    # at the end of the page, re-extract html, now with detailed address info shown...
+    # at the end of the page, save html, now with detailed address info shown... and scrape html to
+    # get all order information including the detailed address...
     ##############################################################################################
+
+    this_step, step_words = genStepCreateDir(worksettings["log_path"], "fileStatus", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepKeyInput("", True, "ctrl,s", "", 4, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', '" + worksettings["log_path"] + "', '" + hfname +"']", this_step)
+    psk_words = psk_words + step_words
+
     # save the html file.
-    this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus",
-                                            this_step)
+    this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(18, 0, 0, this_step)
@@ -351,41 +289,24 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     # html, pidx, outvar, statusvar, stepN):
     # hfile = 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230825/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1692998813.html'
     # this_step, step_words = genStepEtsyScrapeOrders(hfile, "currentPage", "pageOfOrders",  "", this_step)
-    hfile = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1693857164.html"
+    # hfile = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1693857164.html"
 
     this_step, step_words = genStepEtsyScrapeOrders(worksettings["log_path"] + hfname, "currentPage", "pageOfOrders",
                                                     "", this_step)
     # this_step, step_words = genStepEtsyScrapeOrders(hfile, "pageOfOrders", "fileStatus", "", this_step)
     psk_words = psk_words + step_words
 
-    #########################end of re-scrape html to obtain recipient address details. ###############################
 
-
-    # if nNewOrders == 0:
-    #   endOfOrderList = True
-    # else:
-    #   #scroll till end of page.
-    #   search end of page anchors
-    #   search order info
-    #   while not end of page:
-    #       scroll
-    #       extract
-    #       search end of page anchors
-    #       search order info
-
-
-
-    # # close bracket for "if nNewOrders == 0:"
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    this_step, step_words = genStepEtsyAddPageOfOrder("etsy_orders", "pageOfOrders", this_step)
+    # this_step, step_words = genStepEtsyScrapeOrders(hfile, "pageOfOrders", "fileStatus", "", this_step)
     psk_words = psk_words + step_words
 
-    # if currentPage == nOrderPages:
-    #      endOfList == True
-    # else:
-    #       click on the next page
-    # condition, count, end, lc_name, stepN):
+    #########################end of re-scrape html to obtain recipient address details. ######################
+    # now check to see whether there are more pages to visit. i.e. number of orders exceeds more than 1 page.
+    # the number of pages and page index variable are already in the pageOfOrders variable.
 
-    this_step, step_words = genStepCheckCondition("page_index == nOrderPages", "", "", this_step)
+
+    this_step, step_words = genStepCheckCondition("pageOfOrders['num_pages'] == pageOfOrders['page']", "", "", this_step)
     psk_words = psk_words + step_words
 
     # set the flag, we have completed collecting all orders information at this point.
@@ -396,25 +317,17 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # update currentPage counter
-    this_step, step_words = genStepCallExtern("global currentPage\ncurrentPage = currentPage + 1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
     # go to the next page.
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "next_page", "anchor icon", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
     psk_words = psk_words + step_words
 
-    # # close bracket for condition ("currentPage == nOrderPages")
+    # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # end of loop for while (endOfOrderList != True)
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
-
-    psk_words = psk_words + step_words
-
-
 
 
     # now all order collection is complete.
@@ -492,12 +405,13 @@ def genWinEtsyHandleReturnSkill(lieutenant, bot_works, start_step, theme):
     all_labels = []
 
 
-def genStepPrepGSOrder(order_var_name, gs_order_var_name, seller, fpath, stepN):
+def genStepPrepGSOrder(order_var_name, gs_order_var_name, prod_book_var_name, seller, fpath, stepN):
 
     stepjson = {
         "type": "Prep GS Order",
         "ec_order": order_var_name,
         "gs_order": gs_order_var_name,
+        "prod_book": prod_book_var_name,
         "file_path": fpath,
         "seller": seller
     }
@@ -508,7 +422,7 @@ def genStepPrepGSOrder(order_var_name, gs_order_var_name, seller, fpath, stepN):
 def combine_duplicates(orders):
     merged_dict = {}
     for order in orders:
-        key = (order.getShippingName(), order.getShippingAddrStreet1(), order.getShippingAddrStreet2(), order.getShippingAddrCity(), order.getShippingAddrState())
+        key = (order.getRecipientName(), order.getRecipientAddrStreet1(), order.getRecipientAddrStreet2(), order.getRecipientAddrCity(), order.getRecipientAddrState())
         if key in merged_dict:
             merged_dict[key].products.extend(order.products)
         else:
@@ -517,7 +431,7 @@ def combine_duplicates(orders):
     return list(merged_dict.values())
 
 # ofname is the order file name, should be etsy_orders+Date.xls
-def createLabelOrderFile(seller, weight_unit, orders, ofname):
+def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
     if weight_unit == "ozs":
         allorders = [{
             "No": "1",
@@ -537,23 +451,23 @@ def createLabelOrderFile(seller, weight_unit, orders, ofname):
             "CityTo": o.getRecipientAddrCity(),
             "StateTo": o.getRecipientAddrState(),
             "ZipTo": o.getRecipientAddrZip(),
-            "Weight": o.getOrderWeightInOzs(),
-            "length": o.getOrderLengthInInchs(),
-            "width": o.getOrderWidthInInchs(),
-            "height": o.getOrderHeightInInchs(),
+            "Weight": o.getOrderWeightInOzs(book),
+            "length": o.getOrderLengthInInches(book),
+            "width": o.getOrderWidthInInches(book),
+            "height": o.getOrderHeightInInches(book),
             "description": ""
         } for o in orders]
     else:
         allorders = [{
             "No": "1",
-            "FromName": seller.getName(),
-            "PhoneFrom": seller.getPhone(),
-            "Address1From": seller.getAddrStreet1(),
+            "FromName": seller["FromName"],
+            "PhoneFrom": seller["PhoneFrom"],
+            "Address1From": seller["Address1From"],
             "CompanyFrom": "",
-            "Address2From": seller.getAddrStreet2(),
-            "CityFrom": seller.getAddrCity(),
-            "StateFrom": seller.getAddrState(),
-            "ZipCodeFrom": seller.getAddrZip(),
+            "Address2From": seller["Address2From"],
+            "CityFrom": seller["CityFrom"],
+            "StateFrom": seller["StateFrom"],
+            "ZipCodeFrom": seller["ZipCodeFrom"],
             "NameTo": o.getRecipientName(),
             "PhoneTo": o.getRecipientPhone(),
             "Address1To": o.getRecipientAddrStreet1(),
@@ -562,10 +476,10 @@ def createLabelOrderFile(seller, weight_unit, orders, ofname):
             "CityTo": o.getRecipientAddrCity(),
             "StateTo": o.getRecipientAddrState(),
             "ZipTo": o.getRecipientAddrZip(),
-            "Weight": o.getOrderWeightInLbs(),
-            "length": o.getOrderLengthInInchs(),
-            "width": o.getOrderWidthInInchs(),
-            "height": o.getOrderHeightInInchs(),
+            "Weight": o.getOrderWeightInLbs(book),
+            "length": o.getOrderLengthInInches(book),
+            "width": o.getOrderWidthInInches(book),
+            "height": o.getOrderHeightInInches(book),
             "description": ""
         } for o in orders]
 
@@ -585,6 +499,10 @@ def createLabelOrderFile(seller, weight_unit, orders, ofname):
         for cell in row:
             cell.number_format = '@'  # text format
 
+    print("saving to file: ", ofname)
+    ofdir = os.path.dirname(ofname)
+    if not os.path.exists(ofdir):
+        os.makedirs(ofdir)
     # Save workbook
     wb.save(ofname)
 
@@ -598,31 +516,33 @@ def processPrepGSOrder(step, i):
     seller = step["seller"]
     new_orders = symTab[step["ec_order"]]
     # collaps all pages of order list into a single list or orders.
-    flatlist=[element for sublist in new_orders for element in sublist]
+    flatlist=[element for sublist in new_orders for element in sublist["ol"]]
+
+    print("FLAT LIST: ", flatlist)
 
     # combine orders into same person and address into 1 order.
     combined = combine_duplicates(flatlist)
 
     # filter out Non-USA orders. International Orders such as canadian and mexican should be treatly separately at this time.
-    us_orders = [o for o in combined if o.getShippingAddrState() != "Canada" and o.getShippingAddrState() != "Mexico"]
+    us_orders = [o for o in combined if o.getRecipientAddrState() != "Canada" and o.getRecipientAddrState() != "Mexico"]
 
     # group orders into two categories: weights less than 1lb and weights more than 1lb
-    light_orders = [o for o in us_orders if o.getShippingWeightsInLbs() < 1.0 ]
-    regular_orders = [o for o in us_orders if o.getShippingWeightsInLbs() >= 1.0]
+    light_orders = [o for o in us_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) < 1.0 ]
+    regular_orders = [o for o in us_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
 
     # ofname is the order file name, should be etsy_orders+Date.xls
     if len(light_orders) > 0:
         dtnow = datetime.now()
         dt_string = str(int(dtnow.timestamp()))
         ofname1 = step["file_path"]+"/etsyOrdersGround"+dt_string+".xls"
-        createLabelOrderFile(seller, "ozs", light_orders, ofname1)
+        createLabelOrderFile(seller, "ozs", light_orders, symTab[step["prod_book"]], ofname1)
         gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "file": ofname1})
 
     if len(regular_orders) > 0:
         dtnow = datetime.now()
         dt_string = str(int(dtnow.timestamp()))
         ofname2 = step["file_path"]+"/etsyOrdersPriority"+dt_string+".xls"
-        createLabelOrderFile(seller, "lbs", regular_orders, ofname2)
+        createLabelOrderFile(seller, "lbs", regular_orders, symTab[step["prod_book"]], ofname2)
 
         gs_label_orders.append({"service":"USPS Priority V4", "file": ofname2})
 
@@ -633,7 +553,7 @@ def processPrepGSOrder(step, i):
 
 
 def genStepEtsyGetOrderClickedStatus(shipToVar, shipToIndexVar, ordersVar, foundOrderIndexVar, foundOrderClickedVar, stepN):
-    header = {
+    stepjson = {
         "type": "Etsy Get Order Clicked Status",
         "shipTo": shipToVar,
         "shipToIndex": shipToIndexVar,
@@ -642,17 +562,44 @@ def genStepEtsyGetOrderClickedStatus(shipToVar, shipToIndexVar, ordersVar, found
         "foundOrderClicked": foundOrderClickedVar
     }
 
-    return ((stepN+STEP_GAP), ("\"header\":\n" + json.dumps(header, indent=4) + ",\n"))
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 def genStepEtsySetOrderClickedStatus(ordersVar, foundOrderIndexVar, stepN):
-    header = {
+    stepjson = {
         "type": "Etsy Set Order Clicked Status",
         "orders": ordersVar,
         "foundOrderIndex": foundOrderIndexVar
     }
 
-    return ((stepN+STEP_GAP), ("\"header\":\n" + json.dumps(header, indent=4) + ",\n"))
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+# given ShipTos and ShipToSummeries, remove the ShipTos that're already expanded.
+# The way to determine whether it's expanded is to check # of lines below, and
+# whether the city, state line contains the zip code.
+# alternative, whether contains 2 lines below ship to, or 2 lines between "ship to" to any line contains "gift/Gift"
+# Note Canada as special condition
+def genStepEtsyRemoveAlreadyExpanded(shipToVar, shipToSummeryVar, stepN):
+    stepjson = {
+        "type": "Etsy Remove Expanded",
+        "shipTos": shipToVar,
+        "shipToSummeries": shipToSummeryVar
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+# add a page of orders to the total order list
+def genStepEtsyAddPageOfOrder(fullOrdersVar, pageOfOrdersVar, stepN):
+    stepjson = {
+        "type": "Etsy Add Page Of Order",
+        "fullOrders": fullOrdersVar,
+        "pageOfOrders": pageOfOrdersVar
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 def match_name(img_name, txt_name):
@@ -688,3 +635,44 @@ def processEtsySetOrderClickedStatus(step, i):
     symTab[step["orders"]][symTab[step["foundOrderIndex"]]].setChecked(True)
 
     return i+1
+
+def contains_states(line):
+    us_addr_pattern = re.compile("[a-zA-Z ]+\, *[a-zA-Z][a-zA-Z] *$")
+    ca_addr_pattern = re.compile("[a-zA-Z ]+\, *Canada *$")
+
+    us_matched = us_addr_pattern.search(line)
+    ca_matched = ca_addr_pattern.search(line)
+    if us_matched or ca_matched:
+        return True
+    else:
+        return False
+
+def processEtsyRemoveAlreadyExpanded(step, i):
+    print("Remove expanded state .....")
+    # first extract name, city, state from the text information
+    # then find a match of name, city, state from the orders data.
+
+    # print("SUMMERY:", symTab[step["shipToSummeries"]])
+    # print("{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}")
+    # print("SHIP TO:", symTab[step["shipTos"]])
+
+    for summery in symTab[step["shipToSummeries"]]:
+        summery_lines = summery["text"].split("\n")
+        # print("summery lines:", summery_lines)
+        state_line_number = next((idx for idx, l in enumerate(summery_lines) if contains_states(l)), -1)
+        # print("summery line number:", state_line_number)
+        if state_line_number == -1:
+            symTab[step["shipTos"]].pop(0)
+        else:
+            break
+
+    # print("SHIPTOnow becomes:", symTab[step["shipTos"]])
+
+    return i + 1
+
+def processEtsyAddPageOfOrder(step, i):
+
+    symTab[step["fullOrders"]].append(symTab[step["pageOfOrders"]])
+
+    return i + 1
+

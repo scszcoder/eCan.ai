@@ -22,16 +22,16 @@
             "backup_email" : "js@bcd.com", 
             "acct_pw" : "12345", 
             "birthday" : "01/01/1998",
-            "addrl1" : "100 ABC ST.",
+            "addrl1" : "2610 Laramie Gate Cir",
             "addrl2" : "",
-            "addrcity" : "Los Angeles",
+            "addrcity" : "Pleasanton",
             "addrstate" : "CA",
-            "addrzip" : "90001",
-            "shipaddrl1" : "100 ABC ST.",
+            "addrzip" : "94566",
+            "shipaddrl1" : "2610 Laramie Gate Cir",
             "shipaddrl2" : "",
-            "shipaddrcity" : "Los Angeles",
+            "shipaddrcity" : "Pleasanton",
             "shipaddrstate" : "CA",
-            "shipaddrzip" : "90001"
+            "shipaddrzip" : "94566"
         },
         "settings" : {
             "tasks" : []
@@ -52,24 +52,24 @@
             "roles" : "amz:buyer,ebay:seller"
         },
         "privateProfile" : {
-            "first_name" : "alan", 
-            "last_name" : "smith", 
+            "first_name" : "Sam", 
+            "last_name" : "Chen", 
             "email" : "alansmith@abc.com", 
             "email_pw" : "12345", 
             "phone" : "925-601-1001", 
             "backup_email" : "alansmith@bcd.com", 
             "acct_pw" : "12345", 
             "birthday" : "01/01/1997",
-            "addrl1" : "101 ABC ST.",
+            "addrl1" : "2610 Laramie Gate Cir",
             "addrl2" : "",
-            "addrcity" : "Los Angeles",
+            "addrcity" : "Pleasanton",
             "addrstate" : "CA",
-            "addrzip" : "90001",
-            "shipaddrl1" : "101 ABC ST.",
+            "addrzip" : "94566",
+            "shipaddrl1" : "2610 Laramie Gate Cir",
             "shipaddrl2" : "",
-            "shipaddrcity" : "Los Angeles",
+            "shipaddrcity" : "Pleasanton",
             "shipaddrstate" : "CA",
-            "shipaddrzip" : "90001"
+            "shipaddrzip" : "94566"
         },
         "settings" : {
             "tasks" : []
@@ -90,24 +90,24 @@
             "roles" : "amz:buyer,etsy:seller"
         },
         "privateProfile" : {
-            "first_name" : "allen", 
-            "last_name" : "smith", 
+            "first_name" : "Sam", 
+            "last_name" : "Chen", 
             "email" : "allensmith@abc.com", 
             "email_pw" : "12345", 
             "phone" : "925-601-1002", 
             "backup_email" : "allensmith@bcd.com", 
             "acct_pw" : "12345", 
             "birthday" : "01/02/1996",
-            "addrl1" : "102 ABC ST.",
+            "addrl1" : "2610 Laramie Gate Cir",
             "addrl2" : "",
-            "addrcity" : "Los Angeles",
+            "addrcity" : "Pleasanton",
             "addrstate" : "CA",
-            "addrzip" : "90001",
-            "shipaddrl1" : "101 ABC ST.",
+            "addrzip" : "94566",
+            "shipaddrl1" : "2610 Laramie Gate Cir",
             "shipaddrl2" : "",
-            "shipaddrcity" : "Los Angeles",
+            "shipaddrcity" : "Pleasanton",
             "shipaddrstate" : "CA",
-            "shipaddrzip" : "90001"
+            "shipaddrzip" : "94566"
         },
         "settings" : {
             "tasks" : []

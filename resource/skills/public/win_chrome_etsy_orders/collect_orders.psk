@@ -1,50 +1,121 @@
 
 {"header":
 {
-    "name": "win_file_local_open_save_as",
+    "name": "win_chrome_etsy_collect_orders",
     "os": "win",
     "version": "1.0",
     "author": "AIPPS LLC",
-    "skid": "PUBWINFILEOP001",
-    "description": "File Open Dialog Handling for Windows."
+    "skid": "PUBWINCHROMEETSY001",
+    "description": "Etsy Collect New Orders On Windows."
 },
 "step 5":
 {
     "type": "Stub",
     "stub_name": "start skill",
-    "func_name": "public/win_file_local_op/open_save_as",
+    "func_name": "public/win_chrome_etsy_orders/collect_orders",
     "fargs": ""
 },
 "step 10":
 {
-    "type": "Call Extern",
-    "file": "global f_op\nf_op = fin[0]",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "currentPage",
+    "key_name": "NA",
+    "key_value": 0
 },
 "step 15":
 {
-    "type": "Call Extern",
-    "file": "global fopen_f_path\nfopen_f_path = fin[1]\nprint('fopen_f_path:', fopen_f_path)",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "pageOfOrders",
+    "key_name": "NA",
+    "key_value": "None"
 },
 "step 20":
 {
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "fileStatus",
+    "key_name": "NA",
+    "key_value": "None"
+},
+"step 25":
+{
     "type": "Call Extern",
-    "file": "global fopen_f_name\nfopen_f_name = fin[2]",
+    "file": "global pageOfOrders\nprint('PAGE OF ORDERS:', pageOfOrders)",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 25":
+"step 30":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "endOfOrderList",
+    "key_name": "NA",
+    "key_value": false
+},
+"step 35":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "endOfOrdersPage",
+    "key_name": "NA",
+    "key_value": false
+},
+"step 40":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "shipToSummeries",
+    "key_name": "NA",
+    "key_value": "[]"
+},
+"step 45":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "shipTos",
+    "key_name": "NA",
+    "key_value": "[]"
+},
+"step 50":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 3
+},
+"step 55":
+{
+    "type": "Repeat",
+    "lc_name": "browseEtsyOL0",
+    "until": "endOfOrderList != True",
+    "count": "",
+    "end": ""
+},
+"step 60":
+{
+    "type": "Call Extern",
+    "file": "global endOfOrdersPage\nendOfOrdersPage = False",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 65":
+{
+    "type": "Repeat",
+    "lc_name": "browseEtsyOrderPage65",
+    "until": "endOfOrdersPage != True",
+    "count": "",
+    "end": ""
+},
+"step 70":
 {
     "type": "Extract Info",
     "settings": {
-        "skname": "open_save_as",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_file_local_op/open_save_as.psk",
+        "skname": "collect_orders",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_etsy_orders/collect_orders.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -65,12 +136,12 @@
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
         "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_file_local_op/skills/open_save_as/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
         "platform": "win",
-        "site": "local",
-        "app": "file",
-        "app_exe": "cmd",
-        "page": "op",
+        "site": "etsy",
+        "app": "chrome",
+        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        "page": "orders",
         "products": [
             {
                 "name": "default",
@@ -495,178 +566,283 @@
         "wifis": [
             "ARRIS-8679"
         ],
-        "name_space": "B3M3!win_file_local_op!open_save_as!"
+        "name_space": "B3M3!win_chrome_etsy_orders!collect_orders!"
     },
     "template": "",
     "option": "",
     "data_sink": "screen_info",
-    "page": "file_dialog",
+    "page": "orders",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
 },
-"step 30":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "refresh",
-    "target_type": "anchor icon",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "left",
-    "offset_unit": "box",
-    "offset": [
-        3,
-        0
-    ],
-    "move_pause": 2,
-    "post_wait": 0
-},
-"step 35":
-{
-    "type": "Create Data",
-    "data_type": "int",
-    "data_name": "fopen0",
-    "key_name": "NA",
-    "key_value": 0
-},
-"step 40":
-{
-    "type": "Fill Data",
-    "fill_type": "direct",
-    "from": 0,
-    "to": "fopen0",
-    "result": ""
-},
-"step 45":
-{
-    "type": "Repeat",
-    "lc_name": "fopen0",
-    "until": "",
-    "count": "50",
-    "end": ""
-},
-"step 50":
-{
-    "type": "Key Input",
-    "action": "",
-    "action_value": "backspace",
-    "save_rb": true,
-    "location": "",
-    "wait_after": 0
-},
-"step 55":
-{
-    "type": "Stub",
-    "stub_name": "end loop",
-    "func_name": "",
-    "fargs": ""
-},
-"step 60":
-{
-    "type": "Text Input",
-    "txt_type": "var",
-    "save_rb": false,
-    "text": "fopen_f_path",
-    "speed": 1,
-    "key_after": "enter",
-    "wait_after": 5
-},
-"step 65":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "file_name",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "right",
-    "offset_unit": "box",
-    "offset": [
-        2,
-        0
-    ],
-    "move_pause": 2,
-    "post_wait": 0
-},
-"step 70":
-{
-    "type": "Create Data",
-    "data_type": "int",
-    "data_name": "fopen0",
-    "key_name": "NA",
-    "key_value": 0
-},
 "step 75":
 {
-    "type": "Fill Data",
-    "fill_type": "direct",
-    "from": 0,
-    "to": "fopen0",
-    "result": ""
+    "type": "Search",
+    "screen": "screen_info",
+    "names": [
+        "ship_to_summery"
+    ],
+    "target_types": [
+        "info 2"
+    ],
+    "logic": "any",
+    "result": "shipToSummeries",
+    "site": "etsy",
+    "breakpoint": false,
+    "status": "useless"
 },
 "step 80":
 {
-    "type": "Repeat",
-    "lc_name": "fopen0",
-    "until": "",
-    "count": "30",
-    "end": ""
+    "type": "Search",
+    "screen": "screen_info",
+    "names": [
+        "ship_to"
+    ],
+    "target_types": [
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "shipTos",
+    "site": "etsy",
+    "breakpoint": false,
+    "status": "useless"
 },
 "step 85":
 {
-    "type": "Key Input",
-    "action": "",
-    "action_value": "backspace",
-    "save_rb": true,
-    "location": "",
-    "wait_after": 0
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "numShipTos",
+    "key_name": "NA",
+    "key_value": "len(shipTos)-1"
 },
 "step 90":
 {
-    "type": "Stub",
-    "stub_name": "end loop",
-    "func_name": "",
-    "fargs": ""
+    "type": "Etsy Remove Expanded",
+    "shipTos": "shipTos",
+    "shipToSummeries": "shipToSummeries"
 },
 "step 95":
 {
-    "type": "Text Input",
-    "txt_type": "var",
-    "save_rb": false,
-    "text": "fopen_f_name",
-    "speed": 1,
-    "key_after": "",
-    "wait_after": 2
+    "type": "Call Extern",
+    "file": "global shipTos\nprint('SHIP TOS:', shipTos)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
 },
 "step 100":
 {
-    "type": "Check Condition",
-    "condition": "fin[0] == 'open'",
-    "if_else": "",
-    "if_end": ""
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nthShipTo",
+    "key_name": "NA",
+    "key_value": "len(shipTos)-1"
 },
 "step 105":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "lastShipTo",
+    "key_name": "NA",
+    "key_value": "numShipTos - nthShipTo"
+},
+"step 110":
+{
+    "type": "Call Extern",
+    "file": "global nthShipTo\nnthShipTo = numShipTos",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 115":
+{
+    "type": "Repeat",
+    "lc_name": "dummy0",
+    "until": "nthShipTo >= lastShipTo",
+    "count": "",
+    "end": ""
+},
+"step 120":
 {
     "type": "Mouse Click",
     "action": "Single Click",
     "action_args": "",
     "save_rb": true,
     "screen": "screen_info",
-    "target_name": "file_open",
+    "target_name": "ship_to",
     "target_type": "anchor text",
+    "text": "",
+    "nth": "nthShipTo",
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_wait": 2
+},
+"step 125":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 2
+},
+"step 130":
+{
+    "type": "Call Extern",
+    "file": "global nthShipTo\nnthShipTo = nthShipTo - 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 135":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 140":
+{
+    "type": "Check Condition",
+    "condition": "len(shipTos) == 0",
+    "if_else": "",
+    "if_end": ""
+},
+"step 145":
+{
+    "type": "Search",
+    "screen": "screen_info",
+    "names": [
+        "etsy_inc"
+    ],
+    "target_types": [
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "endOfOrdersPage",
+    "site": "etsy",
+    "breakpoint": false,
+    "status": "endOfOrdersPage"
+},
+"step 150":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 155":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 75,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "unit": "screen"
+},
+"step 160":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 165":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 170":
+{
+    "type": "Create Dir",
+    "dir": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
+    "result": "fileStatus"
+},
+"step 175":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "ctrl,s",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 4
+},
+"step 180":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "file_save_input",
+    "key_name": "NA",
+    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/collect_orders/', 'etsyOrders1694404306.html']"
+},
+"step 185":
+{
+    "type": "Use Skill",
+    "skill_name": "open_save_as",
+    "skill_path": "public/win_file_local_op",
+    "skill_args": "file_save_input",
+    "output": "fileStatus"
+},
+"step 190":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 18
+},
+"step 195":
+{
+    "type": "ETSY Scrape Orders",
+    "pidx": "currentPage",
+    "html_file": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1694404306.html",
+    "result": "pageOfOrders",
+    "status": ""
+},
+"step 200":
+{
+    "type": "Etsy Add Page Of Order",
+    "fullOrders": "etsy_orders",
+    "pageOfOrders": "pageOfOrders"
+},
+"step 205":
+{
+    "type": "Check Condition",
+    "condition": "pageOfOrders['num_pages'] == pageOfOrders['page']",
+    "if_else": "",
+    "if_end": ""
+},
+"step 210":
+{
+    "type": "Call Extern",
+    "file": "global endOfOrderList\nendOfOrderList = True",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 215":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 220":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "next_page",
+    "target_type": "anchor icon",
     "text": "",
     "nth": [
         0,
@@ -678,51 +854,28 @@
         0,
         0
     ],
-    "move_pause": 0,
+    "move_pause": 2,
     "post_wait": 0
 },
-"step 110":
-{
-    "type": "Stub",
-    "stub_name": "else",
-    "func_name": "",
-    "fargs": ""
-},
-"step 115":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "file_cancel",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "left",
-    "offset_unit": "box",
-    "offset": [
-        2,
-        0
-    ],
-    "move_pause": 0,
-    "post_wait": 5
-},
-"step 120":
+"step 225":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 125":
+"step 230":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 235":
 {
     "type": "Stub",
     "stub_name": "end skill",
-    "func_name": "public/win_file_local_op/open_save_as",
+    "func_name": "public/win_chrome_etsy_orders/collect_orders",
     "fargs": ""
 },
 "dummy" : ""}

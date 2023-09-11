@@ -66,6 +66,15 @@ def getWorkSettings(lieutenant, bot_works):
     bot_id = works[tz][bidx]["bid"]
     print("bot_id: ", bot_id)
 
+    inventory = lieutenant.getBotsInventory(bot_id)
+    if inventory:
+        products = []
+        for p in inventory.getProducts():
+            products.append(p.genJson())
+    else:
+        print("no inventory found")
+        products = []
+
     for b in lieutenant.bots:
         print("BID:", b.getBid())
     bot_idx = next((i for i, bot in enumerate(lieutenant.bots) if str(bot.getBid()) == str(bot_id)), -1)
@@ -119,6 +128,7 @@ def getWorkSettings(lieutenant, bot_works):
             "app": app,
             "app_exe": app_exe,
             "page": "",
+            "products": products,
             "rpaName": rpaName,
             "wifis" : lieutenant.getWifis(),
             "name_space": name_space
@@ -158,15 +168,15 @@ def genWinSkillCode(worksettings, start_step, theme):
     elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["skname"] == "walk_routine":
         this_step, step_words = genWinChromeAMZWalkSkill(worksettings, start_step, theme)
     elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["skname"] == "sell":
-        this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "ebay_orders", "top", start_step, theme)
+        this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "orders", "top", start_step, theme)
     elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "fullfill_orders":
-        this_step, step_words = genWinChromeEtsyFullfillOrdersSkill(worksettings, "etsy_orders", "top", start_step, theme)
+        this_step, step_words = genWinChromeEtsyFullfillOrdersSkill(worksettings, "orders", "top", start_step, theme)
     elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "collect_orders":
-        this_step, step_words = genWinEtsyCollectOrderListSkill(worksettings, "etsy_orders", "top", start_step, theme)
+        this_step, step_words = genWinEtsyCollectOrderListSkill(worksettings, "orders", "top", start_step, theme)
     elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "update_tracking":
-        this_step, step_words = genWinEtsyUpdateShipmentTrackingSkill(worksettings, "etsy_orders", "top", start_step, theme)
+        this_step, step_words = genWinEtsyUpdateShipmentTrackingSkill(worksettings, "orders", "top", start_step, theme)
     elif worksettings["app"] == "chrome" and worksettings["site"] == "goodsupply" and worksettings["skname"] == "bulk_buy":
-        this_step, step_words = genWinChromeGSLabelBulkBuySkill(worksettings, "goodsupply_bulkbuy", "top", start_step, theme)
+        this_step, step_words = genWinChromeGSLabelBulkBuySkill(worksettings, "label", "top", start_step, theme)
     elif worksettings["app"] == "rar" and worksettings["site"] == "local" and worksettings["skname"] == "unzip_archive":
         this_step, step_words = genWinRARLocalUnzipSkill(worksettings, "winrar", "top", start_step, theme)
     elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["skname"] == "open_profile":

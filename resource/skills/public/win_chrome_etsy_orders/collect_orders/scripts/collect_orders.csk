@@ -25,6 +25,13 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "etsy_inc",
+                        "anchor_type"  : "text",
+                        "template"     : "Etsy, Inc.",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "of0",
                         "anchor_type"  : "text",
                         "template"     : "of",
@@ -75,7 +82,7 @@
                         "refs" : [{
                                 "dir": "below",
                                 "ref": "ship_to",
-                                "offset": 0,
+                                "offset": 8,
                                 "offset_unit": "box"
                             }
                         ]
