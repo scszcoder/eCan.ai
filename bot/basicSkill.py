@@ -927,6 +927,7 @@ def find_clickable_object(sd, target, template, target_type, nth):
             if "[" not in nth and "]" not in nth:
                 print("nth as a variable name is:", symTab[nth])
                 found = objs[symTab[nth]]
+                print("found object:", found)
         elif type(nth) == int:
             print("nth as an integer is:", nth)
             found = objs[nth]
@@ -1140,7 +1141,7 @@ def processMouseScroll(step, i):
     print("after randomized Scroll Amount: ", scroll_amount)
     mouse.scroll(0, scroll_amount)
 
-    if step["breapoint"]:
+    if step["breakpoint"]:
         input("type any key to continue")
 
     return i + 1

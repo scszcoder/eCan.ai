@@ -8,9 +8,11 @@ class OrderPerson:
         self.id = buyer_id
         self.street1 = street1
         self.street2 = street2
+        self.street3 = ""
         self.city = city
         self.state = state
         self.zip = zip
+        self.country = "USA"
         self.phone = phone
         self.email = email
         self.role = role
@@ -21,6 +23,9 @@ class OrderPerson:
     def setStreet2(self, str2):
         self.street2 = str2
 
+    def setStreet3(self, str3):
+        self.street3 = str3
+
     def setCity(self, city):
         self.city = city
 
@@ -29,6 +34,9 @@ class OrderPerson:
 
     def setZip(self, zipcode):
         self.zip = zipcode
+
+    def setCountry(self, country):
+        self.country = country
 
     def setId(self, bid):
         self.id = bid
@@ -215,12 +223,15 @@ class ORDER:
     def setRecipientAddrStreet2(self, st2):
         self.recipient.street2 = st2
 
+    def getRecipientPhone(self):
+        return self.recipient.phone
+
     def getOrderWeightInOzs(self, product_book):
         self.total_weight = 0
         for p in self.products:
-            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            found = next((x for x in product_book if x["title"] == p.getPTitle()), None)
             if found:
-                self.total_weight = self.total_weight + found.getWeight()*p.getQuantity()
+                self.total_weight = self.total_weight + found["weight"]*16*int(p.getQuantity())
 
         self.total_weight = self.total_weight + 3               #3oz as the container weight
         return self.total_weight
@@ -228,22 +239,23 @@ class ORDER:
     def getOrderWeightInLbs(self, product_book):
         self.total_weight = 0
         for p in self.products:
-            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            found = next((x for x in product_book if x["title"] == p.getPTitle()), None)
             if found:
-                self.total_weight = self.total_weight + found.getWeight()*p.getQuantity()
+                self.total_weight = self.total_weight + found["weight"]*int(p.getQuantity())
 
         self.total_weight = self.total_weight + 3           # 3oz as the container weight
-        if self.total_weight >= 16:
-            self.total_weight = self.total_weight * 1.2     # for heavy item, add 20% extra weight as container weight.
+        # if self.total_weight >= 16:
+        #     self.total_weight = self.total_weight * 1.2     # for heavy item, add 20% extra weight as container weight.
 
-        return int(self.total_weight/16)
+        # return int(self.total_weight/16)
+        return self.total_weight
 
     def getOrderLengthInInches(self, product_book):
         all_len = []
         for p in self.products:
-            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            found = next((x for x in product_book if x["title"] == p.getPTitle()), None)
             if found:
-                all_len.append(found.getDimensions()[0]*p.getQuantity())
+                all_len.append(found["dimension"][0]*int(p.getQuantity()))
 
         self.total_length = max(all_len) + 5
         return self.total_length
@@ -251,9 +263,9 @@ class ORDER:
     def getOrderWidthInInches(self, product_book):
         all_wid = []
         for p in self.products:
-            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            found = next((x for x in product_book if x["title"] == p.getPTitle()), None)
             if found:
-                all_wid.append(found.getDimensions()[1])
+                all_wid.append(found["dimension"][1])
 
         self.total_width = max(all_wid) + 5
         return self.total_width
@@ -261,9 +273,9 @@ class ORDER:
     def getOrderHeightInInches(self, product_book):
         all_hei = []
         for p in self.products:
-            found = next((x for x in product_book if x.getTitle() == p.getPTitle()), None)
+            found = next((x for x in product_book if x["title"] == p.getPTitle()), None)
             if found:
-                all_hei.append(found.getDimensions()[2])
+                all_hei.append(found["dimension"][2])
 
         self.total_height = max(all_hei) + 5
         return self.total_height

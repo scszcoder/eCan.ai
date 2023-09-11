@@ -26,6 +26,11 @@ def genStepEtsyScrapeOrders(html, pidx, outvar, statusvar, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+
+# without address details
+# # order id...... revenue(price) .... ship by date ..... break-word : product title    <li....> quantity  .... "break-word" - name, city, state....
+# with address details
+# order id...... revenue(price) .... ship by date ..... break-word : product title    <li....> quantity  .... "address break-word" - all name address details....
 def processEtsyScrapeOrders(step, i):
     next_i = i + 1
     pidx = step["pidx"]
@@ -89,28 +94,67 @@ def processEtsyScrapeOrders(step, i):
                 if order_count >= 0:
                     break
 
+        # this is the true divisional tag that contains all info of an order.
+        orderItems = soup.findAll("div", attrs={"panel-body-row has-hover-state pt-xs-0 pl-xs-0 pr-xs-0 pb-xs-3 pb-xl-4"})
 
-        divItems = soup.findAll("div", attrs={"class": "orders-full-width-panel-on-mobile panel panel-no-footer mb-xs-4"})
-        for item in divItems:
+        # divItems = soup.findAll("div", attrs={"class": "orders-full-width-panel-on-mobile panel panel-no-footer mb-xs-4"})
+        for item in orderItems:
             # extract recipient info.
-            order = ORDER("", "", "", "", "", "", "")
-            products = []
+
+
+            recipientDetailsItems = item.findAll("div", attrs={"class": "address break-word"})
+            for ri in recipientDetailsItems:
+                order = ORDER("", "", "", "", "", "", "")
+                products = []
+                recipient = OrderPerson("", "", "", "", "", "", "")
+                recipient_name_tags = ri.findAll("span", attrs={"class": 'name'})
+                recipient_addr_1st_line_tags = ri.findAll("span", attrs={"class": 'first-line'})
+                recipient_addr_2nd_line_tags = ri.findAll("span", attrs={"class": 'second-line'})
+                recipient_addr_3rd_line_tags = ri.findAll("span", attrs={"class": 'third-line'})
+                recipient_addr_city_tags = ri.findAll("span", attrs={"class": 'city'})
+                recipient_addr_state_tags = ri.findAll("span", attrs={"class": 'state'})
+                recipient_addr_zip_tags = ri.findAll("span", attrs={"class": 'zip'})
+                recipient_addr_country_tags = ri.findAll("span", attrs={"class": 'country-name'})
+
+                if len(recipient_name_tags) > 0:
+                    recipient.setFullName(recipient_name_tags[0].text)
+
+                if len(recipient_addr_1st_line_tags) > 0:
+                    recipient.setStreet1(recipient_addr_1st_line_tags[0].text)
+
+                if len(recipient_addr_2nd_line_tags) > 0:
+                    recipient.setStreet2(recipient_addr_2nd_line_tags[0].text)
+
+                if len(recipient_addr_3rd_line_tags) > 0:
+                    recipient.setStreet3(recipient_addr_3rd_line_tags[0].text)
+
+                if len(recipient_addr_city_tags) > 0:
+                    recipient.setCity(recipient_addr_city_tags[0].text)
+
+                if len(recipient_addr_state_tags) > 0:
+                    recipient.setState(recipient_addr_state_tags[0].text)
+
+                if len(recipient_addr_zip_tags) > 0:
+                    recipient.setZip(recipient_addr_zip_tags[0].text)
+
+                if len(recipient_addr_country_tags) > 0:
+                    recipient.setCountry(recipient_addr_country_tags[0].text)
+
 
             recipientItems = item.findAll("div", attrs={"class": "break-word"})
             for bi in recipientItems:
                 recipient_loc_tags = bi.findAll("span", attrs={"data-test-id": 'unsanitize'})
-                recipient_addr_1st_line_tags = bi.findAll("span", attrs={"class": 'first-line'})
-                recipient_addr_2nd_line_tags = bi.findAll("span", attrs={"class": 'second-line'})
-                recipient_addr_3rd_line_tags = bi.findAll("span", attrs={"class": 'third-line'})
-                recipient_addr_zip_tags = bi.findAll("span", attrs={"class": 'zip'})
-                recipient_addr_zip_tags = bi.findAll("span", attrs={"class": 'country-name'})
 
                 if len(recipient_loc_tags) == 3:
+                    order = ORDER("", "", "", "", "", "", "")
+                    products = []
                     print("recipient_loc_tags:", recipient_loc_tags)
                     recipient = OrderPerson("", "", "", "", "", "", "")
                     recipient.setFullName(recipient_loc_tags[0].text)
                     recipient.setCity(recipient_loc_tags[1].text)
                     recipient.setState(recipient_loc_tags[2].text)
+                else:
+                    print("no unexpanded addr....")
 
                 # oid_tags = item.findAll("span", attrs={"data-test-id": 'unsanitize'})
 
@@ -130,7 +174,8 @@ def processEtsyScrapeOrders(step, i):
                 qItems = lii.findAll("span", attrs={"class": 'strong'})
                 if len(qItems) > 0:
                     print("Quantity:", qItems[0].text, "pidx:", pidx)
-                    products[pidx].setQuantity(qItems[0].text)
+                    if qItems[0].text.isnumeric():
+                        products[pidx].setQuantity(qItems[0].text)
 
                 pidx = pidx + 1
 
@@ -162,7 +207,8 @@ def processEtsyScrapeOrders(step, i):
     print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
     # print(json.dumps(pagefull_of_orders))
     print("# of orders:", len(orders))
-    print([o.toJson() for o in orders])
+    for o in orders:
+        print(o.toJson())
     print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
 
     symTab[step["result"]] = pagefull_of_orders

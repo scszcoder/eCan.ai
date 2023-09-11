@@ -127,6 +127,8 @@ vicrop = {
     "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
     "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
     "Etsy Set Order Clicked Status": lambda x, y: processEtsySetOrderClickedStatus(x, y),
+    "Etsy Remove Expanded": lambda x, y: processEtsyRemoveAlreadyExpanded(x, y),
+    "Etsy Add Page Of Order": lambda x, y: processEtsyAddPageOfOrder(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
 }

@@ -72,6 +72,12 @@ def test_scrape_etsy_orders():
     html_file = "c:/temp/EtsySoldOrders090523.html"
     html_file = "c:/temp/EtsySoldOrdersDetails9523.html"
     html_file = "c:/temp/EtsySoldOrdersNoDetails9523.html"
+    html_file = "c:/temp/EtsyMultiProductOrderNoDetails.html"
+    # html_file = "c:/temp/EtsyMultiProductOrderWithDetails.html"
+    # html_file = "c:/temp/EtsySamePersonMultiOrderNoDetails.html"
+    # html_file = "c:/temp/EtsySamePersonMultiOrderWithDetails.html"
+    # html_file = "c:/temp/EtsySoldOrdersPartialExpanded.html"
+
 
     # html_file = "c:/temp/Etsy -All Sold Orders P1.html"
     # html_file = "c:/temp/Etsy - All Sold Orders P3.html"
@@ -87,15 +93,24 @@ def test_scrape_etsy_orders():
 
 
 def test_basic():
-    order = "$340.049"
-    order_pattern = re.compile("\$[0-9]+\.[0-9]+")
+    # order = "$340.049"
+    # order_pattern = re.compile("\$[0-9]+\.[0-9]+")
+    # matched = order_pattern.search(order)
+    # if matched:
+    #     print("price found!!!!")
+    # else:
+    #     print("price NOT FOUND!!!!")
 
-    matched = order_pattern.search(order)
+    addr = "Coral Springs, FL "
+    us_addr_pattern = re.compile("[a-zA-Z ]+\, *[A-Z][A-Z] *$")
+    ca_addr_pattern = re.compile("[a-zA-Z ]+\, *Canada *$")
 
-    if matched:
-        print("found!!!!")
+    us_matched = us_addr_pattern.search(addr)
+    ca_matched = ca_addr_pattern.search(addr)
+    if us_matched or ca_matched:
+        print("citystate found!!!!")
     else:
-        print("NOT FOUND!!!!")
+        print("citystate NOT FOUND!!!!")
 
 
 def test_coordinates():

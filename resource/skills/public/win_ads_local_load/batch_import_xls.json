@@ -1,0 +1,26 @@
+{
+    "name": "batch_import_xls",
+    "skid": 51,
+    "owner": "public",
+    "price": 0,
+    "price_model": "free",
+    "path": "resource/skills/public/win_ads_local_load",
+    "privacy": "public",
+    "platform": "win",
+    "app": "ads",
+    "app_link": "cmd",
+    "app_args": "",
+    "site_name": "local",
+    "site": "",
+    "page": "wifi",
+    "private_skill": {
+        "nameSpace": "",
+        "runStepsFile": "",
+        "runConfig": {
+            "estRunTime" : 0
+        }
+    },
+    "cloud_skill": {
+        "path": "pubilc/win_ads_local_load/batch_import_xls"
+    }
+}

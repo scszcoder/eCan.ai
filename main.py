@@ -80,12 +80,12 @@ if __name__ == '__main__':
     # test_multi_skills()
     # test_scrape_etsy_orders()
     # test_basic()
-    test_coordinates()
+    # test_coordinates()
 
     print("all unit test done...")
 
 
-    # windowlauncher()
+    windowlauncher()
 
     # try:
     #     asyncio.run(main())

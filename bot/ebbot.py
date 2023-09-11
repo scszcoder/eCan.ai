@@ -353,6 +353,8 @@ class EBBOT(QtGui.QStandardItem):
         self.icon = QtGui.QIcon(icon_path)
         self.setIcon(self.icon)
 
+        self.seller_inventories = []
+
 
     def getBid(self):
         return self.pubProfile.bid
@@ -362,6 +364,12 @@ class EBBOT(QtGui.QStandardItem):
 
     def getAge(self):
         return self.pubProfile.age
+
+    def getInventories(self):
+        return self.seller_inventories
+
+    def setInventories(self, invs):
+        self.seller_inventories = invs
 
     def getPubBirthday(self):
         return self.pubProfile.pubbirthday
