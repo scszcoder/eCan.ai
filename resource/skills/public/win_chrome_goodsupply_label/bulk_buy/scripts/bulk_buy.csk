@@ -46,6 +46,34 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "file_imported",
+                        "anchor_type"  : "text",
+                        "template"     : "File Imported",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "apply",
+                        "anchor_type"  : "text",
+                        "template"     : "Apply",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "download",
+                        "anchor_type"  : "text",
+                        "template"     : "Download",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "file_name",
+                        "anchor_type"  : "text",
+                        "template"     : "FileName",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "total",
                         "anchor_type"  : "text",
                         "template"     : "Total",
@@ -73,13 +101,6 @@
         "op": {
             "top" : {
                 "anchors": [
-                    {
-                        "anchor_name"  : "refresh_icon",
-                        "anchor_type"  : "icon",
-                        "template"     : "refresh.png",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
                     {
                         "anchor_name"  : "file_name",
                         "anchor_type"  : "text",

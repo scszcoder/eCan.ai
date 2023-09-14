@@ -34,8 +34,8 @@ current_context = None
 #####################################################################################
 
 def get_default_download_dir():
-    home = os.path.expanduser("~")
-    return os.path.join(home, "Downloads")
+    home = os.path.expanduser("~").replace("\\", "/")
+    return home+"/Downloads/"
 
 def genStepHeader(skillname, los, ver, author, skid, description, stepN):
     header = {
@@ -52,7 +52,7 @@ def genStepHeader(skillname, los, ver, author, skid, description, stepN):
 
 
 
-def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, args, wait, stepN):
+def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, args, wait, stepN):
     stepjson = {
         "type": "App Open",
         "action": action,
@@ -61,6 +61,7 @@ def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor
         "target_link": target_link,
         "anchor_type": anchor_type,
         "anchor_value": anchor_value,
+        "cargs_type": cargs_type,
         "cargs": args,
         "wait":wait
     }
@@ -553,7 +554,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         "os": sk_settings["platform"],
         "app": sk_settings["app"],
         "domain": sk_settings["site"],
-        "page": sk_settings["page"],
+        "page": site_page,
         "layout": layout,
         "skill_name": m_skill_names[0],
         "psk": m_psk_names[0],
@@ -1204,8 +1205,11 @@ def processOpenApp(step, i):
         url = step["target_link"]
         webbrowser.open(url, new=0, autoraise=True)
     else:
-        subprocess.call(step["target_link"] + " " + step["cargs"])
-
+        if step["cargs_type"] == "direct":
+            subprocess.call(step["target_link"] + " " + step["cargs"])
+        else:
+            print("running shell on :", symTab[step["cargs"]])
+            subprocess.Popen([symTab[step["target_link"]], symTab[step["cargs"]]])
     time.sleep(step["wait"])
     return i+1
 
