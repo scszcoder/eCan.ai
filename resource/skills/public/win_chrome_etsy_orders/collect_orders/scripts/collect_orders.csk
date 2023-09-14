@@ -32,6 +32,13 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "next_page",
+                        "anchor_type"  : "icon",
+                        "template"     : "end_pages.png",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },  
+                    {
                         "anchor_name"  : "of0",
                         "anchor_type"  : "text",
                         "template"     : "of",

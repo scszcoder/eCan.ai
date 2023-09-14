@@ -758,7 +758,7 @@ def req_cloud_read_screen(session, request, token):
         url=APPSYNC_API_ENDPOINT_URL,
         method='POST',
         headers=headers,
-        timeout=300,
+        timeout=500,
         json={'query': query}
     )
     #save response to a log file. with a time stamp.
@@ -1463,7 +1463,7 @@ def send_file_op_request_to_cloud(session, fops, token):
     # print(response)
 
     jresp = response.json()
-    print("file op response:", jresp)
+    # print("file op response:", jresp)
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )

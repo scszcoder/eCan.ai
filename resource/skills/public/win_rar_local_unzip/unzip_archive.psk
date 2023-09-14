@@ -18,7 +18,7 @@
 "step 10":
 {
     "type": "Call Extern",
-    "file": "global zipped_full_path\nzipped_full_path = fin[0]",
+    "file": "global rarexe\nrarexe = fin[0]",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -26,12 +26,27 @@
 "step 15":
 {
     "type": "Call Extern",
-    "file": "global unziped_path\nunziped_path = fin[1]",
+    "file": "global zipped_full_path\nzipped_full_path = fin[1]",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
 "step 20":
+{
+    "type": "Call Extern",
+    "file": "global unziped_path\nunziped_path = fin[2]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 25":
+{
+    "type": "Check Condition",
+    "condition": "rarexe == ''",
+    "if_else": "",
+    "if_end": ""
+},
+"step 30":
 {
     "type": "App Open",
     "action": "cmd",
@@ -40,10 +55,43 @@
     "target_link": "explorer",
     "anchor_type": "",
     "anchor_value": "",
-    "cargs": "/root,\"\"",
+    "cargs": "zipped_full_path",
     "wait": 2
 },
-"step 25":
+"step 35":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 40":
+{
+    "type": "App Open",
+    "action": "cmd",
+    "save_rb": true,
+    "target_type": "shell",
+    "target_link": "rarexe",
+    "anchor_type": "",
+    "anchor_value": "",
+    "cargs": "zipped_full_path",
+    "wait": 2
+},
+"step 45":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 50":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 5
+},
+"step 55":
 {
     "type": "Extract Info",
     "settings": {
@@ -53,14 +101,14 @@
         "botid": 3,
         "seller": {
             "No": "1",
-            "FromName": "allen smith",
+            "FromName": "Sam Chen",
             "PhoneFrom": "925-601-1002",
-            "Address1From": "101 ABC ST.",
+            "Address1From": "2610 Laramie Gate Cir",
             "CompanyFrom": "",
             "Address2From": "",
-            "CityFrom": "Los Angeles",
+            "CityFrom": "Pleasanton",
             "StateFrom": "CA",
-            "ZipCodeFrom": "90001"
+            "ZipCodeFrom": "94566"
         },
         "mid": 3,
         "midx": -1,
@@ -68,8 +116,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -509,46 +557,38 @@
     "theme": "light",
     "section": "top"
 },
-"step 30":
+"step 60":
 {
     "type": "Search",
     "screen": "screen_info",
-    "names": [
-        "free_trial_ended"
-    ],
-    "target_types": [
-        "anchor text"
-    ],
+    "names": "free_trial_ended",
+    "target_types": "anchor text",
     "logic": "any",
     "result": "useless",
     "site": "amz",
     "breakpoint": false,
     "status": "rar_trial_end_popped"
 },
-"step 35":
+"step 65":
 {
     "type": "Search",
     "screen": "screen_info",
-    "names": [
-        "please_purchase_license"
-    ],
-    "target_types": [
-        "anchor text"
-    ],
+    "names": "please_purchase_license",
+    "target_types": "anchor text",
     "logic": "any",
     "result": "useless",
     "site": "amz",
     "breakpoint": false,
     "status": "rar_license_popped"
 },
-"step 40":
+"step 70":
 {
     "type": "Check Condition",
     "condition": "rar_trial_end_popped",
     "if_else": "",
     "if_end": ""
 },
-"step 45":
+"step 75":
 {
     "type": "Key Input",
     "action": "",
@@ -557,14 +597,14 @@
     "location": "",
     "wait_after": 0
 },
-"step 50":
+"step 80":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 55":
+"step 85":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -585,16 +625,20 @@
         0
     ],
     "move_pause": 0,
+    "post_move": [
+        0,
+        0
+    ],
     "post_wait": 0
 },
-"step 60":
+"step 90":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 65":
+"step 95":
 {
     "type": "Extract Info",
     "settings": {
@@ -604,14 +648,14 @@
         "botid": 3,
         "seller": {
             "No": "1",
-            "FromName": "allen smith",
+            "FromName": "Sam Chen",
             "PhoneFrom": "925-601-1002",
-            "Address1From": "101 ABC ST.",
+            "Address1From": "2610 Laramie Gate Cir",
             "CompanyFrom": "",
             "Address2From": "",
-            "CityFrom": "Los Angeles",
+            "CityFrom": "Pleasanton",
             "StateFrom": "CA",
-            "ZipCodeFrom": "90001"
+            "ZipCodeFrom": "94566"
         },
         "mid": 3,
         "midx": -1,
@@ -619,8 +663,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -1060,14 +1104,14 @@
     "theme": "light",
     "section": "top"
 },
-"step 70":
+"step 100":
 {
     "type": "Mouse Click",
     "action": "Single Click",
     "action_args": "",
     "save_rb": true,
     "screen": "screen_info",
-    "target_name": "Extract_To",
+    "target_name": "extract_to",
     "target_type": "anchor text",
     "text": "Extract To",
     "nth": [
@@ -1081,9 +1125,13 @@
         0
     ],
     "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
     "post_wait": 0
 },
-"step 75":
+"step 105":
 {
     "type": "Extract Info",
     "settings": {
@@ -1093,14 +1141,14 @@
         "botid": 3,
         "seller": {
             "No": "1",
-            "FromName": "allen smith",
+            "FromName": "Sam Chen",
             "PhoneFrom": "925-601-1002",
-            "Address1From": "101 ABC ST.",
+            "Address1From": "2610 Laramie Gate Cir",
             "CompanyFrom": "",
             "Address2From": "",
-            "CityFrom": "Los Angeles",
+            "CityFrom": "Pleasanton",
             "StateFrom": "CA",
-            "ZipCodeFrom": "90001"
+            "ZipCodeFrom": "94566"
         },
         "mid": 3,
         "midx": -1,
@@ -1108,8 +1156,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -1549,7 +1597,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 80":
+"step 110":
 {
     "type": "Key Input",
     "action": "",
@@ -1558,7 +1606,7 @@
     "location": "",
     "wait_after": 0
 },
-"step 85":
+"step 115":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1579,9 +1627,13 @@
         0
     ],
     "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
     "post_wait": 0
 },
-"step 90":
+"step 120":
 {
     "type": "Text Input",
     "txt_type": "type",
@@ -1591,7 +1643,7 @@
     "key_after": "enter",
     "wait_after": 2
 },
-"step 95":
+"step 125":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1612,9 +1664,13 @@
         0
     ],
     "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
     "post_wait": 0
 },
-"step 100":
+"step 130":
 {
     "type": "Key Input",
     "action": "",
@@ -1623,7 +1679,7 @@
     "location": "",
     "wait_after": 0
 },
-"step 105":
+"step 135":
 {
     "type": "Stub",
     "stub_name": "end skill",

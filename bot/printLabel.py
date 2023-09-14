@@ -25,6 +25,8 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, page, sect, stepN, theme)
     this_step, step_words = genStepStub("start skill", "public/win_printer_local_print/reformat_print", "", this_step)
     psk_words = psk_words + step_words
 
+
+
     this_step, step_words = genStepStub("end skill", "public/win_printer_local_print/reformat_print", "", this_step)
     psk_words = psk_words + step_words
 

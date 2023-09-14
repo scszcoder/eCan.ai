@@ -26,9 +26,9 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
 
     this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/fullfill_orders", "", this_step)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
-    psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(5, 0, 0, this_step)
     psk_words = psk_words + step_words
@@ -70,6 +70,10 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     fdir = fdir + worksettings["platform"] + "_" + worksettings["app"] + "_" + worksettings["site"] + "_" + page + "/skills/"
     fdir = fdir + worksettings["skname"] + "/"
 
+
+    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 9.0, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority1694404470.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # this is an app specific step.
     this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", "product_book", worksettings["seller"], fdir, this_step)
     psk_words = psk_words + step_words
@@ -77,13 +81,18 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     # purchase labels, gs_orders contains a list of [{"service": "usps ground", "file": xls file name}, ...]
     # etsy_oders: will have tracking code and filepath filled
     # buy_status will be "success" or "fail reason****"
-    this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", ["gs_orders", "etsy_orders"], "buy_status", this_step)
+    # at the end of this skill, the shipping service and the tracking code section of "etsy_orders" should be updated.....
+    this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "gs_orders", "labels_dir", this_step)
+    psk_words = psk_words + step_words
+
+    #extract tracking code from labels and update them into etsy_orders data struture.
+    this_step, step_words = genStepEtsyExtractTracking("labels_dir", "etsy_orders", this_step)
     psk_words = psk_words + step_words
 
 
     # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
     # now update tracking coded back to the orderlist
-    this_step, step_words = genStepUseSkill("update_tracking", "public/win_chrome_etsy_orders", "USPS Priority Signature v4", "total_label_cost", this_step)
+    this_step, step_words = genStepUseSkill("update_tracking", "public/win_chrome_etsy_orders", "etsy_orders", "total_label_cost", this_step)
     psk_words = psk_words + step_words
 
     # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
@@ -105,12 +114,19 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
 # 3） if more than 1 page, go thru all pages. get all.
 def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = "{"
+    site_url = "https://www.etsy.com/your/orders/sold"
 
     this_step, step_words = genStepHeader("win_chrome_etsy_collect_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY001",
                                           "Etsy Collect New Orders On Windows.", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/collect_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "currentPage", "NA", 0, this_step)
@@ -215,23 +231,16 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepLoop("nthShipTo >= lastShipTo", "", "", "dummy" + str(stepN), this_step)
     psk_words = psk_words + step_words
 
-    # use nth ship to to find its related ship-to-summery, use name, city, state in that summery to find this order's click status.
-    # this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "found_index", "nthChecked", this_step)
-    # psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ship_to", "anchor text", "", "nthShipTo", "center", [0, 0], "box", 2, 2, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ship_to", "anchor text", "", "nthShipTo", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWait(2, 0, 0, this_step)
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global nthShipTo\nnthShipTo = nthShipTo - 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    # update the status for this order item.
-    # this_step, step_words = genStepEtsySetOrderClickedStatus("pageOfOrders", "found_index", this_step)
-    # psk_words = psk_words + step_words
 
     # end loop for going thru all shiptos on the screen
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -291,8 +300,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     # this_step, step_words = genStepEtsyScrapeOrders(hfile, "currentPage", "pageOfOrders",  "", this_step)
     # hfile = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230904/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1693857164.html"
 
-    this_step, step_words = genStepEtsyScrapeOrders(worksettings["log_path"] + hfname, "currentPage", "pageOfOrders",
-                                                    "", this_step)
+    this_step, step_words = genStepEtsyScrapeOrders(worksettings["log_path"] + hfname, "currentPage", "pageOfOrders", "", this_step)
     # this_step, step_words = genStepEtsyScrapeOrders(hfile, "pageOfOrders", "fileStatus", "", this_step)
     psk_words = psk_words + step_words
 
@@ -318,7 +326,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # go to the next page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "next_page", "anchor icon", "", [0, 0], "center", [0, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "next_page", "anchor icon", "", [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
@@ -380,8 +388,11 @@ def processEtsySearchOrders(step, i):
 
 
 # this skill assumes tracking code ready in the orders list data structure, and update tracking code to the orders on website.
+# all the tracking code should already be updated into etsy_orders data structure which is the sole input parameter.....
 def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme):
     psk_words = "{"
+    site_url = "https://www.etsy.com/your/orders/sold"
+
 
     this_step, step_words = genStepHeader("win_chrome_etsy_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY001",
                                           "Etsy Fullfill New Orders On Windows.", stepN)
@@ -390,6 +401,171 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/update_tracking", "", this_step)
     psk_words = psk_words + step_words
 
+    # open the order page again.
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(5, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # go thru all orders, page by page, screen by screen. same nested loop as in collect orders...
+    this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = False", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global currentPage\ncurrentPage = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "update_order_index", "NA", -1, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "orderIds", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "numCompletions", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "nthCompletion", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("endOfOrderList != True", "", "", "browseEtsyOL" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global endOfOrdersPage\nendOfOrdersPage = False", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
+    this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
+    psk_words = psk_words + step_words
+
+    # now extract the screen info.
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "completion", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # use this info, as it contains the name and address, as well as the ship_to anchor location.
+    this_step, step_words = genStepSearch("screen_info", ["complete_order"], ["anchor icon"], "any", "complete_buttons", "useless", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearch("screen_info", ["order_number"], ["info 1"], "any", "orderIds", "useless", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global numCompletions\nnumCompletions = len(complete_buttons)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
+    this_step, step_words = genStepLoop("nthCompletion < numCompletions", "", "", "dummy" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # use nth ship to to find its related ship-to-summery, use name, city, state in that summery to find this order's click status.
+    # this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "found_index", "nthChecked", this_step)
+    # psk_words = psk_words + step_words
+
+    # first, nthcompleteion related order number， then search this order number from the order data structure,
+    # if found and its status is wait for completion, then return the order index number.
+    # if the index number is invalid, then skip this item.
+
+    this_step, step_words = genStepEtsyFindScreenOrder("numCompletions", "complete_buttons", "orderIds", "etsy_orders", "update_order_index", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("update_order_index >= 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # click on the complete order button
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "complete_order", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # now extract the screen info.
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "completion", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # click and type USPS in carrier pull down menu
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "shipping_carrier", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global shipping_service\nshipping_service = fin[update_order_index].getShippingService()", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepTextInput("var", False, "shipping_service", 1, "enter", 2, this_step)
+    psk_words = psk_words + step_words
+
+    # click and type in the tracking code.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "enter_tracking", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global track_code\ntrack_code = fin[update_order_index].getShippingTracking()", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepTextInput("var", False, "track_code", 1, "enter", 2, this_step)
+    psk_words = psk_words + step_words
+
+    # click the complete order button
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "complete_order", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
+    # end condition for checking whehter this order can to be completed.
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now 1 order update is finished. update the counter
+    this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = nthCompletion + 1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # end loop for going thru all completion buttons on the screen
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+    # check end of page information again
+    # search "etsy, inc" and page list as indicators for the bottom of the order list page.
+    this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    # now scroll to the next screen.
+    # (action, action_args, smount, stepN):
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    #  end of loop for scoll till the endOfOrdersPage.
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now check to see whether there are more pages to visit. i.e. number of orders exceeds more than 1 page.
+    # the number of pages and page index variable are already in the pageOfOrders variable.
+    this_step, step_words = genStepCheckCondition("pageOfOrders['num_pages'] == pageOfOrders['page']", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # set the flag, we have completed collecting all orders information at this point.
+    this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # else stub
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # go to the next page.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "next_page", "anchor icon", "", [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # end of loop for while (endOfOrderList != True)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
 
 
     this_step, step_words = genStepStub("end skill", "public/win_chrome_etsy_orders/update_tracking", "", this_step)
@@ -536,7 +712,7 @@ def processPrepGSOrder(step, i):
         dt_string = str(int(dtnow.timestamp()))
         ofname1 = step["file_path"]+"/etsyOrdersGround"+dt_string+".xls"
         createLabelOrderFile(seller, "ozs", light_orders, symTab[step["prod_book"]], ofname1)
-        gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "file": ofname1})
+        gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.5, "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1)})
 
     if len(regular_orders) > 0:
         dtnow = datetime.now()
@@ -544,7 +720,7 @@ def processPrepGSOrder(step, i):
         ofname2 = step["file_path"]+"/etsyOrdersPriority"+dt_string+".xls"
         createLabelOrderFile(seller, "lbs", regular_orders, symTab[step["prod_book"]], ofname2)
 
-        gs_label_orders.append({"service":"USPS Priority V4", "file": ofname2})
+        gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*4.5, "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2)})
 
     symTab[step["gs_order"]] = gs_label_orders
 
@@ -597,6 +773,29 @@ def genStepEtsyAddPageOfOrder(fullOrdersVar, pageOfOrdersVar, stepN):
         "type": "Etsy Add Page Of Order",
         "fullOrders": fullOrdersVar,
         "pageOfOrders": pageOfOrdersVar
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepEtsyExtractTracking(labels_dir_var, orders_var, stepN):
+    stepjson = {
+        "type": "Etsy Extract Tracking",
+        "labels_dir": labels_dir_var,
+        "fullOrders": orders_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepEtsyFindScreenOrder(nth_var, complete_buttons_var, order_ids_var, orders_var, found_index_var, stepN):
+    stepjson = {
+        "type": "Etsy Find Screen Order",
+        "nth_var": nth_var,
+        "orders_var": orders_var,
+        "complete_buttons_var": complete_buttons_var,
+        "order_ids_var": order_ids_var,
+        "found_index_var": found_index_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -676,3 +875,40 @@ def processEtsyAddPageOfOrder(step, i):
 
     return i + 1
 
+
+
+def processEtsyExtractTracking(step, i):
+
+    label_dirs = os.listdir(symTab[step["labels_dir"]])
+    for grp in symTab[step["orderGroups"]]:
+        serv = grp.getShippingService()
+        if serv in label_dirs:
+            label_files = os.listdir(symTab[step["labels_dir"]] + "/" + serv)
+            for f in label_files:
+                print("getting tracking code from:", f)
+
+                #now update the tracking code into the orders.
+
+    return i + 1
+
+
+
+
+def processEtsyFindScreenOrder(step, i):
+    found = -1
+    orders = symTab[step["orders_var"]]
+    nth = symTab[step["nth_var"]]
+
+    template = symTab[step["order_ids_var"]][nth]["text"].strip()
+    button_loc = symTab[step["complete_buttons_var"]][nth]["loc"]
+    ref_loc = symTab[step["order_ids_var"]][nth]["associates"][0]["loc"]
+
+    # just for sanity cross-check
+    if button_loc == ref_loc:
+        found = next((idx for idx, order in enumerate(orders) if template in order.getOid()), -1)
+    else:
+        print("ERROR: nth order number doesn't match nth complete order button....")
+
+    symTab[step["found_index_var"]] = found
+
+    return i + 1

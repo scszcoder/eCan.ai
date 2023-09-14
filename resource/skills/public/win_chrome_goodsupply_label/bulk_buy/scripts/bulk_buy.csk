@@ -32,6 +32,13 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "export_template",
+                        "anchor_type"  : "text",
+                        "template"     : "Export Template",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "import",
                         "anchor_type"  : "text",
                         "template"     : "Import",
@@ -50,7 +57,7 @@
                     {
                         "info_name"  : "available_fund",
                         "info_type"  : "lines 1",
-                        "template"     : "\$[0-9]+\.[0-9]+",
+                        "template"     : "\\$[0-9]+\\.[0-9]+",
                         "ref_method"   : "1",
                         "refs" : [{
                                 "dir": "right",

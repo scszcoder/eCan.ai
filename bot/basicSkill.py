@@ -29,6 +29,13 @@ MAX_STEPS = 1000000000
 page_stack = []
 current_context = None
 
+#####################################################################################
+#  some useful utility functions
+#####################################################################################
+
+def get_default_download_dir():
+    home = os.path.expanduser("~")
+    return os.path.join(home, "Downloads")
 
 def genStepHeader(skillname, los, ver, author, skid, description, stepN):
     header = {
@@ -190,7 +197,7 @@ def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, 
 
 
 
-def genStepMouseClick(action, action_args, saverb, screen, target, target_type, template, nth, offset_from, offset, offset_unit, move_pause, post_wait, stepN):
+def genStepMouseClick(action, action_args, saverb, screen, target, target_type, template, nth, offset_from, offset, offset_unit, move_pause, post_wait, post_move, stepN):
     stepjson = {
         "type": "Mouse Click",
         "action": action,               # double click, single click, drag and drop?
@@ -205,6 +212,7 @@ def genStepMouseClick(action, action_args, saverb, screen, target, target_type, 
         "offset_unit": offset_unit,      # pixel, box
         "offset": offset,                # offset in x and y direction,
         "move_pause": move_pause,        # after move the mouse pointer to target, pause for certain seconds.
+        "post_move": post_move,        # after click, move the mouse pointer to certain offset.
         "post_wait": post_wait           # after click action, wait for a number of seconds.
     }
 
@@ -321,9 +329,10 @@ def genStepListDir(dirname, fargs, result_var, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepCheckExistence(fname, result_var, stepN):
+def genStepCheckExistence(fntype, fname, result_var, stepN):
     stepjson = {
         "type": "Check Existence",
+        "fntype": fntype,
         "file": fname,
         "result": result_var
     }
@@ -337,6 +346,18 @@ def genStepCreateDir(dirname, result_var, stepN):
         "type": "Create Dir",
         "dir": dirname,
         "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+
+def genStepTextToNumber(invar, outvar, stepN):
+    stepjson = {
+        "type": "Text To Number",
+        "intext": invar,
+        "numvar": outvar
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -502,7 +523,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
 
     win32gui.EnumWindows(winEnumHandler, None)
 
-    #print(names)
+    # print(names)
     window_handle = win32gui.FindWindow(None, names[0])
     window_rect = win32gui.GetWindowRect(window_handle)
     print("window: ", names[0], " rect: ", window_rect)
@@ -511,7 +532,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         os.makedirs(os.path.dirname(sfile))
 
     #now we have obtained the top window, take a screen shot.
-    im0 = pyautogui.screenshot(imageFilename=sfile, region=(window_rect[0], window_rect[1], window_rect[0] + 3300, window_rect[0] + 2000))
+    im0 = pyautogui.screenshot(imageFilename=sfile, region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -547,23 +568,22 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     result = req_cloud_read_screen(settings["session"], request, settings["token"])
-    print("result::: ", result)
+    # print("result::: ", result)
     jresult = json.loads(result['body'])
-    print("cloud result data: ", jresult["data"])
+    # print("cloud result data: ", jresult["data"])
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     if "errors" in jresult:
         screen_error = True
         print("ERROR Type: ", jresult["errors"][0]["errorType"], "ERROR Info: ", jresult["errors"][0]["errorInfo"], )
     else:
-        print("cloud result data body: ", result["body"])
+        # print("cloud result data body: ", result["body"])
         jbody = json.loads(result["body"])
         for p in jbody["data"]:
             if p["name"] == "paragraph":
                 for tl in p["txt_struct"]:
                     print("TXT LINE: ", tl["text"])
 
-                print("PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP")
 
         # global var "last_screen" always contains information extracted from the last screen shot.
         if len(jbody["data"]) > 0:
@@ -758,8 +778,9 @@ def processTextInput(step, i):
     # pyautogui.doubleClick()
     print("typing.....", step["text"][0])
     time.sleep(2)
-    pyautogui.click()
+    # pyautogui.click()
     if step["txt_type"] == "var":
+        print("about to TYPE in:", symTab[step["text"]])
         pyautogui.write(symTab[step["text"]])
     else:
         pyautogui.write(step["text"])
@@ -769,7 +790,10 @@ def processTextInput(step, i):
     if step['key_after'] != "":
         print("after typing, pressing:", step['key_after'], "then wait for:", step['wait_after'])
         pyautogui.press(step['key_after'])
+        time.sleep(1)
+        pyautogui.press("enter")
         time.sleep(step['wait_after'])
+
 
     # now save for roll back if ever needed.
     # first remove the previously save rollback point, but leave up to 3 rollback points
@@ -963,6 +987,20 @@ def get_clickable_loc(box, off_from, offset, offset_unit):
     return click_loc
 
 
+def get_post_move_offset(box, offset, offset_unit):
+    print("calc post move offset:", offset_unit, box, offset)
+    if offset_unit == "box":
+        box_length = box[3] - box[2]
+        box_height = box[2] - box[0]
+    else:
+        box_length = 1
+        box_height = 1
+
+    offset = [offset[0]*box_length, offset[1]*box_height]
+
+    return offset
+
+
 def is_float(string):
     try:
         float(string)
@@ -987,10 +1025,12 @@ def processMouseClick(step, i):
     if step["target_type"] != "direct" and step["target_type"] != "expr":
         sd = symTab[step["screen"]]
         print("finding: ", step["text"], " target name: ", step["target_name"])
-        print("from data: ", sd)
+        # print("from data: ", sd)
         obj_box = find_clickable_object(sd, step["target_name"], step["text"], step["target_type"], step["nth"])
         print("obj_box: ", obj_box)
         loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
+        post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
+        post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
 
     else:
         # the location is already calculated directly and stored here.
@@ -998,11 +1038,18 @@ def processMouseClick(step, i):
             print("obtain directly..... from a variable which is a box type i.e. [l, t, r, b]")
             box = symTab[step["target_name"]]
             loc = box_center(box)
+            post_offset_x = (box[2] - box[0]) * step["post_move"][0]
+            post_offset_y = (box[3] - box[1]) * step["post_move"][1]
+            post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
         else:
             print("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]", step["target_name"])
             exec("global click_target\nclick_target = " + step["target_name"])
             print("box: ", symTab["click_target"])
-            loc = box_center(symTab["click_target"])
+            box = [symTab["click_target"][1], symTab["click_target"][0], symTab["click_target"][3], symTab["click_target"][2]]
+            loc = box_center(box)
+            post_offset_y = (symTab["click_target"][2] - symTab["click_target"][0]) * step["post_move"][0]
+            post_offset_x = (symTab["click_target"][3] - symTab["click_target"][1]) * step["post_move"][1]
+            post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
 
     print("calculated locations:", loc)
 
@@ -1044,7 +1091,11 @@ def processMouseClick(step, i):
         # code drop location is embedded in action_args, the code need to added later to process that....
         pyautogui.dragTo(loc[0], loc[1], duration=2)
 
-    time.sleep(step["post_wait"])
+    time.sleep(1)
+    print("post click moveto :", post_loc)
+    pyautogui.moveTo(post_loc[0], post_loc[1])
+    if step["post_wait"] > 0:
+        time.sleep(step["post_wait"]-1)
 
     # now save for roll back if ever needed.
     # first remove the previously save rollback point, but leave up to 3 rollback points
@@ -1110,7 +1161,7 @@ def box_center(box):
 
 def processMouseScroll(step, i):
     screen_data = symTab[step["screen"]]
-    print("screen_data: ", screen_data)
+    # print("screen_data: ", screen_data)
     screen_vsize = screen_data[len(screen_data) - 2]['loc'][2]
 
     if step["unit"] == "screen":
@@ -1182,6 +1233,24 @@ def processCreateData(step, i):
 
     mission_vars.append(step["data_name"])
     return i + 1
+
+
+def processTextToNumber(step, i):
+    original = symTab[step["intext"]]
+
+    num = original.strip().replace("$", "").replace("#", "").replace("%", "").replace(",", "").replace(" ", "")
+
+    if "." in num:
+        symTab[step["numvar"]] = float(num)
+    else:
+        symTab[step["numvar"]] = int(num)
+
+    if "%" in original:
+        symTab[step["numvar"]] = symTab[step["numvar"]]/100
+
+    return i + 1
+
+
 
 # this is for add an object to a list/array of object, or add another key-value pair to a json object.
 # from: value source
@@ -1632,7 +1701,7 @@ def processSearch(step, i):
     found = []
     n_targets_found = 0
 
-    print("Searching screen....", scrn)
+    # print("Searching screen....", scrn)
 
     if not (type(target_names) is list):
         target_names = [step["names"]]  # make it a list.
