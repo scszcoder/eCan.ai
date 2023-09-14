@@ -724,7 +724,7 @@ def prepRunSkill(all_skill_codes):
     gen_addresses(skill_code, 2)
 
     print("DONE generating addressess...")
-    print("READY2RUN: ", skill_code)
+    # print("READY2RUN: ", skill_code)
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     return skill_code
 

@@ -37,13 +37,13 @@ def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_rar_local_unzip/unzip_archive", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global rarexe\nrarexe = fin[0]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global rarexe\nrarexe = fin[0]\nprint('rarexe', rarexe)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global zipped_full_path\nzipped_full_path = fin[1]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global zipped_full_path\nzipped_full_path = fin[2]\nprint('zipped_full_path', zipped_full_path)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global unziped_path\nunziped_path = fin[2]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global unzipped_path\nunzipped_path = fin[1]\nprint('unzipped_path', unzipped_path)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("rarexe == ''", "", "", this_step)
@@ -51,14 +51,14 @@ def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
 
     # subprocess.Popen(r'explorer /root,"'+zipped_full_path+'"')
     # rar_file = '/root,"'+zipped_full_path+'"'
-    this_step, step_words = genStepOpenApp("cmd", True, "shell", "explorer", "", "", "zipped_full_path", 2, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "shell", "explorer", "", "", "expr", "zipped_full_path", 2, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepOpenApp("cmd", True, "shell", "rarexe", "", "", "zipped_full_path", 2, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "shell", "rarexe", "", "", "expr", "zipped_full_path", 2, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket
@@ -80,10 +80,10 @@ def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", "free_trial_ended", "anchor text", "any", "useless", "rar_trial_end_popped", "amz", False, this_step)
+    this_step, step_words = genStepSearch("screen_info", "expired_notification", "anchor text", "any", "useless", "rar_trial_end_popped", "amz", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", "please_purchase_license", "anchor text", "any", "useless", "rar_license_popped", "amz", False, this_step)
+    this_step, step_words = genStepSearch("screen_info", "buy_license", "anchor text", "any", "useless", "rar_license_popped", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # and click on upper right corner to close the pop up or click on Close button to close the pop-up window depends on which popup it is.
@@ -98,7 +98,7 @@ def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor text", "Extract To", [0, 0], "center", [0, 0], "pixel", 0, 0, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor text", "", [0, 0], "center", [0, 0], "pixel", 0, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
     # # close bracket
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -126,16 +126,17 @@ def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # fill in the to be extracted dir
-    this_step, step_words = genStepTextInput("type", False, unziped_path, 1, "enter", 2, this_step)
+    this_step, step_words = genStepTextInput("var", False, "unzipped_path", 1, "enter", 2, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "OK", "anchor text", "OK", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
+    # no need on OK click, double <enter> did the job
+    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "OK", "anchor text", "OK", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
+    # psk_words = psk_words + step_words
 
     # list the files to double check???
 
     # use hot key to close the winrar app window
-    this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 0, this_step)
+    this_step, step_words = genStepKeyInput("", False, "alt,f4", "", 0, this_step)
     psk_words = psk_words + step_words
 
 

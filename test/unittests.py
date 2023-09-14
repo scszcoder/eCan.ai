@@ -92,6 +92,14 @@ def test_scrape_etsy_orders():
     next_step = processEtsyScrapeOrders(step, 10)
 
 
+def test_rar():
+    # subprocess.Popen("C:/Program Files/WinRAR/WinRAR.exe C:/Users/songc/Downloads/Downloads1.rar")
+    subprocess.Popen(["C:/Program Files/WinRAR/WinRAR.exe",  "C:/Users/songc/Downloads/Downloads1.rar"])
+    for i in range(10):
+        print("waiting.......")
+        time.sleep(2)
+
+
 def test_basic():
     # order = "$340.049"
     # order_pattern = re.compile("\$[0-9]+\.[0-9]+")

@@ -26,8 +26,36 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
 
     this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/fullfill_orders", "", this_step)
     psk_words = psk_words + step_words
+
+    # unit test the rar skill
+
+    hfname = get_default_download_dir() + "Downloads1.rar"
+    dl_dir = "C:/temp/"
+    # input parameters [ rar exe path, zipped file fullpath, unziped_dir ]
+    this_step, step_words = genStepCreateData("expr", "unzip_input", "NA", "['C:/Program Files/WinRAR/WinRAR.exe', '" + dl_dir + "', '" + hfname +"']", this_step)
+    psk_words = psk_words + step_words
+
+    # unzip the labels tar file, and update tracking code into
+    this_step, step_words = genStepUseSkill("unzip_archive", "public/win_rar_local_unzip", "unzip_input", "label_dir", this_step)
+    psk_words = psk_words + step_words
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # end of temp test.
+
+
     #
-    # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, this_step)
     # psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(5, 0, 0, this_step)
@@ -123,7 +151,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/collect_orders", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -402,7 +430,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     psk_words = psk_words + step_words
 
     # open the order page again.
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(5, 0, 0, this_step)

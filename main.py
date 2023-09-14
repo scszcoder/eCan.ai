@@ -81,6 +81,7 @@ if __name__ == '__main__':
     # test_scrape_etsy_orders()
     # test_basic()
     # test_coordinates()
+    # test_rar()
 
     print("all unit test done...")
 

@@ -34,7 +34,7 @@
                     {
                         "anchor_name"  : "extract_to",
                         "anchor_type"  : "text",
-                        "template"     : "Extract to",
+                        "template"     : "Extract To",
                         "ref_method"   : "0",
                         "ref_constraints" : []
                     },
@@ -56,13 +56,6 @@
                         "anchor_name"  : "cancel",
                         "anchor_type"  : "text",
                         "template"     : "Cancel",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
-                    {
-                        "anchor_name"  : "refresh",
-                        "anchor_type"  : "icon",
-                        "template"     : "refresh0.png",
                         "ref_method"   : "0",
                         "ref_constraints" : []
                     }

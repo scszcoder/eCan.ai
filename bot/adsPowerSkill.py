@@ -9,7 +9,7 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     psk_words = ""
     print("DEBUG", "genAMZBrowseDetails...")
 
-    this_step, step_words = genStepOpenApp("run", True, adsPowerLink, url, "", "", aargs, 3, stepN)
+    this_step, step_words = genStepOpenApp("run", True, adsPowerLink, url, "", "", "direct", aargs, 3, stepN)
     psk_words = psk_words + step_words
 
     # some steps here to adjust window size and location here...

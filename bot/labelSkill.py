@@ -35,6 +35,15 @@ gs_unzipped_dir = ""
 
 # this skill assumes the following input "fin": [file path, file name, shipping service name (ex. "USPS Ground"), cost]
 # the caller skill must get these ready. There will be no error handling here.
+# Limitations: if there is only 1 row in xls, no rar file will be generated, the label will be generated and ready for download
+# in the
+# etsyOrdersTest11.xlsx_0914022831.zip will be created for download. this could take minutes to complete. and
+# to see the files, have to enter calender from yesterdya to today to see the files.
+# to get the download file, will need to go to "File Imported" page, and on calendar search past 2 days result and then click the download
+# when ready. then can use command line to extract all. skip winrar skill..... if output is rar, then use rar skill if .zip then use:
+# C:\Program Files\7-Zip\7z.exe e abc.zip -oC:\.....  will extract the zip file into C:\.... dir.
+#
+
 def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = "{"
     site_url = "https://goodsupply.xyz/Dashboard/UploadBulk"
@@ -47,7 +56,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # open the web page.
-    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, this_step)
     psk_words = psk_words + step_words
 
     # fin is the input, which contains usps service type, xls file name, and total price.
@@ -90,7 +99,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
 
 
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearch("screen_info", "gs_sign_in", "anchor text", "any", "junk", "gs_not_signed_in", "goodsupply", False, this_step)
@@ -125,7 +134,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # open the web page again.
-    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", worksettings["cargs"], 5, this_step)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, this_step)
     psk_words = psk_words + step_words
 
 
