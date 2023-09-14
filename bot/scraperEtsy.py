@@ -42,7 +42,7 @@ def processEtsyScrapeOrders(step, i):
     with open(html_file, 'rb') as fp:
         soup = BeautifulSoup(fp, 'html.parser')
 
-        # per order information blocks
+        # extract number of pages info
         pageItems = soup.findAll("div", attrs={"class": "wt-select wt-mr-xs-2"})
         option_tags = []
         if len(pageItems) > 0:
@@ -51,6 +51,7 @@ def processEtsyScrapeOrders(step, i):
                 option_tags = pi.findAll("option")
                 print(option_tags)
 
+        # extract page number info
         ahItems = soup.findAll("a", attrs={"class": "text-gray active"})
         page_number = 1
         for ah in ahItems:
@@ -65,6 +66,7 @@ def processEtsyScrapeOrders(step, i):
             if page_number > 1:
                 break
 
+        # extract total number of orders
         scriptItems = soup.findAll("script")
         for item in scriptItems:
             # print("item: ", item)
@@ -94,14 +96,14 @@ def processEtsyScrapeOrders(step, i):
                 if order_count >= 0:
                     break
 
-        # this is the true divisional tag that contains all info of an order.
+        # this is the true divisional tag that contains all info of an order on this html page..
         orderItems = soup.findAll("div", attrs={"panel-body-row has-hover-state pt-xs-0 pl-xs-0 pr-xs-0 pb-xs-3 pb-xl-4"})
 
         # divItems = soup.findAll("div", attrs={"class": "orders-full-width-panel-on-mobile panel panel-no-footer mb-xs-4"})
         for item in orderItems:
             # extract recipient info.
 
-
+            # this is for expanded recipient address
             recipientDetailsItems = item.findAll("div", attrs={"class": "address break-word"})
             for ri in recipientDetailsItems:
                 order = ORDER("", "", "", "", "", "", "")
@@ -141,6 +143,7 @@ def processEtsyScrapeOrders(step, i):
                     recipient.setCountry(recipient_addr_country_tags[0].text)
 
 
+            # this is for unexpanded recipient address
             recipientItems = item.findAll("div", attrs={"class": "break-word"})
             for bi in recipientItems:
                 recipient_loc_tags = bi.findAll("span", attrs={"data-test-id": 'unsanitize'})
@@ -158,31 +161,47 @@ def processEtsyScrapeOrders(step, i):
 
                 # oid_tags = item.findAll("span", attrs={"data-test-id": 'unsanitize'})
 
-            # extract product info.
+            # extract product title info.
             aItems = item.findAll("a", attrs={"class": "text-gray-darkest break-word"})
             for aitem in aItems:
-                product = OrderedProducts("", "", "", "")
+                product = OrderedProduct("", "", "", "")
                 print("product title:", aitem["title"])
                 product.setPTitle(aitem['title'])
                 products.append(product)
 
-
-            liItems = item.findAll("li", attrs={"class": "clearfix"})
+            # <ul class="list-unstyled text-body-smaller"> this tag contains all the <li> tags. each product has a <ul>
+            # <li> tags contains product quantity and variations, 1st one is always quantity, the rest are variations.
             pidx = 0
-            print(" # of products: ", len(products), "# of liItems:", len(liItems))
-            for lii in liItems:
-                qItems = lii.findAll("span", attrs={"class": 'strong'})
-                if len(qItems) > 0:
-                    print("Quantity:", qItems[0].text, "pidx:", pidx)
-                    if qItems[0].text.isnumeric():
-                        products[pidx].setQuantity(qItems[0].text)
+            ulItems = item.findAll("ul", attrs={"class": "list-unstyled text-body-smaller"})
+            for ulItems in ulItems:
+                liItems = ulItems.findAll("li", attrs={"class": "clearfix"})
+                print(" # of products: ", len(products), "# of liItems:", len(liItems))
+                liidx = 0
+                for lii in liItems:
+                    if liidx == 0:
+                        qItems = lii.findAll("span", attrs={"class": 'strong'})
+                        if len(qItems) > 0:
+                            print("Quantity:", qItems[0].text, "pidx:", pidx)
+                            if qItems[0].text.isnumeric():
+                                products[pidx].setQuantity(qItems[0].text)
+                    else:
+                        # <span class="mr-xs-1 text-gray-lighter">Color</span><span>Blue</span>
+                        qItems = lii.findAll("span", attrs={"class": 'mr-xs-1 text-gray-lighter'})
+                        var_key = qItems[0].text
+                        qItems = lii.findAll("span", attrs={"class": None})
+                        var_val = qItems[0].text
+                        products[pidx].addVariation([var_key, var_val])
+
+                    liidx = liidx + 1
 
                 pidx = pidx + 1
 
+            # obtain order ID, each order will have only 1 of these.
             aItems = item.findAll("a", attrs={"aria-current": "page", "class": "text-gray active"})
             print("orderID: ", aItems[1].text)
             order.setOid(aItems[1].text)
 
+            # obtain total price of the order, each order will have only 1 of these.
             aItems = item.findAll("span", attrs={"class": "display-inline-block"})
             print("total price: ", float(aItems[0].text[1:]))
             order.setTotalPrice(float(aItems[0].text[1:]))

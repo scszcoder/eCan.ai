@@ -114,12 +114,13 @@ class Shipping:
             "status": self.status
         }
 
-class OrderedProducts:
+class OrderedProduct:
     def __init__(self, pid, ptitle, price, quantity):
         self.pid = pid
         self.ptitle = ptitle
         self.price = price
         self.quantity = quantity
+        self.variations = {}
 
     def setPid(self, pid):
         self.pid = pid
@@ -145,13 +146,19 @@ class OrderedProducts:
     def getQuantity(self):
         return self.quantity
 
+    def addVariation(self, var):
+        self.variations[var[0]] = var[1]
+
     def toJson(self):
         return {
             "pid": self.pid,
             "ptitle": self.ptitle,
             "price": self.price,
-            "quantity": self.quantity
+            "quantity": self.quantity,
+            "variations": self.variations
         }
+
+
 
 class ORDER:
     def __init__(self, oid, products, buyer, recipient, shipping, status, createdOn):
@@ -172,6 +179,9 @@ class ORDER:
 
     def setOid(self, oid):
         self.oid = oid
+
+    def getOid(self):
+        return self.oid
 
     def setBuyer(self, buyer):
         self.buyer = buyer
@@ -295,6 +305,19 @@ class ORDER:
 
     def setChecked(self, status):
         self.ui_checked = status
+
+    def getShippingService(self):
+        return self.shipping.service
+
+    def setShippingService(self, serv):
+        self.shipping.service = serv
+
+    def getShippingTracking(self):
+        return self.shipping.tracking
+
+    def setShippingTracking(self, tc):
+        self.shipping.tracking = tc
+
 
     def toJson(self):
         return {

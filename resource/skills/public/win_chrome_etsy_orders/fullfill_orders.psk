@@ -17,24 +17,12 @@
 },
 "step 10":
 {
-    "type": "App Open",
-    "action": "cmd",
-    "save_rb": true,
-    "target_type": "browser",
-    "target_link": "https://www.etsy.com/your/orders/sold",
-    "anchor_type": "",
-    "anchor_value": "",
-    "cargs": "",
-    "wait": 5
-},
-"step 15":
-{
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 5
 },
-"step 20":
+"step 15":
 {
     "type": "Create Data",
     "data_type": "string",
@@ -42,7 +30,7 @@
     "key_name": "NA",
     "key_value": ""
 },
-"step 25":
+"step 20":
 {
     "type": "Create Data",
     "data_type": "obj",
@@ -469,7 +457,7 @@
         }
     ]
 },
-"step 30":
+"step 25":
 {
     "type": "Call Extern",
     "file": "global product_book\nprint('product_book:', product_book[0])",
@@ -477,7 +465,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 35":
+"step 30":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -485,7 +473,7 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 40":
+"step 35":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -493,7 +481,7 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 45":
+"step 40":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -501,7 +489,7 @@
     "key_name": "NA",
     "key_value": 253
 },
-"step 50":
+"step 45":
 {
     "type": "Use Skill",
     "skill_name": "collect_orders",
@@ -509,23 +497,31 @@
     "skill_args": "dummy_in",
     "output": "etsy_status"
 },
+"step 50":
+{
+    "type": "Call Extern",
+    "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 9.0, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority1694404470.xls'}]\nprint('GS ORDERS', gs_orders)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
 "step 55":
 {
     "type": "Prep GS Order",
     "ec_order": "etsy_orders",
     "gs_order": "gs_orders",
     "prod_book": "product_book",
-    "file_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/",
+    "file_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/",
     "seller": {
         "No": "1",
-        "FromName": "allen smith",
+        "FromName": "Sam Chen",
         "PhoneFrom": "925-601-1002",
-        "Address1From": "101 ABC ST.",
+        "Address1From": "2610 Laramie Gate Cir",
         "CompanyFrom": "",
         "Address2From": "",
-        "CityFrom": "Los Angeles",
+        "CityFrom": "Pleasanton",
         "StateFrom": "CA",
-        "ZipCodeFrom": "90001"
+        "ZipCodeFrom": "94566"
     }
 },
 "step 60":
@@ -533,21 +529,24 @@
     "type": "Use Skill",
     "skill_name": "bulk_buy",
     "skill_path": "public/win_chrome_goodsupply_label",
-    "skill_args": [
-        "gs_orders",
-        "etsy_orders"
-    ],
-    "output": "buy_status"
+    "skill_args": "gs_orders",
+    "output": "labels_dir"
 },
 "step 65":
+{
+    "type": "Etsy Extract Tracking",
+    "labels_dir": "labels_dir",
+    "fullOrders": "etsy_orders"
+},
+"step 70":
 {
     "type": "Use Skill",
     "skill_name": "update_tracking",
     "skill_path": "public/win_chrome_etsy_orders",
-    "skill_args": "USPS Priority Signature v4",
+    "skill_args": "etsy_orders",
     "output": "total_label_cost"
 },
-"step 70":
+"step 75":
 {
     "type": "Use Skill",
     "skill_name": "reformat_print",
@@ -555,7 +554,7 @@
     "skill_args": "label_list",
     "output": ""
 },
-"step 75":
+"step 80":
 {
     "type": "Stub",
     "stub_name": "end skill",

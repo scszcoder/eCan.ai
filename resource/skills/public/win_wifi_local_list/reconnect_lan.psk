@@ -25,14 +25,14 @@
         "botid": 3,
         "seller": {
             "No": "1",
-            "FromName": "allen smith",
+            "FromName": "Sam Chen",
             "PhoneFrom": "925-601-1002",
-            "Address1From": "101 ABC ST.",
+            "Address1From": "2610 Laramie Gate Cir",
             "CompanyFrom": "",
             "Address2From": "",
-            "CityFrom": "Los Angeles",
+            "CityFrom": "Pleasanton",
             "StateFrom": "CA",
-            "ZipCodeFrom": "90001"
+            "ZipCodeFrom": "94566"
         },
         "mid": 3,
         "midx": -1,
@@ -40,8 +40,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -518,6 +518,10 @@
         0
     ],
     "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
     "post_wait": 0
 },
 "step 0":
@@ -530,14 +534,14 @@
         "botid": 3,
         "seller": {
             "No": "1",
-            "FromName": "allen smith",
+            "FromName": "Sam Chen",
             "PhoneFrom": "925-601-1002",
-            "Address1From": "101 ABC ST.",
+            "Address1From": "2610 Laramie Gate Cir",
             "CompanyFrom": "",
             "Address2From": "",
-            "CityFrom": "Los Angeles",
+            "CityFrom": "Pleasanton",
             "StateFrom": "CA",
-            "ZipCodeFrom": "90001"
+            "ZipCodeFrom": "94566"
         },
         "mid": 3,
         "midx": -1,
@@ -545,8 +549,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -1023,6 +1027,10 @@
         0
     ],
     "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
     "post_wait": 0
 },
 "step 0":
@@ -1035,14 +1043,14 @@
         "botid": 3,
         "seller": {
             "No": "1",
-            "FromName": "allen smith",
+            "FromName": "Sam Chen",
             "PhoneFrom": "925-601-1002",
-            "Address1From": "101 ABC ST.",
+            "Address1From": "2610 Laramie Gate Cir",
             "CompanyFrom": "",
             "Address2From": "",
-            "CityFrom": "Los Angeles",
+            "CityFrom": "Pleasanton",
             "StateFrom": "CA",
-            "ZipCodeFrom": "90001"
+            "ZipCodeFrom": "94566"
         },
         "mid": 3,
         "midx": -1,
@@ -1050,8 +1058,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -1528,6 +1536,10 @@
         0
     ],
     "move_pause": 1,
+    "post_move": [
+        0,
+        0
+    ],
     "post_wait": 1
 },
 "step 0":
@@ -1540,14 +1552,14 @@
         "botid": 3,
         "seller": {
             "No": "1",
-            "FromName": "allen smith",
+            "FromName": "Sam Chen",
             "PhoneFrom": "925-601-1002",
-            "Address1From": "101 ABC ST.",
+            "Address1From": "2610 Laramie Gate Cir",
             "CompanyFrom": "",
             "Address2From": "",
-            "CityFrom": "Los Angeles",
+            "CityFrom": "Pleasanton",
             "StateFrom": "CA",
-            "ZipCodeFrom": "90001"
+            "ZipCodeFrom": "94566"
         },
         "mid": 3,
         "midx": -1,
@@ -1555,8 +1567,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230913/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -2033,6 +2045,10 @@
         0
     ],
     "move_pause": 1,
+    "post_move": [
+        0,
+        0
+    ],
     "post_wait": 1
 },
 "step 15":

@@ -47,7 +47,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on path input win
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, 0], "left", [3, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, 0], "left", [3, 0], "box", 2, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # delete everything there
@@ -71,7 +71,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on file name input win
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_name", "anchor text", "", [0, 0], "right", [2, 0], "box", 2, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_name", "anchor text", "", [0, 0], "right", [2, 0], "box", 2, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # delete everything there
@@ -100,14 +100,14 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_open", "anchor text", "", [0, 0], "center", [0, 0], "box", 0, 0, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_open", "anchor text", "", [0, 0], "center", [0, 0], "box", 0, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_cancel", "anchor text", "", [0, 0], "left", [2, 0], "box", 0, 5, this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_cancel", "anchor text", "", [0, 0], "left", [2, 0], "box", 0, 5, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
