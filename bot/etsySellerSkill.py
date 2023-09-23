@@ -27,34 +27,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/fullfill_orders", "", this_step)
     psk_words = psk_words + step_words
 
-    # unit test the rar skill
 
-    hfname = get_default_download_dir() + "Downloads1.rar"
-    dl_dir = "C:/temp/"
-    # input parameters [ rar exe path, zipped file fullpath, unziped_dir ]
-    this_step, step_words = genStepCreateData("expr", "unzip_input", "NA", "['C:/Program Files/WinRAR/WinRAR.exe', '" + dl_dir + "', '" + hfname +"']", this_step)
-    psk_words = psk_words + step_words
-
-    # unzip the labels tar file, and update tracking code into
-    this_step, step_words = genStepUseSkill("unzip_archive", "public/win_rar_local_unzip", "unzip_input", "label_dir", this_step)
-    psk_words = psk_words + step_words
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # end of temp test.
-
-
-    #
     # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, this_step)
     # psk_words = psk_words + step_words
 
@@ -79,10 +52,17 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 253, this_step)
     psk_words = psk_words + step_words
 
+     # hard default exe path code here just for testing purpose, eventually will be from input or settings....
+    this_step, step_words = genStepCreateData("str", "sevenZExe", "NA", 'C:/"Program Files"/7-Zip/7z.exe', this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("str", "rarExe", "NA", 'C:/"Program Files"/WinRaR/WinRaR.exe', this_step)
+    psk_words = psk_words + step_words
+
 
     #skname, skfname, in-args, output, step number
-    this_step, step_words = genStepUseSkill("collect_orders", "public/win_chrome_etsy_orders", "dummy_in", "etsy_status", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepUseSkill("collect_orders", "public/win_chrome_etsy_orders", "dummy_in", "etsy_status", this_step)
+    # psk_words = psk_words + step_words
 
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
@@ -99,23 +79,26 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     fdir = fdir + worksettings["skname"] + "/"
 
 
-    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 9.0, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority1694404470.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
 
     # this is an app specific step.
-    this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", "product_book", worksettings["seller"], fdir, this_step)
+    # this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", "product_book", worksettings["seller"], fdir, this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority09122023.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # purchase labels, gs_orders contains a list of [{"service": "usps ground", "file": xls file name}, ...]
     # etsy_oders: will have tracking code and filepath filled
     # buy_status will be "success" or "fail reason****"
     # at the end of this skill, the shipping service and the tracking code section of "etsy_orders" should be updated.....
-    this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "gs_orders", "labels_dir", this_step)
+    this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "gs_input", "labels_dir", this_step)
     psk_words = psk_words + step_words
 
     #extract tracking code from labels and update them into etsy_orders data struture.
-    this_step, step_words = genStepEtsyExtractTracking("labels_dir", "etsy_orders", this_step)
-    psk_words = psk_words + step_words
+
 
 
     # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
@@ -229,10 +212,10 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
-    this_step, step_words = genStepSearch("screen_info", ["ship_to_summery"], ["info 2"], "any", "shipToSummeries", "useless", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ship_to_summery"], ["info 2"], "any", "shipToSummeries", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["ship_to"], ["anchor text"], "any", "shipTos", "useless", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ship_to"], ["anchor text"], "any", "shipTos", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "numShipTos", "NA", "len(shipTos)-1", this_step)
@@ -283,7 +266,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
 
     # check end of page information again
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -471,10 +454,10 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
-    this_step, step_words = genStepSearch("screen_info", ["complete_order"], ["anchor icon"], "any", "complete_buttons", "useless", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["complete_order"], ["anchor icon"], "any", "complete_buttons", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["order_number"], ["info 1"], "any", "orderIds", "useless", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["order_number"], ["info 1"], "any", "orderIds", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global numCompletions\nnumCompletions = len(complete_buttons)", "", "in_line", "", this_step)
@@ -554,7 +537,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
 
     # check end of page information again
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearch("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["etsy_inc"], ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
     # now scroll to the next screen.
@@ -735,20 +718,28 @@ def processPrepGSOrder(step, i):
     regular_orders = [o for o in us_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
 
     # ofname is the order file name, should be etsy_orders+Date.xls
+    dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
+
     if len(light_orders) > 0:
-        dtnow = datetime.now()
-        dt_string = str(int(dtnow.timestamp()))
         ofname1 = step["file_path"]+"/etsyOrdersGround"+dt_string+".xls"
+        ofname1_unzipped = step["file_path"] + "/etsyOrdersGround" + dt_string
         createLabelOrderFile(seller, "ozs", light_orders, symTab[step["prod_book"]], ofname1)
-        gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.5, "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1)})
+        gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.5, "num_orders": len(light_orders), "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1), "unzipped_dir": ofname1_unzipped})
+
+        #create unziped label dir ahead of time.
+        if not os.path.exists(ofname1_unzipped):
+            os.makedirs(ofname1_unzipped)
 
     if len(regular_orders) > 0:
-        dtnow = datetime.now()
-        dt_string = str(int(dtnow.timestamp()))
         ofname2 = step["file_path"]+"/etsyOrdersPriority"+dt_string+".xls"
-        createLabelOrderFile(seller, "lbs", regular_orders, symTab[step["prod_book"]], ofname2)
+        ofname2_unzipped = step["file_path"]+"/etsyOrdersPriority"+dt_string
 
-        gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*4.5, "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2)})
+        createLabelOrderFile(seller, "lbs", regular_orders, symTab[step["prod_book"]], ofname2)
+        gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*4.5, "num_orders": len(regular_orders), "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
+
+        #create unziped label dir ahead of time.
+        if not os.path.exists(ofname2_unzipped):
+            os.makedirs(ofname2_unzipped)
 
     symTab[step["gs_order"]] = gs_label_orders
 
@@ -809,7 +800,7 @@ def genStepEtsyAddPageOfOrder(fullOrdersVar, pageOfOrdersVar, stepN):
 def genStepEtsyExtractTracking(labels_dir_var, orders_var, stepN):
     stepjson = {
         "type": "Etsy Extract Tracking",
-        "labels_dir": labels_dir_var,
+        "gs_orders": labels_dir_var,
         "fullOrders": orders_var
     }
 
@@ -904,18 +895,22 @@ def processEtsyAddPageOfOrder(step, i):
     return i + 1
 
 
-
+# this func does 2 things:
+# 1) get tracking code & status variable updated into the etsy_orders data structure.
+# 2) need to
 def processEtsyExtractTracking(step, i):
+    gs_orders = symTab[step["gs_orders"]]
+    etsy_orders = symTab[step["fullOrders"]]
 
-    label_dirs = os.listdir(symTab[step["labels_dir"]])
-    for grp in symTab[step["orderGroups"]]:
-        serv = grp.getShippingService()
-        if serv in label_dirs:
-            label_files = os.listdir(symTab[step["labels_dir"]] + "/" + serv)
-            for f in label_files:
-                print("getting tracking code from:", f)
+        # {"service": "USPS Priority V4", "price": len(regular_orders) * 4.5, "dir": os.path.dirname(ofname2),
+        #  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
+    idx = 0
+    for grp in gs_orders:
+        label_files = os.listdir(grp["unzipped_dir"])
 
-                #now update the tracking code into the orders.
+
+
+        idx = idx + 1
 
     return i + 1
 

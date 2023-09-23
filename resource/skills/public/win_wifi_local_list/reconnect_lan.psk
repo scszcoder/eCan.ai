@@ -40,8 +40,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -471,6 +471,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
     },
     "template": "",
@@ -483,7 +484,7 @@
 },
 "step 5":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "free_trial_ended"
@@ -549,8 +550,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -980,6 +981,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
     },
     "template": "",
@@ -992,7 +994,7 @@
 },
 "step 5":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "free_trial_ended"
@@ -1058,8 +1060,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -1489,6 +1491,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
     },
     "template": "",
@@ -1501,7 +1504,7 @@
 },
 "step 5":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "ARRIS-8679"
@@ -1567,8 +1570,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -1998,6 +2001,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
     },
     "template": "",
@@ -2010,7 +2014,7 @@
 },
 "step 5":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "ARRIS-8679"

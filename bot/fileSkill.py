@@ -43,7 +43,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     print("fopen_f_path: ", fopen_f_path, "fopen_f_name: ", fopen_f_name)
 
     # readn screen
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "file_dialog", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "op", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # click on path input win
@@ -100,7 +100,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_open", "anchor text", "", [0, 0], "center", [0, 0], "box", 0, 0, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_open", "anchor text", "", 1, "center", [0, 0], "box", 0, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)

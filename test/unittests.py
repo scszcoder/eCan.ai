@@ -1,10 +1,14 @@
 from scraperEbay import *
+from scraperEtsy import *
+from scrapeGoodSupply import *
 from labelSkill import *
 from missions import *
 from rarSkill import *
 from genSkills import *
 from readSkill import *
 import re
+
+global symTab
 
 
 def test_eb_orders_scraper():
@@ -90,6 +94,102 @@ def test_scrape_etsy_orders():
             "status": "scrapeStat"
     }
     next_step = processEtsyScrapeOrders(step, 10)
+
+def test_scrape_etsy_orders():
+    # html_file = "c:/temp/EtsySoldOrders090423.html"
+    html_file = "c:/temp/EtsySoldOrders090523.html"
+    html_file = "c:/temp/EtsySoldOrdersDetails9523.html"
+    html_file = "c:/temp/EtsySoldOrdersNoDetails9523.html"
+    html_file = "c:/temp/EtsyMultiProductOrderNoDetails.html"
+    # html_file = "c:/temp/EtsyMultiProductOrderWithDetails.html"
+    # html_file = "c:/temp/EtsySamePersonMultiOrderNoDetails.html"
+    # html_file = "c:/temp/EtsySamePersonMultiOrderWithDetails.html"
+    # html_file = "c:/temp/EtsySoldOrdersPartialExpanded.html"
+
+
+    # html_file = "c:/temp/Etsy -All Sold Orders P1.html"
+    # html_file = "c:/temp/Etsy - All Sold Orders P3.html"
+
+    step = {
+            "type": "ETSY Scrape Orders",
+            "pidx": 0,
+            "html_file": html_file,
+            "result": "orderListPage",
+            "status": "scrapeStat"
+    }
+    next_step = processEtsyScrapeOrders(step, 10)
+
+
+def test_scrape_gs_labels():
+    # html_file = "c:/temp/gsListLabels0000.html"
+    # html_file = "c:/temp/gsListLabels000.html"
+    html_file = "c:/temp/gsListLabels001.html"
+    # html_file = "c:/temp/gsListLabels002.html"
+    # html_file = "c:/temp/gsListLabels003.html"
+    testorders = []
+
+    new_order = ORDER("", "", "", "", "", "", "")
+    recipient = OrderPerson("", "", "", "", "", "", "")
+    recipient.setFullName("Alex Fischman")
+
+    products = []
+    product = OrderedProduct("", "", "", "")
+    product.setPTitle("abc")
+    products.append(product)
+
+    shipping = Shipping("", "", "", "", "", "", "", "")
+    new_order.setShipping(shipping)
+    new_order.setProducts(products)
+    new_order.setRecipient(recipient)
+    testorders.append(new_order)
+
+    new_order = ORDER("", "", "", "", "", "", "")
+    recipient = OrderPerson("", "", "", "", "", "", "")
+    recipient.setFullName("Melissa Clark")
+
+    products = []
+    product = OrderedProduct("", "", "", "")
+    product.setPTitle("abc")
+    products.append(product)
+
+    shipping = Shipping("", "", "", "", "", "", "", "")
+    new_order.setShipping(shipping)
+    new_order.setProducts(products)
+    new_order.setRecipient(recipient)
+    testorders.append(new_order)
+
+    symTab["testorders"] = testorders
+
+    step = {
+            "type": "GS Scrape Labels",
+            "pidx": "pageidx",
+            "html_file": html_file,
+            "allOrders": "testorders",
+            "result": "labelList",
+            "status": "scrapeStat"
+    }
+
+    next_step = processScrapeGoodSupplyLabels(step, 10)
+
+
+def test_processSearchWordline():
+    # test_page0 = [{'name': 'paragraph', 'text': '5 6 7 8 9 10 \n', 'loc': (1870, 2938, 1892, 3254), 'type': 'info 1'}]
+    test_page0 = [{'name': 'paragraph', 'text': '12345‘ \n', 'loc': (1869, 3426, 1914, 3747), 'type': 'info 1'}]
+    symTab["test_page"] = test_page0
+    symTab["tbs"] = "5"
+    step = {
+        "type": "Search Word Line",
+        "screen": "test_page",
+        "template_var": "tbs",
+        "target_name": "paragraph",
+        "target_type": "info 1",
+        "site": "www.etsy.com",
+        "result": "searchResult",
+        "breakpoint": False,
+        "status": "scrapeStat"
+    }
+
+    next_step = processSearchWordLine(step, 10)
 
 
 def test_rar():

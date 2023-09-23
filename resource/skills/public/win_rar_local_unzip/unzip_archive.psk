@@ -118,8 +118,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -549,6 +549,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
     },
     "template": "",
@@ -561,7 +562,7 @@
 },
 "step 60":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": "expired_notification",
     "target_types": "anchor text",
@@ -573,7 +574,7 @@
 },
 "step 65":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": "buy_license",
     "target_types": "anchor text",
@@ -665,8 +666,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -1096,6 +1097,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
     },
     "template": "",
@@ -1158,8 +1160,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -1589,6 +1591,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
     },
     "template": "",
