@@ -17,28 +17,12 @@
 },
 "step 10":
 {
-    "type": "Create Data",
-    "data_type": "expr",
-    "data_name": "unzip_input",
-    "key_name": "NA",
-    "key_value": "['C:/Program Files/WinRAR/WinRAR.exe', 'C:/temp/', 'C:/Users/songc/Downloads/Downloads1.rar']"
-},
-"step 15":
-{
-    "type": "Use Skill",
-    "skill_name": "unzip_archive",
-    "skill_path": "public/win_rar_local_unzip",
-    "skill_args": "unzip_input",
-    "output": "label_dir"
-},
-"step 20":
-{
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 5
 },
-"step 25":
+"step 15":
 {
     "type": "Create Data",
     "data_type": "string",
@@ -46,7 +30,7 @@
     "key_name": "NA",
     "key_value": ""
 },
-"step 30":
+"step 20":
 {
     "type": "Create Data",
     "data_type": "obj",
@@ -473,7 +457,7 @@
         }
     ]
 },
-"step 35":
+"step 25":
 {
     "type": "Call Extern",
     "file": "global product_book\nprint('product_book:', product_book[0])",
@@ -481,7 +465,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 40":
+"step 30":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -489,7 +473,7 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 45":
+"step 35":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -497,7 +481,7 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 50":
+"step 40":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -505,56 +489,47 @@
     "key_name": "NA",
     "key_value": 253
 },
+"step 45":
+{
+    "type": "Create Data",
+    "data_type": "str",
+    "data_name": "sevenZExe",
+    "key_name": "NA",
+    "key_value": "C:/\"Program Files\"/7-Zip/7z.exe"
+},
+"step 50":
+{
+    "type": "Create Data",
+    "data_type": "str",
+    "data_name": "rarExe",
+    "key_name": "NA",
+    "key_value": "C:/\"Program Files\"/WinRaR/WinRaR.exe"
+},
 "step 55":
 {
-    "type": "Use Skill",
-    "skill_name": "collect_orders",
-    "skill_path": "public/win_chrome_etsy_orders",
-    "skill_args": "dummy_in",
-    "output": "etsy_status"
+    "type": "Call Extern",
+    "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority09122023.xls'}]\nprint('GS ORDERS', gs_orders)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
 },
 "step 60":
 {
     "type": "Call Extern",
-    "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 9.0, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority1694404470.xls'}]\nprint('GS ORDERS', gs_orders)",
+    "file": "global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
 "step 65":
 {
-    "type": "Prep GS Order",
-    "ec_order": "etsy_orders",
-    "gs_order": "gs_orders",
-    "prod_book": "product_book",
-    "file_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/",
-    "seller": {
-        "No": "1",
-        "FromName": "Sam Chen",
-        "PhoneFrom": "925-601-1002",
-        "Address1From": "2610 Laramie Gate Cir",
-        "CompanyFrom": "",
-        "Address2From": "",
-        "CityFrom": "Pleasanton",
-        "StateFrom": "CA",
-        "ZipCodeFrom": "94566"
-    }
-},
-"step 70":
-{
     "type": "Use Skill",
     "skill_name": "bulk_buy",
     "skill_path": "public/win_chrome_goodsupply_label",
-    "skill_args": "gs_orders",
+    "skill_args": "gs_input",
     "output": "labels_dir"
 },
-"step 75":
-{
-    "type": "Etsy Extract Tracking",
-    "labels_dir": "labels_dir",
-    "fullOrders": "etsy_orders"
-},
-"step 80":
+"step 70":
 {
     "type": "Use Skill",
     "skill_name": "update_tracking",
@@ -562,7 +537,7 @@
     "skill_args": "etsy_orders",
     "output": "total_label_cost"
 },
-"step 85":
+"step 75":
 {
     "type": "Use Skill",
     "skill_name": "reformat_print",
@@ -570,7 +545,7 @@
     "skill_args": "label_list",
     "output": ""
 },
-"step 90":
+"step 80":
 {
     "type": "Stub",
     "stub_name": "end skill",

@@ -64,8 +64,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_file_local_op/skills/open_save_as/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_file_local_op/skills/open_save_as/",
         "platform": "win",
         "site": "local",
         "app": "file",
@@ -495,12 +495,13 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_file_local_op!open_save_as!"
     },
     "template": "",
     "option": "",
     "data_sink": "screen_info",
-    "page": "file_dialog",
+    "page": "op",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
@@ -676,10 +677,7 @@
     "target_name": "file_open",
     "target_type": "anchor text",
     "text": "",
-    "nth": [
-        0,
-        0
-    ],
+    "nth": 1,
     "offset_from": "center",
     "offset_unit": "box",
     "offset": [

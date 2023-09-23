@@ -110,9 +110,11 @@ vicrop = {
     "Call Extern": lambda x,y: processCallExtern(x, y),
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
-    "Search": lambda x,y: processSearch(x, y),
+    "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
+    "Search Word Line": lambda x, y: processSearchWordLine(x, y),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
+    "Seven Zip": lambda x,y: process7z(x, y),
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),
@@ -132,6 +134,7 @@ vicrop = {
     "Etsy Remove Expanded": lambda x, y: processEtsyRemoveAlreadyExpanded(x, y),
     "Etsy Extract Tracking": lambda x, y: processEtsyExtractTracking(x, y),
     "Etsy Add Page Of Order": lambda x, y: processEtsyAddPageOfOrder(x, y),
+    "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
 }
@@ -824,7 +827,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
         psk_words = psk_words + step_words
 
         # check whether there is any match of this page's product, if matched, click into it.
-        this_step, step_words = genStepSearch("screen_info", detail_cfg.products, "text", "any", "matchedProducts", "expandable", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", detail_cfg.products, "text", "any", "matchedProducts", "expandable", False, this_step)
         psk_words = psk_words + step_words
 
         if detail_cfg.nExpand > 0:
@@ -856,7 +859,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
     # here, if need to click open half hidden long reviews.....
-    this_step, step_words = genStepSearch("screen_info","See all details", "screen_info", "any", "eop_review", "reviews_eop", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info","See all details", "screen_info", "any", "eop_review", "reviews_eop", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)

@@ -20,7 +20,7 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     psk_words = psk_words + step_words
 
     # check whether there is any match of this page's product, if matched, click into it.
-    this_step, step_words = genStepSearch("screen_info", "log_in", "anchor text", "any", "useless", "loginwin", "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "log_in", "anchor text", "any", "useless", "loginwin", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("loginwin == True", "", "", this_step)

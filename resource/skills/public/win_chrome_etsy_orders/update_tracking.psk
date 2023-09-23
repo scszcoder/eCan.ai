@@ -132,8 +132,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -563,6 +563,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_chrome_etsy_orders!update_tracking!"
     },
     "template": "",
@@ -575,7 +576,7 @@
 },
 "step 70":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "complete_order"
@@ -591,7 +592,7 @@
 },
 "step 75":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "order_number"
@@ -694,8 +695,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230914/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -1125,6 +1126,7 @@
         "wifis": [
             "ARRIS-8679"
         ],
+        "options": "{}",
         "name_space": "B3M3!win_chrome_etsy_orders!update_tracking!"
     },
     "template": "",
@@ -1273,7 +1275,7 @@
 },
 "step 165":
 {
-    "type": "Search",
+    "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "etsy_inc"

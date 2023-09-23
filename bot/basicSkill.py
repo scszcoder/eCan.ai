@@ -124,15 +124,32 @@ def genStepFillRecipients(texts_var, orders_var, site, stepN, option=""):
 
 
 # search information on a screen with a given name and type.
-def genStepSearch(screen, names, target_types, logic, result, flag, site, break_here, stepN):
+def genStepSearchAnchorInfo(screen, names, target_types, logic, result, flag, site, break_here, stepN):
     stepjson = {
-        "type": "Search",
+        "type": "Search Anchor Info",
         "screen": screen,
         "names": names,
         "target_types": target_types,
         "logic": logic,
         "result": result,
         "site": site,
+        "breakpoint": break_here,
+        "status": flag
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+# search substring(regular expression) on a piece of info on a screen.
+def genStepSearchWordLine(screen, template_var, target_name, target_type, result, flag, site, break_here, stepN):
+    stepjson = {
+        "type": "Search Word Line",
+        "screen": screen,
+        "template_var": template_var,
+        "target_name": target_name,
+        "target_type": target_type,
+        "site": site,
+        "result": result,
         "breakpoint": break_here,
         "status": flag
     }
@@ -353,6 +370,21 @@ def genStepCreateDir(dirname, result_var, stepN):
 
 
 
+def genStep7z(action, var_type, exe_var, in_var, out_path, out_var, result, stepN):
+    stepjson = {
+        "type": "Seven Zip",
+        "action": action,
+        "var_type": var_type,
+        "exe_var": exe_var,
+        "in_var": in_var,
+        "out_path": out_path,
+        "out_var": out_var,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 def genStepTextToNumber(invar, outvar, stepN):
     stepjson = {
@@ -560,7 +592,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         "psk": m_psk_names[0],
         "csk": m_csk_names[0],
         "lastMove": page_sect,
-        "options": "{}",
+        "options": sk_settings["options"],
         "theme": page_theme,
         "imageFile": sfile,
         "factor": 0.0
@@ -670,18 +702,25 @@ def processExtractInfo(step, i, mission, skill):
         ppword = mission.parent_settings["uid"]
 
     print("mission[", mission.getMid(), "] cuspas: ", mission.getCusPAS())
-    platform = step["settings"]["platform"]
-    app = step["settings"]["app"]
-    site = step["settings"]["site"]
+
+    if type(step["settings"]) == str:
+        step_settings = symTab[step["settings"]]
+        print("SETTINGS FROM STRING....", step_settings)
+    else:
+        step_settings = step["settings"]
+
+    platform = step_settings["platform"]
+    app = step_settings["app"]
+    site = step_settings["site"]
     #     local image:  C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/date/b0m0/win_chrome_amz_home/browse_search_kw/images/scrnsongc_yahoo_1678175548.png"
 
-    fdir = step["settings"]["root_path"] + "/resource/runlogs/"
+    fdir = step_settings["root_path"] + "/resource/runlogs/"
     fdir = fdir + date_word + "/"
 
-    fdir = fdir + "b" + str(step["settings"]["botid"]) + "m" + str(step["settings"]["mid"]) + "/"
+    fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
     # fdir = fdir + ppword + "/"
     fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
-    fdir = fdir + step["settings"]["skname"] + "/images/"
+    fdir = fdir + step_settings["skname"] + "/images/"
     sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
     print("sfile: ", sfile)
 
@@ -689,7 +728,7 @@ def processExtractInfo(step, i, mission, skill):
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
-    result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step["settings"], sfile)
+    result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile)
     symTab[step["data_sink"]] = result
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -1086,6 +1125,11 @@ def processMouseClick(step, i):
             pyautogui.click(clicks=2, interval=float(step["action_args"]))
         else:
             pyautogui.click(clicks=2, interval=0.3)
+    elif step["action"] == "Triple Click":
+        if is_float(step["action_args"]):
+            pyautogui.click(clicks=3, interval=float(step["action_args"]))
+        else:
+            pyautogui.click(clicks=3, interval=0.3)
     elif step["action"] == "Right CLick":
         pyautogui.click(button='right')
     elif step["action"] == "Drag Drop":
@@ -1675,14 +1719,54 @@ def processListDir(step, i):
 
 
 def processCheckExistence(step, i):
-    symTab[step["result"]] = os.path.isfile(step["file"])
+    if "var" in step["fntype"]:
+        fn = symTab[step["file"]]
+    else:
+        fn = step["file"]
+
+    if "dir" in  step["fntype"]:
+        symTab[step["result"]] = os.path.isdir(fn)
+    else:
+        symTab[step["result"]] = os.path.isfile(fn)
+
     return i + 1
 
 
 def processCreateDir(step, i):
-    if not os.path.exists(step["dir"]):
-        os.makedirs(step["dir"])
+    if not os.path.exists(symTab[step["dir"]]):
+        #create only if the dir doesn't exist
+        os.makedirs(symTab[step["dir"]])
     return i + 1
+
+
+# run 7z for the zip and unzip.
+def process7z(step, i):
+    if step["var_type"] == "direct":
+        exe = step["exe_var"]
+        input = step["in_var"]
+        output_dir = step["out_path"]
+        out_file = step["out_var"]
+    else:
+        exe = symTab[step["exe_var"]]
+        input = symTab[step["in_var"]]
+        output_dir = symTab[step["out_path"]]
+        out_file = symTab[step["out_var"]]
+
+    if step["action"] == "zip":
+        if output_dir != "":
+            symTab[step["result"]] = subprocess.call(exe + " a " + input + "-o" + output_dir)
+        else:
+            symTab[step["result"]] = subprocess.call(exe + " e " + input)
+
+    elif step["action"] == "unzip":
+        if output_dir != "":
+            symTab[step["result"]] = subprocess.call(exe + " e " + input + "-o" + output_dir)
+        else:
+            symTab[step["result"]] = subprocess.call(exe + " e " + input)
+
+    return i + 1
+
+
 # create a data structure holder for anchor....
 # "type": "Search",
 # "action": "Search",
@@ -1691,7 +1775,7 @@ def processCreateDir(step, i):
 # "target_type": target_type, target type
 # "result": result, result varaibel continas result.
 # "status": flag - flag variable contains result
-def processSearch(step, i):
+def processSearchAnchorInfo(step, i):
     print("Searching....", step["target_types"])
     global in_exception
     scrn = symTab[step["screen"]]
@@ -1753,7 +1837,99 @@ def processSearch(step, i):
         input("type any key to continuue")
     return i + 1
 
+def matched_loc(pattern, text):
+    match = re.search(pattern, text)
+    if match:
+        # Pattern found, get the starting index of the match
+        index = match.start()
+    else:
+        index = -1
 
+    return index
+
+# search a subword out of a word or line....
+def processSearchWordLine(step, i):
+    print("Searching....words and/or lines", step["target_type"])
+    global in_exception
+    scrn = symTab[step["screen"]]
+    target_name = step["target_name"]           #contains anchor/info name, or the text string to matched against.
+    target_type = step["target_type"]
+
+    pattern = symTab[step["template_var"]]
+
+    fault_names = ["site_not_reached", "bad_request"]
+    fault_found = []
+
+    found = []
+    n_targets_found = 0
+
+    # print("Searching screen....", scrn)
+
+    # now do the search
+    print("searching: ", target_name, ", ", target_type, "==================")
+    infos = [element for index, element in enumerate(scrn) if element["type"] == target_type and element["name"] == target_name]
+
+    for info in infos:
+
+        match = re.search(pattern, info["text"])
+
+        if match:
+
+            # Pattern found, get the starting index of the match
+            index = match.start()
+            print("pattern found @ index", index, "["+info["text"].strip()+"]", "location:", info["loc"])
+            if index == 0:
+                loc = [info["loc"][1], info["loc"][0] + int((info["loc"][2] - info["loc"][0])/2)]
+                found.append(loc)
+            else:
+                words = info["text"].strip().split(" ")
+                if len(words) == 1:
+                    wordlen = len(info["text"].strip()) - 1
+                    print("# of Char gaps:", wordlen)
+                    gap = int((info["loc"][3] - info["loc"][1])/wordlen)
+                    loc = [info["loc"][1] + gap * index, info["loc"][0] + int((info["loc"][2] - info["loc"][0]) / 2)]
+                else:
+                    print("# of words:", (len(words)-1))
+                    gap = int((info["loc"][3] - info["loc"][1]) / (len(words)-1))
+                    n = 0
+                    subidxs = []
+
+                    for i in range(len(words)):
+                        subidxs.append(n)
+                        n = n + len(words[i]) + 1
+
+                    index = next((i for i, w in enumerate(subidxs) if matched_loc(pattern, info["text"][w:]) == 0), -1)
+                    print("subidxs:", subidxs, "found word index:", index, "gap is:", gap)
+                    if index >= 0:
+                        loc = [info["loc"][1]+gap*index, info["loc"][0] + int((info["loc"][2] - info["loc"][0])/2)]
+                found.append(loc)
+        else:
+            print("pattern NOT FOUND")
+    # reg = re.compile(target_names + "[0-9]+")
+    # found = [element for index, element in enumerate(scrn["data"]) if reg.match(element["name"]) and element["type"] == target_types]
+
+    print("found.... ", found)
+    # search result should be put into the result variable.
+    symTab[step["result"]] = found
+
+    if len(found) == 0:
+        symTab[step["status"]] = False
+    else:
+        symTab[step["status"]] = True
+
+    print("status: ", symTab[step["status"]])
+
+    # didn't find anything, check fault situation.
+    if symTab[step["status"]] == False:
+        fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
+        site_conn = ping(step["site"])
+        if len(fault_found) > 0 or (not site_conn):
+            # exception has occured, flag it.
+            in_exception = True
+
+    if step["breakpoint"]:
+        input("type any key to continuue")
+    return i + 1
 
 # this is a convinience function.
 # scroll anchor nearest to the north of at_location, to the target loction.

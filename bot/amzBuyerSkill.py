@@ -101,7 +101,7 @@ def genAMZScrollProductDetailsToTop(pagesize, stepN, root, page, sect):
     this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 50, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["add-to-cart"], ["anchor text"], "any", "useless", "at_pd_top", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["add-to-cart"], ["anchor text"], "any", "useless", "at_pd_top", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -214,7 +214,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, root, page, sect, theme
     # check whether we have reached the end of the page.
 
     # need now click into the target product.
-    this_step, step_words = genStepSearch("screen_info", "prev_next", "info", "any", "useless", "atbottom", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "prev_next", "info", "any", "useless", "atbottom", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -292,7 +292,7 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, stepN, root, page, sect
     # check whether we have reached the end of the page.
 
     # need now click into the target product.
-    # this_step, step_words = genStepSearch("screen_info", "add_to_cart", "info", "any", "useless", "attop", False, this_step)
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "add_to_cart", "info", "any", "useless", "attop", False, this_step)
     # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -400,7 +400,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # while end of detail not reached:
@@ -445,7 +445,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
     psk_words = psk_words + step_words
 
 
@@ -453,7 +453,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("end_of_detail == True", "", "", this_step)
@@ -478,7 +478,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     this_step, step_words = genStepExtractInfo("", root, "screen_info", "product_details", "top", theme, this_step, pl)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "read_more", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket: end_of_detail == True
@@ -494,7 +494,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, root, page, sect, theme):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "no_customer_reviews"], ["anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # close for loop: end_of_detail != True
@@ -675,7 +675,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, root, page, sect, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearch("screen_info", "all_critical_reviews", "anchor text", "any", "useless", "hasNegativeReviews", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "all_critical_reviews", "anchor text", "any", "useless", "hasNegativeReviews", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("hasNegativeReviews", "", "", this_step)
