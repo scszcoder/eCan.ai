@@ -118,8 +118,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -666,8 +666,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -1160,8 +1160,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",

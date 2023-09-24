@@ -18,7 +18,7 @@ global STEP_GAP
 # html: html file name, pidx: page index,
 # outvar should be the variable that holds valued of how many labels tracking code are updated during this scrape ....
 # since the labels are generated sequentially, any name not
-def genStepScrapeGoodSupplyLabels(html, pidxvar, ordersvar, outvar, statusvar, stepN):
+def genStepGSScrapeLabels(html, pidxvar, ordersvar, outvar, statusvar, stepN):
     stepjson = {
         "type": "GS Scrape Labels",
         "pidx": pidxvar,
@@ -33,9 +33,15 @@ def genStepScrapeGoodSupplyLabels(html, pidxvar, ordersvar, outvar, statusvar, s
 
 
 # get recipient name and tracking code list.
-def processScrapeGoodSupplyLabels(step, i):
+def processGSScrapeLabels(step, i):
     next_i = i + 1
-    html_file = step["html_file"]
+
+    subds = step["html_file"].split("/")
+    if len(subds) == 1:
+        html_file = symTab[step["html_file"]]
+    else:
+        html_file = step["html_file"]
+
     orders = symTab[step["allOrders"]]
 
     # for o in orders:
@@ -57,6 +63,7 @@ def processScrapeGoodSupplyLabels(step, i):
             if len(currents) > 0:
                 actives = currents[0].findAll("a", attrs={"class": None})
                 current_page_idx = actives[0].text
+                print("current_page_idx: ", current_page_idx)
             else:
                 # this means nothing is shown on the page.....
                 current_page_idx = "0"
@@ -65,22 +72,25 @@ def processScrapeGoodSupplyLabels(step, i):
             if len(others) > 0:
                 lastas = others[len(others)-1].findAll("a", attrs={"class": None})
                 last_page_idx = lastas[0].text
+                print("more than 1 page, last page:", last_page_idx)
             else:
                 last_page_idx = "0"
 
             if int(last_page_idx) > int(current_page_idx):
                 last_page = last_page_idx
             else:
+                print("reached last page....")
                 last_page = current_page_idx
 
             if last_page == current_page_idx:
+                print("in case this is the last page, make pidx 0")
                 symTab[step["pidx"]] = "0"
             else:
                 symTab[step["pidx"]] = str(int(current_page_idx) + 1)
         else:
             symTab[step["pidx"]] = "0"
 
-        # print("page index:", symTab[step["pidx"]], "last page:", last_page, "current page idx:", current_page_idx)
+        print("page index:", symTab[step["pidx"]], "last page:", last_page, "current page idx:", current_page_idx)
 
         option_tags = []
         if len(tableItems) > 0:

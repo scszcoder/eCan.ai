@@ -183,7 +183,7 @@
 "step 110":
 {
     "type": "Call Extern",
-    "file": "global n_order_files\nn_order_files = len(fin[1])",
+    "file": "global n_order_files\nn_order_files = len(fin[1])\nprint('n_order_files', n_order_files)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -198,541 +198,21 @@
 },
 "step 120":
 {
-    "type": "Extract Info",
-    "settings": {
-        "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
-        "cargs": "",
-        "botid": 3,
-        "seller": {
-            "No": "1",
-            "FromName": "Sam Chen",
-            "PhoneFrom": "925-601-1002",
-            "Address1From": "2610 Laramie Gate Cir",
-            "CompanyFrom": "",
-            "Address2From": "",
-            "CityFrom": "Pleasanton",
-            "StateFrom": "CA",
-            "ZipCodeFrom": "94566"
-        },
-        "mid": 3,
-        "midx": -1,
-        "run_config": {
-            "estRunTime": 1
-        },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
-        "platform": "win",
-        "site": "goodsupply",
-        "app": "chrome",
-        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
-        "page": "label",
-        "products": [
-            {
-                "name": "default",
-                "title": "neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "michigan state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "osu",
-                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "iowa",
-                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "indiana",
-                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "penn state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wisconsin",
-                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "minnesota",
-                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "florida",
-                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "alabama",
-                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "georgia",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "duke",
-                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wake forrest",
-                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "kansas",
-                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "christmas tree",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "coffee",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "among us",
-                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
-                "asin": "",
-                "variation": {},
-                "weight": 0.6,
-                "dimension": [
-                    8,
-                    8,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open1",
-                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open2",
-                "title": "OPEN LED Neon Sign For Stores And Shops",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "beer3",
-                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "bastketball",
-                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            }
-        ],
-        "rpaName": "sell",
-        "wifis": [
-            "ARRIS-8679"
-        ],
-        "options": "{}",
-        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
-    },
-    "template": "",
-    "option": "",
-    "data_sink": "screen_info",
-    "page": "winrar",
-    "page_data_info": null,
-    "theme": "light",
-    "section": "top"
-},
-"step 125":
-{
-    "type": "Search Anchor Info",
-    "screen": "screen_info",
-    "names": "gs_sign_in",
-    "target_types": "anchor text",
-    "logic": "any",
-    "result": "junk",
-    "site": "goodsupply",
-    "breakpoint": false,
-    "status": "gs_not_signed_in"
-},
-"step 130":
-{
-    "type": "Call Extern",
-    "file": "global gs_not_signed_in, junk\nprint('gs_not_signed_in:', gs_not_signed_in, 'junk:', junk)",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
-},
-"step 135":
-{
-    "type": "Check Condition",
-    "condition": "gs_not_signed_in",
-    "if_else": "",
-    "if_end": ""
-},
-"step 140":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "gs_sign_in",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 1,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 5
-},
-"step 145":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 150":
-{
     "type": "Repeat",
     "lc_name": "buyGSLabels0",
     "until": "n_files_processed < n_order_files",
     "count": "",
     "end": ""
 },
-"step 155":
+"step 125":
+{
+    "type": "Call Extern",
+    "file": "print('n_files_processed:', n_files_processed, 'n_order_files:', n_order_files)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 130":
 {
     "type": "App Open",
     "action": "Run",
@@ -745,7 +225,7 @@
     "cargs": "",
     "wait": 5
 },
-"step 160":
+"step 135":
 {
     "type": "Extract Info",
     "settings": {
@@ -770,8 +250,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -1212,7 +692,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 165":
+"step 140":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -1224,14 +704,14 @@
     "breakpoint": false,
     "status": "gs_signed_in"
 },
-"step 170":
+"step 145":
 {
     "type": "Check Condition",
     "condition": "len(funds_left) > 0",
     "if_else": "",
     "if_end": ""
 },
-"step 175":
+"step 150":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -1239,13 +719,13 @@
     "key_name": "NA",
     "key_value": "funds_left[0]['text']"
 },
-"step 180":
+"step 155":
 {
     "type": "Text To Number",
     "intext": "funds_left_text",
     "numvar": "funds_left_number"
 },
-"step 185":
+"step 160":
 {
     "type": "Call Extern",
     "file": "global funds_left_number\nprint('funds_left_number:', funds_left_number)",
@@ -1253,14 +733,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 190":
+"step 165":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 195":
+"step 170":
 {
     "type": "Call Extern",
     "file": "global fin\nprint('n_files_processed:', n_files_processed, 'fin[1]:', fin[1][n_files_processed])",
@@ -1268,14 +748,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 200":
+"step 175":
 {
     "type": "Check Condition",
     "condition": "funds_left_number >= fin[1][n_files_processed]['price']",
     "if_else": "",
     "if_end": ""
 },
-"step 205":
+"step 180":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1302,7 +782,7 @@
     ],
     "post_wait": 3
 },
-"step 210":
+"step 185":
 {
     "type": "Extract Info",
     "settings": {
@@ -1327,8 +807,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -1769,634 +1249,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 215":
-{
-    "type": "Check Condition",
-    "condition": "labels_ready",
-    "if_else": "",
-    "if_end": ""
-},
-"step 220":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "download",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 6
-},
-"step 225":
-{
-    "type": "Create Data",
-    "data_type": "string",
-    "data_name": "dl_path",
-    "key_name": "NA",
-    "key_value": "C:/Users/songc/Downloads/"
-},
-"step 230":
-{
-    "type": "GS Extract Zipped",
-    "zipped_screen_text": "zip_download_locs",
-    "result": "dl_file_name",
-    "status": "fileStatus"
-},
-"step 235":
-{
-    "type": "Call Extern",
-    "file": "global dl_path,downloaded_zip_file\ndownloaded_zip_file = dl_path + dl_file_name\nprint('downloaded_zip_file', downloaded_zip_file)",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
-},
-"step 240":
-{
-    "type": "Check Existence",
-    "fntype": "file var",
-    "file": "downloaded_zip_file",
-    "result": "zip_downloaded"
-},
-"step 245":
-{
-    "type": "Call Extern",
-    "file": "global gs_timeout\ngs_timeout = 0",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
-},
-"step 250":
-{
-    "type": "Repeat",
-    "lc_name": "waitGSLabels0",
-    "until": "zip_downloaded != True and gs_timeout < 5",
-    "count": "",
-    "end": ""
-},
-"step 255":
-{
-    "type": "Wait",
-    "random_min": 0,
-    "random_max": 0,
-    "time": 5
-},
-"step 260":
-{
-    "type": "Check Existence",
-    "fntype": "file var",
-    "file": "downloaded_zip_file",
-    "result": "zip_downloaded"
-},
-"step 265":
-{
-    "type": "Stub",
-    "stub_name": "end loop",
-    "func_name": "",
-    "fargs": ""
-},
-"step 270":
-{
-    "type": "Call Extern",
-    "file": "global in_files_dir\nin_files_dir = fin[1][n_files_processed]['dir']+downloaded_zip_file\nprint('in_files_dir:',in_files_dir)",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
-},
-"step 275":
-{
-    "type": "Create Dir",
-    "dir": "in_files_dir",
-    "result": "fileStatus"
-},
-"step 280":
-{
-    "type": "Seven Zip",
-    "action": "unzip",
-    "var_type": "expr",
-    "exe_var": "zip7z_exe",
-    "in_var": "downloaded_zip_file",
-    "out_path": "in_files_dir",
-    "out_var": "",
-    "result": "fileStatus"
-},
-"step 285":
-{
-    "type": "Wait",
-    "random_min": 0,
-    "random_max": 0,
-    "time": 5
-},
-"step 290":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "transaction_usps",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 0
-},
-"step 295":
-{
-    "type": "Extract Info",
-    "settings": {
-        "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
-        "cargs": "",
-        "botid": 3,
-        "seller": {
-            "No": "1",
-            "FromName": "Sam Chen",
-            "PhoneFrom": "925-601-1002",
-            "Address1From": "2610 Laramie Gate Cir",
-            "CompanyFrom": "",
-            "Address2From": "",
-            "CityFrom": "Pleasanton",
-            "StateFrom": "CA",
-            "ZipCodeFrom": "94566"
-        },
-        "mid": 3,
-        "midx": -1,
-        "run_config": {
-            "estRunTime": 1
-        },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
-        "platform": "win",
-        "site": "goodsupply",
-        "app": "chrome",
-        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
-        "page": "label",
-        "products": [
-            {
-                "name": "default",
-                "title": "neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "michigan state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "osu",
-                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "iowa",
-                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "indiana",
-                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "penn state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wisconsin",
-                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "minnesota",
-                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "florida",
-                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "alabama",
-                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "georgia",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "duke",
-                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wake forrest",
-                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "kansas",
-                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "christmas tree",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "coffee",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "among us",
-                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
-                "asin": "",
-                "variation": {},
-                "weight": 0.6,
-                "dimension": [
-                    8,
-                    8,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open1",
-                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open2",
-                "title": "OPEN LED Neon Sign For Stores And Shops",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "beer3",
-                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "bastketball",
-                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            }
-        ],
-        "rpaName": "sell",
-        "wifis": [
-            "ARRIS-8679"
-        ],
-        "options": "{}",
-        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
-    },
-    "template": "",
-    "option": "",
-    "data_sink": "screen_info",
-    "page": "label",
-    "page_data_info": null,
-    "theme": "light",
-    "section": "top"
-},
-"step 300":
+"step 190":
 {
     "type": "Mouse Click",
     "action": "Triple Click",
@@ -2423,7 +1276,7 @@
     ],
     "post_wait": 0
 },
-"step 305":
+"step 195":
 {
     "type": "Key Input",
     "action": "",
@@ -2432,7 +1285,15 @@
     "location": "",
     "wait_after": 1
 },
-"step 310":
+"step 200":
+{
+    "type": "Create Data",
+    "data_type": "string",
+    "data_name": "today_date_range",
+    "key_name": "NA",
+    "key_value": "09/23/2023 - 09/24/2023"
+},
+"step 205":
 {
     "type": "Text Input",
     "txt_type": "var",
@@ -2442,1129 +1303,105 @@
     "key_after": "enter",
     "wait_after": 2
 },
-"step 315":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "apply",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 5
-},
-"step 320":
-{
-    "type": "Extract Info",
-    "settings": {
-        "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
-        "cargs": "",
-        "botid": 3,
-        "seller": {
-            "No": "1",
-            "FromName": "Sam Chen",
-            "PhoneFrom": "925-601-1002",
-            "Address1From": "2610 Laramie Gate Cir",
-            "CompanyFrom": "",
-            "Address2From": "",
-            "CityFrom": "Pleasanton",
-            "StateFrom": "CA",
-            "ZipCodeFrom": "94566"
-        },
-        "mid": 3,
-        "midx": -1,
-        "run_config": {
-            "estRunTime": 1
-        },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
-        "platform": "win",
-        "site": "goodsupply",
-        "app": "chrome",
-        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
-        "page": "label",
-        "products": [
-            {
-                "name": "default",
-                "title": "neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "michigan state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "osu",
-                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "iowa",
-                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "indiana",
-                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "penn state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wisconsin",
-                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "minnesota",
-                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "florida",
-                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "alabama",
-                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "georgia",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "duke",
-                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wake forrest",
-                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "kansas",
-                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "christmas tree",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "coffee",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "among us",
-                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
-                "asin": "",
-                "variation": {},
-                "weight": 0.6,
-                "dimension": [
-                    8,
-                    8,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open1",
-                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open2",
-                "title": "OPEN LED Neon Sign For Stores And Shops",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "beer3",
-                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "bastketball",
-                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            }
-        ],
-        "rpaName": "sell",
-        "wifis": [
-            "ARRIS-8679"
-        ],
-        "options": "{}",
-        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
-    },
-    "template": "",
-    "option": "",
-    "data_sink": "screen_info",
-    "page": "label",
-    "page_data_info": null,
-    "theme": "light",
-    "section": "top"
-},
-"step 325":
-{
-    "type": "Repeat",
-    "lc_name": "waitGSLabels0",
-    "until": "more_to_update and pidx != '0'",
-    "count": "",
-    "end": ""
-},
-"step 330":
-{
-    "type": "Search Anchor Info",
-    "screen": "screen_info",
-    "names": "download_success",
-    "target_types": "anchor text",
-    "logic": "any",
-    "result": "dl_successes",
-    "site": "goodsupply",
-    "breakpoint": false,
-    "status": "labels_downloaded"
-},
-"step 335":
-{
-    "type": "Repeat",
-    "lc_name": "waitGSLabels0",
-    "until": "labels_downloaded != True",
-    "count": "",
-    "end": ""
-},
-"step 340":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "apply",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 5
-},
-"step 345":
-{
-    "type": "Extract Info",
-    "settings": {
-        "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
-        "cargs": "",
-        "botid": 3,
-        "seller": {
-            "No": "1",
-            "FromName": "Sam Chen",
-            "PhoneFrom": "925-601-1002",
-            "Address1From": "2610 Laramie Gate Cir",
-            "CompanyFrom": "",
-            "Address2From": "",
-            "CityFrom": "Pleasanton",
-            "StateFrom": "CA",
-            "ZipCodeFrom": "94566"
-        },
-        "mid": 3,
-        "midx": -1,
-        "run_config": {
-            "estRunTime": 1
-        },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
-        "platform": "win",
-        "site": "goodsupply",
-        "app": "chrome",
-        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
-        "page": "label",
-        "products": [
-            {
-                "name": "default",
-                "title": "neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "michigan state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "osu",
-                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "iowa",
-                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "indiana",
-                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "penn state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wisconsin",
-                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "minnesota",
-                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "florida",
-                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "alabama",
-                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "georgia",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "duke",
-                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wake forrest",
-                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "kansas",
-                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "christmas tree",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "coffee",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "among us",
-                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
-                "asin": "",
-                "variation": {},
-                "weight": 0.6,
-                "dimension": [
-                    8,
-                    8,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open1",
-                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open2",
-                "title": "OPEN LED Neon Sign For Stores And Shops",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "beer3",
-                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "bastketball",
-                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            }
-        ],
-        "rpaName": "sell",
-        "wifis": [
-            "ARRIS-8679"
-        ],
-        "options": "{}",
-        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
-    },
-    "template": "",
-    "option": "",
-    "data_sink": "screen_info",
-    "page": "label",
-    "page_data_info": null,
-    "theme": "light",
-    "section": "top"
-},
-"step 350":
-{
-    "type": "Search Anchor Info",
-    "screen": "screen_info",
-    "names": "download_success",
-    "target_types": "anchor text",
-    "logic": "any",
-    "result": "dl_successes",
-    "site": "goodsupply",
-    "breakpoint": false,
-    "status": "download_status"
-},
-"step 355":
-{
-    "type": "Stub",
-    "stub_name": "end loop",
-    "func_name": "",
-    "fargs": ""
-},
-"step 360":
-{
-    "type": "Create Dir",
-    "dir": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
-    "result": "fileStatus"
-},
-"step 365":
-{
-    "type": "Key Input",
-    "action": "",
-    "action_value": "ctrl,s",
-    "save_rb": true,
-    "location": "",
-    "wait_after": 4
-},
-"step 370":
+"step 210":
 {
     "type": "Create Data",
-    "data_type": "expr",
-    "data_name": "file_save_input",
+    "data_type": "int",
+    "data_name": "gs_timeout",
     "key_name": "NA",
-    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/', 'etsyOrders1695281177.html']"
+    "key_value": 0
 },
-"step 375":
+"step 215":
 {
-    "type": "Use Skill",
-    "skill_name": "open_save_as",
-    "skill_path": "public/win_file_local_op",
-    "skill_args": "file_save_input",
-    "output": "fileStatus"
+    "type": "Repeat",
+    "lc_name": "waitGSLabels0",
+    "until": "labels_ready != True and gs_timeout < 40",
+    "count": "",
+    "end": ""
 },
-"step 380":
+"step 220":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
-    "time": 12
+    "time": 15
 },
-"step 385":
+"step 225":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "apply",
+    "target_type": "anchor text",
+    "text": "Apply",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 3
+},
+"step 230":
 {
     "type": "Create Data",
-    "data_type": "str",
-    "data_name": "html_file",
+    "data_type": "expr",
+    "data_name": "file_wo_extension",
     "key_name": "NA",
-    "key_value": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/etsyOrders1695281177.html"
+    "key_value": "fin[1][n_files_processed]['file'].split('.')[0]"
 },
-"step 390":
-{
-    "type": "GS Scrape Labels",
-    "pidx": "pidx",
-    "allOrders": "order_data",
-    "html_file": "html_file",
-    "result": "nTCUpdated",
-    "status": "more_to_update"
-},
-"step 395":
+"step 235":
 {
     "type": "Create Data",
     "data_type": "string",
     "data_name": "partial",
     "key_name": "NA",
-    "key_value": "{\\\"info\\\": [{\\\"info_name\\\": \\\"page_n_loc\\\", \\\"info_type\\\": \\\"lines 1\\\", \\\"template\\\": \\\""
+    "key_value": "{\\\"info\\\": [{\\\"info_name\\\": \\\"zip_row\\\", \\\"info_type\\\": \\\"lines 1\\\", \\\"template\\\": \\\""
 },
-"step 400":
+"step 240":
 {
     "type": "Call Extern",
-    "file": "global ops_string\nops_string = partial + pidx",
+    "file": "global file_wo_extension\nfile_wo_extension = partial + file_wo_extension",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 405":
+"step 245":
 {
     "type": "Create Data",
     "data_type": "string",
     "data_name": "tail",
     "key_name": "NA",
-    "key_value": "\\\", \\\"ref_method\\\": \\\"1\\\", \\\"refs\\\": [{\\\"dir\\\": \\\"right inline\\\", \\\"ref\\\": \\\"entries\\\", \\\"offset\\\": 0, \\\"offset_unit\\\": \\\"box\\\"}]}]}"
+    "key_value": ".*\\\", \\\"ref_method\\\": \\\"1\\\", \\\"refs\\\": [{\\\"dir\\\": \\\"left inline\\\", \\\"ref\\\": \\\"download\\\", \\\"offset\\\": 0, \\\"offset_unit\\\": \\\"box\\\"}]}]}"
 },
-"step 410":
+"step 250":
+{
+    "type": "Create Data",
+    "data_type": "string",
+    "data_name": "todate",
+    "key_name": "NA",
+    "key_value": "0924"
+},
+"step 255":
 {
     "type": "Call Extern",
-    "file": "global ops_string\nops_string = ops_string + tail",
+    "file": "global file_wo_extension\nfile_wo_extension = file_wo_extension + tail",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 415":
+"step 260":
 {
     "type": "Create Data",
     "data_type": "obj",
@@ -3592,8 +1429,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -4027,15 +1864,15 @@
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
     }
 },
-"step 420":
+"step 265":
 {
     "type": "Call Extern",
-    "file": "global syn_settings\nsyn_settings['options'] = ops_string",
+    "file": "global syn_settings\nsyn_settings['options'] = file_wo_extension",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 425":
+"step 270":
 {
     "type": "Extract Info",
     "settings": "syn_settings",
@@ -4047,27 +1884,670 @@
     "theme": "light",
     "section": "top"
 },
-"step 430":
+"step 275":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
-    "names": "page_n_loc",
+    "names": "zip_row",
     "target_types": "info 1",
     "logic": "any",
-    "result": "page_n_locs",
+    "result": "zip_download_locs",
     "site": "goodsupply",
     "breakpoint": false,
-    "status": "found_next_page"
+    "status": "labels_ready"
 },
-"step 435":
+"step 280":
+{
+    "type": "Create Data",
+    "data_type": "obj",
+    "data_name": "syn_settings",
+    "key_name": "NA",
+    "key_value": {
+        "skname": "bulk_buy",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "Sam Chen",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "2610 Laramie Gate Cir",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Pleasanton",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "94566"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "platform": "win",
+        "site": "goodsupply",
+        "app": "chrome",
+        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        "page": "label",
+        "products": [
+            {
+                "name": "default",
+                "title": "neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "michigan state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "osu",
+                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "iowa",
+                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "indiana",
+                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "penn state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wisconsin",
+                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "minnesota",
+                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "florida",
+                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "alabama",
+                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "georgia",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "duke",
+                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wake forrest",
+                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "kansas",
+                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "christmas tree",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "coffee",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "among us",
+                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
+                "asin": "",
+                "variation": {},
+                "weight": 0.6,
+                "dimension": [
+                    8,
+                    8,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open1",
+                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open2",
+                "title": "OPEN LED Neon Sign For Stores And Shops",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "beer3",
+                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "bastketball",
+                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            }
+        ],
+        "rpaName": "sell",
+        "wifis": [
+            "ARRIS-8679"
+        ],
+        "options": "{}",
+        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
+    }
+},
+"step 285":
+{
+    "type": "Call Extern",
+    "file": "global syn_settings\nsyn_settings['options'] = file_wo_extension",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 290":
+{
+    "type": "Call Extern",
+    "file": "global gs_timeout\ngs_timeout = gs_timeout + 1",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 295":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 300":
+{
+    "type": "Check Condition",
+    "condition": "labels_ready",
+    "if_else": "",
+    "if_end": ""
+},
+"step 305":
 {
     "type": "Mouse Click",
     "action": "Single Click",
     "action_args": "",
     "save_rb": true,
     "screen": "screen_info",
-    "target_name": "page_n_loc",
-    "target_type": "info 1",
+    "target_name": "download",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 6
+},
+"step 310":
+{
+    "type": "Create Data",
+    "data_type": "string",
+    "data_name": "dl_path",
+    "key_name": "NA",
+    "key_value": "C:/Users/songc/Downloads/"
+},
+"step 315":
+{
+    "type": "GS Extract Zipped",
+    "zipped_screen_text": "zip_download_locs",
+    "result": "dl_file_name",
+    "status": "fileStatus"
+},
+"step 320":
+{
+    "type": "Call Extern",
+    "file": "global dl_path,downloaded_zip_file\ndownloaded_zip_file = dl_path + dl_file_name + '.zip'\nprint('downloaded_zip_file', downloaded_zip_file)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 325":
+{
+    "type": "Check Existence",
+    "fntype": "file var",
+    "file": "downloaded_zip_file",
+    "result": "zip_downloaded"
+},
+"step 330":
+{
+    "type": "Call Extern",
+    "file": "global gs_timeout\ngs_timeout = 0",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 335":
+{
+    "type": "Repeat",
+    "lc_name": "waitGSLabels0",
+    "until": "zip_downloaded != True and gs_timeout < 5",
+    "count": "",
+    "end": ""
+},
+"step 340":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 5
+},
+"step 345":
+{
+    "type": "Check Existence",
+    "fntype": "file var",
+    "file": "downloaded_zip_file",
+    "result": "zip_downloaded"
+},
+"step 350":
+{
+    "type": "Call Extern",
+    "file": "global gs_timeout\ngs_timeout = gs_timeout + 1\nprint('gs_timeout:',gs_timeout)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 355":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 360":
+{
+    "type": "Call Extern",
+    "file": "global in_files_dir, n_files_processed, dl_file_name\nin_files_dir = fin[1][n_files_processed]['dir']+'/'+dl_file_name\nprint('in_files_dir:',in_files_dir)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 365":
+{
+    "type": "Create Dir",
+    "dir": "in_files_dir",
+    "result": "fileStatus"
+},
+"step 370":
+{
+    "type": "Seven Zip",
+    "action": "unzip",
+    "var_type": "expr",
+    "exe_var": "zip7z_exe",
+    "in_var": "downloaded_zip_file",
+    "out_path": "in_files_dir",
+    "out_var": "",
+    "result": "fileStatus"
+},
+"step 375":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 5
+},
+"step 380":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "ctrl,x",
+    "save_rb": false,
+    "location": "",
+    "wait_after": 1
+},
+"step 385":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 390":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "transaction_usps",
+    "target_type": "anchor text",
     "text": "",
     "nth": [
         0,
@@ -4086,7 +2566,7 @@
     ],
     "post_wait": 2
 },
-"step 440":
+"step 395":
 {
     "type": "Extract Info",
     "settings": {
@@ -4111,8 +2591,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -4553,43 +3033,2214 @@
     "theme": "light",
     "section": "top"
 },
+"step 400":
+{
+    "type": "Mouse Click",
+    "action": "Triple Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "apply",
+    "target_type": "anchor text",
+    "text": "Apply",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "left",
+    "offset_unit": "box",
+    "offset": [
+        1,
+        0
+    ],
+    "move_pause": 1,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 0
+},
+"step 405":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "bacckspace",
+    "save_rb": false,
+    "location": "",
+    "wait_after": 1
+},
+"step 410":
+{
+    "type": "Text Input",
+    "txt_type": "var",
+    "save_rb": false,
+    "text": "today_date_range",
+    "speed": 1,
+    "key_after": "enter",
+    "wait_after": 2
+},
+"step 415":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "apply",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 5
+},
+"step 420":
+{
+    "type": "Extract Info",
+    "settings": {
+        "skname": "bulk_buy",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "Sam Chen",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "2610 Laramie Gate Cir",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Pleasanton",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "94566"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "platform": "win",
+        "site": "goodsupply",
+        "app": "chrome",
+        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        "page": "label",
+        "products": [
+            {
+                "name": "default",
+                "title": "neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "michigan state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "osu",
+                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "iowa",
+                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "indiana",
+                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "penn state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wisconsin",
+                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "minnesota",
+                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "florida",
+                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "alabama",
+                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "georgia",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "duke",
+                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wake forrest",
+                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "kansas",
+                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "christmas tree",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "coffee",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "among us",
+                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
+                "asin": "",
+                "variation": {},
+                "weight": 0.6,
+                "dimension": [
+                    8,
+                    8,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open1",
+                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open2",
+                "title": "OPEN LED Neon Sign For Stores And Shops",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "beer3",
+                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "bastketball",
+                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            }
+        ],
+        "rpaName": "sell",
+        "wifis": [
+            "ARRIS-8679"
+        ],
+        "options": "{}",
+        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
+    },
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "label",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 425":
+{
+    "type": "Repeat",
+    "lc_name": "waitGSLabels0",
+    "until": "more_to_update and pidx != '0'",
+    "count": "",
+    "end": ""
+},
+"step 430":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "download_success",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "dl_successes",
+    "site": "goodsupply",
+    "breakpoint": false,
+    "status": "labels_downloaded"
+},
+"step 435":
+{
+    "type": "Repeat",
+    "lc_name": "waitGSLabels0",
+    "until": "labels_downloaded != True",
+    "count": "",
+    "end": ""
+},
+"step 440":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "apply",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 5
+},
 "step 445":
 {
-    "type": "Stub",
-    "stub_name": "end loop",
-    "func_name": "",
-    "fargs": ""
+    "type": "Extract Info",
+    "settings": {
+        "skname": "bulk_buy",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "Sam Chen",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "2610 Laramie Gate Cir",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Pleasanton",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "94566"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "platform": "win",
+        "site": "goodsupply",
+        "app": "chrome",
+        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        "page": "label",
+        "products": [
+            {
+                "name": "default",
+                "title": "neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "michigan state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "osu",
+                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "iowa",
+                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "indiana",
+                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "penn state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wisconsin",
+                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "minnesota",
+                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "florida",
+                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "alabama",
+                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "georgia",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "duke",
+                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wake forrest",
+                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "kansas",
+                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "christmas tree",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "coffee",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "among us",
+                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
+                "asin": "",
+                "variation": {},
+                "weight": 0.6,
+                "dimension": [
+                    8,
+                    8,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open1",
+                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open2",
+                "title": "OPEN LED Neon Sign For Stores And Shops",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "beer3",
+                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "bastketball",
+                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            }
+        ],
+        "rpaName": "sell",
+        "wifis": [
+            "ARRIS-8679"
+        ],
+        "options": "{}",
+        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
+    },
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "label",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
 },
 "step 450":
 {
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "download_success",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "dl_successes",
+    "site": "goodsupply",
+    "breakpoint": false,
+    "status": "download_status"
 },
 "step 455":
 {
     "type": "Stub",
-    "stub_name": "end condition",
+    "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
 "step 460":
 {
+    "type": "Create Dir",
+    "dir": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+    "result": "fileStatus"
+},
+"step 465":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "ctrl,s",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 4
+},
+"step 470":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "file_save_input",
+    "key_name": "NA",
+    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/', 'etsyOrders1695592689.html']"
+},
+"step 475":
+{
+    "type": "Use Skill",
+    "skill_name": "open_save_as",
+    "skill_path": "public/win_file_local_op",
+    "skill_args": "file_save_input",
+    "output": "fileStatus"
+},
+"step 480":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 12
+},
+"step 485":
+{
+    "type": "Create Data",
+    "data_type": "str",
+    "data_name": "html_file",
+    "key_name": "NA",
+    "key_value": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/etsyOrders1695592689.html"
+},
+"step 490":
+{
+    "type": "GS Scrape Labels",
+    "pidx": "pidx",
+    "allOrders": "order_data",
+    "html_file": "html_file",
+    "result": "nTCUpdated",
+    "status": "more_to_update"
+},
+"step 495":
+{
+    "type": "Create Data",
+    "data_type": "string",
+    "data_name": "partial",
+    "key_name": "NA",
+    "key_value": "{\\\"info\\\": [{\\\"info_name\\\": \\\"page_n_loc\\\", \\\"info_type\\\": \\\"lines 1\\\", \\\"template\\\": \\\""
+},
+"step 500":
+{
     "type": "Call Extern",
-    "file": "n_files_processed = n_files_processed + 1",
+    "file": "global ops_string\nops_string = partial + pidx",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 465":
+"step 505":
+{
+    "type": "Create Data",
+    "data_type": "string",
+    "data_name": "tail",
+    "key_name": "NA",
+    "key_value": "\\\", \\\"ref_method\\\": \\\"1\\\", \\\"refs\\\": [{\\\"dir\\\": \\\"right inline\\\", \\\"ref\\\": \\\"entries\\\", \\\"offset\\\": 0, \\\"offset_unit\\\": \\\"box\\\"}]}]}"
+},
+"step 510":
+{
+    "type": "Call Extern",
+    "file": "global ops_string\nops_string = ops_string + tail\nprint('ops_string', ops_string)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 515":
+{
+    "type": "Create Data",
+    "data_type": "obj",
+    "data_name": "syn_settings",
+    "key_name": "NA",
+    "key_value": {
+        "skname": "bulk_buy",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "Sam Chen",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "2610 Laramie Gate Cir",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Pleasanton",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "94566"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "platform": "win",
+        "site": "goodsupply",
+        "app": "chrome",
+        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        "page": "label",
+        "products": [
+            {
+                "name": "default",
+                "title": "neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "michigan state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "osu",
+                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "iowa",
+                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "indiana",
+                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "penn state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wisconsin",
+                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "minnesota",
+                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "florida",
+                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "alabama",
+                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "georgia",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "duke",
+                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wake forrest",
+                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "kansas",
+                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "christmas tree",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "coffee",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "among us",
+                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
+                "asin": "",
+                "variation": {},
+                "weight": 0.6,
+                "dimension": [
+                    8,
+                    8,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open1",
+                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open2",
+                "title": "OPEN LED Neon Sign For Stores And Shops",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "beer3",
+                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "bastketball",
+                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            }
+        ],
+        "rpaName": "sell",
+        "wifis": [
+            "ARRIS-8679"
+        ],
+        "options": "{}",
+        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
+    }
+},
+"step 520":
+{
+    "type": "Call Extern",
+    "file": "global syn_settings\nsyn_settings['options'] = ops_string",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 525":
+{
+    "type": "Extract Info",
+    "settings": "syn_settings",
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "label",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 530":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "page_n_loc",
+    "target_types": "info 1",
+    "logic": "any",
+    "result": "page_n_locs",
+    "site": "goodsupply",
+    "breakpoint": false,
+    "status": "found_next_page"
+},
+"step 535":
+{
+    "type": "Check Condition",
+    "condition": "found_next_page",
+    "if_else": "",
+    "if_end": ""
+},
+"step 540":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "page_n_loc",
+    "target_type": "info 1",
+    "text": "",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 545":
+{
+    "type": "Extract Info",
+    "settings": {
+        "skname": "bulk_buy",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "cargs": "",
+        "botid": 3,
+        "seller": {
+            "No": "1",
+            "FromName": "Sam Chen",
+            "PhoneFrom": "925-601-1002",
+            "Address1From": "2610 Laramie Gate Cir",
+            "CompanyFrom": "",
+            "Address2From": "",
+            "CityFrom": "Pleasanton",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "94566"
+        },
+        "mid": 3,
+        "midx": -1,
+        "run_config": {
+            "estRunTime": 1
+        },
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "platform": "win",
+        "site": "goodsupply",
+        "app": "chrome",
+        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        "page": "label",
+        "products": [
+            {
+                "name": "default",
+                "title": "neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "michigan state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "osu",
+                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "iowa",
+                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "indiana",
+                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "penn state",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wisconsin",
+                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "minnesota",
+                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "florida",
+                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "alabama",
+                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "georgia",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "duke",
+                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "wake forrest",
+                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "kansas",
+                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "christmas tree",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "coffee",
+                "title": "Christmas Themed Christmas Tree LED Neon Light",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "among us",
+                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
+                "asin": "",
+                "variation": {},
+                "weight": 0.6,
+                "dimension": [
+                    8,
+                    8,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open",
+                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open1",
+                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "open2",
+                "title": "OPEN LED Neon Sign For Stores And Shops",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "beer3",
+                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            },
+            {
+                "name": "bastketball",
+                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
+                "asin": "",
+                "variation": {},
+                "weight": 2.2,
+                "dimension": [
+                    18,
+                    14,
+                    2
+                ],
+                "state": "new",
+                "inventory": [
+                    {
+                        "loc": "USCA0",
+                        "quantity": 1
+                    }
+                ]
+            }
+        ],
+        "rpaName": "sell",
+        "wifis": [
+            "ARRIS-8679"
+        ],
+        "options": "{}",
+        "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
+    },
+    "template": "",
+    "option": "",
+    "data_sink": "screen_info",
+    "page": "label",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 550":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 555":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 470":
+"step 560":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 565":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 570":
+{
+    "type": "Call Extern",
+    "file": "global n_files_processed\nn_files_processed = n_files_processed + 1\nprint('n_files_processed', n_files_processed)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 575":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 580":
 {
     "type": "Stub",
     "stub_name": "end skill",

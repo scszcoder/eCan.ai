@@ -132,8 +132,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -695,8 +695,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",

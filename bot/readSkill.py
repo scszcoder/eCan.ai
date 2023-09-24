@@ -134,6 +134,7 @@ vicrop = {
     "Etsy Remove Expanded": lambda x, y: processEtsyRemoveAlreadyExpanded(x, y),
     "Etsy Extract Tracking": lambda x, y: processEtsyExtractTracking(x, y),
     "Etsy Add Page Of Order": lambda x, y: processEtsyAddPageOfOrder(x, y),
+    "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)

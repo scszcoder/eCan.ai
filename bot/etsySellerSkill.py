@@ -53,10 +53,10 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
      # hard default exe path code here just for testing purpose, eventually will be from input or settings....
-    this_step, step_words = genStepCreateData("str", "sevenZExe", "NA", 'C:/"Program Files"/7-Zip/7z.exe', this_step)
+    this_step, step_words = genStepCreateData("str", "sevenZExe", "NA", 'C:/Program Files/7-Zip/7z.exe', this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("str", "rarExe", "NA", 'C:/"Program Files"/WinRaR/WinRaR.exe', this_step)
+    this_step, step_words = genStepCreateData("str", "rarExe", "NA", 'C:/Program Files/WinRaR/WinRaR.exe', this_step)
     psk_words = psk_words + step_words
 
 
@@ -84,7 +84,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     # this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", "product_book", worksettings["seller"], fdir, this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority09122023.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)", "", "in_line", "", this_step)
@@ -693,6 +693,18 @@ def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
     # Save workbook
     wb.save(ofname)
 
+# if 1 product is not FBS, then the whole order is FBS... requires manual work.....
+def order_is_for_fbs(order, pbook):
+    fbs = True
+    for op in order.getProducts():
+        prod = next((p for i, p in enumerate(pbook[0]["products"]) if p["title"] == op.getPTitle()), None)
+        if prod:
+            if prod["fullfiller"] != "self":
+                fbs = False
+                break
+    return fbs
+
+
 
 # ec_order data structure can be refered to scraperEtsy.py file.
 # basically list of pages of orders: each
@@ -713,9 +725,12 @@ def processPrepGSOrder(step, i):
     # filter out Non-USA orders. International Orders such as canadian and mexican should be treatly separately at this time.
     us_orders = [o for o in combined if o.getRecipientAddrState() != "Canada" and o.getRecipientAddrState() != "Mexico"]
 
+    # don't put in the order that's not going to be fullfilled by the seller him/her self.
+    fbs_orders = [o for o in us_orders if order_is_for_fbs(o, symTab[step["prod_book"]])]
+
     # group orders into two categories: weights less than 1lb and weights more than 1lb
-    light_orders = [o for o in us_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) < 1.0 ]
-    regular_orders = [o for o in us_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
+    light_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) < 1.0 ]
+    regular_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
 
     # ofname is the order file name, should be etsy_orders+Date.xls
     dt_string = datetime.now().strftime('%Y%m%d%H%M%S')

@@ -82,6 +82,7 @@ if __name__ == '__main__':
 
     # test_scrape_gs_labels()
     # test_processSearchWordline()
+    # test_process7z()
     # test_basic()
     # test_coordinates()
     # test_rar()

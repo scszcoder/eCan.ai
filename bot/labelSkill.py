@@ -140,46 +140,49 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("string", "downloaded_zip_file", "NA", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global n_order_files\nn_order_files = len(fin[1])", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global n_order_files\nn_order_files = len(fin[1])\nprint('n_order_files', n_order_files)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
 
     this_step, step_words = genStepCreateData("float", "funds_left_number", "NA", -1.0, this_step)
     psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "gs_sign_in", "anchor text", "any", "junk", "gs_not_signed_in", "goodsupply", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global gs_not_signed_in, junk\nprint('gs_not_signed_in:', gs_not_signed_in, 'junk:', junk)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("gs_not_signed_in", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # click on sign in button to sign in and after sign in, extract screen again and get ready to
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "gs_sign_in", "anchor text", "", [0, 0], "center", [0, 0], "box", 1, 5, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    # enter the loop here, for each round of the loop, we'll process 1 xls file, the loop should :
-    # 1) open site again, by this time, there should be no log in problem.
-    # 2) extract available fund. check if fund is enough to complete this purchase.
-    # 3) if with enough fund. then go thru the sequence to open the xls file and verify data.
-    # 4) scroll till import to click import to import the file
-    #       (actually since verify data doesn't really work, maybe just directly click on import)
-    # 5) wait till the rar file is generated.
-    # 6) if generated - unrar, else, record error.
-    # 7) close the tab ?
-
+    #
+    # this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "gs_sign_in", "anchor text", "any", "junk", "gs_not_signed_in", "goodsupply", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern("global gs_not_signed_in, junk\nprint('gs_not_signed_in:', gs_not_signed_in, 'junk:', junk)", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCheckCondition("gs_not_signed_in", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # click on sign in button to sign in and after sign in, extract screen again and get ready to
+    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "gs_sign_in", "anchor text", "", [0, 0], "center", [0, 0], "box", 1, 5, [0, 0], this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # # enter the loop here, for each round of the loop, we'll process 1 xls file, the loop should :
+    # # 1) open site again, by this time, there should be no log in problem.
+    # # 2) extract available fund. check if fund is enough to complete this purchase.
+    # # 3) if with enough fund. then go thru the sequence to open the xls file and verify data.
+    # # 4) scroll till import to click import to import the file
+    # #       (actually since verify data doesn't really work, maybe just directly click on import)
+    # # 5) wait till the rar file is generated.
+    # # 6) if generated - unrar, else, record error.
+    # # 7) close the tab ?
+    #
 
     this_step, step_words = genStepLoop("n_files_processed < n_order_files", "", "", "buyGSLabels" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('n_files_processed:', n_files_processed, 'n_order_files:', n_order_files)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # open the web page again.
@@ -193,10 +196,10 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "available_fund", "info 1", "any", "funds_left", "gs_signed_in", "gen_label_status", False, this_step)
     psk_words = psk_words + step_words
 
-    # check whether we have enough money in the account, if so, then proceed to purchasing labels....
-    # this routine could be optimized later to purchase as much as the remaining fund allows.
-    # the principle is to spent on Ground Service labels as much as possible, because of the lower ISP.
-    # this should be a separate instruction or a skill routine?
+    # # check whether we have enough money in the account, if so, then proceed to purchasing labels....
+    # # this routine could be optimized later to purchase as much as the remaining fund allows.
+    # # the principle is to spent on Ground Service labels as much as possible, because of the lower ISP.
+    # # this should be a separate instruction or a skill routine?
     this_step, step_words = genStepCheckCondition("len(funds_left) > 0", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -223,7 +226,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCheckCondition("funds_left_number >= fin[1][n_files_processed]['price']", "", "", this_step)
     psk_words = psk_words + step_words
 
-    #
+
     # # now that we have enough fund to buy labels on this sheet. go and execute that.
     # this_step, step_words = genStepSearchAnchorInfo("screen_info", "export_template", "anchor text", "any", "junk", "page_load_status", "goodsupply", False, this_step)
     # psk_words = psk_words + step_words
@@ -288,8 +291,8 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     # # end of find import button scroll down loop
     # this_step, step_words = genStepStub("end loop", "", "", this_step)
     # psk_words = psk_words + step_words
-
-    # click on OPEN button to complete the drill
+    #
+    # # click on OPEN button to complete the drill
     # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "import", "anchor text", "", 1, "center", [0, 0], "box", 0, 10, [0, 0], this_step)
     # psk_words = psk_words + step_words
 
@@ -309,109 +312,111 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     md_string = datetime.today().strftime('%m%d')
 
     print("MD string is:", md_string)
-    #
-    # this_step, step_words = genStepMouseClick("Triple Click", "", True, "screen_info", "apply", "anchor text", "Apply", [0, 0], "left", [1, 0], "box", 1, 0, [0, 0], this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepKeyInput("", False, "bacckspace", "", 1, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("string", "today_date_range", "NA", dt_range_string, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # #now type in the correct date range
-    # # fill in the to be extracted dir
-    # this_step, step_words = genStepTextInput("var", False, "today_date_range", 1, "enter", 2, this_step)
-    # psk_words = psk_words + step_words
-    #
-    #
-    #
-    #
-    # # wait timeout until the label file is ready. this could take as long as 5 minutes.....
-    # this_step, step_words = genStepCreateData("int", "gs_timeout", "NA", 0, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # 40 x 15 second = 10 minutes, that's our time out time.
-    # this_step, step_words = genStepLoop("labels_ready != True and gs_timeout < 40", "", "", "waitGSLabels" + str(stepN), this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # check every 15 seconds.
-    # this_step, step_words = genStepWait(15, 0, 0, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # now hit Apply again.
-    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "apply", "anchor text", "Apply",
-    #                                           [0, 0], "center", [0, 0], "box", 2, 3, [0, 0], this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # at this point, we should see list of files generated, and we should search for our file which has a pre-determined prefix.
-    # # now extract the screen again，
-    #
-    # this_step, step_words = genStepCreateData("expr", "file_wo_extension", "NA", "fin[1][n_files_processed]['file'].split('.')[0]", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("string", "partial", "NA", "{\\\"info\\\": [{\\\"info_name\\\": \\\"zip_row\\\", \\\"info_type\\\": \\\"lines 1\\\", \\\"template\\\": \\\"", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = partial + file_wo_extension", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("string", "tail", "NA", ".*\\\", \\\"ref_method\\\": \\\"1\\\", \\\"refs\\\": [{\\\"dir\\\": \\\"left inline\\\", \\\"ref\\\": \\\"download\\\", \\\"offset\\\": 0, \\\"offset_unit\\\": \\\"box\\\"}]}]}", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("string", "todate", "NA", md_string, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + todate + tail", "", "in_line", "", this_step)
-    # this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + tail", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("obj", "syn_settings", "NA", worksettings, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern("global syn_settings\nsyn_settings['options'] = file_wo_extension", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepExtractInfo("", "syn_settings", "screen_info", "label", "top", theme, this_step, None)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "zip_row", "info 1", "any", "zip_download_locs", "labels_ready", "goodsupply", False, this_step)
-    # psk_words = psk_words + step_words
-    #
-    #
-    # ######################## end of checking whether the zip/rar file is ready
-    #
-    # # check every 15 seconds.
-    # this_step, step_words = genStepCreateData("obj", "syn_settings", "NA", worksettings, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern("global syn_settings\nsyn_settings['options'] = file_wo_extension", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern("global gs_timeout\ngs_timeout = gs_timeout + 1", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepStub("end loop", "", "", this_step)
-    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Triple Click", "", True, "screen_info", "apply", "anchor text", "Apply", [0, 0], "left", [1, 0], "box", 1, 0, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepKeyInput("", False, "bacckspace", "", 1, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "today_date_range", "NA", dt_range_string, this_step)
+    psk_words = psk_words + step_words
+
+    #now type in the correct date range
+    # fill in the to be extracted dir
+    this_step, step_words = genStepTextInput("var", False, "today_date_range", 1, "enter", 2, this_step)
+    psk_words = psk_words + step_words
+
+
+
+
+    # wait timeout until the label file is ready. this could take as long as 5 minutes.....
+    this_step, step_words = genStepCreateData("int", "gs_timeout", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    # 40 x 15 second = 10 minutes, that's our time out time.
+    this_step, step_words = genStepLoop("labels_ready != True and gs_timeout < 40", "", "", "waitGSLabels" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # check every 15 seconds.
+    this_step, step_words = genStepWait(15, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # now hit Apply again.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "apply", "anchor text", "Apply",
+                                              [0, 0], "center", [0, 0], "box", 2, 3, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # at this point, we should see list of files generated, and we should search for our file which has a pre-determined prefix.
+    # now extract the screen again，
+
+    this_step, step_words = genStepCreateData("expr", "file_wo_extension", "NA", "fin[1][n_files_processed]['file'].split('.')[0]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "partial", "NA", "{\\\"info\\\": [{\\\"info_name\\\": \\\"zip_row\\\", \\\"info_type\\\": \\\"lines 1\\\", \\\"template\\\": \\\"", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = partial + file_wo_extension", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "tail", "NA", ".*\\\", \\\"ref_method\\\": \\\"1\\\", \\\"refs\\\": [{\\\"dir\\\": \\\"left inline\\\", \\\"ref\\\": \\\"download\\\", \\\"offset\\\": 0, \\\"offset_unit\\\": \\\"box\\\"}]}]}", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "todate", "NA", md_string, this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + todate + tail", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + tail", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "syn_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global syn_settings\nsyn_settings['options'] = file_wo_extension", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "syn_settings", "screen_info", "label", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "zip_row", "info 1", "any", "zip_download_locs", "labels_ready", "goodsupply", False, this_step)
+    psk_words = psk_words + step_words
+
+
+    ######################## end of checking whether the zip/rar file is ready
+
+    # check every 15 seconds.
+    this_step, step_words = genStepCreateData("obj", "syn_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global syn_settings\nsyn_settings['options'] = file_wo_extension", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global gs_timeout\ngs_timeout = gs_timeout + 1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
 
 
     ###############################################################################################
     # now that shipping labels generated, use unrar skill to unzip it.
     ##############################################################################################
+    # this_step, step_words = genStepCallExtern("global labels_ready\nlabels_ready = True", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("labels_ready", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "download", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 6, [0, 0], this_step)
     psk_words = psk_words + step_words
-
+    #
     this_step, step_words = genStepCreateData("string", "dl_path", "NA", dl_dir, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepGSExtractZippedFileName("zip_download_locs", "dl_file_name", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global dl_path,downloaded_zip_file\ndownloaded_zip_file = dl_path + dl_file_name\nprint('downloaded_zip_file', downloaded_zip_file)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global dl_path,downloaded_zip_file\ndownloaded_zip_file = dl_path + dl_file_name + '.zip'\nprint('downloaded_zip_file', downloaded_zip_file)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # should be a loop here....
@@ -431,15 +436,23 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCheckExistence("file var", "downloaded_zip_file", "zip_downloaded", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global gs_timeout\ngs_timeout = gs_timeout + 1\nprint('gs_timeout:',gs_timeout)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     # now that the file is downloaded, unzip it.
 
     # first, make sure the unzipped dir exits. , then unzip it.
+    # this_step, step_words = genStepCallExtern("global downloaded_zip_file\ndownloaded_zip_file = 'etsyOrdersPriority09122023.xls_0918221925'\nprint('downloaded_zip_file:',downloaded_zip_file)", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global in_files_dir\nin_files_dir = fin[1][n_files_processed]['dir']+downloaded_zip_file\nprint('in_files_dir:',in_files_dir)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global in_files_dir, n_files_processed, dl_file_name\nin_files_dir = fin[1][n_files_processed]['dir']+'/'+dl_file_name\nprint('in_files_dir:',in_files_dir)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepCallExtern("global downloaded_zip_file\ndownloaded_zip_file = dl_path+downloaded_zip_file\nprint('downloaded_zip_file:',downloaded_zip_file)", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
 
     # create the unzipped dir....
     this_step, step_words = genStepCreateDir("in_files_dir", "fileStatus", this_step)
@@ -452,11 +465,19 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepWait(5, 0, 0, this_step)
     psk_words = psk_words + step_words
 
+
+    this_step, step_words = genStepKeyInput("", False, "ctrl,x", "", 1, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
     # now go back and obtain the tracking code and update the data structure with the tracking code.
     # this is done by scraping the GS tracking code web page....
     # now obtain tracking code. of the files....
     # click on <File imported>
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "transaction_usps", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "transaction_usps", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
@@ -507,7 +528,6 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-
     # now save and scrape html which is the easiest way to get all the necessary infomation.....
     # again, this could span many pages.... and a particular, note is that due to screen size, the location of that
     # customer service chat icon could be located just there to block the last page index
@@ -540,11 +560,11 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # after scraping the etsy_orders data will be updated and ready to update to Etsy or any other ecommerce store.....
-    this_step, step_words = genStepScrapeGoodSupplyLabels("html_file", "pidx", "order_data", "nTCUpdated", "more_to_update", this_step)
+    this_step, step_words = genStepGSScrapeLabels("html_file", "pidx", "order_data", "nTCUpdated", "more_to_update", this_step)
     psk_words = psk_words + step_words
 
 
-    #now click on next page......, first obtain the location of the next page number....
+    #if there is more to update，now click on next page......, first obtain the location of the next page number....
 
     this_step, step_words = genStepCreateData("string", "partial", "NA", "{\\\"info\\\": [{\\\"info_name\\\": \\\"page_n_loc\\\", \\\"info_type\\\": \\\"lines 1\\\", \\\"template\\\": \\\"", this_step)
     psk_words = psk_words + step_words
@@ -556,7 +576,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + todate + tail", "", "in_line", "", this_step)
-    this_step, step_words = genStepCallExtern("global ops_string\nops_string = ops_string + tail", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global ops_string\nops_string = ops_string + tail\nprint('ops_string', ops_string)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("obj", "syn_settings", "NA", worksettings, this_step)
@@ -571,13 +591,17 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "page_n_loc", "info 1", "any", "page_n_locs", "found_next_page", "goodsupply", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "page_n_loc", "info 1", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepCheckCondition("found_next_page", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "page_n_loc", "info 1", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
 
     # end of all pages of tracking code....
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -594,7 +618,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
 
 
     # increment n files processed counter....
-    this_step, step_words = genStepCallExtern("n_files_processed = n_files_processed + 1", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global n_files_processed\nn_files_processed = n_files_processed + 1\nprint('n_files_processed', n_files_processed)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # end of loop for processin all order xls files.
@@ -677,10 +701,16 @@ def genStepGSExtractZippedFileName(screen_txt_var, outvar, statusvar, stepN):
 
 
 def processGSExtractZippedFileName(step, i):
-    fn_txt = x = re.sub(' +', ' ', symTab[step["zipped_screen_text"]]["text"])
+    print("extracting from:", symTab[step["zipped_screen_text"]])
+    fn_txt = x = re.sub(' +', ' ', symTab[step["zipped_screen_text"]][0]["text"])
     fn_txts = fn_txt.split(" ")
-    symTab[step["result"]] = fn_txts[0]
-    print("Extracted ZIPPED file name:", symTab[step["result"]])
+
+    # Define a regular expression pattern to match "x*s" where * can be any character
+    pattern = r'\.x\ws'
+
+    # Use re.sub() to replace all occurrences of the pattern with "xls"
+    symTab[step["result"]] = re.sub(pattern, '.xls', fn_txts[0])
+    # print("Extracted ZIPPED file name:", symTab[step["result"]])
     return i + 1
 
 
