@@ -74,6 +74,13 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "download_success",
+                        "anchor_type"  : "text",
+                        "template"     : "Download Success",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "file_name",
                         "anchor_type"  : "text",
                         "template"     : "FileName",

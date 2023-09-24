@@ -155,8 +155,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -788,7 +788,7 @@
 "step 180":
 {
     "type": "Create Dir",
-    "dir": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
+    "dir": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
     "result": "fileStatus"
 },
 "step 185":
@@ -806,7 +806,7 @@
     "data_type": "expr",
     "data_name": "file_save_input",
     "key_name": "NA",
-    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_etsy_orders/skills/collect_orders/', 'etsyOrders1695281178.html']"
+    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_etsy_orders/skills/collect_orders/', 'etsyOrders1695592689.html']"
 },
 "step 195":
 {
@@ -827,7 +827,7 @@
 {
     "type": "ETSY Scrape Orders",
     "pidx": "currentPage",
-    "html_file": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230921/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1695281178.html",
+    "html_file": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1695592689.html",
     "result": "pageOfOrders",
     "status": ""
 },

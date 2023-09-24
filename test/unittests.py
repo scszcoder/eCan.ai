@@ -192,6 +192,27 @@ def test_processSearchWordline():
     next_step = processSearchWordLine(step, 10)
 
 
+
+def test_process7z():
+    symTab["exe_link"] = 'C:/"Program Files"/7-Zip/7z.exe'
+    symTab["in_file"] = 'C:/Users/songc/Downloads/etsyOrdersPriority09122023.xls_0918221925.zip'
+    symTab["opath"] = 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/etsyOrdersPriority09122023.xls_0918221925'
+    symTab["ovar"] = 'nothing'
+    step = {
+        "type": "Seven Zip",
+        "action": "unzip",
+        "var_type": "expr",
+        "exe_var": "exe_link",
+        "in_var": "in_file",
+        "out_path": "opath",
+        "out_var": "ovar",
+        "result": "scrapeStat"
+    }
+
+    next_step = process7z(step, 10)
+    print("done unzipping test....")
+
+
 def test_rar():
     # subprocess.Popen("C:/Program Files/WinRAR/WinRAR.exe C:/Users/songc/Downloads/Downloads1.rar")
     subprocess.Popen(["C:/Program Files/WinRAR/WinRAR.exe",  "C:/Users/songc/Downloads/Downloads1.rar"])

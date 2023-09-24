@@ -495,7 +495,7 @@
     "data_type": "str",
     "data_name": "sevenZExe",
     "key_name": "NA",
-    "key_value": "C:/\"Program Files\"/7-Zip/7z.exe"
+    "key_value": "C:/Program Files/7-Zip/7z.exe"
 },
 "step 50":
 {
@@ -503,12 +503,12 @@
     "data_type": "str",
     "data_name": "rarExe",
     "key_name": "NA",
-    "key_value": "C:/\"Program Files\"/WinRaR/WinRaR.exe"
+    "key_value": "C:/Program Files/WinRaR/WinRaR.exe"
 },
 "step 55":
 {
     "type": "Call Extern",
-    "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority09122023.xls'}]\nprint('GS ORDERS', gs_orders)",
+    "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)",
     "args": "",
     "entity": "in_line",
     "output": ""

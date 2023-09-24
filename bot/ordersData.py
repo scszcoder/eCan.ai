@@ -189,6 +189,12 @@ class ORDER:
     def setRecipient(self, recipient):
         self.recipient = recipient
 
+    def getProducts(self):
+        return self.products
+
+    def getProductTitles(self):
+        return [p.getPTitle() for p in self.products]
+
     def setProducts(self, pds):
         self.products = pds
         if pds[0].getPrice() != "":

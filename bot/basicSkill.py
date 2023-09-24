@@ -1286,7 +1286,7 @@ def processCreateData(step, i):
 def processTextToNumber(step, i):
     original = symTab[step["intext"]]
 
-    num = original.strip().replace("$", "").replace("#", "").replace("%", "").replace(",", "").replace(" ", "")
+    num = original.strip().split(" ")[0].replace("$", "").replace("#", "").replace("%", "").replace(",", "").replace(" ", "")
 
     if "." in num:
         symTab[step["numvar"]] = float(num)
@@ -1723,19 +1723,30 @@ def processCheckExistence(step, i):
         fn = symTab[step["file"]]
     else:
         fn = step["file"]
-
+    print("check existence for :", fn, "of type:", step["fntype"])
     if "dir" in  step["fntype"]:
         symTab[step["result"]] = os.path.isdir(fn)
     else:
         symTab[step["result"]] = os.path.isfile(fn)
 
+    print("Existence is:", symTab[step["result"]])
     return i + 1
 
 
 def processCreateDir(step, i):
-    if not os.path.exists(symTab[step["dir"]]):
+    subds = step["dir"].split("/")
+    if len(subds) == 1:
+        newdir = symTab[step["dir"]]
+    else:
+        newdir = step["dir"]
+
+    print("Creating dir:", newdir)
+    if not os.path.exists(newdir):
         #create only if the dir doesn't exist
-        os.makedirs(symTab[step["dir"]])
+        os.makedirs(newdir)
+        print("Created.....")
+    else:
+        print("Already existed.")
     return i + 1
 
 
@@ -1754,13 +1765,21 @@ def process7z(step, i):
 
     if step["action"] == "zip":
         if output_dir != "":
+
             symTab[step["result"]] = subprocess.call(exe + " a " + input + "-o" + output_dir)
         else:
             symTab[step["result"]] = subprocess.call(exe + " e " + input)
 
     elif step["action"] == "unzip":
         if output_dir != "":
-            symTab[step["result"]] = subprocess.call(exe + " e " + input + "-o" + output_dir)
+            print("executing....", exe + " e " + input + " -o" + output_dir)
+            # output_dir = "-o"+output_dir
+            print("outputdir:", output_dir)
+            # extremely key here, there should be no "" around Program Files....
+            cmd = ['C:/Program Files/7-Zip/7z.exe', 'e', input,  f'-o{output_dir}']
+            symTab[step["result"]] = subprocess.Popen(cmd)
+            # symTab[step["result"]] = subprocess.run(exe + " e " + input + " -o" + output_dir)
+            # symTab[step["result"]] = subprocess.Popen(['C:/Program Files/7-Zip/7z.exe'])
         else:
             symTab[step["result"]] = subprocess.call(exe + " e " + input)
 
