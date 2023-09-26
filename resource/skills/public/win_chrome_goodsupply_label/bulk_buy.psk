@@ -250,8 +250,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -807,8 +807,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -1291,7 +1291,7 @@
     "data_type": "string",
     "data_name": "today_date_range",
     "key_name": "NA",
-    "key_value": "09/23/2023 - 09/24/2023"
+    "key_value": "09/24/2023 - 09/25/2023"
 },
 "step 205":
 {
@@ -1391,7 +1391,7 @@
     "data_type": "string",
     "data_name": "todate",
     "key_name": "NA",
-    "key_value": "0924"
+    "key_value": "0925"
 },
 "step 255":
 {
@@ -1429,8 +1429,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -1924,8 +1924,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -2591,8 +2591,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -3131,8 +3131,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -3653,8 +3653,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -4117,7 +4117,7 @@
 "step 460":
 {
     "type": "Create Dir",
-    "dir": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+    "dir": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
     "result": "fileStatus"
 },
 "step 465":
@@ -4135,7 +4135,7 @@
     "data_type": "expr",
     "data_name": "file_save_input",
     "key_name": "NA",
-    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/', 'etsyOrders1695592689.html']"
+    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/', 'etsyOrders1695699509.html']"
 },
 "step 475":
 {
@@ -4158,7 +4158,7 @@
     "data_type": "str",
     "data_name": "html_file",
     "key_name": "NA",
-    "key_value": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/etsyOrders1695592689.html"
+    "key_value": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/etsyOrders1695699509.html"
 },
 "step 490":
 {
@@ -4229,8 +4229,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -4755,8 +4755,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230924/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",

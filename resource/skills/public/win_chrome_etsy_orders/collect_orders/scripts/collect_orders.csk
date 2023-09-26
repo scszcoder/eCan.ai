@@ -307,7 +307,7 @@
                     {
                         "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
-                        "template"     : "Etsy, Inc",
+                        "template"     : "Etsy, Inc.",
                         "ref_method"   : "0",
                         "ref_constraints" : []
                     },

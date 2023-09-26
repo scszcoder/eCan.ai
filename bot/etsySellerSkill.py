@@ -43,8 +43,9 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCallExtern("global product_book\nprint('product_book:', product_book[0])", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "etsy_orders", "NA", "[]", this_step)
-    psk_words = psk_words + step_words
+    # mask out for testing purpose only....
+    # this_step, step_words = genStepCreateData("expr", "etsy_orders", "NA", "[]", this_step)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "dummy_in", "NA", "[]", this_step)
     psk_words = psk_words + step_words
@@ -79,7 +80,6 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     fdir = fdir + worksettings["skname"] + "/"
 
 
-
     # this is an app specific step.
     # this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", "product_book", worksettings["seller"], fdir, this_step)
     # psk_words = psk_words + step_words
@@ -94,16 +94,16 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     # etsy_oders: will have tracking code and filepath filled
     # buy_status will be "success" or "fail reason****"
     # at the end of this skill, the shipping service and the tracking code section of "etsy_orders" should be updated.....
-    this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "gs_input", "labels_dir", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "gs_input", "labels_dir", this_step)
+    # psk_words = psk_words + step_words
 
     #extract tracking code from labels and update them into etsy_orders data struture.
 
-
+    gen_etsy_test_data()
 
     # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
     # now update tracking coded back to the orderlist
-    this_step, step_words = genStepUseSkill("update_tracking", "public/win_chrome_etsy_orders", "etsy_orders", "total_label_cost", this_step)
+    this_step, step_words = genStepUseSkill("update_tracking", "public/win_chrome_etsy_orders", "gs_input", "total_label_cost", this_step)
     psk_words = psk_words + step_words
 
     # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
@@ -429,6 +429,9 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     this_step, step_words = genStepCreateData("int", "update_order_index", "NA", -1, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("int", "nMore2Update", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("expr", "orderIds", "NA", "[]", this_step)
     psk_words = psk_words + step_words
 
@@ -460,7 +463,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     this_step, step_words = genStepSearchAnchorInfo("screen_info", ["order_number"], ["info 1"], "any", "orderIds", "useless", "etsy", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global numCompletions\nnumCompletions = len(complete_buttons)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global numCompletions\nnumCompletions = len(orderIds)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = 0", "", "in_line", "", this_step)
@@ -479,7 +482,13 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     # if found and its status is wait for completion, then return the order index number.
     # if the index number is invalid, then skip this item.
 
-    this_step, step_words = genStepEtsyFindScreenOrder("numCompletions", "complete_buttons", "orderIds", "etsy_orders", "update_order_index", this_step)
+    this_step, step_words = genStepEtsyFindScreenOrder("nthCompletion", "complete_buttons", "orderIds", "etsy_orders", "update_order_index", "nMore2Update", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global update_order_index\nprint('update_order_index', update_order_index)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fin\nprint('fin', fin)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("update_order_index >= 0", "", "", this_step)
@@ -495,27 +504,28 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     psk_words = psk_words + step_words
 
     # click and type USPS in carrier pull down menu
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "shipping_carrier", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "shipping_carrier", "anchor text", "", [0, 0], "bottom", [0, 2], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global shipping_service\nshipping_service = fin[update_order_index].getShippingService()", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global shipping_service\nshipping_service = fin[0][update_order_index].getShippingService()[:3]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepTextInput("var", False, "shipping_service", 1, "enter", 2, this_step)
+
+    this_step, step_words = genStepTextInput("var", False, "shipping_service", 1, "", 2, this_step)
     psk_words = psk_words + step_words
 
     # click and type in the tracking code.
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "enter_tracking", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global track_code\ntrack_code = fin[update_order_index].getShippingTracking()", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global track_code\ntrack_code = fin[0][update_order_index].getShippingTracking()", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepTextInput("var", False, "track_code", 1, "enter", 2, this_step)
     psk_words = psk_words + step_words
 
     # click the complete order button
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "complete_order", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "complete_order_button", "anchor text", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
 
@@ -542,10 +552,10 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
 
     # now scroll to the next screen.
     # (action, action_args, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, False, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 60, "screen", "scroll_resolution", 0, 0, False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    this_step, step_words = genStepWait(2, 0, 0, this_step)
     psk_words = psk_words + step_words
 
 
@@ -553,9 +563,13 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # now check to see whether there are more pages to visit. i.e. number of orders exceeds more than 1 page.
-    # the number of pages and page index variable are already in the pageOfOrders variable.
-    this_step, step_words = genStepCheckCondition("pageOfOrders['num_pages'] == pageOfOrders['page']", "", "", this_step)
+
+    # now check to see whether there are more pages to visit. basically we have updated all possible tracking code
+    # 1) no more order # found on current page.
+    # 2) the last found order # on this page is not found in the purchased label order# list. - search returns 0 found.
+    #    and there is no more orders to update (go to the order list and see whether there is more orders with tracking
+    #    code ready but not yet updated....
+    this_step, step_words = genStepCheckCondition("nMore2Update <= 0", "", "", this_step)
     psk_words = psk_words + step_words
 
     # set the flag, we have completed collecting all orders information at this point.
@@ -566,8 +580,9 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, page, sect, stepN, theme
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # go to the next page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "next_page", "anchor icon", "", [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
+    # after updating tracking code for the page, reload the page, at this time, the ones updated will be gone,
+    # the next batch will appear on the page.
+    this_step, step_words = genStepKeyInput("", True, "f5", "", 4, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
@@ -822,14 +837,15 @@ def genStepEtsyExtractTracking(labels_dir_var, orders_var, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepEtsyFindScreenOrder(nth_var, complete_buttons_var, order_ids_var, orders_var, found_index_var, stepN):
+def genStepEtsyFindScreenOrder(nth_var, complete_buttons_var, order_ids_var, orders_var, found_index_var, n_more_var, stepN):
     stepjson = {
         "type": "Etsy Find Screen Order",
         "nth_var": nth_var,
         "orders_var": orders_var,
         "complete_buttons_var": complete_buttons_var,
         "order_ids_var": order_ids_var,
-        "found_index_var": found_index_var
+        "found_index_var": found_index_var,
+        "n_more_var" : n_more_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -922,31 +938,88 @@ def processEtsyExtractTracking(step, i):
     idx = 0
     for grp in gs_orders:
         label_files = os.listdir(grp["unzipped_dir"])
-
-
-
         idx = idx + 1
 
     return i + 1
 
 
-
-
+# "nth_var": nth order id on screen.
+# "orders_var": etsy orders variable
+# "complete_buttons_var": complete_buttons_var,
+# "order_ids_var": order_ids extracted from current screen.
+# "found_index_var": found_index of the order in the orders list,
+# "n_more_var": how many more orders to update
 def processEtsyFindScreenOrder(step, i):
     found = -1
     orders = symTab[step["orders_var"]]
     nth = symTab[step["nth_var"]]
+    print("nth:", nth, "orders", orders)
 
     template = symTab[step["order_ids_var"]][nth]["text"].strip()
     button_loc = symTab[step["complete_buttons_var"]][nth]["loc"]
     ref_loc = symTab[step["order_ids_var"]][nth]["associates"][0]["loc"]
 
+    oid_template = template.split(" ")[0]
+    print("ALL orders:")
+    for o in orders:
+        print("OID:"+o.getOid()+"!")
+
+    print("template:", "["+oid_template+"]", "button_loc:", button_loc, "ref_loc:", ref_loc)
     # just for sanity cross-check
     if button_loc == ref_loc:
-        found = next((idx for idx, order in enumerate(orders) if template in order.getOid()), -1)
+        found = next((idx for idx, order in enumerate(orders) if oid_template in order.getOid()), -1)
+        print("Found:", found)
+        if found > 0:
+            orders[found].setStatus("TC updated")
     else:
         print("ERROR: nth order number doesn't match nth complete order button....")
+
+    tobeUpdated = [ o for o in orders if o.getStatus() == "label generated"]
+    symTab[step["n_more_var"]] = len(tobeUpdated)
 
     symTab[step["found_index_var"]] = found
 
     return i + 1
+
+
+
+def gen_etsy_test_data():
+    testorders = []
+
+    new_order = ORDER("", "", "", "", "", "", "")
+    recipient = OrderPerson("", "", "", "", "", "", "")
+    recipient.setFullName("Alex Fischman")
+
+    products = []
+    product = OrderedProduct("", "", "", "")
+    product.setPTitle("abc")
+    products.append(product)
+
+    shipping = Shipping("", "", "", "", "", "", "", "")
+    shipping.setService("USPS Ground Advantage (1-15oz)")
+    new_order.setShipping(shipping)
+    new_order.setProducts(products)
+    new_order.setRecipient(recipient)
+    testorders.append(new_order)
+
+    new_order = ORDER("", "", "", "", "", "", "")
+    recipient = OrderPerson("", "", "", "", "", "", "")
+    recipient.setFullName("Grayson Gold-Garvey")
+
+    products = []
+    product = OrderedProduct("", "", "", "")
+    product.setPTitle("abc")
+    products.append(product)
+
+    shipping = Shipping("", "", "", "", "", "", "", "")
+    shipping.setService("USPS Priority V4")
+    shipping.setTracking("92055432248005702218667163")
+    new_order.setShipping(shipping)
+    new_order.setProducts(products)
+    new_order.setRecipient(recipient)
+    new_order.setOid("#3019459539")
+    testorders.append(new_order)
+
+    symTab["etsy_orders"] = testorders
+    #
+    # return testorders

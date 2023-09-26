@@ -595,7 +595,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         "options": sk_settings["options"],
         "theme": page_theme,
         "imageFile": sfile,
-        "factor": 0.0
+        "factor": "{}"
     }]
 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
@@ -1215,6 +1215,7 @@ def processMouseScroll(step, i):
             scroll_amount = int(((symTab[step["amount"]]/100)*screen_vsize)/symTab[step["resolution"]])
         else:
             scroll_amount = int(((step["amount"]/100)*screen_vsize)/symTab[step["resolution"]])
+            print("screen size based scroll amount:", scroll_amount)
     elif step["unit"] == "raw":
         if type(step["amount"]) is str:
             scroll_amount = symTab[step["amount"]]

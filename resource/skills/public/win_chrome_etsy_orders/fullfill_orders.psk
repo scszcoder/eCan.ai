@@ -469,19 +469,11 @@
 {
     "type": "Create Data",
     "data_type": "expr",
-    "data_name": "etsy_orders",
-    "key_name": "NA",
-    "key_value": "[]"
-},
-"step 35":
-{
-    "type": "Create Data",
-    "data_type": "expr",
     "data_name": "dummy_in",
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 40":
+"step 35":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -489,7 +481,7 @@
     "key_name": "NA",
     "key_value": 253
 },
-"step 45":
+"step 40":
 {
     "type": "Create Data",
     "data_type": "str",
@@ -497,7 +489,7 @@
     "key_name": "NA",
     "key_value": "C:/Program Files/7-Zip/7z.exe"
 },
-"step 50":
+"step 45":
 {
     "type": "Create Data",
     "data_type": "str",
@@ -505,7 +497,7 @@
     "key_name": "NA",
     "key_value": "C:/Program Files/WinRaR/WinRaR.exe"
 },
-"step 55":
+"step 50":
 {
     "type": "Call Extern",
     "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)",
@@ -513,7 +505,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 60":
+"step 55":
 {
     "type": "Call Extern",
     "file": "global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)",
@@ -521,23 +513,15 @@
     "entity": "in_line",
     "output": ""
 },
-"step 65":
-{
-    "type": "Use Skill",
-    "skill_name": "bulk_buy",
-    "skill_path": "public/win_chrome_goodsupply_label",
-    "skill_args": "gs_input",
-    "output": "labels_dir"
-},
-"step 70":
+"step 60":
 {
     "type": "Use Skill",
     "skill_name": "update_tracking",
     "skill_path": "public/win_chrome_etsy_orders",
-    "skill_args": "etsy_orders",
+    "skill_args": "gs_input",
     "output": "total_label_cost"
 },
-"step 75":
+"step 65":
 {
     "type": "Use Skill",
     "skill_name": "reformat_print",
@@ -545,7 +529,7 @@
     "skill_args": "label_list",
     "output": ""
 },
-"step 80":
+"step 70":
 {
     "type": "Stub",
     "stub_name": "end skill",
