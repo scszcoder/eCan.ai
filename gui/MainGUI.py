@@ -926,7 +926,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # testmissionfile = "C:/Users/songc/PycharmProjects/testdata/testmission.json"
         # with open(testskfile, 'rb') as skfp:
         #     testsk = json.load(skfp)
-        #     skillDS = WORKSKILL("browse_search_kw")
+        #     skillDS = WORKSKILL("browse_search")
         #     skillDS.loadJson(testsk)
         #
         #     with open(testmissionfile, 'rb') as mfp:
