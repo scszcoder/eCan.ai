@@ -1,5 +1,5 @@
 {
-    "name": "batch_import_xls",
+    "name": "batch_import",
     "skid": 51,
     "owner": "public",
     "price": 0,
@@ -8,7 +8,7 @@
     "privacy": "public",
     "platform": "win",
     "app": "ads",
-    "app_link": "cmd",
+    "app_link": "C:/Program Files/AdsPower Global/AdsPower Global.exe",
     "app_args": "",
     "site_name": "local",
     "site": "",
@@ -21,6 +21,6 @@
         }
     },
     "cloud_skill": {
-        "path": "pubilc/win_ads_local_load/batch_import_xls"
+        "path": "pubilc/win_ads_local_load/batch_import"
     }
 }

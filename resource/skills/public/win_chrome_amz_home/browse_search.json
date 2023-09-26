@@ -1,5 +1,5 @@
 {
-    "name": "browse_search_kw",
+    "name": "browse_search",
     "skid": 0,
     "owner": "public",
     "price": 0,
@@ -107,6 +107,6 @@
         }
     },
     "cloud_skill": {
-        "path": "pubilc/win_chrmoe_amz_home/browse_search_kw"
+        "path": "pubilc/win_chrmoe_amz_home/browse_search"
     }
 }

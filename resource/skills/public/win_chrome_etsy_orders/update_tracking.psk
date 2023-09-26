@@ -62,12 +62,20 @@
 "step 35":
 {
     "type": "Create Data",
+    "data_type": "int",
+    "data_name": "nMore2Update",
+    "key_name": "NA",
+    "key_value": 0
+},
+"step 40":
+{
+    "type": "Create Data",
     "data_type": "expr",
     "data_name": "orderIds",
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 40":
+"step 45":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -75,7 +83,7 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 45":
+"step 50":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -83,7 +91,7 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 50":
+"step 55":
 {
     "type": "Repeat",
     "lc_name": "browseEtsyOL0",
@@ -91,7 +99,7 @@
     "count": "",
     "end": ""
 },
-"step 55":
+"step 60":
 {
     "type": "Call Extern",
     "file": "global endOfOrdersPage\nendOfOrdersPage = False",
@@ -99,15 +107,15 @@
     "entity": "in_line",
     "output": ""
 },
-"step 60":
+"step 65":
 {
     "type": "Repeat",
-    "lc_name": "browseEtsyOrderPage60",
+    "lc_name": "browseEtsyOrderPage65",
     "until": "endOfOrdersPage != True",
     "count": "",
     "end": ""
 },
-"step 65":
+"step 70":
 {
     "type": "Extract Info",
     "settings": {
@@ -132,8 +140,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -574,7 +582,7 @@
     "theme": "light",
     "section": "completion"
 },
-"step 70":
+"step 75":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -590,7 +598,7 @@
     "breakpoint": false,
     "status": "useless"
 },
-"step 75":
+"step 80":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -606,7 +614,7 @@
     "breakpoint": false,
     "status": "useless"
 },
-"step 80":
+"step 85":
 {
     "type": "Call Extern",
     "file": "global numCompletions\nnumCompletions = len(orderIds)",
@@ -614,7 +622,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 85":
+"step 90":
 {
     "type": "Call Extern",
     "file": "global nthCompletion\nnthCompletion = 0",
@@ -622,7 +630,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 90":
+"step 95":
 {
     "type": "Repeat",
     "lc_name": "dummy0",
@@ -630,16 +638,17 @@
     "count": "",
     "end": ""
 },
-"step 95":
+"step 100":
 {
     "type": "Etsy Find Screen Order",
     "nth_var": "nthCompletion",
     "orders_var": "etsy_orders",
     "complete_buttons_var": "complete_buttons",
     "order_ids_var": "orderIds",
-    "found_index_var": "update_order_index"
+    "found_index_var": "update_order_index",
+    "n_more_var": "nMore2Update"
 },
-"step 100":
+"step 105":
 {
     "type": "Call Extern",
     "file": "global update_order_index\nprint('update_order_index', update_order_index)",
@@ -647,7 +656,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 105":
+"step 110":
 {
     "type": "Call Extern",
     "file": "global fin\nprint('fin', fin)",
@@ -655,14 +664,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 110":
+"step 115":
 {
     "type": "Check Condition",
     "condition": "update_order_index >= 0",
     "if_else": "",
     "if_end": ""
 },
-"step 115":
+"step 120":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -686,7 +695,7 @@
     ],
     "post_wait": 2
 },
-"step 120":
+"step 125":
 {
     "type": "Extract Info",
     "settings": {
@@ -711,8 +720,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230925/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -1153,7 +1162,7 @@
     "theme": "light",
     "section": "completion"
 },
-"step 125":
+"step 130":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1180,7 +1189,7 @@
     ],
     "post_wait": 2
 },
-"step 130":
+"step 135":
 {
     "type": "Call Extern",
     "file": "global shipping_service\nshipping_service = fin[0][update_order_index].getShippingService()[:3]",
@@ -1188,7 +1197,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 135":
+"step 140":
 {
     "type": "Text Input",
     "txt_type": "var",
@@ -1198,7 +1207,7 @@
     "key_after": "",
     "wait_after": 2
 },
-"step 140":
+"step 145":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1225,7 +1234,7 @@
     ],
     "post_wait": 2
 },
-"step 145":
+"step 150":
 {
     "type": "Call Extern",
     "file": "global track_code\ntrack_code = fin[0][update_order_index].getShippingTracking()",
@@ -1233,7 +1242,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 150":
+"step 155":
 {
     "type": "Text Input",
     "txt_type": "var",
@@ -1243,7 +1252,7 @@
     "key_after": "enter",
     "wait_after": 2
 },
-"step 155":
+"step 160":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1267,14 +1276,14 @@
     ],
     "post_wait": 2
 },
-"step 160":
+"step 165":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 165":
+"step 170":
 {
     "type": "Call Extern",
     "file": "global nthCompletion\nnthCompletion = nthCompletion + 1",
@@ -1282,14 +1291,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 170":
+"step 175":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 175":
+"step 180":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -1305,7 +1314,7 @@
     "breakpoint": false,
     "status": "endOfOrdersPage"
 },
-"step 180":
+"step 185":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1317,28 +1326,28 @@
     "breakpoint": false,
     "unit": "screen"
 },
-"step 185":
+"step 190":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 2
 },
-"step 190":
+"step 195":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 195":
+"step 200":
 {
     "type": "Check Condition",
-    "condition": "pageOfOrders['num_pages'] == pageOfOrders['page']",
+    "condition": "nMore2Update <= 0",
     "if_else": "",
     "if_end": ""
 },
-"step 200":
+"step 205":
 {
     "type": "Call Extern",
     "file": "global endOfOrderList\nendOfOrderList = True",
@@ -1346,55 +1355,37 @@
     "entity": "in_line",
     "output": ""
 },
-"step 205":
+"step 210":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 210":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "next_page",
-    "target_type": "anchor icon",
-    "text": "",
-    "nth": [
-        0,
-        0
-    ],
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 0
-},
 "step 215":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "f5",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 4
+},
+"step 220":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 220":
+"step 225":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 225":
+"step 230":
 {
     "type": "Stub",
     "stub_name": "end skill",

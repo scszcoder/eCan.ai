@@ -19,7 +19,7 @@ def genStepAMZCalScroll(sink, amount, screen, marker, prev_loc, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genWinChromeAMZWalkSkill(worksettings, page, sect, stepN, theme):
+def genWinChromeAMZWalkSkill(worksettings, stepN, theme):
     psk_words = "{"
     site_url = "https://www.amazon.com/"
 
@@ -28,6 +28,9 @@ def genWinChromeAMZWalkSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("start skill", "public/win_chrome_amz_home/browse_search", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genWinChromeAMZWalkSteps(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
 
@@ -923,7 +926,7 @@ def genAMZBrowseProductLists(pageCfgsName, pageCfgs, ith, lastone, flows, stepN,
 #   for the detailLvl, the data structure is as following:
 #   { level: 1~5, seeAll : true/false, allPos: true/false, allNeg: true/false, nPosExpand: , nNegExpand:,  nPosPages: , nNegPages: }
 # (step, i, mission, skill)
-def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
+def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     psk_words = ""
     # this creates the local private skill file.
     #f = open("C:/Users/songc/PycharmProjects/ecbot/resource/junk.txt", "a")
