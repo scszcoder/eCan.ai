@@ -821,7 +821,7 @@ def genAMZBrowseProductLists(pageCfgsName, pageCfgs, ith, lastone, flows, stepN,
     psk_words = psk_words + step_words
 
     # SC hacking for speed up the test
-    # hfname = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats1689147960.html"
+    # hfname = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats1689147960.html"
     # this_step = stepN
     # this_step, step_words = genStepCreateData("string", "current_html_file", "NA", hfname, this_step)
     # psk_words = psk_words + step_words
@@ -927,7 +927,7 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     psk_words = ""
     # this creates the local private skill file.
     #f = open("C:/Users/songc/PycharmProjects/ecbot/resource/junk.txt", "a")
-    # skill name should be some like: browse_search_kw
+    # skill name should be some like: browse_search
     # find out skill ID from mission ID,
 
 
@@ -948,13 +948,13 @@ def genWinChromeAMZWalkSkill(worksettings, start_step, theme):
     # this_step, step_words = genStepOpenApp("Run", "browser", "https://www.amazon.com", "", "", "direct", lieutenant.skills[skidx].getAppArgs(), 3, this_step)
 
     # this url points to a product list page after a keyword search
-    # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats1689147960.html"
+    # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats1689147960.html"
 
     # this url points to a detail page.
-    # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats168914805.html"
+    # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats168914805.html"
 
     # this url points to all review page.
-    # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search_kw/yoga_mats168914806.html"
+    # url = "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats168914806.html"
 
     site_url = "https://www.amazon.com"
 

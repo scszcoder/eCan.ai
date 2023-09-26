@@ -712,7 +712,7 @@ def processExtractInfo(step, i, mission, skill):
     platform = step_settings["platform"]
     app = step_settings["app"]
     site = step_settings["site"]
-    #     local image:  C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/date/b0m0/win_chrome_amz_home/browse_search_kw/images/scrnsongc_yahoo_1678175548.png"
+    #     local image:  C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
 
     fdir = step_settings["root_path"] + "/resource/runlogs/"
     fdir = fdir + date_word + "/"
