@@ -164,10 +164,10 @@ def genWinSkillCode(worksettings, start_step, theme):
     skf.write("\n")
     psk_words = ""
 
-    if worksettings["app"] == "ads" and worksettings["site"] == "amz" and worksettings["skname"] == "walk_routine":
-        this_step, step_words = genWinADSAMZWalkSkill(worksettings, start_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["skname"] == "walk_routine":
-        this_step, step_words = genWinChromeAMZWalkSkill(worksettings, start_step, theme)
+    if worksettings["app"] == "ads" and worksettings["site"] == "amz" and worksettings["skname"] == "browse_search":
+        this_step, step_words = genWinADSAMZWalkSkill(worksettings, "orders", "top", start_step, theme)
+    elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["skname"] == "browse_search":
+        this_step, step_words = genWinChromeAMZWalkSkill(worksettings, "orders", "top", start_step, theme)
     elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["skname"] == "sell":
         this_step, step_words = genWinEbayHandleOrderSkill(worksettings, "orders", "top", start_step, theme)
     elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "fullfill_orders":

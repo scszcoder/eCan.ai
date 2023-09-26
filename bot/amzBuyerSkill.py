@@ -19,6 +19,46 @@ def genStepAMZCalScroll(sink, amount, screen, marker, prev_loc, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genWinChromeAMZWalkSkill(worksettings, page, sect, stepN, theme):
+    psk_words = "{"
+    site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_chrome_amz_browse_search", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZBROWSE001",
+                                          "Amazon Browsing On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_amz_home/browse_search", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_etsy_orders/browse_search", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinADSAMZWalkSkill(worksettings, page, sect, stepN, theme):
+    psk_words = "{"
+    site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_amz_browse_search", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINCHROMEAMZBROWSE001",
+                                          "AMZ Browse On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_amz_home/browse_search", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browse_search", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    return this_step, psk_words
 
 # pagesize - the entire pages size in the unit of # of scroll units.
 # this info should be calculated and available from the previous flow.

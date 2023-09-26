@@ -910,7 +910,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         #the grand test,
         # 1) fetch today's schedule.
-        self.fetchSchedule("5000", None)
+        # self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
+        # self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
+        self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
         # ===================
         # 2) run all tasks, with bot profile loading on ADS taken care of....
 
