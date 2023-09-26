@@ -306,6 +306,9 @@ class ORDER:
     def setStatus(self, status):
         self.status = status
 
+    def getStatus(self):
+        return self.status
+
     def getChecked(self):
         return self.ui_checked
 

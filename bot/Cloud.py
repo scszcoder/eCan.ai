@@ -184,7 +184,8 @@ def gen_screen_read_request_string(query):
         rec_string = rec_string + "options: \"" + query[i]["options"] + "\", "
         rec_string = rec_string + "theme: \"" + query[i]["theme"] + "\", "
         rec_string = rec_string + "imageFile: \"" + query[i]["imageFile"] + "\", "
-        rec_string = rec_string + "factor: " + str(query[i]["factor"]) + " }"
+        rec_string = rec_string + "factor:  \"" + str(query[i]["factor"]) + "\"" + " }"
+
         if i != len(query) - 1:
             rec_string = rec_string + ', '
 
