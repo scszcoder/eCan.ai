@@ -8,7 +8,7 @@
     "privacy": "public",
     "platform": "win",
     "app": "ads",
-    "app_link": "cmd",
+    "app_link": "C:/Program Files/AdsPower Global/AdsPower Global.exe",
     "app_args": "",
     "site_name": "local",
     "site": "",

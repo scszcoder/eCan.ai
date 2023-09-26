@@ -4,23 +4,22 @@ import pandas as pd
 
 from basicSkill import *
 
-
-def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
+#input
+def genADSPowerLaunchSteps(worksettings, aargs, theme, root, stepN):
     psk_words = ""
     print("DEBUG", "genAMZBrowseDetails...")
 
-    this_step, step_words = genStepOpenApp("run", True, adsPowerLink, url, "", "", "direct", aargs, 3, stepN)
+    this_step, step_words = genStepOpenApp("run", True, worksettings["app_exe"], "", "", "", "direct", aargs, 3, stepN)
     psk_words = psk_words + step_words
 
     # some steps here to adjust window size and location here...
 
-
     # now read screen, if there is log in, then click on log in.
-    this_step, step_words = genStepExtractInfo("", root, "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "open", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # check whether there is any match of this page's product, if matched, click into it.
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "log_in", "anchor text", "any", "useless", "loginwin", "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "login", "anchor text", "any", "useless", "loginwin", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("loginwin == True", "", "", this_step)
@@ -69,51 +68,85 @@ def genLaunchADSPower(adsPowerLink, url, aargs, theme, root, stepN):
     this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "ok", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box",  2, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
 
+    return this_step, psk_words
+
 
 
 # from given bots information, generate profiles for ADS power to load.
 # assumption: there will be a large .xlsx that contains the correct profiles for all bots.
 # and we will select x number of bots that are scheduled to run at this time,
-def genWinADSBatchImportSkill(xlsfile):
-    print("ADS: load profiles")
+# this skill assumes ADS power is already launched, and its main window opened......
+def genWinADSBatchImportSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
 
-    # click on Batch Import
+    this_step, step_words = genStepHeader("win_ads_local_remove_profile", "win", "1.0", "AIPPS LLC", "PUBWINADSBATCHIMPORT001",
+                                          "Windows ADS Power Batch Impor Profiles.", stepN)
+    psk_words = psk_words + step_words
 
-    #  extract screen
+    this_step, step_words = genStepStub("start skill", "public/win_ads_local_load/batch_import", "", this_step)
+    psk_words = psk_words + step_words
 
-    #  fill out Group, Tag info, double check
-
-    # scroll down 1/2 screen
-
-    # fill account platform (amz, ebay, ....)
-
-    # load xls file
-
-    # hit OK
+    this_step, step_words = genADSPowerLaunchSteps(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
 
 
+    this_step, step_words = genStepStub("end skill", "public/win_ads_local_load/batch_import", "", this_step)
+    psk_words = psk_words + step_words
 
-def genWinADSRemoveProfilesSkill(cfg):
-    print("ADS: remove all profiles")
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows ads power batch import profiles....." + psk_words)
 
-    # Click on Profiles
-
-    # click on the top check box
-
-    # click on the trash can icon to remove.
+    return this_step, psk_words
 
 
-def genWinADSOpenSkill(cfg):
-    print("ADS: open profile.(assume profiles already loaded.)")
 
-    # find bot profile and its corresponding Open button,
+def genWinADSRemoveProfilesSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
 
-    # click on Open
+    this_step, step_words = genStepHeader("win_ads_local_remove_profile", "win", "1.0", "AIPPS LLC", "PUBWINADSREMOVE001",
+                                          "Windows ADS Power Remove Profile.", stepN)
+    psk_words = psk_words + step_words
 
-    # Wait a little while
+    this_step, step_words = genStepStub("start skill", "public/win_ads_local_open/remove_profile", "", this_step)
+    psk_words = psk_words + step_words
 
-    # if nothing goes wrong the browser will be up.
+    this_step, step_words = genWinChromeAMZWalkSteps(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
 
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_local_open/open_profile", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows ads power profile remove....." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinADSOpenProfileSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_local_open_profile", "win", "1.0", "AIPPS LLC", "PUBWINADSOPEN001",
+                                          "Windows ADS Power Open Profile.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_local_open/open_profile", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genWinChromeAMZWalkSteps(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_local_open/open_profile", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows ads power open...." + psk_words)
+
+    return this_step, psk_words
 
 
 def genStepSetupADS(all_fname, tbr_fname, exe_link, ver, stepN):
