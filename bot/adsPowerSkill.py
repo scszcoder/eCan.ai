@@ -25,48 +25,47 @@ def genADSPowerLaunchSteps(worksettings, aargs, theme, root, stepN):
     this_step, step_words = genStepCheckCondition("loginwin == True", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "log_in", "anchor text", "Log in", [0, 0], "center", [0, 0], "pixel", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "login", "anchor text", "Log in", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # now that we have logged in, load profiles.
-    this_step, step_words = genStepExtractInfo("", root, "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "open", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # close bracket
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
+
+    # check whether there is any pop up ads, if so, close it .
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_os", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("main_shown != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "open", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_os", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    # close bracket
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
     # now that we have logged in, load profiles.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "new_profile", "anchor text", "See All Reviews",  [0, 0], "right", [1, 0], "box", 2, 0, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", root, "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "open", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "batch_import", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box", 2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # click on account platform,  and select amazon
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", False, this_step)
-    psk_words = psk_words + step_words
-
-
-
-    # click on drag and drop
-
-
-    # click and type through the file selector and select the xls file.
-    # the presumption is the bots to be run in this batch are already grouped into a xls file as input to this function.
-    # click OK to load the bot profiles.
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "amazon", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box", 2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "amazon", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box",  2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # click OK to load the bot profiles.
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "ok", "anchor text", "See All Reviews", [0, 0], "right", [1, 0], "box",  2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
 
     return this_step, psk_words
 
@@ -87,7 +86,71 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_ads_local_load/batch_import", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genADSPowerLaunchSteps(worksettings, this_step, theme)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "new_profile", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "open", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "batch_import", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # click on account platform,  and select amazon
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "specified_url", "anchor text", "", 0, "left", [3, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "open", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_os", "anchor text", "any", "useless", "platform_found", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("platform_found != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
+    psk_words = psk_words + step_words
+
+    # click on account platform,  and select amazon
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 2, "raw", "scroll_resolution", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "open", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_os", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    # close bracket
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now the target platform is found, click on the platform.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "target_platform", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # click on drag and drop
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "drag_drop", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # click and type through the file selector and select the xls file.
+    # the presumption is the bots to be run in this batch are already grouped into a xls file as input to this function.
+    # click OK to load the bot profiles.
+    this_step, step_words = genStepCreateData("expr", "xls_path", "NA", 'fin[0]', this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "xls_file", "NA", 'fin[1]', this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "file_open_input", "NA", "['open', 'xls_path', 'xls_file']", this_step)
+    psk_words = psk_words + step_words
+
+    # save the html file.
+    this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_open_input", "fileStatus", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
 
@@ -112,8 +175,9 @@ def genWinADSRemoveProfilesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_ads_local_open/remove_profile", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinChromeAMZWalkSteps(worksettings, this_step, theme)
+    this_step, step_words = genADSPowerLaunchSteps(worksettings, this_step, theme)
     psk_words = psk_words + step_words
+
 
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_local_open/open_profile", "", this_step)
@@ -136,7 +200,7 @@ def genWinADSOpenProfileSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_ads_local_open/open_profile", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinChromeAMZWalkSteps(worksettings, this_step, theme)
+    this_step, step_words = genADSPowerLaunchSteps(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
 

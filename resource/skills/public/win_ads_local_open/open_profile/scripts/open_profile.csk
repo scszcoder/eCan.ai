@@ -11,6 +11,13 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "specified_url",
+                        "anchor_type"  : "text",
+                        "template"     : "specified URL",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "new_profiles",
                         "anchor_type"  : "text",
                         "template"     : "New Profile",
@@ -21,6 +28,13 @@
                         "anchor_name"  : "batch_import",
                         "anchor_type"  : "text",
                         "template"     : "Batch Import",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "profiles",
+                        "anchor_type"  : "text",
+                        "template"     : "Profiles",
                         "ref_method"   : "0",
                         "ref_constraints" : []
                     },
@@ -56,6 +70,13 @@
                         "anchor_name"  : "ok",
                         "anchor_type"  : "text",
                         "template"     : "OK",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "close",
+                        "anchor_type"  : "ion",
+                        "template"     : "close0.png",
                         "ref_method"   : "0",
                         "ref_constraints" : []
                     },
