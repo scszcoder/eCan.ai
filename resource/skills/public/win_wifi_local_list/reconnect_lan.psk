@@ -40,8 +40,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -550,8 +550,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -1060,8 +1060,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -1570,8 +1570,8 @@
             "estRunTime": 1
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/20230926/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",

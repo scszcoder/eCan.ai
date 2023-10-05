@@ -4,9 +4,6 @@ from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from PyPDF2 import PdfReader
 from scrapeGoodSupply import *
-import rarfile
-from rarfile import RarFile
-from rarfile import is_rarfile
 import subprocess
 import os
 from datetime import datetime, timedelta
@@ -279,7 +276,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     # this_step, step_words = genStepLoop("found_import == False", "", "", "buyGSLabels" + str(stepN), this_step)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, False, this_step)
+    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)

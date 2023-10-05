@@ -164,6 +164,7 @@ class MainWindow(QtWidgets.QMainWindow):
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
         self.platform = platform.system().lower()[0:3]
+        self.std_item_font = QFont('Arial', 10)
 
         self.sellerInventoryJsonData = None
         self.botJsonData = None
@@ -258,22 +259,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self.southWidget = QtWidgets.QWidget()
         self.southWidget.setLayout(self.south_layout)
 
+        self.menuFont = QFont('Arial', 10)
         self.mainWidget = QtWidgets.QWidget()
         self.westScrollArea = QtWidgets.QWidget()
         self.westScrollLayout = QtWidgets.QVBoxLayout(self)
         self.westScrollLabel = QtWidgets.QLabel("Missions:", alignment=QtCore.Qt.AlignLeft)
+        self.westScrollLabel.setFont(self.menuFont)
 
         self.centralScrollArea = QtWidgets.QWidget()
         self.centralScrollLayout = QtWidgets.QVBoxLayout(self)
         self.centralScrollLabel = QtWidgets.QLabel("Bots:", alignment=QtCore.Qt.AlignLeft)
+        self.centralScrollLabel.setFont(self.menuFont)
 
         self.east0ScrollArea = QtWidgets.QWidget()
         self.east0ScrollLayout = QtWidgets.QVBoxLayout(self)
         self.east0ScrollLabel = QtWidgets.QLabel("Vehicles:", alignment=QtCore.Qt.AlignLeft)
+        self.east0ScrollLabel.setFont(self.menuFont)
 
         self.east1ScrollArea = QtWidgets.QWidget()
         self.east1ScrollLayout = QtWidgets.QVBoxLayout(self)
         self.east1ScrollLabel = QtWidgets.QLabel("Completed Missions:", alignment=QtCore.Qt.AlignLeft)
+        self.east1ScrollLabel.setFont(self.menuFont)
 
         self.westScroll = QtWidgets.QScrollArea()
         self.centralScroll = QtWidgets.QScrollArea()
@@ -554,9 +560,15 @@ class MainWindow(QtWidgets.QMainWindow):
         return label
 
     def _createMenuBar(self):
+        print("MAIN Creating Menu Bar")
+        self.main_menu_bar_font = QtGui.QFont("Helvetica", 12)
+        self.main_menu_font = QtGui.QFont("Helvetica", 10)
+
         menu_bar = QtWidgets.QMenuBar()
+        menu_bar.setFont(self.main_menu_bar_font)
         # Creating menus using a QMenu object
         bot_menu = QtWidgets.QMenu("&Bots", self)
+        bot_menu.setFont(self.main_menu_font)
 
         bot_menu.addAction(self.botNewAction)
         bot_menu.addAction(self.botGetAction)
@@ -567,6 +579,7 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu(bot_menu)
 
         mission_menu = QtWidgets.QMenu("&Missions", self)
+        mission_menu.setFont(self.main_menu_font)
         mission_menu.addAction(self.missionNewAction)
         mission_menu.addAction(self.missionImportAction)
         mission_menu.addAction(self.missionEditAction)
@@ -575,12 +588,14 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu(mission_menu)
 
         platoon_menu = QtWidgets.QMenu("&Platoons", self)
+        platoon_menu.setFont(self.main_menu_font)
         platoon_menu.addAction(self.mtvViewAction)
         platoon_menu.addAction(self.fieldMonitorAction)
         platoon_menu.addAction(self.commandSendAction)
         menu_bar.addMenu(platoon_menu)
 
         settings_menu = QtWidgets.QMenu("&Settings", self)
+        settings_menu.setFont(self.main_menu_font)
         # settings_menu.addAction(self.settingsAccountAction)
         #settings_menu.addAction(self.settingsImportAction)
         settings_menu.addAction(self.settingsEditAction)
@@ -588,23 +603,28 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu(settings_menu)
 
         reports_menu = QtWidgets.QMenu("&Reports", self)
+        reports_menu.setFont(self.main_menu_font)
         reports_menu.addAction(self.reportsShowAction)
         reports_menu.addAction(self.reportsGenAction)
         reports_menu.addAction(self.reportsLogConsoleAction)
         menu_bar.addMenu(reports_menu)
 
         run_menu = QtWidgets.QMenu("&Run", self)
+        run_menu.setFont(self.main_menu_font)
         run_menu.addAction(self.runRunAllAction)
         run_menu.addAction(self.runTestAllAction)
         menu_bar.addMenu(run_menu)
 
         schedule_menu = QtWidgets.QMenu("&Schedule", self)
+        schedule_menu.setFont(self.main_menu_font)
         schedule_menu.addAction(self.fetchScheduleAction)
         schedule_menu.addAction(self.scheduleCalendarViewAction)
         schedule_menu.addAction(self.scheduleFromFileAction)
+        schedule_menu.setFont(self.main_menu_font)
         menu_bar.addMenu(schedule_menu)
 
         skill_menu = QtWidgets.QMenu("&Skills", self)
+        skill_menu.setFont(self.main_menu_font)
         skill_menu.addAction(self.skillNewAction)
         skill_menu.addAction(self.skillEditAction)
         skill_menu.addAction(self.skillDeleteAction)
@@ -613,6 +633,7 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu(skill_menu)
 
         help_menu = QtWidgets.QMenu("&Help", self)
+        help_menu.setFont(self.main_menu_font)
         help_menu.addAction(self.helpUGAction)
         help_menu.addAction(self.helpCommunityAction)
         help_menu.addAction(self.helpAboutAction)
@@ -1041,8 +1062,8 @@ class MainWindow(QtWidgets.QMainWindow):
         month = now.strftime("%m")
         day = now.strftime("%d")
         print("homepath:::", self.homepath)
-        dailyLogDir = self.homepath + "/resource/runlogs/{}".format(year)
-        dailyLogFile = self.homepath + "/resource/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+        dailyLogDir = self.homepath + "/runlogs/{}".format(year)
+        dailyLogFile = self.homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
         print("daily log file:::", dailyLogFile)
 
         if os.path.isfile(dailyLogFile):
@@ -1065,7 +1086,7 @@ class MainWindow(QtWidgets.QMainWindow):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        dailyScheduleLogFile = self.homepath + "/resource/runlogs/{}/schedule{}{}{}.txt".format(year, month, day, year)
+        dailyScheduleLogFile = self.homepath + "/runlogs/{}/schedule{}{}{}.txt".format(year, month, day, year)
         print("netSched:: ", netSched)
         if os.path.isfile(dailyScheduleLogFile):
             file1 = open(dailyScheduleLogFile, "a")  # append mode
@@ -1267,7 +1288,7 @@ class MainWindow(QtWidgets.QMainWindow):
         global skill_code
 
         worksettings = getWorkSettings(self, worksTBD)
-        print("worksettings: ", worksettings)
+        print("worksettings: mid, bid", worksettings["botid"], worksettings["mid"])
 
         rpaScripts = []
 
@@ -1276,7 +1297,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rpaSkillIdWords = running_mission.getSkills().split(",")
         rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
-        print("rpaSkillIds:", rpaSkillIds, type(rpaSkillIds[0]))
+        print("rpaSkillIds:", rpaSkillIds, type(rpaSkillIds[0]), "running mission id:", running_mission.getMid())
 
         # get skills data structure by IDs
         relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
@@ -1294,7 +1315,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for sk in ordered_relevant_skills:
             # print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
-            print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
+            # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
             genSkillCode(worksettings, first_step, "light")
 
             all_skill_codes.append({"ns": worksettings["name_space"], "skfile": worksettings["skfname"]})
@@ -1502,7 +1523,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Logic for creating a new bot:
         # pop out a new windows for user to set parameters for a new bot.
         # at the moment, just add an icon.
-        #new_bot = EBBOT()
+        #new_bot = EBBOT(self)
         #new_icon = QtGui.QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
         if self.BotNewWin == None:
@@ -1785,7 +1806,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # This function translate bots data from Json format to the data structure matching ebbot.py
     def translateBotsJson(self):
         for bj in self.botJsonData:
-            new_bot = EBBOT()
+            new_bot = EBBOT(self)
             new_bot.setJsonData(bj)
             self.bots.append(new_bot)
 
@@ -2005,7 +2026,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Logic for the bot-mission-scheduler
         # pop out a new windows for user to view and schedule the missions.
         # at the moment, just add an icon.
-        #new_bot = EBBOT()
+        #new_bot = EBBOT(self)
         #new_icon = QtGui.QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
         self.scheduleWin = ScheduleWin()
@@ -2215,7 +2236,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if len(filebbots) > 0:
                 #add bots to the relavant data structure and add these bots to the cloud and local DB.
                 for fb in filebbots:
-                    new_bot = EBBOT(self.bot_icon_path)
+                    new_bot = EBBOT(self)
                     self.fillNewBotFullInfo(fb, new_bot)
                     self.bots.append(new_bot)
                     self.botModel.appendRow(new_bot)
@@ -2235,7 +2256,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 #
                 #     for i in range(len(jbody)):
                 #         print(i)
-                #         new_bot = EBBOT()
+                #         new_bot = EBBOT(self)
                 #         self.fillNewBotPubInfo(jbody[i], new_bot)
                 #         self.bots.append(new_bot)
                 #         self.botModel.appendRow(new_bot)
@@ -2702,7 +2723,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    self.fetchSchedule("5000", None)
+                    # self.fetchSchedule("", None)
 
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.

@@ -5,7 +5,7 @@ import pandas as pd
 from basicSkill import *
 
 #input
-def genADSPowerLaunchSteps(worksettings, aargs, theme, root, stepN):
+def genADSPowerLaunchSteps(worksettings, aargs, theme, stepN):
     psk_words = ""
     print("DEBUG", "genAMZBrowseDetails...")
 
@@ -96,7 +96,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on account platform,  and select amazon
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", False, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "specified_url", "anchor text", "", 0, "left", [3, 0], "box", 2, 2, [0, 0], this_step)
@@ -112,7 +112,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on account platform,  and select amazon
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 2, "raw", "scroll_resolution", False, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 2, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "open", "top", theme, this_step, None)

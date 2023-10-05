@@ -1,7 +1,6 @@
 import os
 import os.path
 import json
-import win32gui
 import pyautogui
 import time
 import math
@@ -13,7 +12,7 @@ import subprocess
 import random
 import socket
 from ping3 import ping, verbose_ping
-
+import win32gui
 from scraper import *
 from Cloud import *
 from pynput.mouse import Button, Controller
@@ -69,11 +68,11 @@ def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepSaveHtml(html_file_name, html_file_var_name, template, root, sink, page, sect, theme, stepN, page_data, option=""):
+def genStepSaveHtml(html_file_name, html_file_var_name, template, settings, sink, page, sect, theme, stepN, page_data, option=""):
     stepjson = {
         "type": "Save Html",
         "action": "Save Html",
-        "root": root,
+        "settings": settings,
         "local": html_file_name,
         "html_var": html_file_var_name,
         "template": template,
@@ -160,7 +159,7 @@ def genStepSearchWordLine(screen, template_var, target_name, target_type, result
 # search some target content on the page, and scroll the target to the target loction on the page.
 # at_loc is a rough location, meaning the anchor closest to this location, NOT exactly at this location.
 # at_loc is also a 2 dimensional x-y coordinates
-def genStepSearchScroll(screen, anchor, at_loc, target_loc, flag, resolution, site, stepN):
+def genStepSearchScroll(screen, anchor, at_loc, target_loc, flag, resolution, postwait, site, stepN):
     stepjson = {
         "type": "Search Scroll",
         "action": "Search Scroll",
@@ -169,6 +168,7 @@ def genStepSearchScroll(screen, anchor, at_loc, target_loc, flag, resolution, si
         "target_loc": target_loc,
         "screen": screen,
         "resolution": resolution,
+        "postwait": postwait,
         "site": site,
         "flag": flag
     }
@@ -198,7 +198,7 @@ def genStepRecordTxtLineLocation(loc, txt, screen, tovar, stepN):
 
 
 # this could be either "Scroll Up" or "Scroll Down", screen is the screen data pointer, val is the amount to scroll up or down in terms of screen size.
-def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, break_here, stepN):
+def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, postwait, break_here, stepN):
     stepjson = {
         "type": "Mouse Scroll",
         "action": action,
@@ -208,6 +208,7 @@ def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, 
         "random_min": ran_min,
         "random_max": ran_max,
         "breakpoint": break_here,
+        "postwait": postwait,
         "unit": unit
     }
 
@@ -612,10 +613,11 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     else:
         # print("cloud result data body: ", result["body"])
         jbody = json.loads(result["body"])
-        for p in jbody["data"]:
-            if p["name"] == "paragraph":
-                for tl in p["txt_struct"]:
-                    print("TXT LINE: ", tl["text"])
+        # for p in jbody["data"]:
+        #     if p["name"] == "paragraph":
+        #         for tl in p["txt_struct"]:
+        #             print("TXT LINE: ", tl["text"])
+
 
 
         # global var "last_screen" always contains information extracted from the last screen shot.
@@ -712,9 +714,9 @@ def processExtractInfo(step, i, mission, skill):
     platform = step_settings["platform"]
     app = step_settings["app"]
     site = step_settings["site"]
-    #     local image:  C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
+    #     local image:  C:/Users/songc/PycharmProjects/ecbot/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
 
-    fdir = step_settings["root_path"] + "/resource/runlogs/"
+    fdir = step_settings["root_path"] + "/runlogs/"
     fdir = fdir + date_word + "/"
 
     fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
@@ -823,7 +825,8 @@ def processTextInput(step, i):
         print("about to TYPE in:", symTab[step["text"]])
         pyautogui.write(symTab[step["text"]])
     else:
-        pyautogui.write(step["text"])
+        print("direct type in:", step["text"][0])
+        pyautogui.write(step["text"][0])
 
     time.sleep(1)
     pyautogui.press(step['key_after'])
@@ -1237,6 +1240,9 @@ def processMouseScroll(step, i):
 
     print("after randomized Scroll Amount: ", scroll_amount)
     mouse.scroll(0, scroll_amount)
+
+    time.sleep(step["postwait"])
+
 
     if step["breakpoint"]:
         input("type any key to continue")
@@ -1993,16 +1999,18 @@ def processSearchScroll(step, i):
         # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
         vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
         print("FFOUND: ", vsorted[0])
-        offset = int((target_loc_v - vsorted[0]["loc"][2])/symTab[scroll_resolution])
+        offset = round((target_loc_v - vsorted[0]["loc"][2])/symTab[scroll_resolution])
         print("calculated offset: ", offset, "setting flag var [", step["flag"], "] to be TRUE....")
         symTab[step["flag"]] = True
     else:
         # if anchor is not on the page, set the flag and scroll down 90 of a screen
-        offset = 0-int(screensize[0]*0.5/symTab[scroll_resolution])
+        offset = 0-round(screensize[0]*0.5/symTab[scroll_resolution])
         symTab[step["flag"]] = False
         print("KEEP scrolling calculated offset: ", offset, "setting flag var [", step["flag"], "] to be FALSE....")
 
     mouse.scroll(0, offset)
+    time.sleep(step["postwait"])
+
     return i + 1
 
 
@@ -2010,21 +2018,21 @@ def processSearchScroll(step, i):
 # for grid based layout, it's be enough to do only 1 row, for row based layout, it could be multple rows captured.
 # target_anchor: to anchor to adjust postion to
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
-def genScrollDownUntil(target_anchor, tilpos, stepN, root, page, sect, site, theme):
+def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, page, sect, site, theme):
     psk_words = ""
     print("DEBUG", "gen_psk_for_scroll_down_until...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
     # condition, count, end, lc_name, stepN):
-    this_step, step_words = genStepLoop("postition_reached != True", "", "", "scrollDown"+str(stepN), this_step)
+    this_step, step_words = genStepLoop("position_reached != True", "", "", "scrollDown"+str(stepN), this_step)
     psk_words = psk_words + step_words
 
     # (action, screen, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, False, this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", root, "screen_info", "product_list", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "product_list", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
 
@@ -2033,7 +2041,7 @@ def genScrollDownUntil(target_anchor, tilpos, stepN, root, page, sect, site, the
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", target_anchor, [1, 90], tilpos, "position_reached", "scroll_resolution", site, this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", target_anchor, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -2046,7 +2054,7 @@ def genScrollDownUntil(target_anchor, tilpos, stepN, root, page, sect, site, the
 def get_html_file_dir_loc(result):
     target_loc = [0, 0]
 
-    target_name = "refresh0"
+    target_name = "refresh"
     target_type = "anchor icon"
     # target_type = "anchor text"
     print("result: ", result)
@@ -2146,14 +2154,14 @@ def processSaveHtml(step, i, mission, skill):
     date_word = dtnow.strftime("%Y%m%d")
     print("date word:", date_word)
 
-    fdir = step["root"] + "/resource/runlogs/"
+    fdir = step["settings"]["root_path"] + "/runlogs/"
     fdir = fdir + date_word + "/"
 
     platform = mission.getPlatform()
     app = mission.getApp()
     site = mission.getSite()
 
-    fdir = fdir + "b" + str(mission.getMid()) + "m" + str(mission.getBid()) + "/"
+    fdir = fdir + "b" + str(step["settings"]["mid"]) + "m" + str(step["settings"]["botid"]) + "/"
     # fdir = fdir + ppword + "/"
     fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
     # fdir = fdir + skill.getName() + "/webpages/"

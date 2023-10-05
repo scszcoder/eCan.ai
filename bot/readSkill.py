@@ -1,7 +1,6 @@
 import json
 import random
 import re
-import parser
 import ast
 import pyautogui
 from datetime import datetime
@@ -10,15 +9,11 @@ from Cloud import *
 import ctypes
 import os
 import subprocess
-import win32gui
 import platform
 import math
-import numpy as np
 import copy
 from printLabel import *
 from scraper import *
-import webbrowser
-from difflib import SequenceMatcher
 from adsPowerSkill import *
 from amzBuyerSkill import *
 from amzSellerSkill import *
@@ -55,7 +50,7 @@ skill_stack = []
 
 # SC - 2023-03-07 files and dirs orgnization structure:
 #
-#     local image:  C:/Users/songc/PycharmProjects/ecbot/resource/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
+#     local image:  C:/Users/songc/PycharmProjects/ecbot/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
 #     local skill:  C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_amz_walk/scripts/skillname.psk
 #
 
@@ -198,8 +193,8 @@ def readSkillFile(name_space, skill_file, lvl = 0):
     for key in step_keys:
         if key == "header" or key == "dummy":
             del this_skill_code[key]
-    print("=============================================================")
-    print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
+    # print("=============================================================")
+    # print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
     return this_skill_code
 
 # settings contains the following info:
@@ -776,14 +771,14 @@ def genNextStepNumber(currentN, steps=1):
 #
 #  SC - 20230506 - this routine is kind of useless for now..............
 
-def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
+def genStepAMZBrowseReviews(screen, detail_cfg, stepN, worksettings, page, sect, theme):
     psk_words = ""
     # grab location of the title of the "matchedProducts" and put it into variable "product_title"
     #(action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", root, "screen_info", "amazon_home", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "amazon_home", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     if detail_cfg.seeAll:
@@ -803,7 +798,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
             psk_words = psk_words + step_words
 
             # screen, np, nn, stepN, root, page, sect):
-            this_step, step_words = genBrowseAllReviewsPage("screen_info", 1, 1, this_step, root, "all reviews", "top")
+            this_step, step_words = genBrowseAllReviewsPage("screen_info", 1, 1, this_step, worksettings, "all reviews", "top")
 
         if detail_cfg.allNeg:
             # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
@@ -813,7 +808,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
             this_step, step_words = genStepWait(3, 0, 0, this_step)
             psk_words = psk_words + step_words
 
-            this_step, step_words = genBrowseAllReviewsPage("screen_info", 1, 1, this_step, root, "all reviews", "top")
+            this_step, step_words = genBrowseAllReviewsPage("screen_info", 1, 1, this_step, worksettings, "all reviews", "top")
 
     else:
         # now simply scroll down
@@ -824,7 +819,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
         psk_words = psk_words + step_words
 
         # (action, screen, amount, unit, stepN):
-        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", False, this_step)
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
         psk_words = psk_words + step_words
 
         # check whether there is any match of this page's product, if matched, click into it.
@@ -853,7 +848,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, root, page, sect, theme):
     psk_words = psk_words + step_words
 
     # (action, screen, amount, unit, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", False, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepAMZSearchReviews("screen_info", "prod_details", "atbottom", this_step)

@@ -3,9 +3,6 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from PyPDF2 import PdfReader
-import rarfile
-from rarfile import RarFile
-from rarfile import is_rarfile
 import subprocess
 import os
 from datetime import datetime

@@ -24,15 +24,16 @@ class RoleListView(QtWidgets.QListView):
                 self.parent.updateSelectedRole(self.selected_row)
 
 class ROLE(QtGui.QStandardItem):
-    def __init__(self, platform, level, role):
+    def __init__(self, platform, level, role, homepath):
         super().__init__()
         self.platform = platform
+        self.homepath = homepath
         self.level = level
         self.role = role
         self.name = platform+"_"+level+"_"+role
 
         self.setText(self.name)
-        self.icon = QtGui.QIcon('C:/Users/songc/PycharmProjects/ecbot/resource/images/icons/duty0-64.png')
+        self.icon = QtGui.QIcon(homepath+'/resource/images/icons/duty0-64.png')
         self.setIcon(self.icon)
 
     def getData(self):
@@ -53,9 +54,10 @@ class InterestsListView(QtWidgets.QListView):
                 self.parent.updateSelectedInterest(self.selected_row)
 
 class INTEREST(QtGui.QStandardItem):
-    def __init__(self, platform, maincat, subcat1, subcat2="", subcat3="", subcat4="", subcat5=""):
+    def __init__(self, homepath, platform, maincat, subcat1, subcat2="", subcat3="", subcat4="", subcat5=""):
         super().__init__()
         self.platform = platform
+        self.homepath = homepath
         self.main_category = maincat
         self.sub_category1 = subcat1
         self.sub_category2 = subcat2
@@ -73,7 +75,7 @@ class INTEREST(QtGui.QStandardItem):
             self.name = self.name + "|" + subcat5
 
         self.setText(self.name)
-        self.icon = QtGui.QIcon('C:/Users/songc/PycharmProjects/ecbot/resource/images/icons/interests-64.png')
+        self.icon = QtGui.QIcon(homepath+'/resource/images/icons/interests-64.png')
         self.setIcon(self.icon)
 
     def getData(self):
@@ -88,12 +90,13 @@ class BotNewWin(QtWidgets.QMainWindow):
     def __init__(self, parent):
         super(BotNewWin, self).__init__(parent)
 
-        self.newBot = EBBOT()
+        self.newBot = EBBOT(parent)
 
     # def __init__(self):
     #     super().__init__()
         self.mainWidget = QtWidgets.QWidget()
         self.parent = parent
+        self.homepath = parent.homepath
         self.text = "new bot"
         self.pubpflWidget = QtWidgets.QWidget()
         self.prvpflWidget = QtWidgets.QWidget()
@@ -813,7 +816,7 @@ class BotNewWin(QtWidgets.QMainWindow):
         print("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         #if self.mode == "new":
-        #    self.newBot = EBBOT()
+        #    self.newBot = EBBOT(self)
 
         self.newBot.pubProfile.setPseudoName(self.pnn_edit.text())
         self.newBot.pubProfile.setLoc(self.loccity_edit.text() + "|" + self.locstate_edit.text())

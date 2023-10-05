@@ -556,7 +556,7 @@ class PlatoonMainWindow(QtWidgets.QMainWindow):
         # Logic for creating a new bot:
         # pop out a new windows for user to set parameters for a new bot.
         # at the moment, just add an icon.
-        #new_bot = EBBOT()
+        #new_bot = EBBOT(self)
         #new_icon = QtGui.QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
         if self.BotNewWin == None:
@@ -695,7 +695,7 @@ class PlatoonMainWindow(QtWidgets.QMainWindow):
     # This function translate bots data from Json format to the data structure matching ebbot.py
     def translateBotsJson(self):
         for bj in self.botJsonData:
-            new_bot = EBBOT()
+            new_bot = EBBOT(self)
             new_bot.setJsonData(bj)
             self.bots.append(new_bot)
 
@@ -885,7 +885,7 @@ class PlatoonMainWindow(QtWidgets.QMainWindow):
         # Logic for the bot-mission-scheduler
         # pop out a new windows for user to view and schedule the missions.
         # at the moment, just add an icon.
-        #new_bot = EBBOT()
+        #new_bot = EBBOT(self)
         #new_icon = QtGui.QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
         self.scheduleWin = ScheduleWin()

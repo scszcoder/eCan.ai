@@ -14,6 +14,7 @@ class SkillListView(QtWidgets.QListView):
         super(SkillListView, self).__init__()
         self.selected_row = None
         self.parent = parent
+        self.homepath = parent.homepath
 
     def mousePressEvent(self, e):
         if e.type() == QtCore.QEvent.MouseButtonPress:
@@ -25,18 +26,19 @@ class SkillListView(QtWidgets.QListView):
 
 
 class WORKSKILL(QtGui.QStandardItem):
-    def __init__(self, platform, app, applink, site, sitelink, action):
+    def __init__(self, homepath, platform, app, applink, site, sitelink, action):
         super().__init__()
         self.platform = platform
         self.app = app
         self.applink = applink
         self.site = site
+        self.homepath = homepath
         self.sitelink = sitelink
         self.action = action
         self.name = platform+"_"+app+"_"+site+"_"+action
 
         self.setText(self.name)
-        self.icon = QtGui.QIcon('C:/Users/songc/PycharmProjects/ecbot/resource/images/icons/skills-78.png')
+        self.icon = QtGui.QIcon(homepath+'/resource/images/icons/skills-78.png')
         self.setIcon(self.icon)
 
     def getData(self):
@@ -48,6 +50,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
         super(MissionNewWin, self).__init__(parent)
         self.text = "new mission"
         self.parent = parent
+        self.homepath = parent.homepath
         self.newMission = None
         self.owner = None
 
