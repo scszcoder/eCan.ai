@@ -93,7 +93,7 @@ def getWorkSettings(lieutenant, bot_works):
     date_word = dtnow.strftime("%Y%m%d")
     print("date word:", date_word)
 
-    fdir = root_path + "/resource/runlogs/" + date_word + "/"
+    fdir = root_path + "/runlogs/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     bot = lieutenant.bots[bot_idx]
@@ -197,7 +197,7 @@ def genWinSkillCode(worksettings, start_step, theme):
 
 
     # generate addresses for all subroutines.
-    print("DEBUG", "Created PSK: " + psk_words)
+    # print("DEBUG", "Created PSK: " + psk_words)
 
     skf.write(psk_words)
     skf.close()

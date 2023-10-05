@@ -13,7 +13,7 @@ from readSkill import *
 #    special anchor_name: ulc, urc, llc, lrc, lb, rb, tb, bb which represent "upper left corner" "left bound" etc.
 #  constraints : { "xdir" : "within/beyond", "xtype" : "absolute/signed/abs percent/signed percent", "xval" : "10", "xunit":"pix/char height/char width/img size/win size/" .. y***
 class ANCHOR(QtGui.QStandardItem):
-    def __init__(self, aname, atype):
+    def __init__(self, aname, atype, homepath):
         super().__init__()
         self.name = aname
         self.type = atype
@@ -21,7 +21,8 @@ class ANCHOR(QtGui.QStandardItem):
         self.imgPath = ""
         self.refs = []
         self.setText('aname')
-        self.icon = QtGui.QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/anchor2-64.png')
+        self.homepath = homepath
+        self.icon = QtGui.QIcon(homepath+'/resource/anchor2-64.png')
         self.setIcon(self.icon)
 
     def set_img(self, img_path):
@@ -50,13 +51,14 @@ class ANCHOR(QtGui.QStandardItem):
 
 # valid refMethod: "None", "Anchor Offset", "Anchor Bound", "Contains Anchor"
 class USER_INFO(QtGui.QStandardItem):
-    def __init__(self, aname):
+    def __init__(self, aname, homepath):
         super().__init__()
         self.name = aname
+        self.homepath = homepath
         self.type = "Phrase"     # or "nlines", "paragraph", "text" , BTW, phase ideally shall not exceed 3 words.
         self.n = 1
         self.setText(aname)
-        self.icon = QtGui.QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/focus0-64.png')
+        self.icon = QtGui.QIcon(homepath+'/resource/focus0-64.png')
         self.setIcon(self.icon)
         self.content_text = ""
         self.contentbb = (0.0, 0.0, 0.0, 0.0)
@@ -93,12 +95,13 @@ class USER_INFO(QtGui.QStandardItem):
         self.bb = (tl, tr, bl, br)
 
 class PROCEDURAL_STEP(QtGui.QStandardItem):
-    def __init__(self, sname="browse"):
+    def __init__(self, homepath, sname="browse"):
         super().__init__()
         self.Name = sname
+        self.homepath = homepath
         self.number = 0
         self.setText(self.Name)
-        self.icon = QtGui.QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/step0-50.png')
+        self.icon = QtGui.QIcon(homepath+'/resource/step0-50.png')
         self.setIcon(self.icon)
 
         self.dataName = ""
@@ -146,9 +149,10 @@ class PROCEDURAL_SKILL(QtGui.QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.pageName = "AMZ"
+        self.homepath = parent.homepath
         self.steps = None
         self.setText(self.pageName)
-        self.icon = QtGui.QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/skills-78.png')
+        self.icon = QtGui.QIcon(self.homepath+'/resource/skills-78.png')
         self.runStepsFile= ""
         self.setIcon(self.icon)
         self.runConfig = None
@@ -197,10 +201,12 @@ class WORKSKILL(QtGui.QStandardItem):
         super().__init__()
         self.name = skname
         self.setText(self.name)
+        self.setFont(parent.std_item_font)
         self.skid = 0
         self.owner = 0
         self.price = 0
         self.parent = parent
+        self.homepath = parent.homepath
         self.price_model = ""
         self.price_model = ""
         self.path = "/resource/skills/public/"

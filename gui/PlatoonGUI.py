@@ -28,14 +28,15 @@ class PlatoonListView(QtWidgets.QListView):
                 self.parent.updateSelectedPlatoon(self.selected_row)
 
 class PLATOON(QtGui.QStandardItem):
-    def __init__(self, ip, hostname, env):
+    def __init__(self, ip, hostname, env, homepath):
         super().__init__()
         self.name = hostname
         self.ip = ip
         self.env = env
+        self.homepath = homepath
 
         self.setText(self.name)
-        self.icon = QtGui.QIcon('C:/Users/songc/PycharmProjects/ecbot/resource/images/icons/vehicle1-62.png')
+        self.icon = QtGui.QIcon(homepath + '/resource/images/icons/vehicle1-62.png')
         self.setIcon(self.icon)
 
     def getData(self):
@@ -270,17 +271,27 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         return label
 
     def _createMenuBar(self):
+        print("PLATOON Creating Menu Bar")
+        self.main_menu_bar_font = QtGui.QFont("Helvetica", 12)
+        self.main_menu_font = QFont("Helvetica", 10)
+        # menu = QMenu()
+        # self.main_menu_font = menu.font()
+        # self.main_menu_font.setPointSize(10)
         menu_bar = QtWidgets.QMenuBar()
+        menu_bar.setFont(self.main_menu_bar_font)
         # Creating menus using a QMenu object
         bot_menu = QtWidgets.QMenu("&Bots", self)
+        bot_menu.setFont(self.main_menu_font)
         bot_menu.addAction(self.botGetAction)
         menu_bar.addMenu(bot_menu)
 
         mission_menu = QtWidgets.QMenu("&Missions", self)
+        mission_menu.setFont(self.main_menu_font)
         mission_menu.addAction(self.missionImportAction)
         menu_bar.addMenu(mission_menu)
 
         settings_menu = QtWidgets.QMenu("&Settings", self)
+        settings_menu.setFont(self.main_menu_font)
         settings_menu.addAction(self.settingsAccountAction)
         #settings_menu.addAction(self.settingsImportAction)
         #settings_menu.addAction(self.settingsEditAction)
@@ -288,11 +299,13 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu(settings_menu)
 
         reports_menu = QtWidgets.QMenu("&Reports", self)
+        reports_menu.setFont(self.main_menu_font)
         reports_menu.addAction(self.reportsShowAction)
         reports_menu.addAction(self.reportsGenAction)
         menu_bar.addMenu(reports_menu)
 
         run_menu = QtWidgets.QMenu("&Run", self)
+        run_menu.setFont(self.main_menu_font)
         run_menu.addAction(self.runRunAllAction)
         #settings_menu.addAction(self.settingsImportAction)
         #settings_menu.addAction(self.settingsEditAction)
@@ -300,19 +313,23 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         menu_bar.addMenu(run_menu)
 
         schedule_menu = QtWidgets.QMenu("&Schedule", self)
+        schedule_menu.setFont(self.main_menu_font)
         schedule_menu.addAction(self.fetchScheduleAction)
 
         schedule_menu.addAction(self.scheduleCalendarViewAction)
+
         #settings_menu.addAction(self.settingsImportAction)
         #settings_menu.addAction(self.settingsEditAction)
         #settings_menu.addAction(self.settingsDelAction)
         menu_bar.addMenu(schedule_menu)
 
         skill_menu = QtWidgets.QMenu("&Skills", self)
+        skill_menu.setFont(self.main_menu_font)
         skill_menu.addAction(self.skillShowAction)
         menu_bar.addMenu(skill_menu)
 
         help_menu = QtWidgets.QMenu("&Help", self)
+        help_menu.setFont(self.main_menu_font)
         help_menu.addAction(self.helpUGAction)
         help_menu.addAction(self.helpCommunityAction)
         help_menu.addAction(self.helpAboutAction)
@@ -508,8 +525,8 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         new_action.triggered.connect(self.showAbout)
         return new_action
 
-    def fetchSchedule(self):
-        jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'])
+    def fetchSchedule(self, ts_name, settings):
+        jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
         if "errorType" in jresp:
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
@@ -591,7 +608,7 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         # Logic for creating a new bot:
         # pop out a new windows for user to set parameters for a new bot.
         # at the moment, just add an icon.
-        #new_bot = EBBOT()
+        #new_bot = EBBOT(self)
         #new_icon = QtGui.QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
         if self.BotNewWin == None:
@@ -730,7 +747,7 @@ class PlatoonWindow(QtWidgets.QMainWindow):
     # This function translate bots data from Json format to the data structure matching ebbot.py
     def translateBotsJson(self):
         for bj in self.botJsonData:
-            new_bot = EBBOT()
+            new_bot = EBBOT(self)
             new_bot.setJsonData(bj)
             self.bots.append(new_bot)
 
@@ -937,7 +954,7 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         # Logic for the bot-mission-scheduler
         # pop out a new windows for user to view and schedule the missions.
         # at the moment, just add an icon.
-        #new_bot = EBBOT()
+        #new_bot = EBBOT(self)
         #new_icon = QtGui.QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
         self.scheduleWin = ScheduleWin()

@@ -342,7 +342,7 @@ class BOT_PUB_PROFILE():
 
 
 class EBBOT(QtGui.QStandardItem):
-    def __init__(self, icon_path):
+    def __init__(self, parent):
         super().__init__()
         self.pubProfile = BOT_PUB_PROFILE()
         self.privateProfile = BOT_PRIVATE_PROFILE()
@@ -350,7 +350,8 @@ class EBBOT(QtGui.QStandardItem):
 
         self.ebType = "AMZ"
         self.setText('bot'+str(self.getBid()))
-        self.icon = QtGui.QIcon(icon_path)
+        self.setFont(parent.std_item_font)
+        self.icon = QtGui.QIcon(parent.bot_icon_path)
         self.setIcon(self.icon)
 
         self.seller_inventories = []

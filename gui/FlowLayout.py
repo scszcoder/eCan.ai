@@ -79,10 +79,11 @@ class VehicleListView(QtWidgets.QListView):
         super(VehicleListView, self).__init__()
 
 class BotView(QtGui.QStandardItem):
-    def __init__(self):
+    def __init__(self, homepath):
         super(BotView, self).__init__()
         self.setText('bot0')
-        self.bot0Icon = QtGui.QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/c_robot64_0.png')
+        self.homepath = homepath
+        self.bot0Icon = QtGui.QIcon(homepath+'/resource/images/icons/c_robot64_0.png')
         self.bot0.setIcon(self.bot0Icon)
         self.popMenu = QtWidgets.QMenu(self)
         self.popMenu.addAction(QtGui.QAction('Edit', self))

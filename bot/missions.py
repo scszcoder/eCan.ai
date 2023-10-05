@@ -287,10 +287,6 @@ class EBMISSION(QtGui.QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
-        self.setText('mission')
-        self.icon = QtGui.QIcon(parent.mission_icon_path)
-        self.setIcon(self.icon)
-
         self.pubAttributes = M_Pub_Attributes()
         self.privateAttributes = M_Private_Attributes()
         self.tasks = M_Action_Items()
@@ -298,6 +294,10 @@ class EBMISSION(QtGui.QStandardItem):
                                 "session": self.parent.session,
                                 "token": self.parent.tokens['AuthenticationResult']['IdToken'],
                                 "uid": self.parent.uid}
+        self.setText('mission' + str(self.getMid()))
+        self.icon = QtGui.QIcon(parent.mission_icon_path)
+        self.setIcon(self.icon)
+        self.setFont(parent.std_item_font)
 
     def getMid(self):
         return self.pubAttributes.missionId

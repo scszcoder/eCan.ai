@@ -8,8 +8,7 @@ import cv2
 from PIL import ImageFont, ImageDraw, Image
 import numpy as np
 from pdf2image import convert_from_path
-import win32api
-import win32print
+# import win32print
 from datetime import date
 from datetime import datetime
 from basicSkill import *
@@ -232,7 +231,7 @@ def print_labels(label_dir, printer):
 
                 # print out the files.
                 # YOU CAN PUT HERE THE NAME OF YOUR SPECIFIC PRINTER INSTEAD OF DEFAULT
-                currentprinter = win32print.GetDefaultPrinter()
+                # currentprinter = win32print.GetDefaultPrinter()
                 # print(currentprinter)
 
                 # the following command print silently.

@@ -15,7 +15,6 @@ import threading
 
 import pyautogui
 from Cloud import *
-import PIL
 from SkillGUI import *
 
 

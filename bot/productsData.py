@@ -142,6 +142,8 @@ class PRODUCT_SUMMERY:
             self.bs = True
         elif badge == "Amazon's Choice":
             self.ac = True
+        elif badge == "Overall Pick":
+            self.op = True
 
     def getBadges(self):
         return self.badges

@@ -256,6 +256,13 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "overall_pick",
+                        "anchor_type"  : "text",
+                        "template"     : "Overall Pick",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "highly_rated",
                         "anchor_type"  : "text",
                         "template"     : "HIGHLY RATED",
@@ -720,6 +727,13 @@
                         "anchor_name"  : "see_all_reviews",
                         "anchor_type"  : "text",
                         "template"     : "See all reviews",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "see_more_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "See more reviews",
                         "ref_method"   : "0",
                         "ref_constraints" : []
                     },

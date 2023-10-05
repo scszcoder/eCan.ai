@@ -23,9 +23,9 @@ import qasync
 from network import *
 
 #ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
-echomepath = getECBotHome()
-ACCT_FILE = echomepath + "/resource/settings/uli.json"
-ROLE_FILE = echomepath + "/resource/settings/role.json"
+ecbhomepath = getECBotHome()
+ACCT_FILE = ecbhomepath + "/resource/settings/uli.json"
+ROLE_FILE = ecbhomepath + "/resource/settings/role.json"
 
 
 class Login(QtWidgets.QDialog):
@@ -42,7 +42,7 @@ class Login(QtWidgets.QDialog):
         self.get_role()
         super(Login, self).__init__(parent)
         self.banner = QtWidgets.QLabel(self)
-        pixmap = QtGui.QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/ecBot09.png')
+        pixmap = QtGui.QPixmap(ecbhomepath + '/resource/images/icons/ecBot09.png')
         self.banner.setPixmap(pixmap)
 
         # self.linkFont = QtGui.QFont('Arial', 8, QtGui.QFont.Style.StyleItalic)
@@ -52,10 +52,10 @@ class Login(QtWidgets.QDialog):
         self.mem_pw = True
         self.password_shown = False
         self.password_shown2 = False
-        self.visibleIcon = QtGui.QIcon("C:/Users/Teco/PycharmProjects/ecbot/resource/eye48.png")
-        self.hiddenIcon = QtGui.QIcon("C:/Users/Teco/PycharmProjects/ecbot/resource/hidden48.png")
+        self.visibleIcon = QtGui.QIcon(ecbhomepath + "/resource/images/icons/eye48.png")
+        self.hiddenIcon = QtGui.QIcon(ecbhomepath + "/resource/images/icons/hidden48.png")
 
-        self.win_icon = QtGui.QIcon("C:/Users/Teco/PycharmProjects/ecbot/resource/eye48.png")
+        self.win_icon = QtGui.QIcon(ecbhomepath + "/resource/images/icons/eye48.png")
 
         self.setWindowIcon(self.win_icon)
         self.setWindowTitle('AiPPS E-Commerce Bots')
@@ -70,7 +70,7 @@ class Login(QtWidgets.QDialog):
         self.lan_select.currentIndexChanged.connect(self.on_lan_selected)
 
         self.logo0 = QtWidgets.QLabel(self)
-        pixmap = QtGui.QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/logo00.png')
+        pixmap = QtGui.QPixmap(ecbhomepath + '/resource/images/icons/maipps_logo192.png')
         self.logo0.setPixmap(pixmap)
         self.logo0.setAlignment(QtCore.Qt.AlignTop)
 
@@ -226,7 +226,7 @@ class Login(QtWidgets.QDialog):
         print("Index changed", index)
 
         if index == 1:
-            self.__translator.load(QtCore.QLocale.Chinese, "C:/Users/Teco/PycharmProjects/ecbot/resource/translation/example_cn.qm")
+            self.__translator.load(QtCore.QLocale.Chinese, ecbhomepath + "/resource/translation/example_cn.qm")
             #self.__app.installTranslator(self.__translator)
             _app = QApplication.instance()
             _app.installTranslator(self.__translator)
@@ -339,7 +339,7 @@ class Login(QtWidgets.QDialog):
             print("hello hello hello")
 
             if self.machine_role == "Commander":
-                self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text(), echomepath)
+                self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text(), ecbhomepath)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.show()
