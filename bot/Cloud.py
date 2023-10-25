@@ -680,41 +680,10 @@ def set_up_cloud():
 # Use AWS4Auth to sign a requests session
 def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings, logfile='C:/CrawlerData/scrape_log.txt'):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutation = gen_schedule_request_string(ts_name, schedule_settings)
 
+    jresp = appsync_http_request(mutation, session, token)
 
-    print('QUERY-------------->')
-    print(mutation)
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutation}
-    )
-
-    #save response to a log file. with a time stamp.
-    print(response)
-    words = 'send_mf_info_to_cloud========>\n' + dt + '\n'
-    words = words + response.text
-    #log2file(words, 'None', 'None', logfile)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -731,43 +700,10 @@ def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings, l
 # Use AWS4Auth to sign a requests session
 def req_cloud_read_screen(session, request, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
-
     query = gen_screen_read_request_string(request)
 
+    jresp = appsync_http_request(query, session, token)
 
-    print('MUTATION-------------->')
-    print(query)
-
-    print("requesting cloud screen read.....@" + dt + "\n")
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        timeout=500,
-        json={'query': query}
-    )
-    #save response to a log file. with a time stamp.
-    words = 'cloud responded @  ========>\n' + dt + '\n'
-    # format(item.encode("utf-8")
-    words = words + response.text
-    # log2file(words, 'None', 'None', logfile)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -781,41 +717,10 @@ def req_cloud_read_screen(session, request, token):
 # Use AWS4Auth to sign a requests session
 def req_train_read_screen(session, request, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
-
     query = gen_train_request_string(request)
 
+    jresp = appsync_http_request(query, session, token)
 
-    print('Query-------------->')
-    print(query)
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': query}
-    )
-    #save response to a log file. with a time stamp.
-    words = 'send_mf_info_to_cloud========>\n' + dt + '\n'
-    # format(item.encode("utf-8")
-    words = words + response.text
-    # print("the response is: ", response.text)
-    # log2file(words, 'None', 'None', logfile)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -829,22 +734,6 @@ def req_train_read_screen(session, request, token):
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_completion_status_to_cloud(session, stat, token):
-
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
 
     query = """
     query MyQuery {
@@ -880,19 +769,8 @@ def send_completion_status_to_cloud(session, stat, token):
   }
  """
 
+    jresp = appsync_http_request(query, session, token)
 
-    print('QUERY-------------->')
-    print(query)
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': query}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -906,38 +784,11 @@ def send_completion_status_to_cloud(session, stat, token):
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_add_bots_request_to_cloud(session, bots, token):
-    print("bots:", bots)
-
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
 
     mutationInfo = gen_add_bots_string(bots)
 
-    # mutationInfo = 'mutation MyMutation { addBots(input: [{age: 10, bid: "0", gender: "", interests: "", location: "", owner: "", role: ""}])}'
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -952,34 +803,10 @@ def send_add_bots_request_to_cloud(session, bots, token):
 # Use AWS4Auth to sign a requests session
 def send_update_bots_request_to_cloud(session, bots, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_update_bots_string(bots)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -995,34 +822,10 @@ def send_update_bots_request_to_cloud(session, bots, token):
 # Use AWS4Auth to sign a requests session
 def send_remove_bots_request_to_cloud(session, removes, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_remove_bots_string(removes)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1039,34 +842,10 @@ def send_remove_bots_request_to_cloud(session, removes, token):
 # Use AWS4Auth to sign a requests session
 def send_add_missions_request_to_cloud(session, missions, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_add_missions_string(missions)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR message: ", jresp["errors"][0]["message"])
@@ -1081,34 +860,10 @@ def send_add_missions_request_to_cloud(session, missions, token):
 # Use AWS4Auth to sign a requests session
 def send_update_missions_request_to_cloud(session, missions, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_update_missions_string(missions)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1124,34 +879,10 @@ def send_update_missions_request_to_cloud(session, missions, token):
 # Use AWS4Auth to sign a requests session
 def send_remove_missions_request_to_cloud(session, removes, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_remove_missions_string(removes)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1166,36 +897,10 @@ def send_remove_missions_request_to_cloud(session, removes, token):
 # Use AWS4Auth to sign a requests session
 def send_add_skills_request_to_cloud(session, bots, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_add_skills_string(bots)
 
-    # mutationInfo = 'mutation MyMutation { addBots(input: [{age: 10, bid: "0", gender: "", interests: "", location: "", owner: "", role: ""}])}'
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1210,34 +915,10 @@ def send_add_skills_request_to_cloud(session, bots, token):
 # Use AWS4Auth to sign a requests session
 def send_update_skills_request_to_cloud(session, bots, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_update_skills_string(bots)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1253,34 +934,10 @@ def send_update_skills_request_to_cloud(session, bots, token):
 # Use AWS4Auth to sign a requests session
 def send_remove_skills_request_to_cloud(session, removes, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_remove_skills_string(removes)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1296,35 +953,10 @@ def send_remove_skills_request_to_cloud(session, removes, token):
 # Use AWS4Auth to sign a requests session
 def send_open_acct_request_to_cloud(session, accts, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_open_acct_string(accts)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    #save response to a log file. with a time stamp.
-    print(response)
-
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1339,35 +971,10 @@ def send_open_acct_request_to_cloud(session, accts, token):
 # Use AWS4Auth to sign a requests session
 def send_make_order_request_to_cloud(session, orders, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     mutationInfo = gen_make_order_string(orders)
 
+    jresp = appsync_http_request(mutationInfo, session, token)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': mutationInfo}
-    )
-    # save response to a log file. with a time stamp.
-    # print(response)
-
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1393,34 +1000,10 @@ def gen_get_bot_string():
 # Use AWS4Auth to sign a requests session
 def send_get_bots_request_to_cloud(session, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     queryInfo = gen_get_bot_string()
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': queryInfo}
-    )
-    #save response to a log file. with a time stamp.
-    # print(response)
+    jresp = appsync_http_request(queryInfo, session, token)
 
-    jresp = response.json()
     if "errors" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
@@ -1436,34 +1019,10 @@ def send_get_bots_request_to_cloud(session, token):
 # Use AWS4Auth to sign a requests session
 def send_file_op_request_to_cloud(session, fops, token):
 
-    status = 0
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # As found in AWS Appsync under Settings for your endpoint.
-    # Constants Copied from AppSync API 'Settings'
-
-    receiverId = "***"
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
-
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
     queryInfo = gen_file_op_request_string(fops)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
-        method='POST',
-        headers=headers,
-        json={'query': queryInfo}
-    )
-    #save response to a log file. with a time stamp.
-    # print(response)
+    jresp = appsync_http_request(queryInfo, session, token)
 
-    jresp = response.json()
     # print("file op response:", jresp)
     if "errors" in jresp:
         screen_error = True
@@ -1543,4 +1102,26 @@ def cloud_rm(session, f2rm, token):
     res = send_file_op_request_to_cloud(session, fopreqs, token)
     print("cloud response: ", res['body'])
 
+def appsync_http_request(query_string, session, token):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    # Use JSON format string for the query. It does not need reformatting.
 
+    headers = {
+        'Content-Type': "application/graphql",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+
+    # Now we can simply post the request...
+    response = session.request(
+        url=APPSYNC_API_ENDPOINT_URL,
+        method='POST',
+        headers=headers,
+        json={'query': query_string}
+    )
+    # save response to a log file. with a time stamp.
+    print(response)
+
+    jresp = response.json()
+
+    return jresp
