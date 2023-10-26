@@ -260,4 +260,9 @@ def test_coordinates():
         print(row)
 
 
+def test_get_account_info(session, token):
+    qs = [{"actid": 5, "op":"", "options": ""}]
 
+    result = send_account_info_request_to_cloud(session, qs, token)
+
+    print("RESULT:", result)

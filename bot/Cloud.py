@@ -146,6 +146,31 @@ def gen_file_op_request_string(query):
     print(query_string)
     return query_string
 
+
+
+def gen_account_info_request_string(query):
+    print("in query:", query)
+    query_string = """
+        query MyQuery {
+      reqAccountInfo (ops:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ actid: " + str(query[i]["actid"]) + ", "
+        rec_string = rec_string + "op: \"" + query[i]["op"] + "\", "
+        rec_string = rec_string + "options: \"" + query[i]["options"] + "\" }"
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+    ]) 
+    }"""
+    query_string = query_string + rec_string + tail_string
+    print(query_string)
+    return query_string
+
+
 # graphQL schema:
 # type Query {
 # 	reqScreenRead(inScrn: [ScreenImg]!): [ScreenInfo]
@@ -1032,6 +1057,24 @@ def send_file_op_request_to_cloud(session, fops, token):
         jresponse = json.loads(jresp["data"]["reqFileOp"])
 
     return jresponse
+
+
+def send_account_info_request_to_cloud(session, acct_ops, token):
+
+    queryInfo = gen_account_info_request_string(acct_ops)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    # print("file op response:", jresp)
+    if "errors" in jresp:
+        screen_error = True
+        print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reqAccountInfo"])
+
+    return jresponse
+
 
 def findIdx(list, element):
     try:

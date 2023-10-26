@@ -310,9 +310,9 @@ class Login(QtWidgets.QDialog):
 
             #cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com", botocore_config=Config(signature_version=UNSIGNED))
             #cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com")
-            self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(), refresh_token='optional-refresh-token', access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
+            self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(), access_token=self.tokens["AuthenticationResult"]["AccessToken"], refresh_token=self.tokens["AuthenticationResult"]["RefreshToken"], access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
 
-            print("cog:", self.cog)
+            print("cog access token:", self.cog.access_token)
             #self.cog.check_tokens()
             #response = self.cog.authenticate(password=self.textPass.text())
 
@@ -342,11 +342,16 @@ class Login(QtWidgets.QDialog):
                 self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text(), ecbhomepath)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
+                self.mainwin.setCog(self.cog)
+                self.mainwin.setCogClient(self.aws_client)
                 self.mainwin.show()
+
             else:
                 self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
                 print("Running as a platoon...")
                 self.platoonwin.setOwner(self.textName.text())
+                self.platoonwin.setCog(self.cog)
+                self.platoonwin.setCogClient(self.aws_client)
                 self.platoonwin.show()
 
         except botocore.errorfactory.ClientError as e:

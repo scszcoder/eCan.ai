@@ -31,6 +31,8 @@ from genSkills import *
 import importlib
 import sys
 
+from unittests import *
+
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 FETCH_ROUTINE = {
@@ -158,6 +160,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tcpServer = tcpserver
         self.homepath = homepath
         self.user = user
+        self.cog = None
+        self.cog_client = None
         self.hostrole = "CommanderRun"
         self.workingState = "Idle"
         usrparts = self.user.split("@")
@@ -524,6 +528,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # point to the 1st task to run for the day.
         self.updateRunStatus(self.todays_work["tbd"][0])
+
+    def setCog(self, cog):
+        self.cog = cog
+
+    def setCogClient(self, client):
+        self.cog_client = client
 
     def on_tg_pressed(self):
         checked = self.toggle_button.isChecked()
@@ -929,11 +939,16 @@ class MainWindow(QtWidgets.QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
+        test_get_account_info(self.session, self.tokens['AuthenticationResult']['IdToken'])
+
+
+
         #the grand test,
         # 1) fetch today's schedule.
         # self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
         # self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
-        self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
+        # self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
+
         # ===================
         # 2) run all tasks, with bot profile loading on ADS taken care of....
 
@@ -1553,7 +1568,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def logOut(self):
-        self.cog.logout()
+        print("logging out........")
+        # result = self.cog_client.global_sign_out(self.cog.access_token)
+        #result = self.cog_client.global_sign_out(AccessToken=self.cog.access_token)
+        result = self.cog.logout()
+
+        print("logged out........", result)
         # now should close the main window and bring back up the login screen?
 
 
