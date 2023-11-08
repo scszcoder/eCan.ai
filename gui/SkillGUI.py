@@ -1,7 +1,8 @@
 import sys
 import random
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
+from PySide6.QtCore import QPointF
+from PySide6.QtGui import QPainterPath, QPen
 from locale import getdefaultlocale
 
 import ctypes as ct
@@ -18,7 +19,7 @@ from Cloud import *
 import pyqtgraph
 from pyqtgraph import flowchart
 import BorderLayout
-from PyQDiagram import *
+from gui.diagram.pyq_diagram import *
 from WorkSkill import *
 from readSkill import *
 from codeeditor import *
