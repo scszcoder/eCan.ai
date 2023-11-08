@@ -1,5 +1,5 @@
 import os
-import winreg
+# import winreg
 from PySide6 import QtCore, QtWidgets, QtGui
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton
 import botocore
@@ -15,15 +15,17 @@ import locale
 from MainGUI import *
 from PlatoonMainGUI import *
 from pycognito.aws_srp import AWSSRP
-from envi import *
+# from envi import *
 from Cloud import *
+from config.app_info import app_info
 
 import asyncio
 import qasync
 from network import *
 
 #ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
-ecbhomepath = getECBotHome()
+# ecbhomepath = getECBotHome()
+ecbhomepath = app_info.app_home_path
 ACCT_FILE = ecbhomepath + "/resource/settings/uli.json"
 ROLE_FILE = ecbhomepath + "/resource/settings/role.json"
 

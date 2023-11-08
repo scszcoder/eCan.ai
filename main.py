@@ -2,6 +2,7 @@ from LoginoutGUI import *
 from MainGUI import *
 from network import *
 from unittests import *
+from config.app_settings import AppSettings
 import asyncio
 from qasync import QApplication, QEventLoop
 
