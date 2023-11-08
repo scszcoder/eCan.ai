@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton
 from locale import getdefaultlocale
 
 import ctypes as ct
-from ctypes import wintypes as wt
+# from ctypes import wintypes as wt
 import time
 import json
 

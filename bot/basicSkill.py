@@ -14,11 +14,13 @@ import subprocess
 import random
 import socket
 from ping3 import ping, verbose_ping
-import win32gui
+# import win32gui
 from scraper import *
 from Cloud import *
 from pynput.mouse import Button, Controller
 from readSkill import *
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QRect
 
 STEP_GAP = 5
 symTab = globals()
@@ -547,22 +549,32 @@ def genException():
     return this_step, psk_words
 
 
+def get_top_level_visible_window():
+    # create QGuiApplication object
+    # app = QGuiApplication([])
+    app = QApplication([])
+
+    # get all top level windows
+    windows = app.topLevelWindows()
+
+    # search first visible window
+    visible_window = None
+    for window in windows:
+        if window.isVisible():
+            visible_window = window
+            break
+    if visible_window is None:
+        print("not find top visible window")
+
+    return visible_window
+
+
 def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile):
-    names = []
     settings = mission.parent_settings
-    def winEnumHandler(hwnd, ctx):
-        if win32gui.IsWindowVisible(hwnd):
-            n = win32gui.GetWindowText(hwnd)
-            # print("windows: ", n)
-            if n:
-                names.append(n)
 
-    win32gui.EnumWindows(winEnumHandler, None)
-
-    # print(names)
-    window_handle = win32gui.FindWindow(None, names[0])
-    window_rect = win32gui.GetWindowRect(window_handle)
-    print("window: ", names[0], " rect: ", window_rect)
+    top_visible_window = get_top_level_visible_window()
+    window_rect: QRect = top_visible_window.geometry()
+    print("window: ", top_visible_window.title(), " rect: ", window_rect)
 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
@@ -1098,18 +1110,8 @@ def processMouseClick(step, i):
 
     print("calculated locations:", loc)
 
-    names = []
-    def winEnumHandler(hwnd, ctx):
-        if win32gui.IsWindowVisible(hwnd):
-            n = win32gui.GetWindowText(hwnd)
-            if n:
-                names.append(n)
-
-    win32gui.EnumWindows(winEnumHandler, None)
-
-    # find the top window and get its size and location.
-    window_handle = win32gui.FindWindow(None, names[0])
-    window_rect = win32gui.GetWindowRect(window_handle)
+    top_visible_window = get_top_level_visible_window()
+    window_rect: QRect = top_visible_window.geometry()
     print("top windows rect:", window_rect)
 
     # loc[0] = int(loc[0]) + window_rect[0]
