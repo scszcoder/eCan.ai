@@ -67,7 +67,7 @@ def windowlauncher():
         loop.run_forever()
     else:
         print("run as platoon...")
-        loop.create_task(runPlatoonLAN())
+        loop.create_task(runPlatoonLAN(login))
         # w = MainWindow()
         # w.show()
         loop.run_forever()
