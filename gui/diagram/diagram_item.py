@@ -95,32 +95,38 @@ class DiagramItem(QGraphicsPolygonItem):
 
         self.prot_items = [self.port_top, self.port_bottom, self.port_right, self.port_left]
 
-        if self.diagramType == self.StartEnd:
+        # self.myPolygon = self.create_item_polygon()
+        self.setPolygon(DiagramItem.create_item_polygon(self.diagramType))
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
+
+    @staticmethod
+    def create_item_polygon(diagram_type):
+        item_polygon = None
+        if diagram_type == DiagramItem.StartEnd:
             rect = QRectF(-50, -15, 100, 30)
             radius = 7.5
             path = QPainterPath()
             path.addRoundedRect(rect, radius, radius)
-            self.myPolygon = path.toFillPolygon()
-        elif self.diagramType == self.Conditional:
-            self.myPolygon = QPolygonF([
+            item_polygon = path.toFillPolygon()
+        elif diagram_type == DiagramItem.Conditional:
+            item_polygon = QPolygonF([
                     QPointF(-50, 0), QPointF(0, 15),
                     QPointF(50, 0), QPointF(0, -15),
                     QPointF(-50, 0)])
-        elif self.diagramType == self.Step:
-            self.myPolygon = QPolygonF([
+        elif diagram_type == DiagramItem.Step:
+            item_polygon = QPolygonF([
                     QPointF(-50, -15), QPointF(50, -15),
                     QPointF(50, 15), QPointF(-50, 15),
                     QPointF(-50, -15)])
         else:
-            self.myPolygon = QPolygonF([
+            item_polygon = QPolygonF([
                     QPointF(-50, -15), QPointF(-35, 15),
                     QPointF(50, 15), QPointF(35, -15),
                     QPointF(-50, -15)])
 
-        self.setPolygon(self.myPolygon)
-        self.setFlag(QGraphicsItem.ItemIsMovable, True)
-        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
-        self.setAcceptHoverEvents(True)
+        return item_polygon
 
     def removeArrow(self, arrow):
         self.arrows = [obj for obj in self.arrows if obj != arrow]
@@ -146,14 +152,14 @@ class DiagramItem(QGraphicsPolygonItem):
         for arrow in self.arrows[:]:
             arrow.redraw_path(self, event)
 
-    def image(self):
-        pixmap = QPixmap(250, 250)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setPen(QPen(Qt.black, 8))
-        painter.translate(125, 125)
-        painter.drawPolyline(self.myPolygon)
-        return pixmap
+    # def image(self):
+    #     pixmap = QPixmap(250, 250)
+    #     pixmap.fill(Qt.transparent)
+    #     painter = QPainter(pixmap)
+    #     painter.setPen(QPen(Qt.black, 8))
+    #     painter.translate(125, 125)
+    #     painter.drawPolyline(self.myPolygon)
+    #     return pixmap
 
     def contextMenuEvent(self, event):
         self.scene().clearSelection()
@@ -169,7 +175,7 @@ class DiagramItem(QGraphicsPolygonItem):
         #     pass
 
     def itemChange(self, change, value):
-        print(f"change:{change};value:{value}")
+        # print(f"change:{change};value:{value}")
         # if change == QGraphicsItem.ItemPositionChange:
         #     for arrow in self.arrows:
         #         arrow.updatePosition()
