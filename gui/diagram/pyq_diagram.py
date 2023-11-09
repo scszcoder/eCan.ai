@@ -19,10 +19,10 @@ class PyQDiagram(QWidget):
 
         self.createActions()
 
-        self.itemMenu = self.createMenus()
+        self.context_menu = self.createMenus()
         # self.createMenuBars()
 
-        self.diagram_scene = DiagramScene(self.itemMenu)
+        self.diagram_scene = DiagramScene(self.context_menu)
         self.diagram_scene.setSceneRect(QRectF(0, 0, 500, 500))
         self.diagram_scene.itemInserted.connect(self.itemInserted)
         self.diagram_scene.textInserted.connect(self.textInserted)
@@ -181,8 +181,8 @@ class PyQDiagram(QWidget):
         layout.setRowStretch(3, 10)
         layout.setColumnStretch(2, 10)
 
-        itemWidget = QWidget()
-        itemWidget.setLayout(layout)
+        diagram_item_widget = QWidget()
+        diagram_item_widget.setLayout(layout)
 
         self.background_button_group = QButtonGroup()
         self.background_button_group.buttonClicked.connect(self.background_button_group_clicked)
@@ -204,14 +204,14 @@ class PyQDiagram(QWidget):
         backgroundLayout.setRowStretch(2, 10)
         backgroundLayout.setColumnStretch(2, 10)
 
-        backgroundWidget = QWidget()
-        backgroundWidget.setLayout(backgroundLayout)
+        background_widget = QWidget()
+        background_widget.setLayout(backgroundLayout)
 
         toolbox = QToolBox()
         toolbox.setSizePolicy(QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Ignored))
-        toolbox.setMinimumWidth(itemWidget.sizeHint().width())
-        toolbox.addItem(itemWidget, "Basic Flowchart Shapes")
-        toolbox.addItem(backgroundWidget, "Backgrounds")
+        toolbox.setMinimumWidth(diagram_item_widget.sizeHint().width())
+        toolbox.addItem(diagram_item_widget, "Basic Flowchart Shapes")
+        toolbox.addItem(background_widget, "Backgrounds")
 
         return toolbox
 
