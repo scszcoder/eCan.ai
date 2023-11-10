@@ -57,9 +57,10 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.on_con_lost.set_result(True)
 
 class communicatorProtocol(asyncio.Protocol):
-    def __init__(self, message, on_con_lost):
+    def __init__(self, topgui, message, on_con_lost):
         self.message = message
         self.on_con_lost = on_con_lost
+        self.topgui = topgui
 
     def connection_made(self, transport):
         peername = transport.get_extra_info('peername')
@@ -98,6 +99,13 @@ async def tcpServer(topgui):
         await commanderServer.serve_forever()
 
 
+# async def echo():
+#     stdin, stdout = await aioconsole.get_standard_streams()
+#     async for line in stdin:
+#         stdout.write(line)
+
+# loop = asyncio.get_event_loop()
+# loop.run_until_complete(echo())
 
 async def udpBroadcaster(topgui):
     over = False
@@ -162,10 +170,12 @@ async def commanderFinder(topgui):
             on_con_lost = loop.create_future()
 
             commanderXport, platoonProtocol = await loop.create_connection(
-                lambda: communicatorProtocol('', on_con_lost),
+                lambda: communicatorProtocol(topgui, '', on_con_lost),
                 commanderIP, TCP_PORT
             )
-
+            topgui.set_xport(commanderXport)
+            topgui.set_ip(myip)
+            print("commanderXport created::", commanderXport)
             try:
                 await on_con_lost
             finally:
