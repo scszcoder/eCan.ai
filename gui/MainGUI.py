@@ -31,6 +31,8 @@ from genSkills import *
 import importlib
 import sys
 
+from vehicles import *
+
 from unittests import *
 
 
@@ -149,7 +151,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mission_icon_path = homepath + '/resource/images/icons/c_mission96_1.png'
         self.skill_icon_path = homepath + '/resource/images/icons/skills_78.png'
         self.product_icon_path = homepath + '/resource/images/icons/product80_0.png'
-        self.vehicle_icon_path = homepath + '/resource/images/icons/vehicle1_62.png'
+        self.vehicle_icon_path = homepath + '/resource/images/icons/vehicle_128.png'
         self.commander_icon_path = homepath + '/resource/images/icons/general1_4.png'
         self.BOTS_FILE = homepath+"/resource/bots.json"
         self.MISSIONS_FILE = homepath+"/resource/missions.json"
@@ -161,6 +163,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.machine_role != "Platoon":
             self.tcpServer = tcpserver
             self.commanderXport = None
+            self.platoonWin = PlatoonWindow(self)
         else:
             print("This is a platoon...")
             self.commanderXport = tcpserver
@@ -383,6 +386,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
         self.popMenu = QtWidgets.QMenu(self)
+        self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+        self.popMenu.setFont(self.pop_menu_font)
+
         self.popMenu.addAction(QtGui.QAction('Edit', self))
         self.popMenu.addAction(QtGui.QAction('Clone', self))
         self.popMenu.addSeparator()
@@ -433,7 +439,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.running_missionListView.setMovement(QtWidgets.QListView.Snap)
 
         self.vehicleListView.setModel(self.runningVehicleModel)
-        self.vehicleListView.setViewMode(QtWidgets.QListView.ListMode)
+        self.vehicleListView.setViewMode(QtWidgets.QListView.IconMode)
         self.vehicleListView.setMovement(QtWidgets.QListView.Snap)
 
         self.completed_missionListView.setModel(self.completedMissionModel)
@@ -540,6 +546,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Main Bot&Mission Scheduler")
         # ================= DONE with GUI ==============================
 
+        self.checkVehicles()
+
         # get current wifi ssid and store it.
         print("OS platform: ", self.platform)
         if  self.platform=="win":
@@ -575,6 +583,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # point to the 1st task to run for the day.
         self.updateRunStatus(self.todays_work["tbd"][0])
+
+    def getHomePath(self):
+        return self.homepath
+
 
     def setCog(self, cog):
         self.cog = cog
@@ -772,7 +784,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createMTVViewAction(self):
         new_action = QtGui.QAction(self)
         new_action.setText("&Vehicles View")
-        #new_action.triggered.connect(self.newMissionView)
+        new_action.triggered.connect(self.newVehiclesView)
 
         return new_action
 
@@ -986,13 +998,13 @@ class MainWindow(QtWidgets.QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        test_get_account_info(self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # test_get_account_info(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
 
 
         #the grand test,
         # 1) fetch today's schedule.
-        # self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
+        self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
         # self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
         # self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
 
@@ -1267,10 +1279,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 #otherwise, send work to platoons in the field.
                 if self.hostrole == "CommanderOnly":
                     print("sending to platoon: ", i)
-                    fieldLinks[i]["link"].transport.write(json.dumps(task_groups[i]).encode("utf-8"))
+                    task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
                 else:
                     print("sending to platoon: ", i)
-                    fieldLinks[i-1]["link"].transport.write(json.dumps(task_groups[i]).encode("utf-8"))
+                    task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
+
+                schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"" + task_group_string + "\"}'
+                fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
     # find to todos.,
     # 1) check whether need to fetch schedules,
@@ -1832,16 +1847,58 @@ class MainWindow(QtWidgets.QMainWindow):
             # now that add is successfull, update local file as well.
             self.writeMissionJsonFile()
 
-    def addPlatoon(self, platoonInfo):
-        self.newPlatoon = PLATOON(platoonInfo.peername, "nyk", "")
-        self.runningVehicleModel.appendRow(self.newPlatoon)
+    def addVehicle(self, vinfo):
+        print("adding a vehicle.....", vinfo.peername)
+        newVehicle = VEHICLE(self)
+        newVehicle.setIP(vinfo.peername[0])
+        ipfields = vinfo.peername[0].split(".")
+        ip = ipfields[len(ipfields) - 1]
+        newVehicle.setVid(ip)
+        self.runningVehicleModel.appendRow(newVehicle)
 
-    def updatePlatoon(self, platoonInfo):
-        self.newPlatoon = PLATOON(platoonInfo.peername, "nyk", "")
-        self.runningVehicleModel.appendRow(self.newPlatoon)
+    def checkVehicles(self):
+        print("adding already linked vehicles.....")
+        for i in range(len(fieldLinks)):
+            print("a fieldlink.....", fieldLinks[i])
+            newVehicle = VEHICLE(self)
+            newVehicle.setIP(fieldLinks[i]["ip"][0])
+            ipfields = fieldLinks[i]["ip"][0].split(".")
+            ip = ipfields[len(ipfields)-1]
+            newVehicle.setVid(ip)
+            self.runningVehicleModel.appendRow(newVehicle)
+
+    def fetchVehicleStatus(self, rows):
+        cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
+        effective_rows = list(filter(lambda r: r >= 0, rows))
+        if len(effective_rows) > 0:
+            self.sendToPlatoons(effective_rows, cmd)
+
+    def sendPlatoonCommnd(self, command, rows, mids):
+        if command == "fresh":
+            cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
+        elif command == "halt":
+            cmd = '{\"cmd\":\"reqHaltMissions\", \"missions\":\"all\"}'
+        elif command == "resume":
+            cmd = '{\"cmd\":\"reqResumeMissions\", \"missions\":\"all\"}'
+        elif command == "cancel this":
+            mission_list_string = ','.join(str(x) for x in mids)
+            cmd = '{\"cmd\":\"reqCancelMissions\", \"missions\":\"'+mission_list_string+'\"}'
+        elif command == "cancel all":
+            cmd = '{\"cmd\":\"reqCancelAllMissions\", \"missions\":\"all\"}'
+
+        effective_rows = list(filter(lambda r: r >= 0, rows))
+        if len(effective_rows) > 0:
+            self.sendToPlatoons(effective_rows, cmd)
+
+
+    def cancelVehicleMission(self, rows):
+        cmd = '{\"cmd\":\"reqCancelMission\", \"missions\":\"all\"}'
+        effective_rows = list(filter(lambda r: r >= 0, rows))
+        if len(effective_rows) > 0:
+            self.sendToPlatoons(effective_rows, cmd)
 
     # this function sends commands to platoon(s)
-    def sendToPlatoons(self):
+    def sendToPlatoons(self, idxs, cmd='{\"cmd\":\"ping\"}'):
         # this shall bring up a windows, but for now, simply send something to a platoon for network testing purpose...
         #if self.platoonWin == None:
         #    self.platoonWin = PlatoonWindow(self)
@@ -1856,7 +1913,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(fieldLinks) > 0:
             print("Currently, there are (", len(fieldLinks), ") connection to this server.....")
             for i in range(len(fieldLinks)):
-                fieldLinks[i]["link"].transport.write(('what the hell!!!! ' + str(i)).encode('utf8'))
+                if i in idxs:
+                    fieldLinks[i]["link"].transport.write(cmd.encode('utf8'))
         else:
             print("Warning..... TCP server not up and running yet...")
 
@@ -2107,10 +2165,19 @@ class MainWindow(QtWidgets.QMainWindow):
         #self.BotNewWin.resize(400, 200)
         self.missionWin.show()
 
+    def newVehiclesView(self):
+        if self.platoonWin == None:
+            self.platoonWin = PlatoonWindow(self)
+            self.platoonWin.setOwner(self.owner)
+        self.platoonWin.show()
+
     def eventFilter(self, source, event):
         if event.type() == QtCore.QEvent.ContextMenu and source is self.botListView:
             #print("bot RC menu....")
             self.popMenu = QtWidgets.QMenu(self)
+            self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+            self.popMenu.setFont(self.pop_menu_font)
+
             self.rcbotEditAction = self._createBotRCEditAction()
             self.rcbotCloneAction = self._createBotRCCloneAction()
             self.rcbotDeleteAction = self._createBotRCDeleteAction()
@@ -2134,6 +2201,8 @@ class MainWindow(QtWidgets.QMainWindow):
         elif event.type() == QtCore.QEvent.ContextMenu and source is self.missionListView:
             #print("mission RC menu....")
             self.popMenu = QtWidgets.QMenu(self)
+            self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+            self.popMenu.setFont(self.pop_menu_font)
             self.cusMissionEditAction = self._createCusMissionEditAction()
             self.cusMissionCloneAction = self._createCusMissionCloneAction()
             self.cusMissionDeleteAction = self._createCusMissionDeleteAction()
@@ -2821,9 +2890,11 @@ class MainWindow(QtWidgets.QMainWindow):
     # msg in json format
     # { sender: "ip addr", type: "intro/status/report", content : "another json" }
     # content format varies according to type.
-    def processPlatoonMsgs(self, msgString):
+    def processPlatoonMsgs(self, msgString, ip):
+        print("Platoon Msg Received:", msgString)
         msg = json.loads(msgString)
-        found = next((x for x in fieldLinks if x["ip"] == self.peername), None)
+
+        found = next((x for x in fieldLinks if x["ip"] == ip), None)
 
         # first, check ip and make sure this from a know vehicle.
         if msg["type"] == "intro":
@@ -2879,7 +2950,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 # send to commander
                 self.commanderXport.write(msg.encode('utf8'))
 
-        elif msg["cmd"] == "reqCancelMission":
+        elif msg["cmd"] == "reqCancelMissions":
             # update vehicle status display.
             self.showMsg(msg["content"])
         elif msg["cmd"] == "reqSetSchedule":
@@ -2888,7 +2959,15 @@ class MainWindow(QtWidgets.QMainWindow):
             localworks = json.loads(msg["content"])
             self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": "eastern", "current grp": None, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
             self.updateRunStatus(self.todays_work["tbd"][1])
-
+        elif msg["cmd"] == "reqCancelAllMissions":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
+        elif msg["cmd"] == "reqHaltMissions":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
+        elif msg["cmd"] == "reqResumeMissions":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
     # just an array of the following object:
     # MissionStatus {
     #     mid: ID!
