@@ -35,13 +35,13 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.transport = transport
         fieldLinks.append({"ip": self.peername, "name": "nyk", "link": self})
         if not self.topgui.mainwin == None:
-            self.topgui.mainwin.addPlatoon(self)
+            self.topgui.mainwin.addVehicle(self)
 
     def data_received(self, data):
         message = data.decode()
         if not self.topgui.mainwin == None:
             self.topgui.mainwin.appendNetLogs(['Data received: {!r}'.format(message)])
-            self.topgui.mainwin.processPlatoonMsgs(message)
+            self.topgui.mainwin.processPlatoonMsgs(message, self.peername)
 
         #print('Send: {!r}'.format(message))
         #self.transport.write(data)
@@ -131,6 +131,7 @@ async def udpBroadcaster(topgui):
     while not over:
         if not topgui.mainwin == None:
             topgui.mainwin.appendNetLogs(["broadcast"])
+        print("Broadcasting...", 'Commander Calling:' + myip)
         usock.sendto(message, ('255.255.255.255', UDP_PORT))
         await asyncio.sleep(UDP_PERIOD)
     #
