@@ -22,14 +22,14 @@ class DiagramScene(QGraphicsScene):
     def __init__(self, item_menu, parent=None):
         super(DiagramScene, self).__init__(parent)
 
-        self.myItemMenu = item_menu
+        self.myItemMenu: QMenu = item_menu
         self.myMode = self.MoveItem
-        self.myItemType = DiagramNormalItem.Step
-        self.line = None
-        self.textItem = None
-        self.myItemColor = QColor(Qt.white)
-        self.myTextColor = QColor(Qt.black)
-        self.myLineColor = QColor(Qt.black)
+        self.myItemType: DiagramNormalItem = DiagramNormalItem.Step
+        self.line: DiagramArrowItem = None
+        self.textItem: DiagramTextItem = None
+        self.myItemColor: QColor = QColor(Qt.white)
+        self.myTextColor: QColor = QColor(Qt.black)
+        self.myLineColor: QColor = QColor(Qt.black)
         self.myFont: QFont = QFont()
         self.gridSize = 5
 
@@ -94,7 +94,7 @@ class DiagramScene(QGraphicsScene):
             if self.line is None:
                 # 当点击对应的item时候，需要要有选择到 port才能开始画线
                 target_item_group = self.query_target_event_items(mouseEvent.scenePos())
-                if target_item_group is None or target_item_group.diagram_sub_item_port is not None:
+                if target_item_group is None or target_item_group.diagram_item_port_direction is not None:
                     self.line = DiagramArrowItem(start_point=mouseEvent.scenePos(),
                                                  line_color=self.myLineColor,
                                                  context_menu=self.myItemMenu,
@@ -119,11 +119,11 @@ class DiagramScene(QGraphicsScene):
     def mouseMoveEvent(self, mouseEvent):
         super().mouseMoveEvent(mouseEvent)
         if self.myMode == self.InsertLine and self.line:
-            self.line.update_arrow_path(mouseEvent.scenePos(), self.query_target_event_items(mouseEvent.scenePos()))
+            self.line.mouse_move_handler(mouseEvent.scenePos(), self.query_target_event_items(mouseEvent.scenePos()))
         elif self.myMode == self.MoveItem:
             if self.isItemChange(DiagramNormalItem):
                 diagram_item: DiagramNormalItem = self.selectedItems()[0]
-                diagram_item.redraw_arrows_path(mouseEvent)
+                diagram_item.mouse_move_redraw_arrows_path(mouseEvent)
 
         # super().mouseMoveEvent(mouseEvent)
 
@@ -131,7 +131,7 @@ class DiagramScene(QGraphicsScene):
         super(DiagramScene, self).mouseReleaseEvent(mouseEvent)
         if self.line and self.myMode == self.InsertLine:
             target_item_group = self.query_target_event_items(mouseEvent.scenePos())
-            self.line.end_arrow_path(mouseEvent.scenePos(), target_item_group)
+            self.line.mouse_release_handler(mouseEvent.scenePos(), target_item_group)
             self.line.setSelected(False)
             if self.line.distance_too_short():
                 self.removeItem(self.line)
@@ -148,9 +148,9 @@ class DiagramScene(QGraphicsScene):
         items = self.items(point)
         for item in items:
             if isinstance(item, DiagramNormalItem):
-                target_item_group = DiagramItemGroup(item, item.closest_sub_item_port(point))
+                target_item_group = DiagramItemGroup(item, item.closest_item_port_direction(point))
             elif isinstance(item, DiagramSubItemPort):
-                target_item_group = DiagramItemGroup(item.parent, item)
+                target_item_group = DiagramItemGroup(item.parent, item.direction)
 
         return target_item_group
 

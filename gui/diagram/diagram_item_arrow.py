@@ -24,16 +24,17 @@ class DiagramArrowItem(QGraphicsPathItem):
         super(DiagramArrowItem, self).__init__(parent, scene)
 
         print(f"build new arrow item with {target_item_group.diagram_normal_item if target_item_group is not None else None};"
-              f" {target_item_group.diagram_sub_item_port if target_item_group is not None else None}")
+              f" {target_item_group.diagram_item_port_direction if target_item_group is not None else None}")
         self.item_type: EnumItemType = EnumItemType.Arrow
         self.start_point: QPointF = start_point
         self.end_point: QPointF = start_point
         self.line_color: QColor = line_color
         self.my_context_menu: QMenu = context_menu
         self.start_item: DiagramNormalItem = target_item_group.diagram_normal_item if target_item_group is not None else None
-        self.start_sub_item_port: DiagramSubItemPort = target_item_group.diagram_sub_item_port if target_item_group is not None else None
+        self.start_item_port_direction: EnumPortDir = target_item_group.diagram_item_port_direction \
+                                                        if target_item_group is not None else None
         self.end_item: DiagramNormalItem = None
-        self.end_sub_item_port: DiagramSubItemPort = None
+        self.end_item_port_direction: EnumPortDir = None
         self.path_points: List[QPointF] = path_points
         self.start_to_end_direction: bool = True
         self.arrow_head: QPolygonF = None
@@ -56,7 +57,7 @@ class DiagramArrowItem(QGraphicsPathItem):
             self.start_item.setFlag(QGraphicsItem.ItemIsMovable, False)
 
             # update start point
-            self.start_point = self.start_sub_item_port.sceneBoundingRect().center()
+            self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
 
         if self.path_points is not None:
             print(f"init path points with points: {self.path_points}")
@@ -198,7 +199,8 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.setSelected(True)
         self.my_context_menu.exec_(event.screenPos())
 
-    def reselected_start_or_end_point(self, event):
+    def reselected_start_or_end_point(self, event) -> bool:
+        print("reselected_start_or_end_point")
         local_pos = self.mapFromScene(event.scenePos())
         start_pos = self.path().pointAtPercent(0)
         end_pos = self.path().pointAtPercent(1)
@@ -225,25 +227,26 @@ class DiagramArrowItem(QGraphicsPathItem):
     def delete_target_item(self, target_item: DiagramNormalItem):
         if target_item == self.start_item:
             self.start_item = None
-            self.start_sub_item_port = None
+            self.start_item_port_direction = None
         elif target_item == self.end_item:
             self.end_item = None
-            self.end_sub_item_port = None
+            self.end_item_port_direction = None
         else:
             print(f"error no target item:{target_item}")
 
-    def redraw_path(self, target_item: DiagramNormalItem, event: QGraphicsSceneMouseEvent):
-        print(f"redraw_path: {target_item}; event:{event.scenePos()}")
-        if target_item == self.start_item and self.start_sub_item_port is not None:
-            self.start_point = self.start_sub_item_port.sceneBoundingRect().center()
+    # normal item drag event handler
+    def normal_item_move_redraw_path(self, target_item: DiagramNormalItem, event: QGraphicsSceneMouseEvent):
+        # print(f"normal_item_move_redraw_path: {target_item}; event:{event.scenePos()}")
+        if target_item == self.start_item and self.start_item_port_direction is not None:
+            self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
 
-        if target_item == self.end_item and self.end_sub_item_port is not None:
-            self.end_point = self.end_sub_item_port.sceneBoundingRect().center()
+        if target_item == self.end_item and self.end_item_port_direction is not None:
+            self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
 
         self.path_points = self.calculate_path_points()
         self.render_arrow(self.path_points)
 
-    def update_arrow_path(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
+    def mouse_move_handler(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
         # print(f"update move point:{target_point}; arrow path:{target_item_group}")
         update_path = True
 
@@ -253,21 +256,21 @@ class DiagramArrowItem(QGraphicsPathItem):
 
             if target_item_group is None:
                 self.end_item = None
-                self.end_sub_item_port = None
+                self.end_item_port_direction = None
             else:
                 target_item = target_item_group.diagram_normal_item
-                target_sub_item_port: DiagramSubItemPort = target_item_group.diagram_sub_item_port
+                target_item_port_direction: EnumPortDir = target_item_group.diagram_item_port_direction
 
                 if target_item is not None:
                     target_item.set_ports_visible(True)
 
                 if target_item != self.start_item or \
-                    (target_item == self.start_item and target_sub_item_port != self.start_sub_item_port):
+                    (target_item == self.start_item and target_item_port_direction != self.start_item_port_direction):
                     self.end_item = target_item
-                    self.end_sub_item_port = target_sub_item_port
+                    self.end_item_port_direction = target_item_port_direction
 
-                if self.end_sub_item_port is not None:
-                    target_point = self.end_sub_item_port.sceneBoundingRect().center()
+                if self.end_item_port_direction is not None:
+                    target_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
 
             if self.end_point == target_point:
                 update_path = False
@@ -278,21 +281,21 @@ class DiagramArrowItem(QGraphicsPathItem):
         else:
             if target_item_group is None:
                 self.start_item = None
-                self.start_sub_item_port = None
+                self.start_item_port_direction = None
             else:
                 target_item = target_item_group.diagram_normal_item
-                target_sub_item_port: DiagramSubItemPort = target_item_group.diagram_sub_item_port
+                target_item_port_direction: EnumPortDir = target_item_group.diagram_item_port_direction
 
                 if target_item is not None:
                     target_item.set_ports_visible(True)
 
                 if target_item != self.end_item or \
-                        (target_item == self.end_item and target_sub_item_port != self.end_sub_item_port):
+                        (target_item == self.end_item and target_item_port_direction != self.end_item_port_direction):
                     self.start_item = target_item
-                    self.start_sub_item_port = target_sub_item_port
+                    self.start_item_port_direction = target_item_port_direction
 
-                if self.start_sub_item_port is not None:
-                    target_point = self.start_sub_item_port.sceneBoundingRect().center()
+                if self.start_item_port_direction is not None:
+                    target_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
 
             if self.start_point == target_point:
                 update_path = False
@@ -303,11 +306,11 @@ class DiagramArrowItem(QGraphicsPathItem):
 
         if update_path is True:
             self.path_points = self.calculate_path_points()
+            # print(f"mouse move event update arrow path: {len(self.path_points)}")
             self.render_arrow(self.path_points)
+            # print("mouse move event update arrow path completed!!!")
 
-    def end_arrow_path(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
-        # self.update_arrow_path(end_point, target_item_group)
-
+    def mouse_release_handler(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
         if self.start_item is not None:
             self.start_item.setFlag(QGraphicsItem.ItemIsMovable, True)
 
@@ -325,13 +328,13 @@ class DiagramArrowItem(QGraphicsPathItem):
     def render_arrow(self, points):
         self.prepareGeometryChange()
 
-        # 创建路径
-        path = QPainterPath()
-
         if len(points) < 2:
             print(f"calculate path points error!!!{len(points)}")
         else:
             # print(f"moveTo:{self.path_points[0].x()}x{self.path_points[0].y()}")
+
+            # 创建路径
+            path = QPainterPath()
             path.moveTo(points[0])
             for point in points[1:]:
                 if point is not None:
@@ -348,7 +351,7 @@ class DiagramArrowItem(QGraphicsPathItem):
                 self.arrow_head = draw_arrow_head(points[-2], points[-1])
                 path.addPolygon(self.arrow_head)
 
-        self.setPath(path)
+            self.setPath(path)
 
     def distance_too_short(self):
         distance = calculate_distance(self.start_point.x(), self.start_point.y(), self.end_point.x(), self.end_point.y())
@@ -356,14 +359,14 @@ class DiagramArrowItem(QGraphicsPathItem):
 
     def calculate_path_points(self) -> [QPointF]:
         points = []
-        if self.start_item is not None and self.start_sub_item_port is not None and self.end_item is None:
+        if self.start_item is not None and self.start_item_port_direction is not None and self.end_item is None:
             # print("calculate only start item path points")
             points = self.calculate_path_only_start_item_points()
-        elif self.end_item is not None and self.end_sub_item_port is not None and self.start_item is None:
+        elif self.end_item is not None and self.end_item_port_direction is not None and self.start_item is None:
             # print("calculate only end item path points")
             points = self.calculate_path_only_end_item_points()
-        elif self.start_item is not None and self.start_sub_item_port is not None and \
-                self.end_item is not None and self.end_sub_item_port is not None:
+        elif self.start_item is not None and self.start_item_port_direction is not None and \
+                self.end_item is not None and self.end_item_port_direction is not None:
             # print("calculate both have start and end item path points")
             points = self.calculate_path_both_two_item_points()
         else:
@@ -383,13 +386,13 @@ class DiagramArrowItem(QGraphicsPathItem):
         return points
 
     def calculate_path_only_start_item_points(self):
-        points = calculate_path_only_one_item_points(self.start_item, self.start_sub_item_port,
+        points = calculate_path_only_one_item_points(self.start_item, self.start_item_port_direction,
                                                      self.start_point, self.end_point)
 
         return points
 
     def calculate_path_only_end_item_points(self):
-        points = calculate_path_only_one_item_points(self.end_item, self.end_sub_item_port,
+        points = calculate_path_only_one_item_points(self.end_item, self.end_item_port_direction,
                                                      self.end_point, self.start_point)
 
         return points[::-1]
@@ -400,8 +403,8 @@ class DiagramArrowItem(QGraphicsPathItem):
         p1, p2, p3, p4, p5, p6, p7 = (None, None, None, None, None, None, None)
         start_item_scene_rect: QRectF = self.start_item.sceneBoundingRect()
         end_item_scene_rect: QRectF = self.end_item.sceneBoundingRect()
-        start_port_direction = self.start_sub_item_port.direction
-        end_port_direction = self.end_sub_item_port.direction
+        start_port_direction = self.start_item_port_direction
+        end_port_direction = self.end_item_port_direction
         last_point = self.end_point
         p1 = self.start_point
 
@@ -637,12 +640,12 @@ def calculate_path_no_item_points(start_point: QPointF, end_point: QPointF):
     return points
 
 
-def calculate_path_only_one_item_points(item: DiagramNormalItem, sub_item_port: DiagramSubItemPort,
+def calculate_path_only_one_item_points(item: DiagramNormalItem, item_port_direction: EnumPortDir,
                                         start_point: QPointF, end_point: QPointF):
     points = []
     p1, p2, p3, p4, p5 = (None, None, None, None, None)
     item_scene_rect: QRectF = item.sceneBoundingRect()
-    port_direction = sub_item_port.direction
+    port_direction = item_port_direction
     last_point = end_point
     p1 = start_point
 
