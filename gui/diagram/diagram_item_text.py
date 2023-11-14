@@ -1,5 +1,8 @@
-from PySide6.QtCore import (Signal, Qt)
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsTextItem
+from PySide6.QtCore import (Signal, Qt, QPointF)
+from PySide6.QtGui import QFont, QColor
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QMenu
+
+from gui.diagram.diagram_base import EnumItemType, DiagramBase
 
 
 class DiagramTextItem(QGraphicsTextItem):
@@ -7,16 +10,25 @@ class DiagramTextItem(QGraphicsTextItem):
 
     selectedChange = Signal(QGraphicsItem)
 
-    def __init__(self, parent=None, scene=None, subItem=True, contextMenu=None):
-        super(DiagramTextItem, self).__init__(parent, scene)
+    def __init__(self, plain_text: str, font: QFont, color: QColor, position: QPointF,
+                 sub_item=True, context_menu=None, parent=None):
+        super(DiagramTextItem, self).__init__(parent)
 
-        self.isSubItem = subItem
-        self.myContextMenu = contextMenu
+        self.item_type = EnumItemType.Text
+        self.sub_item = sub_item
+        self.context_menu = context_menu
 
-        if self.isSubItem is False:
+        self.setPlainText(plain_text)
+        self.setFont(font)
+        self.setDefaultTextColor(color)
+        self.setPos(position)
+
+        if self.sub_item is False:
             self.setFlag(QGraphicsItem.ItemIsMovable)
 
         self.setFlag(QGraphicsItem.ItemIsSelectable)
+
+        print(f"build diagram text item {plain_text}")
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemSelectedChange:
@@ -34,7 +46,35 @@ class DiagramTextItem(QGraphicsTextItem):
         super(DiagramTextItem, self).mouseDoubleClickEvent(event)
 
     def contextMenuEvent(self, event):
-        if self.isSubItem is False and self.myContextMenu is not None:
+        if self.sub_item is False and self.context_menu is not None:
             self.scene().clearSelection()
             self.setSelected(True)
-            self.myContextMenu.exec_(event.screenPos())
+            self.context_menu.exec_(event.screenPos())
+
+    def set_font(self, font: QFont):
+        self.setFont(font)
+
+    def to_dict(self):
+        obj_dict = {
+            "item_type": EnumItemType.enum_name(self.item_type),
+            "sub_item": self.sub_item,
+            "plain_text": self.toPlainText(),
+            "position": DiagramBase.position_encode(self.pos()),
+            "font": DiagramBase.font_encode(self.font()),
+            "color": DiagramBase.color_encode(self.defaultTextColor()),
+        }
+
+        return obj_dict
+
+    @classmethod
+    def from_dict(cls, obj_dict, context_menu: QMenu):
+        sub_item = obj_dict["sub_item"]
+        plain_text = obj_dict["plain_text"]
+        position = DiagramBase.position_decode(obj_dict["position"])
+        font = DiagramBase.font_decode(obj_dict["font"])
+        color = QColor(DiagramBase.color_decode(obj_dict["color"]))
+
+        diagram_item_text = DiagramTextItem(plain_text=plain_text, font=font, color=color, position=position,
+                                            sub_item=sub_item, context_menu=context_menu)
+
+        return diagram_item_text

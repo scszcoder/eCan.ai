@@ -1,10 +1,11 @@
-from PySide6.QtCore import (QRectF, QSize, Qt)
+from PySide6.QtCore import (QRectF, QSize, Qt, QPointF)
 from PySide6.QtGui import (QAction, QFont, QIcon, QBrush, QIcon, QPixmap, QPainter, QPen)
 from PySide6.QtWidgets import (QGraphicsView, QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QWidget,
                                QButtonGroup, QGridLayout, QLabel, QSizePolicy, QToolBox, QToolButton, QWidget, QGraphicsView)
 from config.app_info import app_info
 from gui.diagram.diagram_scene import DiagramScene
 from gui.diagram.diagram_item import DiagramItem
+from gui.diagram.diagram_item_text import DiagramTextItem
 from gui.diagram.diagram_item_arrow import DiagramArrowItem
 from gui.diagram.diagram_toolbars import DiagramToolBars
 
@@ -26,6 +27,7 @@ class PyQDiagram(QWidget):
         self.diagram_scene.setSceneRect(QRectF(0, 0, 500, 500))
         self.diagram_scene.itemInserted.connect(self.itemInserted)
         self.diagram_scene.textInserted.connect(self.textInserted)
+        self.diagram_scene.arrowInserted.connect(self.arrowInserted)
         self.diagram_scene.itemSelected.connect(self.itemSelected)
 
         self.drawing_view = QGraphicsView(self.diagram_scene)
@@ -56,8 +58,10 @@ class PyQDiagram(QWidget):
                 item.remove_arrows_items()
             elif isinstance(item, DiagramArrowItem):
                 item.remove_item_target_arrow()
+            elif isinstance(item, DiagramTextItem):
+                pass
 
-            self.diagram_scene.removeItem(item)
+            self.diagram_scene.remove_diagram_item(item)
 
     def bringToFront(self):
         if not self.diagram_scene.selectedItems():
@@ -86,16 +90,57 @@ class PyQDiagram(QWidget):
         selectedItem.setZValue(zValue)
 
     def itemInserted(self, item):
-        print("inserted item:", item, ">>", item.diagramType)
+        print("inserted normal item:", item, ">>", item.diagram_type)
         self.diagram_toolbars.pointerTypeGroup.button(DiagramScene.MoveItem).setChecked(True)
         self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
         #self.diagram_button_group.button(item.diagramType).setChecked(False)
-        self.diagram_button_group.button(item.diagramType).setChecked(False)
+        self.diagram_button_group.button(item.diagram_type).setChecked(False)
+
+        self.test_code_json()
 
     def textInserted(self, item):
         print(f"inserted text: {self.diagram_toolbars.pointerTypeGroup.checkedId()}")
         self.diagram_button_group.button(self.InsertTextButton).setChecked(False)
         self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
+
+        self.test_code_json()
+
+    def arrowInserted(self, item):
+        print(f"inserted arrow {item}")
+
+        self.test_code_json()
+
+    def test_code_json(self):
+        pass
+        # json_str = self.encode_json()
+        # self.decode_json(json_str)
+
+    def encode_json(self):
+        json_str = self.diagram_scene.to_json()
+        print(f"encode_json: {json_str}")
+        return json_str
+
+    def decode_json(self, json_str):
+        items = DiagramScene.from_json(json_str, self.context_menu)
+        print(f"decode json: {items}")
+
+        for item in items:
+            if isinstance(item, DiagramItem):
+                item.name_text_item.setPlainText("normal#1")
+                item.setPos(QPointF(item.pos().x() + 20, item.pos().y() + 20))
+            elif isinstance(item, DiagramTextItem):
+                item.setPlainText("text#1")
+                item.setPos(QPointF(item.pos().x() + 20, item.pos().y() + 20))
+            elif isinstance(item, DiagramArrowItem):
+                # points = []
+                # for point in item.path_points:
+                #     points.append(QPointF(point.x() + 20, point.y() + 20))
+                # item.render_arrow(points)
+                pass
+            else:
+                print(f"decode_json error type item {item}")
+
+            self.diagram_scene.addItem(item)
 
     def handleFontChange(self):
         self.diagram_toolbars.handleFontChange()
@@ -313,3 +358,4 @@ class PyQDiagram(QWidget):
         painter.drawPolyline(DiagramItem.create_item_polygon(diagram_type))
 
         return pixmap
+

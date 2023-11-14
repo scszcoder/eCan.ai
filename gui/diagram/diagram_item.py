@@ -1,9 +1,9 @@
 from PySide6.QtCore import (QPointF, QRectF, Qt)
-from PySide6.QtGui import (QPainter, QPainterPath, QPen, QPixmap, QPolygonF)
+from PySide6.QtGui import (QPainter, QPainterPath, QColor, QFont, QPen, QPixmap, QPolygonF)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsEllipseItem, QMenu
 from gui.diagram.diagram_item_text import DiagramTextItem
+from gui.diagram.diagram_base import EnumItemType, DiagramBase
 from enum import Enum
-import math
 
 ITEM_PORT_RADIUS = 3
 
@@ -69,23 +69,29 @@ class DiagramSubItemPort(QGraphicsEllipseItem):
 class DiagramItem(QGraphicsPolygonItem):
     Step, Conditional, StartEnd, Io = range(4)
 
-    def __init__(self, diagramType, contextMenu: QMenu, parent=None):
+    def __init__(self, diagram_type, context_menu: QMenu, text_color: QColor,
+                 item_color: QColor, font: QFont, position: QPointF,
+                 name_text_item: DiagramTextItem=None, tag_text_item: DiagramTextItem=None, parent=None):
         super(DiagramItem, self).__init__(parent)
 
+        self.item_type: EnumItemType = EnumItemType.Normal
+        self.diagram_type = diagram_type
+        self.context_menu: QMenu = context_menu
+        self.text_color: QColor = text_color
+        self.item_color: QColor = item_color
+        self.font: QFont = font
         self.arrows = []
 
-        self.diagramType = diagramType
-        self.myContextMenu: QMenu = contextMenu
+        self.setBrush(item_color)
+        self.setPos(position)
 
-        self.name = DiagramTextItem(self)
-        self.name.setPlainText("hello")
-        self.name.setTextInteractionFlags(Qt.TextEditable)
-        self.name.setPos(-18, 18)
+        self.name_text_item = DiagramTextItem(name_text_item.toPlainText() if name_text_item is not None else "hello",
+                                              self.font, self.text_color, QPointF(-18, 18), parent=self)
+        self.name_text_item.setTextInteractionFlags(Qt.TextEditable)
 
-        self.tag = DiagramTextItem(self)
-        self.tag.setPlainText("tag here")
-        self.tag.setTextInteractionFlags(Qt.TextEditable)
-        self.tag.setPos(-30, -12.5)
+        self.tag_text_item = DiagramTextItem(tag_text_item.toPlainText() if tag_text_item is not None else "tag here",
+                                             self.font, self.text_color, QPointF(-30, -12.5), parent=self)
+        self.tag_text_item.setTextInteractionFlags(Qt.TextEditable)
 
         radius = ITEM_PORT_RADIUS
         self.port_bottom = DiagramSubItemPort(0 - radius, 15 - radius, 2 * radius, 2 * radius, EnumPortDir.BOTTOM, self)
@@ -95,11 +101,12 @@ class DiagramItem(QGraphicsPolygonItem):
 
         self.prot_items = [self.port_top, self.port_bottom, self.port_right, self.port_left]
 
-        # self.myPolygon = self.create_item_polygon()
-        self.setPolygon(DiagramItem.create_item_polygon(self.diagramType))
+        self.setPolygon(DiagramItem.create_item_polygon(self.diagram_type))
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
+
+        print(f"build diagram item {diagram_type}")
 
     @staticmethod
     def create_item_polygon(diagram_type):
@@ -164,7 +171,7 @@ class DiagramItem(QGraphicsPolygonItem):
     def contextMenuEvent(self, event):
         self.scene().clearSelection()
         self.setSelected(True)
-        self.myContextMenu.exec_(event.screenPos())
+        self.context_menu.exec_(event.screenPos())
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
@@ -224,6 +231,40 @@ class DiagramItem(QGraphicsPolygonItem):
     def hoverLeaveEvent(self, event):
         self.set_ports_visible(False)
         super().hoverLeaveEvent(event)
+
+    def to_dict(self):
+        obj_dict = {
+            "item_type": EnumItemType.enum_name(self.item_type),
+            "diagram_type": self.diagram_type,
+            "text_color": DiagramBase.color_encode(self.text_color),
+            "item_color": DiagramBase.color_encode(self.brush().color()),
+            "position": DiagramBase.position_encode(self.pos()),
+            "font": DiagramBase.font_encode(self.font),
+            "name_text_item": self.name_text_item.to_dict(),
+            "tag_text_item": self.tag_text_item.to_dict()
+        }
+
+        return obj_dict
+
+    @classmethod
+    def from_dict(cls, obj_dict, context_menu: QMenu):
+        diagram_type = obj_dict["diagram_type"]
+        text_color = QColor(DiagramBase.color_decode(obj_dict["text_color"]))
+        item_color = QColor(DiagramBase.color_decode(obj_dict["item_color"]))
+        position = DiagramBase.position_decode(obj_dict["position"])
+        font = DiagramBase.font_decode(obj_dict["font"])
+
+        name_text_item_dict = obj_dict["name_text_item"]
+        tag_text_item_dict = obj_dict["tag_text_item"]
+
+        name_text_item = DiagramTextItem.from_dict(name_text_item_dict, context_menu)
+        tag_text_item = DiagramTextItem.from_dict(tag_text_item_dict, context_menu)
+
+        diagram_item = DiagramItem(diagram_type=diagram_type, context_menu=context_menu, text_color=text_color,
+                                   item_color=item_color, font=font, name_text_item=name_text_item,
+                                   tag_text_item=tag_text_item, position=position)
+
+        return diagram_item
 
 
 class DiagramItemGroup:

@@ -16,6 +16,7 @@ class DiagramToolBars(QHBoxLayout):
         self.home_path = app_info.app_home_path
 
         # self.toolBarLayout = QHBoxLayout()
+        # Times New Roman
         self.fontCombo = QFontComboBox()
         self.fontCombo.currentFontChanged.connect(self.currentFontChanged)
 
@@ -206,13 +207,13 @@ class DiagramToolBars(QHBoxLayout):
         return QIcon(pixmap)
 
     def handleFontChange(self):
-        font = self.fontCombo.currentFont()
+        font: QFont = self.fontCombo.currentFont()
         font.setPointSize(int(self.fontSizeCombo.currentText()))
         #if self.boldAction.isChecked():
         if self.txtBoldButton.isChecked():
-            font.setWeight(QFont.Bold)
+            font.setWeight(QFont.Weight.Bold)
         else:
-            font.setWeight(QFont.Normal)
+            font.setWeight(QFont.Weight.Normal)
         #font.setItalic(self.italicAction.isChecked())
         #font.setUnderline(self.underlineAction.isChecked())
         font.setItalic(self.txtItalicButton.isChecked())
