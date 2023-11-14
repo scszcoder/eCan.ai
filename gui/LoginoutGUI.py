@@ -34,14 +34,15 @@ class Login(QtWidgets.QDialog):
     def __init__(self, inApp, cloop, parent=None):
         self.cog = None
         self.mainwin = None
-        self.platoonwin = None
+        self.xport = None
+        self.ip = ""
         self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
 
         self.aws_srp = None
 
         self.mode = "Sign In"
         self.machine_role = "Platoon"
-        self.get_role()
+        self.read_role()
         super(Login, self).__init__(parent)
         self.banner = QtWidgets.QLabel(self)
         pixmap = QtGui.QPixmap(ecbhomepath + '/resource/images/icons/ecBot09.png')
@@ -138,7 +139,10 @@ class Login(QtWidgets.QDialog):
             with open(ACCT_FILE, 'r') as file:
                 data = json.load(file)
                 self.textName.setText(data["user"])
-                self.textPass.setText(self.descramble(os.environ[data["pw"]]))
+                if data["pw"] in os.environ:
+                    self.textPass.setText(self.descramble(os.environ[data["pw"]]))
+                else:
+                    self.textPass.setText("")
                 self.lan = data["lan"]
                 self.show_visibility = data["mem_cb"]
         else:
@@ -202,13 +206,26 @@ class Login(QtWidgets.QDialog):
 
     # async def launchLAN(self):
 
-    def get_role(self):
+    def set_xport(self, xport):
+        self.xport = xport
+
+    def set_ip(self, ip):
+        self.ip = ip
+    def read_role(self):
         self.machine_role = "Platoon"
 
         if exists(ROLE_FILE):
             with open(ROLE_FILE, 'r') as file:
                 mr_data = json.load(file)
                 self.machine_role = mr_data["machine_role"]
+
+    def get_role(self):
+        # is function is for testing purpose only
+        return self.machine_role
+
+    def set_role(self, role):
+        # is function is for testing purpose only
+        self.machine_role = role
 
     def isCommander(self):
         if self.machine_role == "Commander":
@@ -341,7 +358,9 @@ class Login(QtWidgets.QDialog):
             print("hello hello hello")
 
             if self.machine_role == "Commander":
-                self.mainwin = MainWindow(self.tokens, commanderServer, self.textName.text(), ecbhomepath)
+                global commanderServer
+
+                self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath, self.machine_role)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.setCog(self.cog)
@@ -349,12 +368,15 @@ class Login(QtWidgets.QDialog):
                 self.mainwin.show()
 
             else:
-                self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
+                global commanderXport
+
+                # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
+                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.machine_role)
                 print("Running as a platoon...")
-                self.platoonwin.setOwner(self.textName.text())
-                self.platoonwin.setCog(self.cog)
-                self.platoonwin.setCogClient(self.aws_client)
-                self.platoonwin.show()
+                self.mainwin.setOwner(self.textName.text())
+                self.mainwin.setCog(self.cog)
+                self.mainwin.setCogClient(self.aws_client)
+                self.mainwin.show()
 
         except botocore.errorfactory.ClientError as e:
             # except ClientError as e:
