@@ -25,7 +25,7 @@ class DiagramScene(QGraphicsScene):
         self.myItemMenu: QMenu = item_menu
         self.myMode = self.MoveItem
         self.myItemType: DiagramNormalItem = DiagramNormalItem.Step
-        self.line: DiagramArrowItem = None
+        self.selected_item = None
         self.textItem: DiagramTextItem = None
         self.myItemColor: QColor = QColor(Qt.white)
         self.myTextColor: QColor = QColor(Qt.black)
@@ -82,64 +82,84 @@ class DiagramScene(QGraphicsScene):
             print("inserting a normal item...")
             item = DiagramNormalItem(diagram_type=self.myItemType, context_menu=self.myItemMenu, text_color=self.myTextColor,
                                      item_color=self.myItemColor, font=self.myFont, position=mouseEvent.scenePos())
-            # item.setBrush(self.myItemColor)
             self.add_diagram_item(item)
-            # item.setPos(mouseEvent.scenePos())
             self.itemInserted.emit(item)
+            self.selected_item = item
         elif self.myMode == self.InsertLine:
             print("inserting a line...")
             if self.isItemChange(DiagramArrowItem):
-                self.line = self.selectedItems()[0]
-
-            if self.line is None:
-                # 当点击对应的item时候，需要要有选择到 port才能开始画线
-                target_item_group = self.query_target_event_items(mouseEvent.scenePos())
-                if target_item_group is None or target_item_group.diagram_item_port_direction is not None:
-                    self.line = DiagramArrowItem(start_point=mouseEvent.scenePos(),
-                                                 line_color=self.myLineColor,
-                                                 context_menu=self.myItemMenu,
-                                                 target_item_group=target_item_group)
-
-                    self.add_diagram_item(self.line)
+                line = self.selectedItems()[0]
+                if line.selected_start_or_end_pos(mouseEvent) is True:
+                    self.selected_item = line
+                else:
+                    print("selected existed line but not start or end point so can not be drag #1")
             else:
-                print("selected existed line")
-                if self.line.reselected_start_or_end_point(mouseEvent) is False:
-                    print("selected existed line can not be drag")
-                    self.line = None
+                target_item_group = self.query_target_event_items(mouseEvent.scenePos())
+                # 当点击对应的item时候，需要要有选择到 port才能开始画线
+                if target_item_group is None or target_item_group.diagram_item_port_direction is not None:
+                    item = DiagramArrowItem(start_point=mouseEvent.scenePos(), line_color=self.myLineColor,
+                                            context_menu=self.myItemMenu, target_item_group=target_item_group)
 
+                    self.add_diagram_item(item)
+                    self.selected_item = item
+                elif target_item_group is not None:
+                    self.selected_item = target_item_group.diagram_normal_item
+                else:
+                    pass
         elif self.myMode == self.InsertText:
             print("inserting a text...")
-            item = DiagramTextItem("hello", self.myFont, self.myTextColor, mouseEvent.scenePos(),
-                                   False, self.myItemMenu)
+            item = DiagramTextItem(plain_text="hello", font=self.myFont, color=self.myTextColor,
+                                   position=mouseEvent.scenePos(), sub_item=False, context_menu=self.myItemMenu)
             self.add_diagram_item(item)
             self.textInserted.emit(item)
+            self.selected_item = item
+        elif self.myMode == self.MoveItem:
+            if self.isItemChange(DiagramArrowItem):
+                line = self.selectedItems()[0]
+                if line.selected_start_or_end_pos(mouseEvent) is True:
+                    self.selected_item = line
+                else:
+                    print("selected existed line but not start or end point so can not be drag #2")
+            else:
+                if len(self.selectedItems()) > 0:
+                    self.selected_item = self.selectedItems()[0]
 
         # super(DiagramScene, self).mousePressEvent(mouseEvent)
 
     def mouseMoveEvent(self, mouseEvent):
-        super().mouseMoveEvent(mouseEvent)
-        if self.myMode == self.InsertLine and self.line:
-            self.line.mouse_move_handler(mouseEvent.scenePos(), self.query_target_event_items(mouseEvent.scenePos()))
-        elif self.myMode == self.MoveItem:
-            if self.isItemChange(DiagramNormalItem):
-                diagram_item: DiagramNormalItem = self.selectedItems()[0]
-                diagram_item.mouse_move_redraw_arrows_path(mouseEvent)
+        # super().mouseMoveEvent(mouseEvent)
+        if isinstance(self.selected_item, DiagramNormalItem):
+            # diagram_item: DiagramNormalItem = self.selectedItems()[0]
+            self.selected_item.mouse_move_redraw_arrows_path(mouseEvent)
+            super().mouseMoveEvent(mouseEvent)
+            # print(f"moving normal item {self.selected_item}")
+        elif isinstance(self.selected_item, DiagramArrowItem):
+            target_item_group = self.query_target_event_items(mouseEvent.scenePos())
+            self.selected_item.mouse_move_handler(mouseEvent.scenePos(), target_item_group)
+            # print(f"moving arrow item {self.selected_item}")
+        else:
+            super().mouseMoveEvent(mouseEvent)
 
         # super().mouseMoveEvent(mouseEvent)
 
     def mouseReleaseEvent(self, mouseEvent):
         super(DiagramScene, self).mouseReleaseEvent(mouseEvent)
-        if self.line and self.myMode == self.InsertLine:
-            target_item_group = self.query_target_event_items(mouseEvent.scenePos())
-            self.line.mouse_release_handler(mouseEvent.scenePos(), target_item_group)
-            self.line.setSelected(False)
-            if self.line.distance_too_short():
-                self.removeItem(self.line)
-                print("line is too short removed from scene")
-            else:
-                self.arrowInserted.emit(self.line)
+        if self.myMode == self.InsertLine and self.selected_item is not None:
+            if isinstance(self.selected_item, DiagramArrowItem):
+                line: DiagramArrowItem = self.selected_item
+                target_item_group = self.query_target_event_items(mouseEvent.scenePos())
+                line.mouse_release_handler(mouseEvent.scenePos(), target_item_group)
+                line.setSelected(False)
+                if line.distance_too_short():
+                    self.removeItem(line)
+                    print("line distance is too short should removed from scene")
+                else:
+                    self.arrowInserted.emit(line)
+            elif isinstance(self.selected_item, DiagramNormalItem):
+                self.selected_item.mouse_move_redraw_arrows_path(mouseEvent)
+                super().mouseMoveEvent(mouseEvent)
 
-        self.line = None
+        self.selected_item = None
         # super(DiagramScene, self).mouseReleaseEvent(mouseEvent)
 
     def query_target_event_items(self, point: QPointF):
@@ -155,8 +175,10 @@ class DiagramScene(QGraphicsScene):
         return target_item_group
 
     def isItemChange(self, type):
+        # print(f"selected item change type {type}")
         for item in self.selectedItems():
             if isinstance(item, type):
+                print(f"selected item {item} same type {type}")
                 return True
         return False
 
@@ -164,7 +186,15 @@ class DiagramScene(QGraphicsScene):
         self.addItem(item)
 
     def remove_diagram_item(self, item):
-        print(f"remove item {item} form scene")
+        print(f"remove item {item} from scene")
+
+        if isinstance(item, DiagramNormalItem):
+            item.remove_arrows_items()
+        elif isinstance(item, DiagramArrowItem):
+            item.remove_item_target_arrow()
+        elif isinstance(item, DiagramTextItem):
+            pass
+
         self.removeItem(item)
 
     # def mydrawBackground(self):

@@ -4,6 +4,7 @@ from PySide6.QtGui import QFont, QColor, QPalette
 from enum import Enum
 import json
 from typing import List
+import uuid
 
 
 class EnumItemType(Enum):
@@ -19,6 +20,10 @@ class EnumItemType(Enum):
 
 
 class DiagramBase:
+    @staticmethod
+    def build_uuid():
+        return uuid.uuid4()
+
     @staticmethod
     def font_weight_to_enum_name(obj):
         if isinstance(obj, QFont.Weight):

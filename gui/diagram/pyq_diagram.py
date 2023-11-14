@@ -54,13 +54,6 @@ class PyQDiagram(QWidget):
 
     def deleteItem(self):
         for item in self.diagram_scene.selectedItems():
-            if isinstance(item, DiagramNormalItem):
-                item.remove_arrows_items()
-            elif isinstance(item, DiagramArrowItem):
-                item.remove_item_target_arrow()
-            elif isinstance(item, DiagramTextItem):
-                pass
-
             self.diagram_scene.remove_diagram_item(item)
 
     def bringToFront(self):
@@ -101,6 +94,7 @@ class PyQDiagram(QWidget):
     def textInserted(self, item):
         print(f"inserted text: {self.diagram_toolbars.pointerTypeGroup.checkedId()}")
         self.diagram_button_group.button(self.InsertTextButton).setChecked(False)
+        self.diagram_toolbars.pointerTypeGroup.button(DiagramScene.MoveItem).setChecked(True)
         self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
 
         self.test_code_json()
