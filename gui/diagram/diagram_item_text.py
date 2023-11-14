@@ -11,9 +11,10 @@ class DiagramTextItem(QGraphicsTextItem):
     selectedChange = Signal(QGraphicsItem)
 
     def __init__(self, plain_text: str, font: QFont, color: QColor, position: QPointF,
-                 sub_item=True, context_menu=None, parent=None):
+                 uuid=None, sub_item=True, context_menu=None, parent=None):
         super(DiagramTextItem, self).__init__(parent)
 
+        self.uuid = uuid if uuid is not None else DiagramBase.build_uuid()
         self.item_type = EnumItemType.Text
         self.sub_item = sub_item
         self.context_menu = context_menu
@@ -28,7 +29,7 @@ class DiagramTextItem(QGraphicsTextItem):
 
         self.setFlag(QGraphicsItem.ItemIsSelectable)
 
-        print(f"build diagram text item {plain_text}")
+        print(f"build diagram text item {plain_text}, sub item: {self.sub_item}")
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemSelectedChange:
@@ -56,6 +57,7 @@ class DiagramTextItem(QGraphicsTextItem):
 
     def to_dict(self):
         obj_dict = {
+            "uuid": self.uuid,
             "item_type": EnumItemType.enum_name(self.item_type),
             "sub_item": self.sub_item,
             "plain_text": self.toPlainText(),
@@ -68,6 +70,7 @@ class DiagramTextItem(QGraphicsTextItem):
 
     @classmethod
     def from_dict(cls, obj_dict, context_menu: QMenu):
+        uuid = obj_dict["uuid"]
         sub_item = obj_dict["sub_item"]
         plain_text = obj_dict["plain_text"]
         position = DiagramBase.position_decode(obj_dict["position"])
@@ -75,6 +78,6 @@ class DiagramTextItem(QGraphicsTextItem):
         color = QColor(DiagramBase.color_decode(obj_dict["color"]))
 
         diagram_item_text = DiagramTextItem(plain_text=plain_text, font=font, color=color, position=position,
-                                            sub_item=sub_item, context_menu=context_menu)
+                                            uuid=uuid, sub_item=sub_item, context_menu=context_menu)
 
         return diagram_item_text

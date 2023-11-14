@@ -20,11 +20,12 @@ MANHANTAN_LENGTH = ARROW_SIZE/2
 
 class DiagramArrowItem(QGraphicsPathItem):
     def __init__(self, start_point: QPointF, line_color, context_menu: QMenu, path_points: List[QPointF] = None,
-                 target_item_group: DiagramItemGroup = None, parent=None, scene=None):
+                 target_item_group: DiagramItemGroup = None, uuid=None, parent=None, scene=None):
         super(DiagramArrowItem, self).__init__(parent, scene)
 
         print(f"build new arrow item with {target_item_group.diagram_normal_item if target_item_group is not None else None};"
               f" {target_item_group.diagram_item_port_direction if target_item_group is not None else None}")
+        self.uuid = uuid if uuid is not None else DiagramBase.build_uuid()
         self.item_type: EnumItemType = EnumItemType.Arrow
         self.start_point: QPointF = start_point
         self.end_point: QPointF = start_point
@@ -54,7 +55,7 @@ class DiagramArrowItem(QGraphicsPathItem):
 
         if self.start_item is not None:
             # prevent default drag event
-            self.start_item.setFlag(QGraphicsItem.ItemIsMovable, False)
+            # self.start_item.setFlag(QGraphicsItem.ItemIsMovable, False)
 
             # update start point
             self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
@@ -74,21 +75,33 @@ class DiagramArrowItem(QGraphicsPathItem):
 
     def to_dict(self):
         obj_dict = {
+            "uuid": self.uuid,
             "item_type": EnumItemType.enum_name(self.item_type),
             "line_color": DiagramBase.color_encode(self.line_color),
             "path_points": DiagramBase.path_points_encode(self.path_points),
+            "start_item_uuid": self.start_item.uuid if self.start_item is not None else None,
+            "end_item_uuid": self.end_item.uuid if self.end_item is not None else None,
+            "start_item_port_direction": EnumPortDir.enum_name(self.start_item_port_direction) if
+                                                                self.start_item_port_direction is not None else None,
+            "end_item_port_direction": EnumPortDir.enum_name(self.end_item_port_direction)
+                                                                if self.end_item_port_direction is not None else None,
         }
 
         return obj_dict
 
     @classmethod
     def from_dict(cls, obj_dict, context_menu: QMenu):
+        uuid = obj_dict["uuid"]
         line_color = QColor(DiagramBase.color_decode(obj_dict["line_color"]))
         path_points: [] = DiagramBase.path_points_decode(obj_dict["path_points"])
+        start_item_uuid = obj_dict["start_item_uuid"]
+        end_item_uuid = obj_dict["end_item_uuid"]
+        start_item_port_direction = EnumPortDir.enum_name_to_item_port(obj_dict["start_item_port_direction"])
+        end_item_port_direction = EnumPortDir.enum_name_to_item_port(obj_dict["end_item_port_direction"])
 
         start_point: QPointF = path_points[0]
         diagram_arrow_item = DiagramArrowItem(start_point=start_point, line_color=line_color, context_menu=context_menu,
-                                              path_points=path_points)
+                                              uuid=uuid, path_points=path_points)
 
         return diagram_arrow_item
 
@@ -199,8 +212,8 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.setSelected(True)
         self.my_context_menu.exec_(event.screenPos())
 
-    def reselected_start_or_end_point(self, event) -> bool:
-        print("reselected_start_or_end_point")
+    # check selected start or end point
+    def selected_start_or_end_pos(self, event) -> bool:
         local_pos = self.mapFromScene(event.scenePos())
         start_pos = self.path().pointAtPercent(0)
         end_pos = self.path().pointAtPercent(1)
@@ -208,14 +221,18 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.old_start_item = self.start_item
         self.old_end_item = self.end_item
 
+        result = False
         if (local_pos - start_pos).manhattanLength() < MANHANTAN_LENGTH:
             self.start_to_end_direction = False
-            return True
+            result = True
         elif (local_pos - end_pos).manhattanLength() < MANHANTAN_LENGTH:
             self.start_to_end_direction = True
-            return True
+            result = True
         else:
-            return False
+            result = False
+
+        print(f"selected start or end position is {result}")
+        return result
 
     def remove_item_target_arrow(self):
         if self.start_item is not None:
@@ -311,8 +328,11 @@ class DiagramArrowItem(QGraphicsPathItem):
             # print("mouse move event update arrow path completed!!!")
 
     def mouse_release_handler(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
+        print(f"mouse_release_handler: {target_point}")
+        # self.mouse_move_handler(target_point, target_item_group)
+
         if self.start_item is not None:
-            self.start_item.setFlag(QGraphicsItem.ItemIsMovable, True)
+            # self.start_item.setFlag(QGraphicsItem.ItemIsMovable, True)
 
             self.start_item.addArrow(self)
 
@@ -425,7 +445,7 @@ class DiagramArrowItem(QGraphicsPathItem):
                 (end_port_direction == EnumPortDir.RIGHT or end_port_direction == EnumPortDir.LEFT):
             print(f"calculate horizontal start port dir:{start_port_direction}; end port dir:{end_port_direction}")
             start_to_end_horizontal_distance = abs(p2.x() - second_to_last_point.x())
-            for y_pos in range(int(full_size_rect.top()), int(full_size_rect.bottom()) + 1):
+            for y_pos in range(round(full_size_rect.top()), round(full_size_rect.bottom()) + 1):
                 start_vertical_distance = abs(y_pos - p2.y())
                 end_vertical_distance = abs(y_pos - second_to_last_point.y())
                 horizontal_start_point = QPointF(p2.x(), y_pos)
@@ -459,7 +479,7 @@ class DiagramArrowItem(QGraphicsPathItem):
                 (end_port_direction == EnumPortDir.TOP or end_port_direction == EnumPortDir.BOTTOM):
             print(f"calculate vertical start port dir:{start_port_direction}; end port dir:{end_port_direction}")
             start_to_end_vertical_distance = abs(p2.y() - second_to_last_point.y())
-            for x_pos in range(int(full_size_rect.left()), int(full_size_rect.right()) + 1):
+            for x_pos in range(round(full_size_rect.left()), round(full_size_rect.right()) + 1):
                 start_horizontal_distance = abs(x_pos - p2.x())
                 end_horizontal_distance = abs(x_pos - second_to_last_point.x())
                 vertical_start_point = QPointF(x_pos, p2.y())
@@ -740,7 +760,7 @@ def calculate_path_only_one_item_points(item: DiagramNormalItem, item_port_direc
 
 def calculate_distance(x1, y1, x2, y2):
     distance = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-    return int(distance)
+    return round(distance)
 
 
 def draw_arrow_head(start: QPointF, end: QPointF) -> QPolygonF:
@@ -937,13 +957,13 @@ def points_relative_two_items_position(rect1: QRectF, rect2: QRectF, point1: QPo
 def build_io_part_line(p1, direction) -> QPointF:
     # print(f"build_io_part_line direction:{direction}")
     if direction == EnumPortDir.RIGHT:
-        return QPointF(int(p1.x() + ARROW_MIN_SIZE), p1.y())
+        return QPointF(round(p1.x() + ARROW_MIN_SIZE), p1.y())
     elif direction == EnumPortDir.LEFT:
-        return QPointF(int(p1.x() - ARROW_MIN_SIZE), p1.y())
+        return QPointF(round(p1.x() - ARROW_MIN_SIZE), p1.y())
     elif direction == EnumPortDir.TOP:
-        return QPointF(p1.x(), int(p1.y() - ARROW_MIN_SIZE))
+        return QPointF(p1.x(), round(p1.y() - ARROW_MIN_SIZE))
     elif direction == EnumPortDir.BOTTOM:
-        return QPointF(p1.x(), int(p1.y() + ARROW_MIN_SIZE))
+        return QPointF(p1.x(), round(p1.y() + ARROW_MIN_SIZE))
 
 
 def two_rect_no_overlap_vertical(rect1: QRectF, rect2: QRectF):
@@ -975,14 +995,14 @@ def item_port_direction_range(point: QPointF, direction, rect: QRectF) -> []:
 
     # print(f"point:{point};direction:{direction};rect:{rect}")
     if direction == EnumPortDir.RIGHT:
-        step_range = [x for x in range(int(point.x()), int(rect.right()) + 1)]
+        step_range = [x for x in range(round(point.x()), round(rect.right()) + 1)]
     elif direction == EnumPortDir.LEFT:
         # step_range = [x for x in range(int(rect.left()), int(point.x()) + 1)]
-        step_range = [x for x in range(int(point.x()), int(rect.left()) - 1, -1)]
+        step_range = [x for x in range(round(point.x()), round(rect.left()) - 1, -1)]
     elif direction == EnumPortDir.TOP:
         # step_range = [y for y in range(int(rect.top()), int(point.y()) + 1)]
-        step_range = [y for y in range(int(point.y()), int(rect.top()) - 1, -1)]
+        step_range = [y for y in range(round(point.y()), round(rect.top()) - 1, -1)]
     elif direction == EnumPortDir.BOTTOM:
-        step_range = [y for y in range(int(point.y()), int(rect.bottom()) + 1)]
+        step_range = [y for y in range(round(point.y()), round(rect.bottom()) + 1)]
 
     return step_range

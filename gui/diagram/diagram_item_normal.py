@@ -14,6 +14,22 @@ class EnumPortDir(Enum):
     RIGHT = 3
     LEFT = 4
 
+    @staticmethod
+    def enum_name(obj):
+        if obj is not None:
+            if isinstance(obj, EnumPortDir):
+                return obj.name
+            raise TypeError(f"{obj} is not JSON serializable of EnumPortDir")
+
+        return None
+
+    @staticmethod
+    def enum_name_to_item_port(name):
+        if name is not None:
+            return EnumPortDir[name]
+
+        return None
+
 
 class DiagramSubItemPort(QGraphicsEllipseItem):
 
@@ -70,10 +86,11 @@ class DiagramNormalItem(QGraphicsPolygonItem):
     Step, Conditional, StartEnd, Io = range(4)
 
     def __init__(self, diagram_type, context_menu: QMenu, text_color: QColor,
-                 item_color: QColor, font: QFont, position: QPointF,
+                 item_color: QColor, font: QFont, position: QPointF, uuid=None,
                  name_text_item: DiagramTextItem=None, tag_text_item: DiagramTextItem=None, parent=None):
         super(DiagramNormalItem, self).__init__(parent)
 
+        self.uuid = uuid if uuid is not None else DiagramBase.build_uuid()
         self.item_type: EnumItemType = EnumItemType.Normal
         self.diagram_type = diagram_type
         self.context_menu: QMenu = context_menu
@@ -248,6 +265,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
 
     def to_dict(self):
         obj_dict = {
+            "uuid": self.uuid,
             "item_type": EnumItemType.enum_name(self.item_type),
             "diagram_type": self.diagram_type,
             "text_color": DiagramBase.color_encode(self.text_color),
@@ -263,6 +281,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
     @classmethod
     def from_dict(cls, obj_dict, context_menu: QMenu):
         diagram_type = obj_dict["diagram_type"]
+        uuid = obj_dict["uuid"]
         text_color = QColor(DiagramBase.color_decode(obj_dict["text_color"]))
         item_color = QColor(DiagramBase.color_decode(obj_dict["item_color"]))
         position = DiagramBase.position_decode(obj_dict["position"])
@@ -275,7 +294,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         tag_text_item = DiagramTextItem.from_dict(tag_text_item_dict, context_menu)
 
         diagram_normal_item = DiagramNormalItem(diagram_type=diagram_type, context_menu=context_menu, text_color=text_color,
-                                                item_color=item_color, font=font, name_text_item=name_text_item,
+                                                item_color=item_color, font=font, uuid=uuid, name_text_item=name_text_item,
                                                 tag_text_item=tag_text_item, position=position)
 
         return diagram_normal_item
