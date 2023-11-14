@@ -1,7 +1,7 @@
 from PySide6.QtCore import (Signal, QPointF, QRectF, Qt)
 from PySide6.QtGui import (QFont, QPainter, QPen, QColor, QPalette)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsTextItem, QMenu
-from gui.diagram.diagram_item import DiagramItem, DiagramSubItemPort, DiagramItemGroup
+from gui.diagram.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup
 from gui.diagram.diagram_item_text import DiagramTextItem
 from gui.diagram.diagram_item_arrow import DiagramArrowItem
 from gui.diagram.diagram_base import EnumItemType
@@ -11,7 +11,7 @@ import json
 class DiagramScene(QGraphicsScene):
     InsertItem, InsertLine, InsertText, MoveItem, SetTxtBold, SetTxtItalic, SetTxtUnderline = range(7)
 
-    itemInserted = Signal(DiagramItem)
+    itemInserted = Signal(DiagramNormalItem)
 
     textInserted = Signal(DiagramTextItem)
 
@@ -24,7 +24,7 @@ class DiagramScene(QGraphicsScene):
 
         self.myItemMenu = item_menu
         self.myMode = self.MoveItem
-        self.myItemType = DiagramItem.Step
+        self.myItemType = DiagramNormalItem.Step
         self.line = None
         self.textItem = None
         self.myItemColor = QColor(Qt.white)
@@ -48,8 +48,8 @@ class DiagramScene(QGraphicsScene):
 
     def setItemColor(self, color):
         self.myItemColor = color
-        if self.isItemChange(DiagramItem):
-            item: DiagramItem = self.selectedItems()[0]
+        if self.isItemChange(DiagramNormalItem):
+            item: DiagramNormalItem = self.selectedItems()[0]
             item.setBrush(self.myItemColor)
 
     def setFont(self, font):
@@ -80,8 +80,8 @@ class DiagramScene(QGraphicsScene):
 
         if self.myMode == self.InsertItem:
             print("inserting a normal item...")
-            item = DiagramItem(diagram_type=self.myItemType, context_menu=self.myItemMenu, text_color=self.myTextColor,
-                               item_color=self.myItemColor, font=self.myFont, position=mouseEvent.scenePos())
+            item = DiagramNormalItem(diagram_type=self.myItemType, context_menu=self.myItemMenu, text_color=self.myTextColor,
+                                     item_color=self.myItemColor, font=self.myFont, position=mouseEvent.scenePos())
             # item.setBrush(self.myItemColor)
             self.add_diagram_item(item)
             # item.setPos(mouseEvent.scenePos())
@@ -121,8 +121,8 @@ class DiagramScene(QGraphicsScene):
         if self.myMode == self.InsertLine and self.line:
             self.line.update_arrow_path(mouseEvent.scenePos(), self.query_target_event_items(mouseEvent.scenePos()))
         elif self.myMode == self.MoveItem:
-            if self.isItemChange(DiagramItem):
-                diagram_item: DiagramItem = self.selectedItems()[0]
+            if self.isItemChange(DiagramNormalItem):
+                diagram_item: DiagramNormalItem = self.selectedItems()[0]
                 diagram_item.redraw_arrows_path(mouseEvent)
 
         # super().mouseMoveEvent(mouseEvent)
@@ -147,7 +147,7 @@ class DiagramScene(QGraphicsScene):
 
         items = self.items(point)
         for item in items:
-            if isinstance(item, DiagramItem):
+            if isinstance(item, DiagramNormalItem):
                 target_item_group = DiagramItemGroup(item, item.closest_sub_item_port(point))
             elif isinstance(item, DiagramSubItemPort):
                 target_item_group = DiagramItemGroup(item.parent, item)
@@ -209,7 +209,7 @@ class DiagramScene(QGraphicsScene):
         items = []
 
         for item in self.items():
-            if isinstance(item, DiagramItem):
+            if isinstance(item, DiagramNormalItem):
                 items.append(item.to_dict())
             elif isinstance(item, DiagramTextItem):
                 if item.sub_item is False:
@@ -237,7 +237,7 @@ class DiagramScene(QGraphicsScene):
             if enum_item_type == EnumItemType.Text:
                 items.append(DiagramTextItem.from_dict(item, context_menu))
             elif enum_item_type == EnumItemType.Normal:
-                items.append(DiagramItem.from_dict(item, context_menu))
+                items.append(DiagramNormalItem.from_dict(item, context_menu))
             elif enum_item_type == EnumItemType.Arrow:
                 items.append(DiagramArrowItem.from_dict(item, context_menu))
             else:

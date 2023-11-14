@@ -8,7 +8,7 @@ import math
 from datetime import datetime
 from typing import List
 
-from gui.diagram.diagram_item import EnumPortDir, DiagramItemGroup, DiagramSubItemPort, DiagramItem
+from gui.diagram.diagram_item_normal import EnumPortDir, DiagramItemGroup, DiagramSubItemPort, DiagramNormalItem
 from gui.diagram.diagram_base import EnumItemType, DiagramBase
 
 ARROW_MIN_SIZE = 15
@@ -30,15 +30,15 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.end_point: QPointF = start_point
         self.line_color: QColor = line_color
         self.my_context_menu: QMenu = context_menu
-        self.start_item: DiagramItem = target_item_group.diagram_item if target_item_group is not None else None
+        self.start_item: DiagramNormalItem = target_item_group.diagram_item if target_item_group is not None else None
         self.start_sub_item_port: DiagramSubItemPort = target_item_group.diagram_sub_item_port if target_item_group is not None else None
-        self.end_item: DiagramItem = None
+        self.end_item: DiagramNormalItem = None
         self.end_sub_item_port: DiagramSubItemPort = None
         self.path_points: List[QPointF] = path_points
         self.start_to_end_direction: bool = True
         self.arrow_head: QPolygonF = None
-        self.old_start_item: DiagramItem = None
-        self.old_end_item: DiagramItem = None
+        self.old_start_item: DiagramNormalItem = None
+        self.old_end_item: DiagramNormalItem = None
 
         self.pen = QPen(self.line_color, ARROW_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         self.setPen(self.pen)
@@ -222,7 +222,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         if self.end_item is not None:
             self.end_item.removeArrow(self)
 
-    def delete_target_item(self, target_item: DiagramItem):
+    def delete_target_item(self, target_item: DiagramNormalItem):
         if target_item == self.start_item:
             self.start_item = None
             self.start_sub_item_port = None
@@ -232,7 +232,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         else:
             print(f"error no target item:{target_item}")
 
-    def redraw_path(self, target_item: DiagramItem, event: QGraphicsSceneMouseEvent):
+    def redraw_path(self, target_item: DiagramNormalItem, event: QGraphicsSceneMouseEvent):
         print(f"redraw_path: {target_item}; event:{event.scenePos()}")
         if target_item == self.start_item and self.start_sub_item_port is not None:
             self.start_point = self.start_sub_item_port.sceneBoundingRect().center()
@@ -637,7 +637,7 @@ def calculate_path_no_item_points(start_point: QPointF, end_point: QPointF):
     return points
 
 
-def calculate_path_only_one_item_points(item: DiagramItem, sub_item_port: DiagramSubItemPort,
+def calculate_path_only_one_item_points(item: DiagramNormalItem, sub_item_port: DiagramSubItemPort,
                                         start_point: QPointF, end_point: QPointF):
     points = []
     p1, p2, p3, p4, p5 = (None, None, None, None, None)

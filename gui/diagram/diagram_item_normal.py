@@ -66,13 +66,13 @@ class DiagramSubItemPort(QGraphicsEllipseItem):
     #     return super().mousePressEvent(event)
 
 
-class DiagramItem(QGraphicsPolygonItem):
+class DiagramNormalItem(QGraphicsPolygonItem):
     Step, Conditional, StartEnd, Io = range(4)
 
     def __init__(self, diagram_type, context_menu: QMenu, text_color: QColor,
                  item_color: QColor, font: QFont, position: QPointF,
                  name_text_item: DiagramTextItem=None, tag_text_item: DiagramTextItem=None, parent=None):
-        super(DiagramItem, self).__init__(parent)
+        super(DiagramNormalItem, self).__init__(parent)
 
         self.item_type: EnumItemType = EnumItemType.Normal
         self.diagram_type = diagram_type
@@ -101,7 +101,7 @@ class DiagramItem(QGraphicsPolygonItem):
 
         self.prot_items = [self.port_top, self.port_bottom, self.port_right, self.port_left]
 
-        self.setPolygon(DiagramItem.create_item_polygon(self.diagram_type))
+        self.setPolygon(DiagramNormalItem.create_item_polygon(self.diagram_type))
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
@@ -111,18 +111,18 @@ class DiagramItem(QGraphicsPolygonItem):
     @staticmethod
     def create_item_polygon(diagram_type):
         item_polygon = None
-        if diagram_type == DiagramItem.StartEnd:
+        if diagram_type == DiagramNormalItem.StartEnd:
             rect = QRectF(-50, -15, 100, 30)
             radius = 7.5
             path = QPainterPath()
             path.addRoundedRect(rect, radius, radius)
             item_polygon = path.toFillPolygon()
-        elif diagram_type == DiagramItem.Conditional:
+        elif diagram_type == DiagramNormalItem.Conditional:
             item_polygon = QPolygonF([
                     QPointF(-50, 0), QPointF(0, 15),
                     QPointF(50, 0), QPointF(0, -15),
                     QPointF(-50, 0)])
-        elif diagram_type == DiagramItem.Step:
+        elif diagram_type == DiagramNormalItem.Step:
             item_polygon = QPolygonF([
                     QPointF(-50, -15), QPointF(50, -15),
                     QPointF(50, 15), QPointF(-50, 15),
@@ -260,14 +260,14 @@ class DiagramItem(QGraphicsPolygonItem):
         name_text_item = DiagramTextItem.from_dict(name_text_item_dict, context_menu)
         tag_text_item = DiagramTextItem.from_dict(tag_text_item_dict, context_menu)
 
-        diagram_item = DiagramItem(diagram_type=diagram_type, context_menu=context_menu, text_color=text_color,
-                                   item_color=item_color, font=font, name_text_item=name_text_item,
-                                   tag_text_item=tag_text_item, position=position)
+        diagram_normal_item = DiagramNormalItem(diagram_type=diagram_type, context_menu=context_menu, text_color=text_color,
+                                         item_color=item_color, font=font, name_text_item=name_text_item,
+                                         tag_text_item=tag_text_item, position=position)
 
-        return diagram_item
+        return diagram_normal_item
 
 
 class DiagramItemGroup:
-    def __init__(self, target_item: DiagramItem = None, target_sub_item_port: DiagramSubItemPort = None):
+    def __init__(self, target_item: DiagramNormalItem = None, target_sub_item_port: DiagramSubItemPort = None):
         self.diagram_item = target_item
         self.diagram_sub_item_port = target_sub_item_port

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (QGraphicsView, QHBoxLayout, QMenu, QMessageBox, Q
                                QButtonGroup, QGridLayout, QLabel, QSizePolicy, QToolBox, QToolButton, QWidget, QGraphicsView)
 from config.app_info import app_info
 from gui.diagram.diagram_scene import DiagramScene
-from gui.diagram.diagram_item import DiagramItem
+from gui.diagram.diagram_item_normal import DiagramNormalItem
 from gui.diagram.diagram_item_text import DiagramTextItem
 from gui.diagram.diagram_item_arrow import DiagramArrowItem
 from gui.diagram.diagram_toolbars import DiagramToolBars
@@ -54,7 +54,7 @@ class PyQDiagram(QWidget):
 
     def deleteItem(self):
         for item in self.diagram_scene.selectedItems():
-            if isinstance(item, DiagramItem):
+            if isinstance(item, DiagramNormalItem):
                 item.remove_arrows_items()
             elif isinstance(item, DiagramArrowItem):
                 item.remove_item_target_arrow()
@@ -72,7 +72,7 @@ class PyQDiagram(QWidget):
 
         zValue = 0
         for item in overlapItems:
-            if (item.zValue() >= zValue and isinstance(item, DiagramItem)):
+            if (item.zValue() >= zValue and isinstance(item, DiagramNormalItem)):
                 zValue = item.zValue() + 0.1
         selectedItem.setZValue(zValue)
 
@@ -85,7 +85,7 @@ class PyQDiagram(QWidget):
 
         zValue = 0
         for item in overlapItems:
-            if (item.zValue() <= zValue and isinstance(item, DiagramItem)):
+            if (item.zValue() <= zValue and isinstance(item, DiagramNormalItem)):
                 zValue = item.zValue() - 0.1
         selectedItem.setZValue(zValue)
 
@@ -125,7 +125,7 @@ class PyQDiagram(QWidget):
         print(f"decode json: {items}")
 
         for item in items:
-            if isinstance(item, DiagramItem):
+            if isinstance(item, DiagramNormalItem):
                 item.name_text_item.setPlainText("normal#1")
                 item.setPos(QPointF(item.pos().x() + 20, item.pos().y() + 20))
             elif isinstance(item, DiagramTextItem):
@@ -217,10 +217,10 @@ class PyQDiagram(QWidget):
         self.diagram_button_group.buttonClicked.connect(self.diagram_button_group_clicked)
 
         layout = QGridLayout()
-        layout.addWidget(self.createCellWidget("Conditional", DiagramItem.Conditional), 0, 0)
-        layout.addWidget(self.createCellWidget("Process", DiagramItem.Step), 0, 1)
-        layout.addWidget(self.createCellWidget("Input/Output", DiagramItem.Io), 1, 0)
-        layout.addWidget(self.createCellWidget("Start/End", DiagramItem.StartEnd), 1, 1)
+        layout.addWidget(self.createCellWidget("Conditional", DiagramNormalItem.Conditional), 0, 0)
+        layout.addWidget(self.createCellWidget("Process", DiagramNormalItem.Step), 0, 1)
+        layout.addWidget(self.createCellWidget("Input/Output", DiagramNormalItem.Io), 1, 0)
+        layout.addWidget(self.createCellWidget("Start/End", DiagramNormalItem.StartEnd), 1, 1)
         layout.addWidget(self.create_text_cell_widget(), 2, 0)
 
         layout.setRowStretch(3, 10)
@@ -355,7 +355,7 @@ class PyQDiagram(QWidget):
         painter = QPainter(pixmap)
         painter.setPen(QPen(Qt.black, 8))
         painter.translate(125, 125)
-        painter.drawPolyline(DiagramItem.create_item_polygon(diagram_type))
+        painter.drawPolyline(DiagramNormalItem.create_item_polygon(diagram_type))
 
         return pixmap
 
