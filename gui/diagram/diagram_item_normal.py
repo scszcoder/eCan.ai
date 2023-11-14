@@ -99,7 +99,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         self.port_right = DiagramSubItemPort(50 - radius, 0 - radius, 2 * radius, 2 * radius, EnumPortDir.RIGHT, self)
         self.port_left = DiagramSubItemPort(-50 - radius, 0 - radius, 2 * radius, 2 * radius, EnumPortDir.LEFT, self)
 
-        self.prot_items = [self.port_top, self.port_bottom, self.port_right, self.port_left]
+        self.port_items = [self.port_top, self.port_bottom, self.port_right, self.port_left]
 
         self.setPolygon(DiagramNormalItem.create_item_polygon(self.diagram_type))
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
@@ -135,6 +135,20 @@ class DiagramNormalItem(QGraphicsPolygonItem):
 
         return item_polygon
 
+    def get_port_item_by_direction(self, port_direction: EnumPortDir):
+        for item in self.port_items:
+            if item.direction == port_direction:
+                return item
+
+        return None
+
+    def get_port_item_center_position_by_direction(self, port_direction: EnumPortDir):
+        for item in self.port_items:
+            if item.direction == port_direction:
+                return item.sceneBoundingRect().center()
+
+        return None
+
     def removeArrow(self, arrow):
         self.arrows = [obj for obj in self.arrows if obj != arrow]
 
@@ -155,9 +169,9 @@ class DiagramNormalItem(QGraphicsPolygonItem):
 
         self.arrows.append(new_arrow)
 
-    def redraw_arrows_path(self, event):
+    def mouse_move_redraw_arrows_path(self, event):
         for arrow in self.arrows[:]:
-            arrow.redraw_path(self, event)
+            arrow.normal_item_move_redraw_path(self, event)
 
     # def image(self):
     #     pixmap = QPixmap(250, 250)
@@ -199,11 +213,11 @@ class DiagramNormalItem(QGraphicsPolygonItem):
     #     distance = math.sqrt((p2.x() - p1.x()) ** 2 + (p2.y() - p1.y()) ** 2)
     #     return int(distance)
 
-    def closest_sub_item_port(self, point: QPointF) -> DiagramSubItemPort:
-        for item in self.prot_items:
+    def closest_item_port_direction(self, point: QPointF) -> EnumPortDir:
+        for item in self.port_items:
             # print((point - item.sceneBoundingRect().center()) .manhattanLength())
             if (point - item.sceneBoundingRect().center()).manhattanLength() <= ITEM_PORT_RADIUS*2:
-                return item
+                return item.direction
 
         return None
 
@@ -261,13 +275,13 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         tag_text_item = DiagramTextItem.from_dict(tag_text_item_dict, context_menu)
 
         diagram_normal_item = DiagramNormalItem(diagram_type=diagram_type, context_menu=context_menu, text_color=text_color,
-                                         item_color=item_color, font=font, name_text_item=name_text_item,
-                                         tag_text_item=tag_text_item, position=position)
+                                                item_color=item_color, font=font, name_text_item=name_text_item,
+                                                tag_text_item=tag_text_item, position=position)
 
         return diagram_normal_item
 
 
 class DiagramItemGroup:
-    def __init__(self, target_normal_item: DiagramNormalItem = None, target_sub_item_port: DiagramSubItemPort = None):
+    def __init__(self, target_normal_item: DiagramNormalItem = None, target_item_port_direction: EnumPortDir = None):
         self.diagram_normal_item = target_normal_item
-        self.diagram_sub_item_port = target_sub_item_port
+        self.diagram_item_port_direction = target_item_port_direction
