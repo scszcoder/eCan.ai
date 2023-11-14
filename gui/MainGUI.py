@@ -140,10 +140,9 @@ class Expander(QtWidgets.QWidget):
         contentAnimation.setEndValue(contentHeight)
 
 
-
 # class MainWindow(QtWidgets.QWidget):
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, inTokens, tcpserver, user, homepath):
+    def __init__(self, inTokens, tcpserver, ip, user, homepath, machine_role):
         super(MainWindow, self).__init__()
         self.homepath = homepath
         self.bot_icon_path = homepath+'/resource/images/icons/c_robot64_0.png'
@@ -157,7 +156,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.SELLER_INVENTORY_FILE = homepath+"/resource/inventory.json"
         self.session = set_up_cloud()
         self.tokens = inTokens
-        self.tcpServer = tcpserver
+        self.machine_role = machine_role
+        self.ip = ip
+        if self.machine_role != "Platoon":
+            self.tcpServer = tcpserver
+            self.commanderXport = None
+        else:
+            print("This is a platoon...")
+            self.commanderXport = tcpserver
+            self.tcpServer = None
         self.homepath = homepath
         self.user = user
         self.cog = None
@@ -198,29 +205,34 @@ class MainWindow(QtWidgets.QMainWindow):
         self.todaysReport = []
         self.todaysReports = []
         self.tester = TestAll.Tester()
+        self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
         print(self.dbfile)
-        self.dbcon = sqlite3.connect(self.dbfile)
+        if (self.machine_role != "Platoon"):
+            self.dbcon = sqlite3.connect(self.dbfile)
 
-        # make sure designated tables exists in DB, if not create those tables.
-        self.dbCursor = self.dbcon.cursor()
-        self.wifis = []
+            # make sure designated tables exists in DB, if not create those tables.
+            self.dbCursor = self.dbcon.cursor()
 
-        # create tables.
-        sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
-        #sql = '''ALTER TABLE bots RENAME TO junkbots0'''
-        self.dbCursor.execute(sql)
-        sql = 'SELECT * FROM bots'
-        res = self.dbCursor.execute(sql)
-        print("BOTS fetchall", res.fetchall())
-        for column in res.description:
-            print(column[0])
-        #
-        sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, startt TEXT, esttime TEXT, runtime TEXT, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating TEXT, customer TEXT, platoon TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
-        self.dbCursor.execute(sql)
+            # create tables.
+            sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
+            #sql = '''ALTER TABLE bots RENAME TO junkbots0'''
+            self.dbCursor.execute(sql)
+            sql = 'SELECT * FROM bots'
+            res = self.dbCursor.execute(sql)
+            print("BOTS fetchall", res.fetchall())
+            for column in res.description:
+                print(column[0])
+            #
+            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, startt TEXT, esttime TEXT, runtime TEXT, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating TEXT, customer TEXT, platoon TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
+            self.dbCursor.execute(sql)
 
-        sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, runtime TEXT, price_model TEXT, price INTEGER, privacy TEXT)'
-        self.dbCursor.execute(sql)
+            sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, runtime TEXT, price_model TEXT, price INTEGER, privacy TEXT)'
+            self.dbCursor.execute(sql)
+
+        else:
+            self.dbcon = None
+            self.dbCursor = None
 
         # self.logConsoleBox = QtWidgets.QWidget()
         self.logConsole = QtWidgets.QTextEdit()
@@ -277,7 +289,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.east0ScrollArea = QtWidgets.QWidget()
         self.east0ScrollLayout = QtWidgets.QVBoxLayout(self)
-        self.east0ScrollLabel = QtWidgets.QLabel("Vehicles:", alignment=QtCore.Qt.AlignLeft)
+        if (self.machine_role == "Platoon"):
+            self.east0ScrollLabel = QtWidgets.QLabel("Running Missions:", alignment=QtCore.Qt.AlignLeft)
+        else:
+            self.east0ScrollLabel = QtWidgets.QLabel("Vehicles:", alignment=QtCore.Qt.AlignLeft)
         self.east0ScrollLabel.setFont(self.menuFont)
 
         self.east1ScrollArea = QtWidgets.QWidget()
@@ -381,6 +396,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionListView.installEventFilter(self)
         self.missionModel = QtGui.QStandardItemModel(self.missionListView)
 
+        self.running_missionListView = MissionListView()
+        self.runningMissionModel = QtGui.QStandardItemModel(self.running_missionListView)
+
         self.vehicleListView = PlatoonListView(self)
         self.vehicleListView.installEventFilter(self)
         self.runningVehicleModel = QtGui.QStandardItemModel(self.vehicleListView)
@@ -410,6 +428,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionListView.setViewMode(QtWidgets.QListView.ListMode)
         self.missionListView.setMovement(QtWidgets.QListView.Snap)
 
+        self.running_missionListView.setModel(self.runningMissionModel)
+        self.running_missionListView.setViewMode(QtWidgets.QListView.ListMode)
+        self.running_missionListView.setMovement(QtWidgets.QListView.Snap)
+
         self.vehicleListView.setModel(self.runningVehicleModel)
         self.vehicleListView.setViewMode(QtWidgets.QListView.ListMode)
         self.vehicleListView.setMovement(QtWidgets.QListView.Snap)
@@ -419,6 +441,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.completed_missionListView.setMovement(QtWidgets.QListView.Snap)
 
         centralWidget = DragPanel()
+
+        if self.machine_role == "Platoon":
+            self.botNewAction.setDisabled(True)
+            self.saveAllAction.setDisabled(True)
+            self.botDelAction.setDisabled(True)
+            self.botEditAction.setDisabled(True)
+            self.botCloneAction.setDisabled(True)
+            self.botNewFromFileAction.setDisabled(True)
+
+            self.missionNewAction.setDisabled(True)
+            self.missionDelAction.setDisabled(True)
+            self.missionEditAction.setDisabled(True)
+            self.missionImportAction.setDisabled(True)
+            self.missionNewFromFileAction.setDisabled(True)
+
+            self.skillNewAction.setDisabled(True)
+            self.skillEditAction.setDisabled(True)
+            self.skillDeleteAction.setDisabled(True)
+            self.skillShowAction.setDisabled(True)
+            self.skillNewFromFileAction.setDisabled(True)
 
 
         # ic0 = DragIcon("<html><img src='C:/Users/Teco/PycharmProjects/ecbot/resource/c_robot64_0.png'><br><p style='text-align:center;max-width:64px;'>bot0</p></html>")
@@ -463,12 +505,16 @@ class MainWindow(QtWidgets.QMainWindow):
         # layout.addWidget(self.westScroll, BorderLayout.West)
         #layout.addWidget(ic0, BorderLayout.West)
 
-        self.east0Scroll.setWidget(self.vehicleListView)
-        label_e1 = self.createLabel("East 1")
+        if (self.machine_role == "Platoon"):
+            self.east0Scroll.setWidget(self.running_missionListView)
+            label_e1 = self.createLabel("Running Missions")
+        else:
+            self.east0Scroll.setWidget(self.vehicleListView)
+            label_e1 = self.createLabel("Vehicles")
         # layout.addWidget(self.east0Scroll, BorderLayout.East)
 
         self.east1Scroll.setWidget(self.completed_missionListView)
-        label_e2 = self.createLabel("East 2")
+        label_e2 = self.createLabel("Completed Missions")
         # layout.addWidget(self.east1Scroll, BorderLayout.East)
 
         label_s = self.createLabel("South")
@@ -505,10 +551,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 ssid = ssidline[0].split(":")[1].strip()
                 self.wifis.append(ssid)
 
-        # load skills into memory.
-        self.loadLocalSkills()
-        self.loadLocalBots()
-        self.loadLocalMissions()
+        if (self.machine_role != "Platoon"):
+            # load skills into memory.
+            self.loadLocalSkills()
+            self.loadLocalBots()
+            self.loadLocalMissions()
 
         # Done with all UI stuff, now do the instruction set extension work.
         sk_extension_file = self.homepath + "/resource/skills/my/skill_extension.json"
@@ -2794,18 +2841,48 @@ class MainWindow(QtWidgets.QMainWindow):
                 # this means all reports are collected, ready to send to cloud.
                 self.todays_work["allstat"] = "all done"
 
+    def genMissionStatusReport(self, mids):
+        # assumptions: mids should have already been error checked.
+        print("mids: ", mids)
+        results = []
+        for mid in mids:
+            result = {
+                "mid": mid,
+                "botid": 0,
+                "start_time": "2023-11-09 01:12:02",
+                "end_time": "2023-11-09 01:22:12",
+                "status": "Done",
+                "error": ""
+            }
+            results.append(result)
 
-    # { sender: "ip addr", type: "intro/config/missions", content : "another json" }
+        print("mission status result:", results)
+        return results
+
+
+    # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
         msg = json.loads(msgString)
         # first, check ip and make sure this from a know vehicle.
-        if msg["type"] == "intro":
-            self.commanderName = msg["content"]["name"]
-        elif msg["type"] == "config":
+        if msg["cmd"] == "reqStatusUpdate":
+            if msg["missions"] != "":
+                if msg["missions"] == "all":
+                    mids = [1, 2, 3]
+                else:
+                    mid_chars = msg["missions"].aplit(",")
+                    mids = [int(mc) for mc in mid_chars]
+
+                # capture all the status of all the missions specified and send back the commander...
+                statusJson = self.genMissionStatusReport(mids)
+                msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"status\", \"content\":\"" + json.dumps(statusJson).replace('"', '\\"') +"\"}"
+                # send to commander
+                self.commanderXport.write(msg.encode('utf8'))
+
+        elif msg["cmd"] == "reqCancelMission":
             # update vehicle status display.
             self.showMsg(msg["content"])
-        elif msg["type"] == "missions":
+        elif msg["cmd"] == "reqSetSchedule":
             # schedule work now..... append to array data structure and set up the pointer to the 1st task.
             # the actual running of the tasks will be taken care of by the schduler.
             localworks = json.loads(msg["content"])
