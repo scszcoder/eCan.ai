@@ -23,14 +23,14 @@ class DiagramArrowItem(QGraphicsPathItem):
                  target_item_group: DiagramItemGroup = None, parent=None, scene=None):
         super(DiagramArrowItem, self).__init__(parent, scene)
 
-        print(f"build new arrow item with {target_item_group.diagram_item if target_item_group is not None else None};"
+        print(f"build new arrow item with {target_item_group.diagram_normal_item if target_item_group is not None else None};"
               f" {target_item_group.diagram_sub_item_port if target_item_group is not None else None}")
         self.item_type: EnumItemType = EnumItemType.Arrow
         self.start_point: QPointF = start_point
         self.end_point: QPointF = start_point
         self.line_color: QColor = line_color
         self.my_context_menu: QMenu = context_menu
-        self.start_item: DiagramNormalItem = target_item_group.diagram_item if target_item_group is not None else None
+        self.start_item: DiagramNormalItem = target_item_group.diagram_normal_item if target_item_group is not None else None
         self.start_sub_item_port: DiagramSubItemPort = target_item_group.diagram_sub_item_port if target_item_group is not None else None
         self.end_item: DiagramNormalItem = None
         self.end_sub_item_port: DiagramSubItemPort = None
@@ -255,7 +255,7 @@ class DiagramArrowItem(QGraphicsPathItem):
                 self.end_item = None
                 self.end_sub_item_port = None
             else:
-                target_item = target_item_group.diagram_item
+                target_item = target_item_group.diagram_normal_item
                 target_sub_item_port: DiagramSubItemPort = target_item_group.diagram_sub_item_port
 
                 if target_item is not None:
@@ -280,7 +280,7 @@ class DiagramArrowItem(QGraphicsPathItem):
                 self.start_item = None
                 self.start_sub_item_port = None
             else:
-                target_item = target_item_group.diagram_item
+                target_item = target_item_group.diagram_normal_item
                 target_sub_item_port: DiagramSubItemPort = target_item_group.diagram_sub_item_port
 
                 if target_item is not None:

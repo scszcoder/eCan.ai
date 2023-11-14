@@ -268,6 +268,6 @@ class DiagramNormalItem(QGraphicsPolygonItem):
 
 
 class DiagramItemGroup:
-    def __init__(self, target_item: DiagramNormalItem = None, target_sub_item_port: DiagramSubItemPort = None):
-        self.diagram_item = target_item
+    def __init__(self, target_normal_item: DiagramNormalItem = None, target_sub_item_port: DiagramSubItemPort = None):
+        self.diagram_normal_item = target_normal_item
         self.diagram_sub_item_port = target_sub_item_port
