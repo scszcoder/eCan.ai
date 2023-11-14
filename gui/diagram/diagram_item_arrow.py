@@ -6,8 +6,10 @@ from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsItem, QMenu, QGraphic
                                QGraphicsDropShadowEffect, QGraphicsColorizeEffect)
 import math
 from datetime import datetime
+from typing import List
 
 from gui.diagram.diagram_item import EnumPortDir, DiagramItemGroup, DiagramSubItemPort, DiagramItem
+from gui.diagram.diagram_base import EnumItemType, DiagramBase
 
 ARROW_MIN_SIZE = 15
 ARROW_SIZE = 10
@@ -17,12 +19,13 @@ MANHANTAN_LENGTH = ARROW_SIZE/2
 
 
 class DiagramArrowItem(QGraphicsPathItem):
-    def __init__(self, start_point: QPointF, line_color, target_item_group: DiagramItemGroup = None,
-                 context_menu: QMenu = None, parent=None, scene=None):
+    def __init__(self, start_point: QPointF, line_color, context_menu: QMenu, path_points: List[QPointF] = None,
+                 target_item_group: DiagramItemGroup = None, parent=None, scene=None):
         super(DiagramArrowItem, self).__init__(parent, scene)
 
         print(f"build new arrow item with {target_item_group.diagram_item if target_item_group is not None else None};"
               f" {target_item_group.diagram_sub_item_port if target_item_group is not None else None}")
+        self.item_type: EnumItemType = EnumItemType.Arrow
         self.start_point: QPointF = start_point
         self.end_point: QPointF = start_point
         self.line_color: QColor = line_color
@@ -31,11 +34,11 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.start_sub_item_port: DiagramSubItemPort = target_item_group.diagram_sub_item_port if target_item_group is not None else None
         self.end_item: DiagramItem = None
         self.end_sub_item_port: DiagramSubItemPort = None
-        self.path_points = []
+        self.path_points: List[QPointF] = path_points
         self.start_to_end_direction: bool = True
         self.arrow_head: QPolygonF = None
         self.old_start_item: DiagramItem = None
-        self.old_end_item:DiagramItem = None
+        self.old_end_item: DiagramItem = None
 
         self.pen = QPen(self.line_color, ARROW_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         self.setPen(self.pen)
@@ -55,7 +58,38 @@ class DiagramArrowItem(QGraphicsPathItem):
             # update start point
             self.start_point = self.start_sub_item_port.sceneBoundingRect().center()
 
+        if self.path_points is not None:
+            print(f"init path points with points: {self.path_points}")
+            # # test case
+            # points = []
+            # for point in self.path_points:
+            #     points.append(QPointF(point.x() + 20, point.y() + 20))
+            # self.path_points = points
+
+            self.start_point = self.path_points[0]
+            self.render_arrow(self.path_points)
+
         print(f"init arrow item:{[self.start_point, self.end_point]}")
+
+    def to_dict(self):
+        obj_dict = {
+            "item_type": EnumItemType.enum_name(self.item_type),
+            "line_color": DiagramBase.color_encode(self.line_color),
+            "path_points": DiagramBase.path_points_encode(self.path_points),
+        }
+
+        return obj_dict
+
+    @classmethod
+    def from_dict(cls, obj_dict, context_menu: QMenu):
+        line_color = QColor(DiagramBase.color_decode(obj_dict["line_color"]))
+        path_points: [] = DiagramBase.path_points_decode(obj_dict["path_points"])
+
+        start_point: QPointF = path_points[0]
+        diagram_arrow_item = DiagramArrowItem(start_point=start_point, line_color=line_color, context_menu=context_menu,
+                                              path_points=path_points)
+
+        return diagram_arrow_item
 
     def set_color(self, line_color):
         print(f"update line color:{line_color}")
@@ -63,7 +97,6 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.pen = QPen(self.line_color, ARROW_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         self.setPen(self.pen)
         self.prepareGeometryChange()
-        # self.update_path()
         self.update()
 
     def paint(self, painter, option, widget=None):
@@ -207,8 +240,8 @@ class DiagramArrowItem(QGraphicsPathItem):
         if target_item == self.end_item and self.end_sub_item_port is not None:
             self.end_point = self.end_sub_item_port.sceneBoundingRect().center()
 
-        self.prepareGeometryChange()
-        self.update_path()
+        self.path_points = self.calculate_path_points()
+        self.render_arrow(self.path_points)
 
     def update_arrow_path(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
         # print(f"update move point:{target_point}; arrow path:{target_item_group}")
@@ -269,8 +302,8 @@ class DiagramArrowItem(QGraphicsPathItem):
                 self.start_point = target_point
 
         if update_path is True:
-            self.prepareGeometryChange()
-            self.update_path()
+            self.path_points = self.calculate_path_points()
+            self.render_arrow(self.path_points)
 
     def end_arrow_path(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
         # self.update_arrow_path(end_point, target_item_group)
@@ -289,27 +322,30 @@ class DiagramArrowItem(QGraphicsPathItem):
         if self.old_end_item is not None and self.old_end_item != self.end_item:
             self.old_end_item.removeArrow(self)
 
-    def update_path(self):
+    def render_arrow(self, points):
+        self.prepareGeometryChange()
+
         # 创建路径
         path = QPainterPath()
 
-        self.path_points = self.calculate_path_points()
-        if len(self.path_points) < 2:
-            print(f"calculate path points error!!!{len(self.path_points)}")
+        if len(points) < 2:
+            print(f"calculate path points error!!!{len(points)}")
         else:
             # print(f"moveTo:{self.path_points[0].x()}x{self.path_points[0].y()}")
-            path.moveTo(self.path_points[0])
-            for point in self.path_points[1:]:
+            path.moveTo(points[0])
+            for point in points[1:]:
                 if point is not None:
                     # print(f"lineTo:{point}")
                     path.lineTo(point)
 
             # 计算2点的距离
-            distance = calculate_distance(self.start_point.x(), self.start_point.y(), self.end_point.x(), self.end_point.y())
+            start_p = points[0]
+            end_p = points[-1]
+            distance = calculate_distance(start_p.x(), start_p.y(), end_p.x(), end_p.y())
             # 当大于箭头长度的时候才开始添加箭头图像
             if distance >= ARROW_SIZE:
                 # 将箭头形状添加到路径
-                self.arrow_head = draw_arrow_head(self.path_points[-2], self.path_points[-1])
+                self.arrow_head = draw_arrow_head(points[-2], points[-1])
                 path.addPolygon(self.arrow_head)
 
         self.setPath(path)
