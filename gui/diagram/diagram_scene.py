@@ -242,7 +242,7 @@ class DiagramScene(QGraphicsScene):
 
         return None
 
-    def to_json(self):
+    def to_json(self) -> dict:
         items = []
 
         for item in self.items():
@@ -260,7 +260,7 @@ class DiagramScene(QGraphicsScene):
             "items": items
         }
 
-        return json.dumps(obj_dict)
+        return obj_dict
 
     def from_json(self, json_str, context_menu: QMenu):
         items_dict = json.loads(json_str)

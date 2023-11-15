@@ -111,10 +111,10 @@ class PyQDiagram(QWidget):
     #     json_str = self.encode_json()
     #     self.decode_json(json_str)
 
-    def encode_json(self):
-        json_str = self.diagram_scene.to_json()
-        print(f"encode_json: {json_str}")
-        return json_str
+    def encode_json(self, indent=None) -> str:
+        json_dict = self.diagram_scene.to_json()
+        print(f"encode json dict: {json_dict}")
+        return json.dumps(json_dict, indent=indent)
 
     def decode_json(self, json_str):
         self.diagram_scene.from_json(json_str, self.context_menu)
