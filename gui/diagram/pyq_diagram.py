@@ -91,30 +91,22 @@ class PyQDiagram(QWidget):
         #self.diagram_button_group.button(item.diagramType).setChecked(False)
         self.diagram_button_group.button(item.diagram_type).setChecked(False)
 
-        # self.test_code_json()
-
     def textInserted(self, item):
         print(f"inserted text: {self.diagram_toolbars.pointerTypeGroup.checkedId()}")
         self.diagram_button_group.button(self.InsertTextButton).setChecked(False)
         self.diagram_toolbars.pointerTypeGroup.button(DiagramScene.MoveItem).setChecked(True)
         self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
 
-        # self.test_code_json()
-
     def arrowInserted(self, item):
         print(f"inserted arrow {item}")
-
-        # self.test_code_json()
-
-    # def test_code_json(self):
-    #     # pass
-    #     json_str = self.encode_json()
-    #     self.decode_json(json_str)
+        pass
 
     def encode_json(self, indent=None) -> str:
         json_dict = self.diagram_scene.to_json()
-        print(f"encode json dict: {json_dict}")
-        return json.dumps(json_dict, indent=indent)
+        json_str = json.dumps(json_dict, indent=indent)
+        print(f"encode json str: {json_str}")
+
+        return json_str
 
     def decode_json(self, json_str):
         self.diagram_scene.from_json(json_str, self.context_menu)
