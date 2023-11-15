@@ -144,7 +144,7 @@ class DiagramScene(QGraphicsScene):
 
     def mouseReleaseEvent(self, mouseEvent):
         super(DiagramScene, self).mouseReleaseEvent(mouseEvent)
-        if self.myMode == self.InsertLine and self.selected_item is not None:
+        if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramArrowItem):
                 line: DiagramArrowItem = self.selected_item
                 target_item_group = self.query_target_event_items(mouseEvent.scenePos())
@@ -156,6 +156,7 @@ class DiagramScene(QGraphicsScene):
                 else:
                     self.arrowInserted.emit(line)
             elif isinstance(self.selected_item, DiagramNormalItem):
+                # print(f"mouse release event to {self.selected_item.uuid}")
                 self.selected_item.mouse_move_redraw_arrows_path(mouseEvent)
                 super().mouseMoveEvent(mouseEvent)
 
@@ -262,9 +263,7 @@ class DiagramScene(QGraphicsScene):
 
         return obj_dict
 
-    def from_json(self, json_str, context_menu: QMenu):
-        items_dict = json.loads(json_str)
-
+    def from_json(self, items_dict, context_menu: QMenu):
         arrow_items = []
         for item in items_dict["items"]:
             diagram_item = None
@@ -282,17 +281,15 @@ class DiagramScene(QGraphicsScene):
                 print(f"diagram scene from json error item type {enum_item_type}")
 
             if diagram_item is not None:
-                print(f"add diagram item {diagram_item} to scene")
+                print(f"add diagram item {diagram_item.item_type.name};{diagram_item.uuid} to scene")
                 self.addItem(diagram_item)
 
         # 单独把创建的arrow 对象, 绑定到normal item 对象
-        for item in arrow_items:
-            start_item = self.get_normal_item_by_uuid(item.start_item_uuid)
-            if start_item is not None:
-                item.add_start_item(start_item)
+        for arrow in arrow_items:
+            start_item = self.get_normal_item_by_uuid(arrow.start_item_uuid)
+            arrow.add_start_item(start_item)
 
-            end_item = self.get_normal_item_by_uuid(item.end_item_uuid)
-            if end_item is not None:
-                item.add_end_item(end_item)
+            end_item = self.get_normal_item_by_uuid(arrow.end_item_uuid)
+            arrow.add_end_item(end_item)
 
 

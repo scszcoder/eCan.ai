@@ -68,16 +68,18 @@ class DiagramArrowItem(QGraphicsPathItem):
         print(f"init arrow item:{[self.start_point, self.end_point]}")
 
     def add_start_item(self, start_item: DiagramNormalItem):
-        self.start_item = start_item
-        if self.start_item_port_direction is not None:
-            self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
-        self.start_item.addArrow(self)
+        if start_item is not None:
+            self.start_item = start_item
+            if self.start_item_port_direction is not None:
+                self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
+            self.start_item.addArrow(self)
 
     def add_end_item(self, end_item: DiagramNormalItem):
-        self.end_item = end_item
-        if self.end_item_port_direction is not None:
-            self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
-        self.end_item.addArrow(self)
+        if end_item is not None:
+            self.end_item = end_item
+            if self.end_item_port_direction is not None:
+                self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
+            self.end_item.addArrow(self)
 
     def to_dict(self):
         obj_dict = {
@@ -264,14 +266,24 @@ class DiagramArrowItem(QGraphicsPathItem):
     # normal item drag event handler
     def normal_item_move_redraw_path(self, target_item: DiagramNormalItem, event: QGraphicsSceneMouseEvent):
         # print(f"normal_item_move_redraw_path: {target_item}; event:{event.scenePos()}")
+        update_path = True
         if target_item == self.start_item and self.start_item_port_direction is not None:
+            old_point = self.start_point
             self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
+            if old_point == self.start_point:
+                update_path = False
 
-        if target_item == self.end_item and self.end_item_port_direction is not None:
+        elif target_item == self.end_item and self.end_item_port_direction is not None:
+            old_point = self.end_point
             self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
+            if old_point == self.end_point:
+                update_path = False
 
-        self.path_points = self.calculate_path_points()
-        self.render_arrow(self.path_points)
+        if update_path is True:
+            self.path_points = self.calculate_path_points()
+            self.render_arrow(self.path_points)
+        else:
+            print("save item point no need rerender arrow path!!!")
 
     def mouse_move_handler(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
         # print(f"update move point:{target_point}; arrow path:{target_item_group}")
@@ -298,7 +310,7 @@ class DiagramArrowItem(QGraphicsPathItem):
 
             if self.end_point == target_point:
                 update_path = False
-                # print("same end point not need update path")
+                print("same end point not need update path")
             else:
                 # print(f"update end point from: {self.end_point} to:{target_point}")
                 self.end_point = target_point
