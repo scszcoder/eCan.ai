@@ -183,7 +183,6 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         for arrow in self.arrows[:]:
             if arrow == new_arrow:
                 return
-
         self.arrows.append(new_arrow)
 
     def mouse_move_redraw_arrows_path(self, event):

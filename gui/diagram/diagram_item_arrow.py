@@ -34,8 +34,11 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.start_item: DiagramNormalItem = target_item_group.diagram_normal_item if target_item_group is not None else None
         self.start_item_port_direction: EnumPortDir = target_item_group.diagram_item_port_direction \
                                                         if target_item_group is not None else None
+        self.start_item_uuid = None
+
         self.end_item: DiagramNormalItem = None
         self.end_item_port_direction: EnumPortDir = None
+        self.end_item_uuid = None
         self.path_points: List[QPointF] = path_points
         self.start_to_end_direction: bool = True
         self.arrow_head: QPolygonF = None
@@ -54,24 +57,27 @@ class DiagramArrowItem(QGraphicsPathItem):
         # self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
 
         if self.start_item is not None:
-            # prevent default drag event
-            # self.start_item.setFlag(QGraphicsItem.ItemIsMovable, False)
-
             # update start point
             self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
 
         if self.path_points is not None:
             print(f"init path points with points: {self.path_points}")
-            # # test case
-            # points = []
-            # for point in self.path_points:
-            #     points.append(QPointF(point.x() + 20, point.y() + 20))
-            # self.path_points = points
-
             self.start_point = self.path_points[0]
             self.render_arrow(self.path_points)
 
         print(f"init arrow item:{[self.start_point, self.end_point]}")
+
+    def add_start_item(self, start_item: DiagramNormalItem):
+        self.start_item = start_item
+        if self.start_item_port_direction is not None:
+            self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
+        self.start_item.addArrow(self)
+
+    def add_end_item(self, end_item: DiagramNormalItem):
+        self.end_item = end_item
+        if self.end_item_port_direction is not None:
+            self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
+        self.end_item.addArrow(self)
 
     def to_dict(self):
         obj_dict = {
@@ -81,8 +87,8 @@ class DiagramArrowItem(QGraphicsPathItem):
             "path_points": DiagramBase.path_points_encode(self.path_points),
             "start_item_uuid": self.start_item.uuid if self.start_item is not None else None,
             "end_item_uuid": self.end_item.uuid if self.end_item is not None else None,
-            "start_item_port_direction": EnumPortDir.enum_name(self.start_item_port_direction) if
-                                                                self.start_item_port_direction is not None else None,
+            "start_item_port_direction": EnumPortDir.enum_name(self.start_item_port_direction)
+                                                                if self.start_item_port_direction is not None else None,
             "end_item_port_direction": EnumPortDir.enum_name(self.end_item_port_direction)
                                                                 if self.end_item_port_direction is not None else None,
         }
@@ -102,6 +108,10 @@ class DiagramArrowItem(QGraphicsPathItem):
         start_point: QPointF = path_points[0]
         diagram_arrow_item = DiagramArrowItem(start_point=start_point, line_color=line_color, context_menu=context_menu,
                                               uuid=uuid, path_points=path_points)
+        diagram_arrow_item.start_item_uuid = start_item_uuid
+        diagram_arrow_item.start_item_port_direction = start_item_port_direction
+        diagram_arrow_item.end_item_uuid = end_item_uuid
+        diagram_arrow_item.end_item_port_direction = end_item_port_direction
 
         return diagram_arrow_item
 
@@ -268,9 +278,6 @@ class DiagramArrowItem(QGraphicsPathItem):
         update_path = True
 
         if self.start_to_end_direction is True:
-            # if self.start_item is not None:
-            #     self.start_item.setFlag(QGraphicsItem.ItemIsMovable, False)
-
             if target_item_group is None:
                 self.end_item = None
                 self.end_item_port_direction = None
@@ -332,8 +339,6 @@ class DiagramArrowItem(QGraphicsPathItem):
         # self.mouse_move_handler(target_point, target_item_group)
 
         if self.start_item is not None:
-            # self.start_item.setFlag(QGraphicsItem.ItemIsMovable, True)
-
             self.start_item.addArrow(self)
 
         if self.old_start_item is not None and self.old_start_item != self.start_item:

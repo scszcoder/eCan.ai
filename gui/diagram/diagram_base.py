@@ -22,7 +22,7 @@ class EnumItemType(Enum):
 class DiagramBase:
     @staticmethod
     def build_uuid():
-        return uuid.uuid4()
+        return str(uuid.uuid4())
 
     @staticmethod
     def font_weight_to_enum_name(obj):
