@@ -109,7 +109,8 @@ class PyQDiagram(QWidget):
         return json_str
 
     def decode_json(self, json_str):
-        self.diagram_scene.from_json(json_str, self.context_menu)
+        items_dict = json.loads(json_str)
+        self.diagram_scene.from_json(items_dict, self.context_menu)
 
     def handleFontChange(self):
         self.diagram_toolbars.handleFontChange()

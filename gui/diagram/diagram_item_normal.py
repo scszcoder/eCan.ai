@@ -123,7 +123,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
 
-        print(f"build diagram item {diagram_type}")
+        print(f"build diagram normal item {diagram_type}")
 
     @staticmethod
     def create_item_polygon(diagram_type):
@@ -183,9 +183,12 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         for arrow in self.arrows[:]:
             if arrow == new_arrow:
                 return
+
+        print(f"normal item {self.uuid} append arrow item {new_arrow.uuid}")
         self.arrows.append(new_arrow)
 
     def mouse_move_redraw_arrows_path(self, event):
+        # print(f"normal item {self.uuid} mouse move redraw arrow path")
         for arrow in self.arrows[:]:
             arrow.normal_item_move_redraw_path(self, event)
 
