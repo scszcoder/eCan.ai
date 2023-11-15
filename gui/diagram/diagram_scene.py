@@ -30,7 +30,7 @@ class DiagramScene(QGraphicsScene):
         self.myItemColor: QColor = QColor(Qt.white)
         self.myTextColor: QColor = QColor(Qt.black)
         self.myLineColor: QColor = QColor(Qt.black)
-        self.myFont: QFont = QFont()
+        self.myFont: QFont = QFont("Times New Roman")
         self.gridSize = 5
 
     def setLineColor(self, color):
