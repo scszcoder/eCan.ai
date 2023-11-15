@@ -30,7 +30,7 @@ class DiagramScene(QGraphicsScene):
         self.myItemColor: QColor = QColor(Qt.white)
         self.myTextColor: QColor = QColor(Qt.black)
         self.myLineColor: QColor = QColor(Qt.black)
-        self.myFont: QFont = QFont("Times New Roman")
+        self.myFont: QFont = QFont("Times New Roman", 14)
         self.gridSize = 5
 
     def setLineColor(self, color):
@@ -220,20 +220,27 @@ class DiagramScene(QGraphicsScene):
     # change: GraphicsItemChange
     # value: QVariant
     # ref: https://www.walletfox.com/course/qgraphicsitemsnaptogrid.php
-    def itemChange(self, mouseEvent, change, value, ItemPositionChange):
-        if change == ItemPositionChange: #and scene():
-            newPos = QPointF()
-            newPos = value.toPointF()
-            if mouseEvent.button() != Qt.LeftButton: # and scene():
+    # def itemChange(self, mouseEvent, change, value, ItemPositionChange):
+    #     if change == ItemPositionChange: #and scene():
+    #         newPos = QPointF()
+    #         newPos = value.toPointF()
+    #         if mouseEvent.button() != Qt.LeftButton: # and scene():
+    #
+    #             #customScene = scene()
+    #             xV = round(newPos.x() / self.gridSize) * self.gridSize
+    #             yV = round(newPos.y() / self.gridSize) * self.gridSize
+    #             return QPointF(xV, yV)
+    #         else:
+    #             return newPos
+    #     else:
+    #         return QGraphicsItem.itemChange(change, value)
 
-                #customScene = scene()
-                xV = round(newPos.x() / self.gridSize) * self.gridSize
-                yV = round(newPos.y() / self.gridSize) * self.gridSize
-                return QPointF(xV, yV)
-            else:
-                return newPos
-        else:
-            return QGraphicsItem.itemChange(change, value)
+    def get_normal_item_by_uuid(self, uuid):
+        for item in self.items():
+            if isinstance(item, DiagramNormalItem) and item.uuid == uuid:
+                return item
+
+        return None
 
     def to_json(self):
         items = []
@@ -255,23 +262,37 @@ class DiagramScene(QGraphicsScene):
 
         return json.dumps(obj_dict)
 
-    @classmethod
-    def from_json(cls, json_str, context_menu: QMenu):
+    def from_json(self, json_str, context_menu: QMenu):
         items_dict = json.loads(json_str)
 
-        items = []
+        arrow_items = []
         for item in items_dict["items"]:
+            diagram_item = None
             str_item_type = item["item_type"]
             enum_item_type = EnumItemType[str_item_type]
 
             if enum_item_type == EnumItemType.Text:
-                items.append(DiagramTextItem.from_dict(item, context_menu))
+                diagram_item = DiagramTextItem.from_dict(item, context_menu)
             elif enum_item_type == EnumItemType.Normal:
-                items.append(DiagramNormalItem.from_dict(item, context_menu))
+                diagram_item = DiagramNormalItem.from_dict(item, context_menu)
             elif enum_item_type == EnumItemType.Arrow:
-                items.append(DiagramArrowItem.from_dict(item, context_menu))
+                diagram_item = DiagramArrowItem.from_dict(item, context_menu)
+                arrow_items.append(diagram_item)
             else:
                 print(f"diagram scene from json error item type {enum_item_type}")
 
-        return items
+            if diagram_item is not None:
+                print(f"add diagram item {diagram_item} to scene")
+                self.addItem(diagram_item)
+
+        # 单独把创建的arrow 对象, 绑定到normal item 对象
+        for item in arrow_items:
+            start_item = self.get_normal_item_by_uuid(item.start_item_uuid)
+            if start_item is not None:
+                item.add_start_item(start_item)
+
+            end_item = self.get_normal_item_by_uuid(item.end_item_uuid)
+            if end_item is not None:
+                item.add_end_item(end_item)
+
 

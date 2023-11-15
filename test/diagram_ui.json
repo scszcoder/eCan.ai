@@ -1,0 +1,496 @@
+{
+    "items": [
+        {
+            "uuid": "0f5d1102-9b8c-4243-a1d8-b930a7fdafbf",
+            "item_type": "Arrow",
+            "line_color": "#ff0000",
+            "path_points": [
+                {
+                    "x": 384.0,
+                    "y": 293.0
+                },
+                {
+                    "x": 325.0,
+                    "y": 293.0
+                },
+                {
+                    "x": 325.0,
+                    "y": 348.0
+                },
+                {
+                    "x": 266.0,
+                    "y": 348.0
+                }
+            ],
+            "start_item_uuid": null,
+            "end_item_uuid": null,
+            "start_item_port_direction": null,
+            "end_item_port_direction": null
+        },
+        {
+            "uuid": "e5556136-c580-4360-ba48-fb2d59f3c5f4",
+            "item_type": "Arrow",
+            "line_color": "#ff0000",
+            "path_points": [
+                {
+                    "x": 166.0,
+                    "y": 263.0
+                },
+                {
+                    "x": 192.5,
+                    "y": 263.0
+                },
+                {
+                    "x": 192.5,
+                    "y": 320.0
+                },
+                {
+                    "x": 219.0,
+                    "y": 320.0
+                }
+            ],
+            "start_item_uuid": null,
+            "end_item_uuid": null,
+            "start_item_port_direction": null,
+            "end_item_port_direction": null
+        },
+        {
+            "uuid": "7ff911a4-194e-415f-ac82-1c5ae0ed2168",
+            "item_type": "Text",
+            "sub_item": false,
+            "plain_text": "bde",
+            "position": {
+                "x": 289.0,
+                "y": 320.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 20,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "color": "#ff0000"
+        },
+        {
+            "uuid": "fc7169d6-e8d1-4620-8b3e-319e92044c82",
+            "item_type": "Text",
+            "sub_item": false,
+            "plain_text": "adb",
+            "position": {
+                "x": 94.0,
+                "y": 299.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "color": "#000000"
+        },
+        {
+            "uuid": "ebc23523-4200-44f2-b2a7-828e064137b2",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 97.0,
+                    "y": 186.0
+                },
+                {
+                    "x": 97.0,
+                    "y": 201.0
+                },
+                {
+                    "x": 97.0,
+                    "y": 224.0
+                },
+                {
+                    "x": 251.0,
+                    "y": 224.0
+                },
+                {
+                    "x": 266.0,
+                    "y": 224.0
+                }
+            ],
+            "start_item_uuid": "024bcd1e-9d29-4c26-91bb-bfe7dfff4b9e",
+            "end_item_uuid": "909ba173-ad56-4c87-8c40-05ecd7147674",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "LEFT"
+        },
+        {
+            "uuid": "736670bd-8b37-46e7-ac0e-684440a6dec4",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 145.0,
+                    "y": 48.0
+                },
+                {
+                    "x": 130.0,
+                    "y": 48.0
+                },
+                {
+                    "x": 32.0,
+                    "y": 48.0
+                },
+                {
+                    "x": 32.0,
+                    "y": 171.0
+                },
+                {
+                    "x": 47.0,
+                    "y": 171.0
+                }
+            ],
+            "start_item_uuid": "aafcedb5-6ced-4cf6-95fe-20a719883c1a",
+            "end_item_uuid": "024bcd1e-9d29-4c26-91bb-bfe7dfff4b9e",
+            "start_item_port_direction": "LEFT",
+            "end_item_port_direction": "LEFT"
+        },
+        {
+            "uuid": "b9249572-4500-4362-8045-fe2b31b61f79",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 316.0,
+                    "y": 209.0
+                },
+                {
+                    "x": 316.0,
+                    "y": 194.0
+                },
+                {
+                    "x": 316.0,
+                    "y": 171.0
+                },
+                {
+                    "x": 162.0,
+                    "y": 171.0
+                },
+                {
+                    "x": 147.0,
+                    "y": 171.0
+                }
+            ],
+            "start_item_uuid": "909ba173-ad56-4c87-8c40-05ecd7147674",
+            "end_item_uuid": "024bcd1e-9d29-4c26-91bb-bfe7dfff4b9e",
+            "start_item_port_direction": "TOP",
+            "end_item_port_direction": "RIGHT"
+        },
+        {
+            "uuid": "be0a8fae-f5d9-4aa0-bd4e-626a877b67d2",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 383.0,
+                    "y": 117.0
+                },
+                {
+                    "x": 398.0,
+                    "y": 117.0
+                },
+                {
+                    "x": 398.0,
+                    "y": 224.0
+                },
+                {
+                    "x": 381.0,
+                    "y": 224.0
+                },
+                {
+                    "x": 366.0,
+                    "y": 224.0
+                }
+            ],
+            "start_item_uuid": "5e44e5e0-d788-40e0-b11d-817997a293c2",
+            "end_item_uuid": "909ba173-ad56-4c87-8c40-05ecd7147674",
+            "start_item_port_direction": "RIGHT",
+            "end_item_port_direction": "RIGHT"
+        },
+        {
+            "uuid": "b631a026-7fc2-4d00-8e9d-2a29c696b98f",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 283.0,
+                    "y": 117.0
+                },
+                {
+                    "x": 268.0,
+                    "y": 117.0
+                },
+                {
+                    "x": 97.0,
+                    "y": 117.0
+                },
+                {
+                    "x": 97.0,
+                    "y": 141.0
+                },
+                {
+                    "x": 97.0,
+                    "y": 156.0
+                }
+            ],
+            "start_item_uuid": "5e44e5e0-d788-40e0-b11d-817997a293c2",
+            "end_item_uuid": "024bcd1e-9d29-4c26-91bb-bfe7dfff4b9e",
+            "start_item_port_direction": "LEFT",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "22f8a18e-5b96-49da-90b4-4e2e37a44579",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 195.0,
+                    "y": 63.0
+                },
+                {
+                    "x": 195.0,
+                    "y": 78.0
+                },
+                {
+                    "x": 333.0,
+                    "y": 78.0
+                },
+                {
+                    "x": 333.0,
+                    "y": 87.0
+                },
+                {
+                    "x": 333.0,
+                    "y": 102.0
+                }
+            ],
+            "start_item_uuid": "aafcedb5-6ced-4cf6-95fe-20a719883c1a",
+            "end_item_uuid": "5e44e5e0-d788-40e0-b11d-817997a293c2",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "909ba173-ad56-4c87-8c40-05ecd7147674",
+            "item_type": "Normal",
+            "diagram_type": 2,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 316.0,
+                "y": 224.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "15a62c07-e4c1-4ae5-9bc3-042e1690da30",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "50ee00e7-304a-40d8-984b-e54c10788d20",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            }
+        },
+        {
+            "uuid": "024bcd1e-9d29-4c26-91bb-bfe7dfff4b9e",
+            "item_type": "Normal",
+            "diagram_type": 3,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 97.0,
+                "y": 171.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "695c3bc8-7dc4-4839-a878-f43b7b1d8be8",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "88c6161c-100e-4a40-a233-1b1753d8453f",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            }
+        },
+        {
+            "uuid": "5e44e5e0-d788-40e0-b11d-817997a293c2",
+            "item_type": "Normal",
+            "diagram_type": 1,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 333.0,
+                "y": 117.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "a87edd09-f04f-41f0-883f-d58a6e977d26",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "2258906b-f652-4ca1-a5f7-376676e2e4ad",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            }
+        },
+        {
+            "uuid": "aafcedb5-6ced-4cf6-95fe-20a719883c1a",
+            "item_type": "Normal",
+            "diagram_type": 0,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 195.0,
+                "y": 48.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "b99d135b-bbc6-4e56-a667-879b811082d5",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "815df8a6-99ea-4305-bb58-fa111a933ae7",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            }
+        }
+    ]
+}

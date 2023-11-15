@@ -1,3 +1,5 @@
+import json
+
 from PySide6.QtCore import (QRectF, QSize, Qt, QPointF)
 from PySide6.QtGui import (QAction, QFont, QIcon, QBrush, QIcon, QPixmap, QPainter, QPen)
 from PySide6.QtWidgets import (QGraphicsView, QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QWidget,
@@ -89,7 +91,7 @@ class PyQDiagram(QWidget):
         #self.diagram_button_group.button(item.diagramType).setChecked(False)
         self.diagram_button_group.button(item.diagram_type).setChecked(False)
 
-        self.test_code_json()
+        # self.test_code_json()
 
     def textInserted(self, item):
         print(f"inserted text: {self.diagram_toolbars.pointerTypeGroup.checkedId()}")
@@ -97,17 +99,17 @@ class PyQDiagram(QWidget):
         self.diagram_toolbars.pointerTypeGroup.button(DiagramScene.MoveItem).setChecked(True)
         self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
 
-        self.test_code_json()
+        # self.test_code_json()
 
     def arrowInserted(self, item):
         print(f"inserted arrow {item}")
 
-        self.test_code_json()
+        # self.test_code_json()
 
-    def test_code_json(self):
-        pass
-        # json_str = self.encode_json()
-        # self.decode_json(json_str)
+    # def test_code_json(self):
+    #     # pass
+    #     json_str = self.encode_json()
+    #     self.decode_json(json_str)
 
     def encode_json(self):
         json_str = self.diagram_scene.to_json()
@@ -115,26 +117,7 @@ class PyQDiagram(QWidget):
         return json_str
 
     def decode_json(self, json_str):
-        items = DiagramScene.from_json(json_str, self.context_menu)
-        print(f"decode json: {items}")
-
-        for item in items:
-            if isinstance(item, DiagramNormalItem):
-                item.name_text_item.setPlainText("normal#1")
-                item.setPos(QPointF(item.pos().x() + 20, item.pos().y() + 20))
-            elif isinstance(item, DiagramTextItem):
-                item.setPlainText("text#1")
-                item.setPos(QPointF(item.pos().x() + 20, item.pos().y() + 20))
-            elif isinstance(item, DiagramArrowItem):
-                # points = []
-                # for point in item.path_points:
-                #     points.append(QPointF(point.x() + 20, point.y() + 20))
-                # item.render_arrow(points)
-                pass
-            else:
-                print(f"decode_json error type item {item}")
-
-            self.diagram_scene.addItem(item)
+        self.diagram_scene.from_json(json_str, self.context_menu)
 
     def handleFontChange(self):
         self.diagram_toolbars.handleFontChange()
