@@ -18,6 +18,7 @@ class DiagramToolBars(QHBoxLayout):
         # self.toolBarLayout = QHBoxLayout()
         # Times New Roman
         self.fontCombo = QFontComboBox()
+        self.fontCombo.setCurrentFont(self.diagram_scene.myFont)
         self.fontCombo.currentFontChanged.connect(self.currentFontChanged)
 
         self.fontSizeCombo = QComboBox()
@@ -26,6 +27,7 @@ class DiagramToolBars(QHBoxLayout):
             self.fontSizeCombo.addItem(str(i))
         validator = QIntValidator(2, 64, self)
         self.fontSizeCombo.setValidator(validator)
+        self.fontSizeCombo.setCurrentText(str(self.diagram_scene.myFont.pointSize()))
         self.fontSizeCombo.currentIndexChanged.connect(self.fontSizeChanged)
 
         self.fontColorToolButton = QToolButton()
