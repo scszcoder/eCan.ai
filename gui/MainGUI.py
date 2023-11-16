@@ -168,11 +168,12 @@ class MainWindow(QtWidgets.QMainWindow):
             print("This is a platoon...")
             self.commanderXport = tcpserver
             self.tcpServer = None
+            self.platoonWin = None
         self.homepath = homepath
         self.user = user
         self.cog = None
         self.cog_client = None
-        self.hostrole = "CommanderRun"
+        self.hostrole = "CommanderOnly"
         self.workingState = "Idle"
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
@@ -200,7 +201,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionWin = None
         self.trainNewSkillWin = None
         self.reminderWin = None
-        self.platoonWin = None
+
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
         self.logConsoleBox = Expander(self, "Log Console:")
@@ -875,7 +876,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # File actions
         new_action = QtGui.QAction(self)
         new_action.setText("&Fetch Schedules")
-        new_action.triggered.connect(self.fetchSchedule)
+        new_action.triggered.connect(lambda: self.fetchSchedule("5000", None))
         return new_action
 
 
@@ -1278,10 +1279,10 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 #otherwise, send work to platoons in the field.
                 if self.hostrole == "CommanderOnly":
-                    print("sending to platoon: ", i)
+                    print("cmd only sending to platoon: ", i)
                     task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
                 else:
-                    print("sending to platoon: ", i)
+                    print("cmd sending to platoon: ", i)
                     task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
 
                 schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"" + task_group_string + "\"}'
@@ -2903,6 +2904,13 @@ class MainWindow(QtWidgets.QMainWindow):
         elif msg["type"] == "status":
             # update vehicle status display.
             self.showMsg(msg["content"])
+            print("recevied a status update message")
+            if self.platoonWin:
+                self.platoonWin.updatePlatoonStatAndShow(msg)
+                self.platoonWin.show()
+            else:
+                print("platoon win not created yets....")
+
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
             self.todaysReports.append(json.loads(msg["content"]))
@@ -2920,9 +2928,11 @@ class MainWindow(QtWidgets.QMainWindow):
             result = {
                 "mid": mid,
                 "botid": 0,
-                "start_time": "2023-11-09 01:12:02",
-                "end_time": "2023-11-09 01:22:12",
-                "status": "Done",
+                "sst": "2022-11-09 01:12:02",
+                "sd": 300,
+                "ast": "2023-11-09 01:12:02",
+                "aet": "2023-11-09 01:22:12",
+                "status": "completed",
                 "error": ""
             }
             results.append(result)
