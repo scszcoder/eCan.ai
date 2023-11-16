@@ -226,7 +226,7 @@ class Login(QtWidgets.QDialog):
         self.machine_role = role
 
     def isCommander(self):
-        if self.machine_role == "Commander":
+        if self.machine_role == "Commander" or self.machine_role == "CommanderOnly":
             return True
         else:
             return False

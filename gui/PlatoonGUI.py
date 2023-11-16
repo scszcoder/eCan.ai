@@ -110,7 +110,8 @@ class PlatoonWindow(QtWidgets.QMainWindow):
 
         self.genGuiTestDat()
         for v in self.vehicles:
-            self.tabs.addTab(self._createVehicleTab(v["stats"]), "Platoon"+v["ip"])
+            ip_last = v["ip"].split(".")[len(v["ip"].split("."))-1]
+            self.tabs.addTab(self._createVehicleTab(v["stats"]), "Platoon"+ip_last)
 
 
         self.mainWidget.setLayout(self.layout)
@@ -118,7 +119,30 @@ class PlatoonWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Main Bot&Mission Scheduler")
 
+    def updatePlatoonStat(self, model, statsJson):
+        i = 0
+        for stat in statsJson:
+            self.fill1TableRow(i, stat, model)
+            i = i + 1
+
+
+
+    def updatePlatoonStatAndShow(self, rx_data):
+        ip_last = rx_data["ip"].split(".")[len(rx_data["ip"].split(".")) - 1]
+        tab_names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
+        tab_index = tab_names.index("Platoon"+ip_last)
+
+
+        vmodel = self.platoonTableViews[tab_index].model()
+        rx_jd = json.loads(rx_data["content"])
+
+        self.updatePlatoonStat(vmodel, rx_jd)
+
+        self.tabs.setCurrentIndex(tab_index)
+
     def fill1TableRow(self, rowIdx, rowDataJson, model):
+        print("filling table row #", rowIdx)
+
         text_item = QtGui.QStandardItem(str(rowDataJson["mid"]))
         model.setItem(rowIdx, 0, text_item)
 
@@ -229,7 +253,7 @@ class PlatoonWindow(QtWidgets.QMainWindow):
             "status": "aborted",
             "error": "203: Found Captcha",
         }],
-            "ip": "192.168.22.35"}
+            "ip": "192.168.22.28"}
         self.vehicles.append(newV)
 
     def createLabel(self, text):

@@ -114,8 +114,6 @@ async def udpBroadcaster(topgui):
     myips = socket.gethostbyname_ex(hostname)[-1]
     myip = myips[len(myips)-1]
     message = str.encode('Commander Calling:' + myip)
-    print('Commander Calling:' + myip)
-
 
     usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     # Enable port reusage so we will be able to run multiple clients and servers on single (host, port).
