@@ -163,17 +163,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.machine_role != "Platoon":
             self.tcpServer = tcpserver
             self.commanderXport = None
-            self.platoonWin = PlatoonWindow(self)
         else:
             print("This is a platoon...")
             self.commanderXport = tcpserver
             self.tcpServer = None
-            self.platoonWin = None
         self.homepath = homepath
         self.user = user
         self.cog = None
         self.cog_client = None
-        self.hostrole = "CommanderOnly"
+        self.hostrole = machine_role
         self.workingState = "Idle"
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
@@ -440,7 +438,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.running_missionListView.setMovement(QtWidgets.QListView.Snap)
 
         self.vehicleListView.setModel(self.runningVehicleModel)
-        self.vehicleListView.setViewMode(QtWidgets.QListView.IconMode)
+        self.vehicleListView.setViewMode(QtWidgets.QListView.ListMode)
         self.vehicleListView.setMovement(QtWidgets.QListView.Snap)
 
         self.completed_missionListView.setModel(self.completedMissionModel)
@@ -580,10 +578,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # now hand daily tasks
 
         self.todays_work = {"tbd": [], "allstat": "working"}
-        self.todays_work["tbd"].append({"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
-
-        # point to the 1st task to run for the day.
-        self.updateRunStatus(self.todays_work["tbd"][0])
+        if not self.hostrole == "Platoon":
+            self.todays_work["tbd"].append({"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
+            # point to the 1st task to run for the day.
+            self.updateRunStatus(self.todays_work["tbd"][0])
 
     def getHomePath(self):
         return self.homepath
@@ -1291,32 +1289,37 @@ class MainWindow(QtWidgets.QMainWindow):
     # find to todos.,
     # 1) check whether need to fetch schedules,
     # 2) checking whether need to do RPA
-    # 3)
+    # the key data structure is self.todays_work["tbd"] which should be an array of either 1 or 2 elements.
+    # either 1 or 2 elements depends on the role, if commander_only or platoon, will be 1 element,
+    # if commander (which means commander can do tasks too) then there will be 2 elements.
+    # in case of 1 element, it will be the actuall bot tasks to be done for platton or the fetch schedule task for Comander Only.
+    # in case of 2 elements, the 0th element will be the fetch schedule, the 1st element will be the bot tasks(as a whole)
+    # self.todays_work = {"tbd": [], "allstat": "working"}
     def checkToDos(self):
         print("checking todos......")
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
-        if not self.todays_work["tbd"][0]["status"] == "done":
+        if (not self.todays_work["tbd"][0]["status"] == "done") and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
             if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
                 nextrun = self.todays_work["tbd"][0]
-        elif len(self.todays_work["tbd"]) > 1 and not self.todays_work["tbd"][1]["status"] == "done":
-            print("self.todays_work[\"tbd\"][1] :", self.todays_work["tbd"][1])
-            tz = self.todays_work["tbd"][1]["current tz"]
-            bith = self.todays_work["tbd"][1]["current bidx"]
+        elif not self.todays_work["tbd"][1]["status"] == "done":
+            print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
+            tz = self.todays_work["tbd"][0]["current tz"]
+            bith = self.todays_work["tbd"][0]["current bidx"]
 
             # determin next task group:
-            current_bw_idx = self.todays_work["tbd"][1]["current widx"]
-            current_other_idx = self.todays_work["tbd"][1]["current oidx"]
+            current_bw_idx = self.todays_work["tbd"][0]["current widx"]
+            current_other_idx = self.todays_work["tbd"][0]["current oidx"]
 
-            if current_bw_idx < len(self.todays_work["tbd"][1]["works"][tz][bith]["bw_works"]):
-                current_bw_start_time = self.todays_work["tbd"][1]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
+            if current_bw_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"]):
+                current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
             else:
                 # just give it a huge number so that, this group won't get run
                 current_bw_start_time = 1000
 
-            if current_other_idx < len(self.todays_work["tbd"][1]["works"][tz][bith]["other_works"]):
-                current_other_start_time = self.todays_work["tbd"][1]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
+            if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
+                current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
             else:
                 # in case, all just give it a huge number so that, this group won't get run
                 current_other_start_time = 1000
@@ -1332,15 +1335,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 grp = ""
                 wjth = -1
 
-            self.todays_work["tbd"][1]["current grp"] = grp
+            self.todays_work["tbd"][0]["current grp"] = grp
 
 
             print("tz: ", tz, "bith: ", bith, "grp: ", grp, "wjth: ", wjth)
 
             if wjth >= 0:
-                if self.ts2time(self.todays_work["tbd"][1]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
+                if self.ts2time(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
                     print("next run is now set up......")
-                    nextrun = self.todays_work["tbd"][1]
+                    nextrun = self.todays_work["tbd"][0]
         # elif len(self.todays_work["tbd"]) > 1 and self.todays_work["tbd"][1]["status"] == "done":
 
         return nextrun
@@ -2849,6 +2852,41 @@ class MainWindow(QtWidgets.QMainWindow):
         for m in self.missions:
             status = m.run()
 
+
+    # FETCH_ROUTINE = {
+    #     "eastern": [{
+    #         "bid": 0,
+    #         "tz": "eastern",
+    #         "bw_works": [],
+    #         "other_works": [{
+    #             "mid": 0,
+    #             "name": "fetch schedules",
+    #             "cuspas": "",
+    #             "todos": None,
+    #             "start_time": START_TIME,
+    #             "end_time": "",
+    #             "stat": "nys"
+    #         }],
+    #     }],
+    #     "central": [],
+    #     "moutain": [],
+    #     "pacific": [],
+    #     "alaska": [],
+    #     "hawaii": []
+    # }
+    #
+    # todos data structure: {
+    #  "name": ***,
+    #  "works": FETCH_ROUTINE,
+    #  "status": ***,
+    #  "current tz": "eastern",
+    #  "current grp": "other_works",
+    #  "current bidx": 0,
+    #  "current widx": 0,
+    #  "current oidx": 0,
+    #  "completed": [],
+    #  "aborted": []
+    #  }
     async def runbotworks(self):
         # run all the work
         botTodos = None
@@ -2860,7 +2898,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    # self.fetchSchedule("", None)
+                    self.fetchSchedule("", None)
 
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
@@ -2936,6 +2974,76 @@ class MainWindow(QtWidgets.QMainWindow):
                 "error": ""
             }
             results.append(result)
+        # for mid in mids:
+        #     result = {
+        #         "mid": mid,
+        #         "botid": 0,
+        #         "start_time": "2023-11-09 01:12:02",
+        #         "end_time": "2023-11-09 01:22:12",
+        #         "status": "Done",
+        #         "error": ""
+        #     }
+        #     results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "600",
+            "aet": "2023-11-09 01:22:12",
+            "status": "scheduled",
+            "error": ""
+        }
+        results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "600",
+            "aet": "2023-11-09 01:22:12",
+            "status": "completed",
+            "error": ""
+        }
+        results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "600",
+            "aet": "2023-11-09 01:22:12",
+            "status": "running",
+            "error": ""
+        }
+        results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "500",
+            "aet": "2023-11-09 01:22:12",
+            "status": "warned",
+            "error": ""
+        }
+        results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "300",
+            "aet": "2023-11-09 01:22:12",
+            "status": "aborted",
+            "error": ""
+        }
+        results.append(result)
 
         print("mission status result:", results)
         return results
@@ -2944,6 +3052,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
+        print("received from commander: ", msgString)
         msg = json.loads(msgString)
         # first, check ip and make sure this from a know vehicle.
         if msg["cmd"] == "reqStatusUpdate":
@@ -2966,9 +3075,11 @@ class MainWindow(QtWidgets.QMainWindow):
         elif msg["cmd"] == "reqSetSchedule":
             # schedule work now..... append to array data structure and set up the pointer to the 1st task.
             # the actual running of the tasks will be taken care of by the schduler.
-            localworks = json.loads(msg["content"])
+            localworks = json.loads(msg["todos"])
+            print("received work request:", localworks)
+            # send work into work Queue which is the self.todays_work["tbd"] data structure.
             self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": "eastern", "current grp": None, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
-            self.updateRunStatus(self.todays_work["tbd"][1])
+            print("after assigned work, ", len(self.todays_work["tbd"]), "todos exists in the queue.", self.todays_work["tbd"])
         elif msg["cmd"] == "reqCancelAllMissions":
             # update vehicle status display.
             self.showMsg(msg["content"])
@@ -3022,6 +3133,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def doneWithToday(self):
         global commanderXport
         # call reportStatus API to send today's report to API
+        print("Done with today!")
         todays_stat = self.genRunReport()
 
         if not self.hostrole == "Platoon":
@@ -3035,5 +3147,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # 2) log reports.
         self.saveDailyRunReport(todays_stat)
 
-        # 3) clear data structure, set up for tomorrow morning.
-        self.todays_work = {"tbd": [{"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}
+        # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
+        if not self.hostrole == "Platoon":
+            self.todays_work = {"tbd": [{"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}

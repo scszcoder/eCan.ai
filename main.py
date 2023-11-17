@@ -1,5 +1,6 @@
 from LoginoutGUI import *
 from MainGUI import *
+from WaitGui import *
 from network import *
 from unittests import *
 import asyncio
@@ -50,14 +51,15 @@ async def main():
 
 def windowlauncher():
     app = QtWidgets.QApplication(sys.argv)
+
     loop = QEventLoop(app)
-    asyncio.set_event_loop(loop)
+    # asyncio.set_event_loop(loop)
 
     global login
     login = Login(app, loop)
-    login.show()
-    #loop.create_task(udpBroadcaster())
-    #loop.create_task(tcpServer())
+    # login.show()
+    # loop.create_task(udpBroadcaster())
+    # loop.create_task(tcpServer())
 
     if login.isCommander():
         print("run as commander...")
@@ -67,10 +69,18 @@ def windowlauncher():
         loop.run_forever()
     else:
         print("run as platoon...")
-        loop.create_task(runPlatoonLAN(login))
+        wait_window = WaitWindow()
+        wait_window.show()
+        # Create a thread for the UDP receiver
+        # udp_thread = threading.Thread(target=udp_receiver)
+        # udp_thread.daemon = True  # Make it a daemon thread to exit when the main program exits
+        # udp_thread.start()
+
+        loop.create_task(runPlatoonLAN(login, loop, wait_window))
         # w = MainWindow()
         # w.show()
         loop.run_forever()
+
 
 
 if __name__ == '__main__':
@@ -98,4 +108,5 @@ if __name__ == '__main__':
     #     sys.exit(0)
 
     # quit(app)
+
     print("ECBot Finished.")
