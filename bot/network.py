@@ -14,7 +14,9 @@ sel = selectors.DefaultSelector()
 
 # UDP pack broadcasted every 15 second.
 TICK = 30
-UDP_PERIOD = 15
+COMMANDER_UDP_PERIOD = 10
+PLATOON_UDP_PERIOD = 10
+
 commanderXport = None
 commanderIP = "0.0.0.0"
 platoonProtocol = None
@@ -35,13 +37,13 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.transport = transport
         fieldLinks.append({"ip": self.peername, "name": "nyk", "link": self})
         if not self.topgui.mainwin == None:
-            self.topgui.mainwin.addPlatoon(self)
+            self.topgui.mainwin.addVehicle(self)
 
     def data_received(self, data):
         message = data.decode()
         if not self.topgui.mainwin == None:
             self.topgui.mainwin.appendNetLogs(['Data received: {!r}'.format(message)])
-            self.topgui.mainwin.processPlatoonMsgs(message)
+            self.topgui.mainwin.processPlatoonMsgs(message, self.peername)
 
         #print('Send: {!r}'.format(message))
         #self.transport.write(data)
@@ -98,6 +100,16 @@ async def tcpServer(topgui):
     async with commanderServer:
         await commanderServer.serve_forever()
 
+def udp_receiver():
+    # Create a UDP socket
+    usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    usock.bind(('', UDP_PORT))
+
+    while True:
+        data, addr = usock.recvfrom(1024)
+        print(f"Received data: {data.decode()} from {addr}")
+
+
 
 # async def echo():
 #     stdin, stdout = await aioconsole.get_standard_streams()
@@ -114,8 +126,6 @@ async def udpBroadcaster(topgui):
     myips = socket.gethostbyname_ex(hostname)[-1]
     myip = myips[len(myips)-1]
     message = str.encode('Commander Calling:' + myip)
-    print('Commander Calling:' + myip)
-
 
     usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     # Enable port reusage so we will be able to run multiple clients and servers on single (host, port).
@@ -131,8 +141,9 @@ async def udpBroadcaster(topgui):
     while not over:
         if not topgui.mainwin == None:
             topgui.mainwin.appendNetLogs(["broadcast"])
+        print("Broadcasting...", 'Commander Calling:' + myip)
         usock.sendto(message, ('255.255.255.255', UDP_PORT))
-        await asyncio.sleep(UDP_PERIOD)
+        await asyncio.sleep(COMMANDER_UDP_PERIOD)
     #
     # message = data.decode()
     # print('Received %r from %s' % (message, addr))
@@ -145,7 +156,7 @@ async def udpBroadcaster(topgui):
     #     transport.close()
 
 # this is the udp receiver on the platoon side.
-async def commanderFinder(topgui):
+async def commanderFinder(topgui, thisloop, waitwin):
     global commanderXport
     over = False
     hostname = socket.gethostname()
@@ -159,12 +170,19 @@ async def commanderFinder(topgui):
 
     while not over:
         print("listening....")
-        rxmsg = usock.recvfrom(1024)
-        print("received::", rxmsg)
+        data, addr = await thisloop.run_in_executor(None, usock.recvfrom, 1024)
 
-        if "Commander" in rxmsg[0].decode("utf-8") and commanderXport == None:
-            commanderIP = rxmsg[1][0]
+        # rxmsg = usock.recvfrom(512)
+        print("platoon received::", data.decode("utf-8"))
+
+        # if "Commander" in rxmsg[0].decode("utf-8") and commanderXport == None:
+        if "Commander" in data.decode("utf-8") and commanderXport == None:
+            # commanderIP = rxmsg[1][0]
+            rxmsg_parts = data.decode("utf-8").split(":")
+            commanderIP = rxmsg_parts[1]
             print("recevied::", commanderIP)
+            waitwin.close()
+            topgui.show()
 
             loop = asyncio.get_running_loop()
             on_con_lost = loop.create_future()
@@ -182,7 +200,7 @@ async def commanderFinder(topgui):
                 commanderXport.close()
             break
 
-        await asyncio.sleep(UDP_PERIOD)
+        await asyncio.sleep(PLATOON_UDP_PERIOD)
 
 # top level work scheduler on the commander side.
 async def topScheduler(topgui):
@@ -202,8 +220,8 @@ async def runCommanderLAN(topgui):
     )
 
 
-async def runPlatoonLAN(topgui):
+async def runPlatoonLAN(topgui, thisLoop, waitwin):
     await asyncio.gather(
-        commanderFinder(topgui),
+        commanderFinder(topgui, thisLoop, waitwin),
         topScheduler(topgui),
     )

@@ -228,7 +228,7 @@ class Login(QtWidgets.QDialog):
         self.machine_role = role
 
     def isCommander(self):
-        if self.machine_role == "Commander":
+        if self.machine_role == "Commander" or self.machine_role == "CommanderOnly":
             return True
         else:
             return False
@@ -325,13 +325,13 @@ class Login(QtWidgets.QDialog):
             self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID, client_id=CLIENT_ID, client=self.aws_client)
             self.tokens = self.aws_srp.authenticate_user()
 
-            print("token: ", self.tokens)
+            # print("token: ", self.tokens)
 
             #cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com", botocore_config=Config(signature_version=UNSIGNED))
             #cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com")
             self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(), access_token=self.tokens["AuthenticationResult"]["AccessToken"], refresh_token=self.tokens["AuthenticationResult"]["RefreshToken"], access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
 
-            print("cog access token:", self.cog.access_token)
+            # print("cog access token:", self.cog.access_token)
             #self.cog.check_tokens()
             #response = self.cog.authenticate(password=self.textPass.text())
 

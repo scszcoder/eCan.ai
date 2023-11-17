@@ -31,6 +31,8 @@ from genSkills import *
 import importlib
 import sys
 
+from vehicles import *
+
 from unittests import *
 
 
@@ -149,7 +151,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mission_icon_path = homepath + '/resource/images/icons/c_mission96_1.png'
         self.skill_icon_path = homepath + '/resource/images/icons/skills_78.png'
         self.product_icon_path = homepath + '/resource/images/icons/product80_0.png'
-        self.vehicle_icon_path = homepath + '/resource/images/icons/vehicle1_62.png'
+        self.vehicle_icon_path = homepath + '/resource/images/icons/vehicle_128.png'
         self.commander_icon_path = homepath + '/resource/images/icons/general1_4.png'
         self.BOTS_FILE = homepath+"/resource/bots.json"
         self.MISSIONS_FILE = homepath+"/resource/missions.json"
@@ -169,7 +171,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.user = user
         self.cog = None
         self.cog_client = None
-        self.hostrole = "CommanderRun"
+        self.hostrole = machine_role
         self.workingState = "Idle"
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
@@ -197,7 +199,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionWin = None
         self.trainNewSkillWin = None
         self.reminderWin = None
-        self.platoonWin = None
+
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
         self.logConsoleBox = Expander(self, "Log Console:")
@@ -383,6 +385,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
         self.popMenu = QtWidgets.QMenu(self)
+        self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+        self.popMenu.setFont(self.pop_menu_font)
+
         self.popMenu.addAction(QtGui.QAction('Edit', self))
         self.popMenu.addAction(QtGui.QAction('Clone', self))
         self.popMenu.addSeparator()
@@ -540,6 +545,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Main Bot&Mission Scheduler")
         # ================= DONE with GUI ==============================
 
+        self.checkVehicles()
+
         # get current wifi ssid and store it.
         print("OS platform: ", self.platform)
         if  self.platform=="win":
@@ -571,10 +578,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # now hand daily tasks
 
         self.todays_work = {"tbd": [], "allstat": "working"}
-        self.todays_work["tbd"].append({"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
+        if not self.hostrole == "Platoon":
+            self.todays_work["tbd"].append({"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
+            # point to the 1st task to run for the day.
+            self.updateRunStatus(self.todays_work["tbd"][0])
 
-        # point to the 1st task to run for the day.
-        self.updateRunStatus(self.todays_work["tbd"][0])
+    def getHomePath(self):
+        return self.homepath
+
 
     def setCog(self, cog):
         self.cog = cog
@@ -772,7 +783,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createMTVViewAction(self):
         new_action = QtGui.QAction(self)
         new_action.setText("&Vehicles View")
-        #new_action.triggered.connect(self.newMissionView)
+        new_action.triggered.connect(self.newVehiclesView)
 
         return new_action
 
@@ -863,7 +874,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # File actions
         new_action = QtGui.QAction(self)
         new_action.setText("&Fetch Schedules")
-        new_action.triggered.connect(self.fetchSchedule)
+        new_action.triggered.connect(lambda: self.fetchSchedule("5000", None))
         return new_action
 
 
@@ -986,13 +997,13 @@ class MainWindow(QtWidgets.QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        test_get_account_info(self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # test_get_account_info(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
 
 
         #the grand test,
         # 1) fetch today's schedule.
-        # self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
+        self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
         # self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
         # self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
 
@@ -1266,41 +1277,49 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 #otherwise, send work to platoons in the field.
                 if self.hostrole == "CommanderOnly":
-                    print("sending to platoon: ", i)
-                    fieldLinks[i]["link"].transport.write(json.dumps(task_groups[i]).encode("utf-8"))
+                    print("cmd only sending to platoon: ", i)
+                    task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
                 else:
-                    print("sending to platoon: ", i)
-                    fieldLinks[i-1]["link"].transport.write(json.dumps(task_groups[i]).encode("utf-8"))
+                    print("cmd sending to platoon: ", i)
+                    task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
+
+                schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"" + task_group_string + "\"}'
+                fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
     # find to todos.,
     # 1) check whether need to fetch schedules,
     # 2) checking whether need to do RPA
-    # 3)
+    # the key data structure is self.todays_work["tbd"] which should be an array of either 1 or 2 elements.
+    # either 1 or 2 elements depends on the role, if commander_only or platoon, will be 1 element,
+    # if commander (which means commander can do tasks too) then there will be 2 elements.
+    # in case of 1 element, it will be the actuall bot tasks to be done for platton or the fetch schedule task for Comander Only.
+    # in case of 2 elements, the 0th element will be the fetch schedule, the 1st element will be the bot tasks(as a whole)
+    # self.todays_work = {"tbd": [], "allstat": "working"}
     def checkToDos(self):
         print("checking todos......")
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
-        if not self.todays_work["tbd"][0]["status"] == "done":
+        if (not self.todays_work["tbd"][0]["status"] == "done") and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
             if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
                 nextrun = self.todays_work["tbd"][0]
-        elif len(self.todays_work["tbd"]) > 1 and not self.todays_work["tbd"][1]["status"] == "done":
-            print("self.todays_work[\"tbd\"][1] :", self.todays_work["tbd"][1])
-            tz = self.todays_work["tbd"][1]["current tz"]
-            bith = self.todays_work["tbd"][1]["current bidx"]
+        elif not self.todays_work["tbd"][1]["status"] == "done":
+            print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
+            tz = self.todays_work["tbd"][0]["current tz"]
+            bith = self.todays_work["tbd"][0]["current bidx"]
 
             # determin next task group:
-            current_bw_idx = self.todays_work["tbd"][1]["current widx"]
-            current_other_idx = self.todays_work["tbd"][1]["current oidx"]
+            current_bw_idx = self.todays_work["tbd"][0]["current widx"]
+            current_other_idx = self.todays_work["tbd"][0]["current oidx"]
 
-            if current_bw_idx < len(self.todays_work["tbd"][1]["works"][tz][bith]["bw_works"]):
-                current_bw_start_time = self.todays_work["tbd"][1]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
+            if current_bw_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"]):
+                current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
             else:
                 # just give it a huge number so that, this group won't get run
                 current_bw_start_time = 1000
 
-            if current_other_idx < len(self.todays_work["tbd"][1]["works"][tz][bith]["other_works"]):
-                current_other_start_time = self.todays_work["tbd"][1]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
+            if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
+                current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
             else:
                 # in case, all just give it a huge number so that, this group won't get run
                 current_other_start_time = 1000
@@ -1316,15 +1335,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 grp = ""
                 wjth = -1
 
-            self.todays_work["tbd"][1]["current grp"] = grp
+            self.todays_work["tbd"][0]["current grp"] = grp
 
 
             print("tz: ", tz, "bith: ", bith, "grp: ", grp, "wjth: ", wjth)
 
             if wjth >= 0:
-                if self.ts2time(self.todays_work["tbd"][1]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
+                if self.ts2time(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
                     print("next run is now set up......")
-                    nextrun = self.todays_work["tbd"][1]
+                    nextrun = self.todays_work["tbd"][0]
         # elif len(self.todays_work["tbd"]) > 1 and self.todays_work["tbd"][1]["status"] == "done":
 
         return nextrun
@@ -1832,16 +1851,58 @@ class MainWindow(QtWidgets.QMainWindow):
             # now that add is successfull, update local file as well.
             self.writeMissionJsonFile()
 
-    def addPlatoon(self, platoonInfo):
-        self.newPlatoon = PLATOON(platoonInfo.peername, "nyk", "")
-        self.runningVehicleModel.appendRow(self.newPlatoon)
+    def addVehicle(self, vinfo):
+        print("adding a vehicle.....", vinfo.peername)
+        newVehicle = VEHICLE(self)
+        newVehicle.setIP(vinfo.peername[0])
+        ipfields = vinfo.peername[0].split(".")
+        ip = ipfields[len(ipfields) - 1]
+        newVehicle.setVid(ip)
+        self.runningVehicleModel.appendRow(newVehicle)
 
-    def updatePlatoon(self, platoonInfo):
-        self.newPlatoon = PLATOON(platoonInfo.peername, "nyk", "")
-        self.runningVehicleModel.appendRow(self.newPlatoon)
+    def checkVehicles(self):
+        print("adding already linked vehicles.....")
+        for i in range(len(fieldLinks)):
+            print("a fieldlink.....", fieldLinks[i])
+            newVehicle = VEHICLE(self)
+            newVehicle.setIP(fieldLinks[i]["ip"][0])
+            ipfields = fieldLinks[i]["ip"][0].split(".")
+            ip = ipfields[len(ipfields)-1]
+            newVehicle.setVid(ip)
+            self.runningVehicleModel.appendRow(newVehicle)
+
+    def fetchVehicleStatus(self, rows):
+        cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
+        effective_rows = list(filter(lambda r: r >= 0, rows))
+        if len(effective_rows) > 0:
+            self.sendToPlatoons(effective_rows, cmd)
+
+    def sendPlatoonCommnd(self, command, rows, mids):
+        if command == "fresh":
+            cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
+        elif command == "halt":
+            cmd = '{\"cmd\":\"reqHaltMissions\", \"missions\":\"all\"}'
+        elif command == "resume":
+            cmd = '{\"cmd\":\"reqResumeMissions\", \"missions\":\"all\"}'
+        elif command == "cancel this":
+            mission_list_string = ','.join(str(x) for x in mids)
+            cmd = '{\"cmd\":\"reqCancelMissions\", \"missions\":\"'+mission_list_string+'\"}'
+        elif command == "cancel all":
+            cmd = '{\"cmd\":\"reqCancelAllMissions\", \"missions\":\"all\"}'
+
+        effective_rows = list(filter(lambda r: r >= 0, rows))
+        if len(effective_rows) > 0:
+            self.sendToPlatoons(effective_rows, cmd)
+
+
+    def cancelVehicleMission(self, rows):
+        cmd = '{\"cmd\":\"reqCancelMission\", \"missions\":\"all\"}'
+        effective_rows = list(filter(lambda r: r >= 0, rows))
+        if len(effective_rows) > 0:
+            self.sendToPlatoons(effective_rows, cmd)
 
     # this function sends commands to platoon(s)
-    def sendToPlatoons(self):
+    def sendToPlatoons(self, idxs, cmd='{\"cmd\":\"ping\"}'):
         # this shall bring up a windows, but for now, simply send something to a platoon for network testing purpose...
         #if self.platoonWin == None:
         #    self.platoonWin = PlatoonWindow(self)
@@ -1856,7 +1917,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(fieldLinks) > 0:
             print("Currently, there are (", len(fieldLinks), ") connection to this server.....")
             for i in range(len(fieldLinks)):
-                fieldLinks[i]["link"].transport.write(('what the hell!!!! ' + str(i)).encode('utf8'))
+                if i in idxs:
+                    fieldLinks[i]["link"].transport.write(cmd.encode('utf8'))
         else:
             print("Warning..... TCP server not up and running yet...")
 
@@ -2107,10 +2169,19 @@ class MainWindow(QtWidgets.QMainWindow):
         #self.BotNewWin.resize(400, 200)
         self.missionWin.show()
 
+    def newVehiclesView(self):
+        if self.platoonWin == None:
+            self.platoonWin = PlatoonWindow(self)
+            self.platoonWin.setOwner(self.owner)
+        self.platoonWin.show()
+
     def eventFilter(self, source, event):
         if event.type() == QtCore.QEvent.ContextMenu and source is self.botListView:
             #print("bot RC menu....")
             self.popMenu = QtWidgets.QMenu(self)
+            self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+            self.popMenu.setFont(self.pop_menu_font)
+
             self.rcbotEditAction = self._createBotRCEditAction()
             self.rcbotCloneAction = self._createBotRCCloneAction()
             self.rcbotDeleteAction = self._createBotRCDeleteAction()
@@ -2134,6 +2205,8 @@ class MainWindow(QtWidgets.QMainWindow):
         elif event.type() == QtCore.QEvent.ContextMenu and source is self.missionListView:
             #print("mission RC menu....")
             self.popMenu = QtWidgets.QMenu(self)
+            self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+            self.popMenu.setFont(self.pop_menu_font)
             self.cusMissionEditAction = self._createCusMissionEditAction()
             self.cusMissionCloneAction = self._createCusMissionCloneAction()
             self.cusMissionDeleteAction = self._createCusMissionDeleteAction()
@@ -2779,6 +2852,41 @@ class MainWindow(QtWidgets.QMainWindow):
         for m in self.missions:
             status = m.run()
 
+
+    # FETCH_ROUTINE = {
+    #     "eastern": [{
+    #         "bid": 0,
+    #         "tz": "eastern",
+    #         "bw_works": [],
+    #         "other_works": [{
+    #             "mid": 0,
+    #             "name": "fetch schedules",
+    #             "cuspas": "",
+    #             "todos": None,
+    #             "start_time": START_TIME,
+    #             "end_time": "",
+    #             "stat": "nys"
+    #         }],
+    #     }],
+    #     "central": [],
+    #     "moutain": [],
+    #     "pacific": [],
+    #     "alaska": [],
+    #     "hawaii": []
+    # }
+    #
+    # todos data structure: {
+    #  "name": ***,
+    #  "works": FETCH_ROUTINE,
+    #  "status": ***,
+    #  "current tz": "eastern",
+    #  "current grp": "other_works",
+    #  "current bidx": 0,
+    #  "current widx": 0,
+    #  "current oidx": 0,
+    #  "completed": [],
+    #  "aborted": []
+    #  }
     async def runbotworks(self):
         # run all the work
         botTodos = None
@@ -2790,7 +2898,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    # self.fetchSchedule("", None)
+                    self.fetchSchedule("", None)
 
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
@@ -2821,9 +2929,11 @@ class MainWindow(QtWidgets.QMainWindow):
     # msg in json format
     # { sender: "ip addr", type: "intro/status/report", content : "another json" }
     # content format varies according to type.
-    def processPlatoonMsgs(self, msgString):
+    def processPlatoonMsgs(self, msgString, ip):
+        print("Platoon Msg Received:", msgString)
         msg = json.loads(msgString)
-        found = next((x for x in fieldLinks if x["ip"] == self.peername), None)
+
+        found = next((x for x in fieldLinks if x["ip"] == ip), None)
 
         # first, check ip and make sure this from a know vehicle.
         if msg["type"] == "intro":
@@ -2832,6 +2942,13 @@ class MainWindow(QtWidgets.QMainWindow):
         elif msg["type"] == "status":
             # update vehicle status display.
             self.showMsg(msg["content"])
+            print("recevied a status update message")
+            if self.platoonWin:
+                self.platoonWin.updatePlatoonStatAndShow(msg)
+                self.platoonWin.show()
+            else:
+                print("platoon win not created yets....")
+
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
             self.todaysReports.append(json.loads(msg["content"]))
@@ -2849,12 +2966,84 @@ class MainWindow(QtWidgets.QMainWindow):
             result = {
                 "mid": mid,
                 "botid": 0,
-                "start_time": "2023-11-09 01:12:02",
-                "end_time": "2023-11-09 01:22:12",
-                "status": "Done",
+                "sst": "2022-11-09 01:12:02",
+                "sd": 300,
+                "ast": "2023-11-09 01:12:02",
+                "aet": "2023-11-09 01:22:12",
+                "status": "completed",
                 "error": ""
             }
             results.append(result)
+        # for mid in mids:
+        #     result = {
+        #         "mid": mid,
+        #         "botid": 0,
+        #         "start_time": "2023-11-09 01:12:02",
+        #         "end_time": "2023-11-09 01:22:12",
+        #         "status": "Done",
+        #         "error": ""
+        #     }
+        #     results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "600",
+            "aet": "2023-11-09 01:22:12",
+            "status": "scheduled",
+            "error": ""
+        }
+        results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "600",
+            "aet": "2023-11-09 01:22:12",
+            "status": "completed",
+            "error": ""
+        }
+        results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "600",
+            "aet": "2023-11-09 01:22:12",
+            "status": "running",
+            "error": ""
+        }
+        results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "500",
+            "aet": "2023-11-09 01:22:12",
+            "status": "warned",
+            "error": ""
+        }
+        results.append(result)
+
+        result = {
+            "mid": 1,
+            "botid": 0,
+            "sst": "2023-11-09 01:12:02",
+            "ast": "2023-11-09 01:12:02",
+            "sd": "300",
+            "aet": "2023-11-09 01:22:12",
+            "status": "aborted",
+            "error": ""
+        }
+        results.append(result)
 
         print("mission status result:", results)
         return results
@@ -2863,6 +3052,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
+        print("received from commander: ", msgString)
         msg = json.loads(msgString)
         # first, check ip and make sure this from a know vehicle.
         if msg["cmd"] == "reqStatusUpdate":
@@ -2879,16 +3069,26 @@ class MainWindow(QtWidgets.QMainWindow):
                 # send to commander
                 self.commanderXport.write(msg.encode('utf8'))
 
-        elif msg["cmd"] == "reqCancelMission":
+        elif msg["cmd"] == "reqCancelMissions":
             # update vehicle status display.
             self.showMsg(msg["content"])
         elif msg["cmd"] == "reqSetSchedule":
             # schedule work now..... append to array data structure and set up the pointer to the 1st task.
             # the actual running of the tasks will be taken care of by the schduler.
-            localworks = json.loads(msg["content"])
+            localworks = json.loads(msg["todos"])
+            print("received work request:", localworks)
+            # send work into work Queue which is the self.todays_work["tbd"] data structure.
             self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": "eastern", "current grp": None, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
-            self.updateRunStatus(self.todays_work["tbd"][1])
-
+            print("after assigned work, ", len(self.todays_work["tbd"]), "todos exists in the queue.", self.todays_work["tbd"])
+        elif msg["cmd"] == "reqCancelAllMissions":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
+        elif msg["cmd"] == "reqHaltMissions":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
+        elif msg["cmd"] == "reqResumeMissions":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
     # just an array of the following object:
     # MissionStatus {
     #     mid: ID!
@@ -2933,6 +3133,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def doneWithToday(self):
         global commanderXport
         # call reportStatus API to send today's report to API
+        print("Done with today!")
         todays_stat = self.genRunReport()
 
         if not self.hostrole == "Platoon":
@@ -2946,5 +3147,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # 2) log reports.
         self.saveDailyRunReport(todays_stat)
 
-        # 3) clear data structure, set up for tomorrow morning.
-        self.todays_work = {"tbd": [{"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}
+        # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
+        if not self.hostrole == "Platoon":
+            self.todays_work = {"tbd": [{"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}
