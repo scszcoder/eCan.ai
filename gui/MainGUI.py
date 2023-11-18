@@ -1251,6 +1251,45 @@ class MainWindow(QtWidgets.QMainWindow):
             new_mission = EBMISSION(self)
             self.fill_mission(new_mission, m, task_groups)
             self.missions.append(new_mission)
+            print("adding mission....")
+
+    def formBotsString(self, botids):
+        result = "["
+        for bid in botids:
+            result = result + json.dumps(self.bots[bid].genJson()).replace('"', '\\"')
+            if bid != botids[-1]:
+                result = result + ","
+        result = result + "]"
+        return result
+
+    def formMissionsString(self, mids):
+        result = "["
+        for mid in mids:
+            result = result + json.dumps(self.missions[mid].genJson()).replace('"', '\\"')
+            if mid != mids[-1]:
+                result = result + ","
+        result = result + "]"
+        return result
+
+    def formBotsMissionsString(self, botids, mids):
+        result = '\"bots\": ' + self.formBotsString(botids) + ',\"bots\": ' + self.formMissionsString(mids)
+        return result
+
+
+    def getAllBotidsMidsFromTaskGroup(self, task_group):
+        bids = []
+        mids = []
+        for key, value in task_group.items():
+            if isinstance(value, list) and len(value) > 0:
+                for assignment in value:
+                    bids.append(assignment["bid"])
+                    for work in value["bw_works"]:
+                        mids.append(work["mid"])
+                    for work in value["other_works"]:
+                        mids.append(work["mid"])
+        print("bids in the task group::", bids)
+        print("mids in the task group::", mids)
+        return bids, mids
 
     # assign work, if this commander runs, assign works for commander,
     # otherwise, send works to platoons to execute.
@@ -1283,7 +1322,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     print("cmd sending to platoon: ", i)
                     task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
 
-                schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"" + task_group_string + "\"}'
+                # now need to fetch this task associated bots, mission, skills
+                # get all bots IDs involved. get all mission IDs involved.
+                tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[i])
+                resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+                schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
+                print("SCHEDULE:::", schedule)
                 fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
     # find to todos.,
@@ -1296,55 +1340,56 @@ class MainWindow(QtWidgets.QMainWindow):
     # in case of 2 elements, the 0th element will be the fetch schedule, the 1st element will be the bot tasks(as a whole)
     # self.todays_work = {"tbd": [], "allstat": "working"}
     def checkToDos(self):
-        print("checking todos......")
+        print("checking todos......", self.todays_work["tbd"])
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
-        if (not self.todays_work["tbd"][0]["status"] == "done") and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
-            if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
-                nextrun = self.todays_work["tbd"][0]
-        elif not self.todays_work["tbd"][1]["status"] == "done":
-            print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
-            tz = self.todays_work["tbd"][0]["current tz"]
-            bith = self.todays_work["tbd"][0]["current bidx"]
-
-            # determin next task group:
-            current_bw_idx = self.todays_work["tbd"][0]["current widx"]
-            current_other_idx = self.todays_work["tbd"][0]["current oidx"]
-
-            if current_bw_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"]):
-                current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
-            else:
-                # just give it a huge number so that, this group won't get run
-                current_bw_start_time = 1000
-
-            if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
-                current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
-            else:
-                # in case, all just give it a huge number so that, this group won't get run
-                current_other_start_time = 1000
-
-            if current_bw_start_time < current_other_start_time:
-                grp = "bw_works"
-                wjth = current_bw_idx
-            elif current_bw_start_time > current_other_start_time:
-                grp = "other_works"
-                wjth = current_other_idx
-            else:
-                # if both gets 1000 value, that means there is nothing to run.
-                grp = ""
-                wjth = -1
-
-            self.todays_work["tbd"][0]["current grp"] = grp
-
-
-            print("tz: ", tz, "bith: ", bith, "grp: ", grp, "wjth: ", wjth)
-
-            if wjth >= 0:
-                if self.ts2time(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
-                    print("next run is now set up......")
+        if len(self.todays_work["tbd"]) >  0:
+            if (not self.todays_work["tbd"][0]["status"] == "done") and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
+                if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
                     nextrun = self.todays_work["tbd"][0]
-        # elif len(self.todays_work["tbd"]) > 1 and self.todays_work["tbd"][1]["status"] == "done":
+            elif not self.todays_work["tbd"][0]["status"] == "done":
+                print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
+                tz = self.todays_work["tbd"][0]["current tz"]
+                bith = self.todays_work["tbd"][0]["current bidx"]
+
+                # determin next task group:
+                current_bw_idx = self.todays_work["tbd"][0]["current widx"]
+                current_other_idx = self.todays_work["tbd"][0]["current oidx"]
+
+                if current_bw_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"]):
+                    current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
+                else:
+                    # just give it a huge number so that, this group won't get run
+                    current_bw_start_time = 1000
+
+                if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
+                    current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
+                else:
+                    # in case, all just give it a huge number so that, this group won't get run
+                    current_other_start_time = 1000
+
+                if current_bw_start_time < current_other_start_time:
+                    grp = "bw_works"
+                    wjth = current_bw_idx
+                elif current_bw_start_time > current_other_start_time:
+                    grp = "other_works"
+                    wjth = current_other_idx
+                else:
+                    # if both gets 1000 value, that means there is nothing to run.
+                    grp = ""
+                    wjth = -1
+
+                self.todays_work["tbd"][0]["current grp"] = grp
+
+
+                print("tz: ", tz, "bith: ", bith, "grp: ", grp, "wjth: ", wjth)
+
+                if wjth >= 0:
+                    if self.ts2time(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
+                        print("next run is now set up......")
+                        nextrun = self.todays_work["tbd"][0]
+            # elif len(self.todays_work["tbd"]) > 1 and self.todays_work["tbd"][1]["status"] == "done":
 
         return nextrun
 
@@ -3078,7 +3123,16 @@ class MainWindow(QtWidgets.QMainWindow):
             localworks = json.loads(msg["todos"])
             print("received work request:", localworks)
             # send work into work Queue which is the self.todays_work["tbd"] data structure.
-            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": "eastern", "current grp": None, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
+            for key, value in localworks.items():
+                if isinstance(value, list) and len(value) > 0:
+                    current_tz = key
+                    current_tz_works = value
+                    if len(current_tz_works[0]["bw_works"]) > 0:
+                        current_group = "bw_works"
+                    else:
+                        current_group = "other_works"
+                    break
+            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
             print("after assigned work, ", len(self.todays_work["tbd"]), "todos exists in the queue.", self.todays_work["tbd"])
         elif msg["cmd"] == "reqCancelAllMissions":
             # update vehicle status display.
