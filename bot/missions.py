@@ -239,16 +239,39 @@ class M_Pub_Attributes():
     def genJson(self):
         jd = {
                 "missionId": self.missionId,
+                "ticket": self.ticket,
                 "assign_type": self.assign_type,
                 "ms_type": self.ms_type,
-                "ms_config": self.config,
+                "config": self.config,
                 "nex": self.nex,
                 "bot_id": self.bot_id,
                 "status": self.status,
                 "phrase": self.search_kw,
-                "category": self.search_cat
+                "category": self.search_cat,
+                "esd": self.esd,
+                "ecd": self.ecd,
+                "asd": self.asd,
+                "abd": self.abd,
+                "aad": self.aad,
+                "afd": self.afd,
+                "acd": self.acd,
+                "pseudo_store": self.pseudo_store,
+                "pseudo_brand": self.pseudo_brand,
+                "pseudo_asin": self.pseudo_asin,
+                "skills": self.skills,
+                "cuspas": self.cuspas,
+                "createon": self.createon,
+                "run_time": self.run_time,
+                "actual_start_time": self.actual_start_time,
+                "eststartt": self.eststartt,
+                "startt": self.startt,
+                "esttime": self.esttime,
+                "del_date": self.del_date,
+                "app_exe": self.app_exe
             }
         return jd
+
+
 
 #Notes:
 # Bot will never visit the user profile page will reveals critical account information.
@@ -604,7 +627,6 @@ class EBMISSION(QtGui.QStandardItem):
         self.setText('mission' + str(self.getMid()))
 
     def genJson(self):
-        print("generating Json..........>>>>")
         jsd = {
                 "pubProfile": self.pubAttributes.genJson(),
                 "privateProfile": self.privateAttributes.genJson()
@@ -619,8 +641,7 @@ class EBMISSION(QtGui.QStandardItem):
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
-        self.tasks = jd["tasks"]
-        self.parent_settings["mission_id"] = jd["parent_settings"]["mission_id"]
+        # self.tasks = jd["tasks"]
         # self.parent_settings["uid"] = jd["parent_settings"]["uid"]
 
     # load data from a row in sqlite DB.
