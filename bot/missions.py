@@ -213,7 +213,7 @@ class M_Pub_Attributes():
         self.ticket = dj["ticket"]
         self.ms_type = dj["type"]
         self.owner = dj["owner"]
-        self.nex = dj["trepeat"]
+        self.nex = dj["repeat"]
         self.bot_id = dj["botid"]
         self.status = dj["status"]
         self.search_kw = dj["phrase"]
@@ -243,7 +243,7 @@ class M_Pub_Attributes():
                 "assign_type": self.assign_type,
                 "ms_type": self.ms_type,
                 "config": self.config,
-                "nex": self.nex,
+                "repeat": self.nex,
                 "bot_id": self.bot_id,
                 "status": self.status,
                 "phrase": self.search_kw,
