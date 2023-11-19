@@ -98,7 +98,7 @@ class M_Private_Attributes():
         self.feedbacks = dj["feedbacks"]
         self.fb_type = dj["fb_type"]
 
-    def genJson(self, dj):
+    def genJson(self):
         jd = {
                 "item_number": self.item_number,
                 "seller": self.seller,
@@ -236,7 +236,7 @@ class M_Pub_Attributes():
         self.cuspas = dj["cuspas"]
         self.createon = dj["createon"]
 
-    def genJson(self, dj):
+    def genJson(self):
         jd = {
                 "missionId": self.missionId,
                 "assign_type": self.assign_type,
@@ -245,8 +245,8 @@ class M_Pub_Attributes():
                 "nex": self.nex,
                 "bot_id": self.bot_id,
                 "status": self.status,
-                "search_kw": self.search_kw,
-                "category": self.category
+                "phrase": self.search_kw,
+                "category": self.search_cat
             }
         return jd
 
@@ -606,11 +606,11 @@ class EBMISSION(QtGui.QStandardItem):
     def genJson(self):
         print("generating Json..........>>>>")
         jsd = {
-                "pubProfile": self.pubAttributes.genJson,
-                "privateProfile": self.privateAttributes.genJson,
-                "parent_settings": self.parent_settings
+                "pubProfile": self.pubAttributes.genJson(),
+                "privateProfile": self.privateAttributes.genJson()
                 }
-        print(json.dumps(jsd))
+        print("GENERATED JSON:", jsd)
+        print("after dump:", json.dumps(jsd))
         return jsd
 
     def loadNetRespJson(self, jd):

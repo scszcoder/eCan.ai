@@ -1,3 +1,5 @@
+import json
+
 from BotGUI import *
 from MissionGUI import *
 from ScheduleGUI import *
@@ -199,7 +201,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionWin = None
         self.trainNewSkillWin = None
         self.reminderWin = None
-
+        self.platoonWin = None
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
         self.logConsoleBox = Expander(self, "Log Console:")
@@ -1049,13 +1051,13 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             # first, need to decompress the body.
             # very important to use compress and decompress on Base64
-            # uncompressed = self.zipper.decompressFromBase64(jresp["body"])
-            uncompressed = jresp["body"]
+            uncompressed = self.zipper.decompressFromBase64(jresp["body"])
+            # uncompressed = jresp["body"]
             print("decomppressed response:", uncompressed, "!")
             if uncompressed != "":
                 # print("body string:", uncompressed, "!", len(uncompressed), "::")
-                # bodyobj = json.loads(uncompressed)
-                bodyobj = uncompressed
+                bodyobj = json.loads(uncompressed)
+                # bodyobj = uncompressed
 
                 # body object will be a list of task groups[
                 # {
@@ -1253,26 +1255,51 @@ class MainWindow(QtWidgets.QMainWindow):
             self.missions.append(new_mission)
             print("adding mission....")
 
+    def getBotByID(self, bid):
+        found_bot = None
+        for bot in self.bots:
+            if bot.getBid() == bid:
+                found_bot = bot
+                break
+        return found_bot
+
+    def getMissionByID(self, mid):
+        found_mission = None
+        for mission in self.missions:
+            if mission.getMid() == mid:
+                found_mission = mission
+                break
+        return found_mission
+
     def formBotsString(self, botids):
         result = "["
         for bid in botids:
-            result = result + json.dumps(self.bots[bid].genJson()).replace('"', '\\"')
+            # result = result + json.dumps(self.getBotByID(bid).genJson()).replace('"', '\\"')
+            result = result + json.dumps(self.getBotByID(bid).genJson())
+
             if bid != botids[-1]:
                 result = result + ","
         result = result + "]"
+        print("BOT STRING:", result)
         return result
 
     def formMissionsString(self, mids):
         result = "["
         for mid in mids:
-            result = result + json.dumps(self.missions[mid].genJson()).replace('"', '\\"')
+            # result = result + json.dumps(self.getMissionByID(mid).genJson()).replace('"', '\\"')
+            result = result + json.dumps(self.getMissionByID(mid).genJson())
+
             if mid != mids[-1]:
                 result = result + ","
         result = result + "]"
+        print("MISSIONS STRING:", result)
         return result
 
     def formBotsMissionsString(self, botids, mids):
-        result = '\"bots\": ' + self.formBotsString(botids) + ',\"bots\": ' + self.formMissionsString(mids)
+        # result = "{\"bots\": " + self.formBotsString(botids) + ",\"missions\": " + self.formMissionsString(mids) + "}"
+        result = "\"bots\": " + self.formBotsString(botids) + ",\"missions\": " + self.formMissionsString(mids) + ""
+
+        # junk = json.loads(result)
         return result
 
 
@@ -1283,9 +1310,9 @@ class MainWindow(QtWidgets.QMainWindow):
             if isinstance(value, list) and len(value) > 0:
                 for assignment in value:
                     bids.append(assignment["bid"])
-                    for work in value["bw_works"]:
+                    for work in assignment["bw_works"]:
                         mids.append(work["mid"])
-                    for work in value["other_works"]:
+                    for work in assignment["other_works"]:
                         mids.append(work["mid"])
         print("bids in the task group::", bids)
         print("mids in the task group::", mids)
@@ -1295,12 +1322,18 @@ class MainWindow(QtWidgets.QMainWindow):
     # otherwise, send works to platoons to execute.
     def assignWork(self, task_groups):
         # tasks should already be sorted by botid,
-        if self.hostrole == "CommanderOnly":
-            nsites = len(fieldLinks)
-            print("commander only machine [", nsites, "]")
-        else:
-            nsites = 1 + len(fieldLinks)
-            print("commander can run.....[", nsites, "]")
+        nsites = 0
+        if len(task_groups) > 0:
+            if self.hostrole == "CommanderOnly":
+                nsites = len(fieldLinks)
+                print("commander only machine [", nsites, "]")
+            else:
+                nsites = 1 + len(fieldLinks)
+                print("commander can run.....[", nsites, "]")
+
+            tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[0])
+            resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+            print("test code here.....", resource_string)
 
         if len(task_groups) > nsites:
             # there will be unserved tasks due to over capacity
@@ -1308,27 +1341,28 @@ class MainWindow(QtWidgets.QMainWindow):
             self.netLogWin.appendLogs("Run Capacity Spilled, some tasks will NOT be served!!!")
 
         # distribute work to all available sites, which is the limit for the total capacity.
-        for i in range(nsites):
-            if i == 0 and not self.hostrole == "CommanderOnly":
-                # if commander participate work, give work to here.
-                print("arranged for today on this machine....")
-                self.todays_work["tbd"].append({"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
-            else:
-                #otherwise, send work to platoons in the field.
-                if self.hostrole == "CommanderOnly":
-                    print("cmd only sending to platoon: ", i)
-                    task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
+        if nsites > 0:
+            for i in range(nsites):
+                if i == 0 and not self.hostrole == "CommanderOnly":
+                    # if commander participate work, give work to here.
+                    print("arranged for today on this machine....")
+                    self.todays_work["tbd"].append({"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
                 else:
-                    print("cmd sending to platoon: ", i)
-                    task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
+                    #otherwise, send work to platoons in the field.
+                    if self.hostrole == "CommanderOnly":
+                        print("cmd only sending to platoon: ", i)
+                        task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
+                    else:
+                        print("cmd sending to platoon: ", i)
+                        task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
 
-                # now need to fetch this task associated bots, mission, skills
-                # get all bots IDs involved. get all mission IDs involved.
-                tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[i])
-                resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
-                schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
-                print("SCHEDULE:::", schedule)
-                fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
+                    # now need to fetch this task associated bots, mission, skills
+                    # get all bots IDs involved. get all mission IDs involved.
+                    tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[i])
+                    resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+                    schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
+                    print("SCHEDULE:::", schedule)
+                    fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
     # find to todos.,
     # 1) check whether need to fetch schedules,
@@ -1896,6 +1930,17 @@ class MainWindow(QtWidgets.QMainWindow):
             # now that add is successfull, update local file as well.
             self.writeMissionJsonFile()
 
+    def addBotsMissionsFromCommander(self, botsJson, missionsJson):
+        for bjs in botsJson:
+            self.newBot = EBBOT(self)
+            self.newBot.loadJson(bjs)
+            self.bots.append(self.newBot)
+
+        for mjs in missionsJson:
+            self.newMission = EBMISSION(self)
+            self.newMission.loadJson(mjs)
+            self.missions.append(self.newMission)
+
     def addVehicle(self, vinfo):
         print("adding a vehicle.....", vinfo.peername)
         newVehicle = VEHICLE(self)
@@ -2408,7 +2453,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def fillNewBotFullInfo(self, nbjson, nb):
         print("filling bot data for bot-"+str(nbjson["pubProfile"]["bid"]))
-        nb.setJsonData(nbjson)
+        nb.loadJson(nbjson)
 
 
     def newBotFromFile(self):
@@ -3121,6 +3166,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # schedule work now..... append to array data structure and set up the pointer to the 1st task.
             # the actual running of the tasks will be taken care of by the schduler.
             localworks = json.loads(msg["todos"])
+            self.addBotsMissionsFromCommander(msg["bots"], msg["missions"])
             print("received work request:", localworks)
             # send work into work Queue which is the self.todays_work["tbd"] data structure.
             for key, value in localworks.items():

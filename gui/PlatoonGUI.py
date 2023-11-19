@@ -67,7 +67,7 @@ class PLATOON(QtGui.QStandardItem):
 
 # class MainWindow(QtWidgets.QWidget):
 class PlatoonWindow(QtWidgets.QMainWindow):
-    def __init__(self, parent):
+    def __init__(self, parent, entrance="msg"):
         super(PlatoonWindow, self).__init__()
         self.BOTS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/bots.json"
         self.MISSIONS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/missions.json"
@@ -109,9 +109,10 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         self.bottomSplitter = QtWidgets.QSplitter(Qt.Vertical)
 
         self.genGuiTestDat()
-        for v in self.vehicles:
-            ip_last = v["ip"].split(".")[len(v["ip"].split("."))-1]
-            self.tabs.addTab(self._createVehicleTab(v["stats"]), "Platoon"+ip_last)
+        if entrance != "conn":
+            for v in self.vehicles:
+                ip_last = v["ip"].split(".")[len(v["ip"].split("."))-1]
+                self.tabs.addTab(self._createVehicleTab(v["stats"]), "Platoon"+ip_last)
 
 
         self.mainWidget.setLayout(self.layout)
@@ -130,7 +131,12 @@ class PlatoonWindow(QtWidgets.QMainWindow):
     def updatePlatoonStatAndShow(self, rx_data):
         ip_last = rx_data["ip"].split(".")[len(rx_data["ip"].split(".")) - 1]
         tab_names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
-        tab_index = tab_names.index("Platoon"+ip_last)
+        new_tab_name = "Platoon"+ip_last
+        if new_tab_name in tab_names:
+            tab_index = tab_names.index(new_tab_name)
+        else:
+            # need to add a new tab.
+            print("adding a new tab....")
 
 
         vmodel = self.platoonTableViews[tab_index].model()
@@ -253,7 +259,7 @@ class PlatoonWindow(QtWidgets.QMainWindow):
             "status": "aborted",
             "error": "203: Found Captcha",
         }],
-            "ip": "192.168.22.28"}
+            "ip": "192.168.22.29"}
         self.vehicles.append(newV)
 
     def createLabel(self, text):
