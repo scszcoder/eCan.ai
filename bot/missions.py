@@ -183,8 +183,8 @@ class M_Pub_Attributes():
         self.nex = dj["repeat"]
         self.bot_id = dj["bot_id"]
         self.status = dj["status"]
-        self.search_kw = dj["search_kw"]
-        self.search_cat = dj["search_cat"]
+        self.search_kw = dj["phrase"]
+        self.search_cat = dj["category"]
         self.config = dj["config"]
         self.esd = dj["esd"]
         self.ecd = dj["ecd"]
@@ -267,6 +267,7 @@ class M_Pub_Attributes():
                 "startt": self.startt,
                 "esttime": self.esttime,
                 "del_date": self.del_date,
+                "platoon_id": self.platoon_id,
                 "app_exe": self.app_exe
             }
         return jd
