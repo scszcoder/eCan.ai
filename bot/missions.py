@@ -628,8 +628,8 @@ class EBMISSION(QtGui.QStandardItem):
 
     def genJson(self):
         jsd = {
-                "pubProfile": self.pubAttributes.genJson(),
-                "privateProfile": self.privateAttributes.genJson()
+                "pubAttributes": self.pubAttributes.genJson(),
+                "privateAttributes": self.privateAttributes.genJson()
                 }
         print("GENERATED JSON:", jsd)
         print("after dump:", json.dumps(jsd))
