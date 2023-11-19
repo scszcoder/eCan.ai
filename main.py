@@ -64,6 +64,7 @@ def windowlauncher():
     if login.isCommander():
         print("run as commander...")
         loop.create_task(runCommanderLAN(login))
+        login.show()
         # w = MainWindow()
         # w.show()
         loop.run_forever()

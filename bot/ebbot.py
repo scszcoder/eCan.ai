@@ -193,7 +193,7 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrzip = dj["shipaddrzip"]
 
 
-    def genJson(self, dj):
+    def genJson(self):
         jd = {
                 "first_name": self.first_name,
                 "last_name": self.last_name,
@@ -298,14 +298,16 @@ class BOT_PUB_PROFILE():
         self.levelStart = dj["levelStart"]
         self.delDate = dj["delDate"]
 
-    def genJson(self, dj):
+    def genJson(self):
         jd = {
                 "pseudo_nick_name": self.pseudo_nick_name,
                 "location": self.location,
-                "age": self.age,
+                "pubbirthday": self.pubbirthday,
                 "mf": self.gender,
                 "interests": self.interests,
-                "roles": self.roles
+                "roles": self.roles,
+                "levels": self.levels,
+                "bid": self.bid
             }
         return jd
 #Notes:
@@ -473,7 +475,7 @@ class EBBOT(QtGui.QStandardItem):
 
 
     # fill up data structure from json data.
-    def setJsonData(self, nbJson):
+    def loadJson(self, nbJson):
         self.pubProfile.loadJson(nbJson["pubProfile"])
         self.privateProfile.loadJson(nbJson["privateProfile"])
         self.settings.loadJson(nbJson["settings"])
