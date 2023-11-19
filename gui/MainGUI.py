@@ -1931,6 +1931,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.writeMissionJsonFile()
 
     def addBotsMissionsFromCommander(self, botsJson, missionsJson):
+
+        print("BOTS String:", type(botsJson), botsJson)
+        print("Missions String:", type(missionsJson), missionsJson)
         for bjs in botsJson:
             self.newBot = EBBOT(self)
             self.newBot.loadJson(bjs)

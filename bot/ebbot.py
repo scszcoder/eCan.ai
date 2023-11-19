@@ -55,7 +55,10 @@ class BOT_SETTINGS():
 
 
     def loadJson(self, dj):
-        self.tasks = dj["tasks"]
+        self.platform = dj["platform"]
+        self.os = dj["os"]
+        self.browser = dj["browser"]
+        self.machine = dj["machine"]
 
     def setComputer(self, platform, os, machine, browser):
         self.platform = platform
@@ -202,7 +205,17 @@ class BOT_PRIVATE_PROFILE():
                 "phone": self.phone,
                 "backup_email": self.backup_email,
                 "acct_pw": self.acct_pw,
-                "birthday": self.birthday
+                "birthday": self.birthday,
+                "addrl1": self.addrl1,
+                "addrl2": self.addrl2,
+                "addrcity": self.addrcity,
+                "addrstate": self.addrstate,
+                "addrzip": self.addrzip,
+                "shipaddrl1": self.shipping_addrl1,
+                "shipaddrl2": self.shipping_addrl2,
+                "shipaddrcity": self.shipping_addrcity,
+                "shipaddrstate": self.shipping_addrstate,
+                "shipaddrzip": self.shipping_addrzip
             }
         return jd
 
@@ -301,13 +314,16 @@ class BOT_PUB_PROFILE():
     def genJson(self):
         jd = {
                 "pseudo_nick_name": self.pseudo_nick_name,
+                "pseudo_name": self.pseudo_name,
                 "location": self.location,
                 "pubbirthday": self.pubbirthday,
                 "mf": self.gender,
                 "interests": self.interests,
                 "roles": self.roles,
                 "levels": self.levels,
-                "bid": self.bid
+                "bid": self.bid,
+                "gender": self.gender,
+                "status": self.status
             }
         return jd
 #Notes:
