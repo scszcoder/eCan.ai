@@ -1,3 +1,5 @@
+import json
+
 from BotGUI import *
 from MissionGUI import *
 from ScheduleGUI import *
@@ -199,7 +201,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionWin = None
         self.trainNewSkillWin = None
         self.reminderWin = None
-
+        self.platoonWin = None
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
         self.logConsoleBox = Expander(self, "Log Console:")
@@ -560,9 +562,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if (self.machine_role != "Platoon"):
             # load skills into memory.
-            self.loadLocalSkills()
             self.loadLocalBots()
             self.loadLocalMissions()
+
+        # this will handle all skill bundled into software itself.
+        self.loadLocalSkills()
 
         # Done with all UI stuff, now do the instruction set extension work.
         sk_extension_file = self.homepath + "/resource/skills/my/skill_extension.json"
@@ -874,7 +878,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # File actions
         new_action = QtGui.QAction(self)
         new_action.setText("&Fetch Schedules")
-        new_action.triggered.connect(lambda: self.fetchSchedule("5000", None))
+        new_action.triggered.connect(lambda: self.fetchSchedule("6000", None))
         return new_action
 
 
@@ -1049,13 +1053,13 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             # first, need to decompress the body.
             # very important to use compress and decompress on Base64
-            # uncompressed = self.zipper.decompressFromBase64(jresp["body"])
-            uncompressed = jresp["body"]
+            uncompressed = self.zipper.decompressFromBase64(jresp["body"])
+            # uncompressed = jresp["body"]
             print("decomppressed response:", uncompressed, "!")
             if uncompressed != "":
                 # print("body string:", uncompressed, "!", len(uncompressed), "::")
-                # bodyobj = json.loads(uncompressed)
-                bodyobj = uncompressed
+                bodyobj = json.loads(uncompressed)
+                # bodyobj = uncompressed
 
                 # body object will be a list of task groups[
                 # {
@@ -1251,17 +1255,87 @@ class MainWindow(QtWidgets.QMainWindow):
             new_mission = EBMISSION(self)
             self.fill_mission(new_mission, m, task_groups)
             self.missions.append(new_mission)
+            print("adding mission....")
+
+    def getBotByID(self, bid):
+        found_bot = None
+        for bot in self.bots:
+            if bot.getBid() == bid:
+                found_bot = bot
+                break
+        return found_bot
+
+    def getMissionByID(self, mid):
+        found_mission = None
+        for mission in self.missions:
+            if mission.getMid() == mid:
+                found_mission = mission
+                break
+        return found_mission
+
+    def formBotsString(self, botids):
+        result = "["
+        for bid in botids:
+            # result = result + json.dumps(self.getBotByID(bid).genJson()).replace('"', '\\"')
+            result = result + json.dumps(self.getBotByID(bid).genJson())
+
+            if bid != botids[-1]:
+                result = result + ","
+        result = result + "]"
+        print("BOT STRING:", result)
+        return result
+
+    def formMissionsString(self, mids):
+        result = "["
+        for mid in mids:
+            # result = result + json.dumps(self.getMissionByID(mid).genJson()).replace('"', '\\"')
+            result = result + json.dumps(self.getMissionByID(mid).genJson())
+
+            if mid != mids[-1]:
+                result = result + ","
+        result = result + "]"
+        print("MISSIONS STRING:", result)
+        return result
+
+    def formBotsMissionsString(self, botids, mids):
+        # result = "{\"bots\": " + self.formBotsString(botids) + ",\"missions\": " + self.formMissionsString(mids) + "}"
+        result = "\"bots\": " + self.formBotsString(botids) + ",\"missions\": " + self.formMissionsString(mids) + ""
+
+        # junk = json.loads(result)
+        return result
+
+
+    def getAllBotidsMidsFromTaskGroup(self, task_group):
+        bids = []
+        mids = []
+        for key, value in task_group.items():
+            if isinstance(value, list) and len(value) > 0:
+                for assignment in value:
+                    bids.append(assignment["bid"])
+                    for work in assignment["bw_works"]:
+                        mids.append(work["mid"])
+                    for work in assignment["other_works"]:
+                        mids.append(work["mid"])
+        print("bids in the task group::", bids)
+        print("mids in the task group::", mids)
+        return bids, mids
 
     # assign work, if this commander runs, assign works for commander,
     # otherwise, send works to platoons to execute.
     def assignWork(self, task_groups):
         # tasks should already be sorted by botid,
-        if self.hostrole == "CommanderOnly":
-            nsites = len(fieldLinks)
-            print("commander only machine [", nsites, "]")
-        else:
-            nsites = 1 + len(fieldLinks)
-            print("commander can run.....[", nsites, "]")
+        nsites = 0
+        if len(task_groups) > 0:
+            if self.hostrole == "CommanderOnly":
+                nsites = len(fieldLinks)
+                print("commander only machine [", nsites, "]")
+            else:
+                nsites = 1 + len(fieldLinks)
+                print("commander can run.....[", nsites, "]")
+
+            tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[0])
+            resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+            print("test code here.....", resource_string)
 
         if len(task_groups) > nsites:
             # there will be unserved tasks due to over capacity
@@ -1269,22 +1343,28 @@ class MainWindow(QtWidgets.QMainWindow):
             self.netLogWin.appendLogs("Run Capacity Spilled, some tasks will NOT be served!!!")
 
         # distribute work to all available sites, which is the limit for the total capacity.
-        for i in range(nsites):
-            if i == 0 and not self.hostrole == "CommanderOnly":
-                # if commander participate work, give work to here.
-                print("arranged for today on this machine....")
-                self.todays_work["tbd"].append({"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
-            else:
-                #otherwise, send work to platoons in the field.
-                if self.hostrole == "CommanderOnly":
-                    print("cmd only sending to platoon: ", i)
-                    task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
+        if nsites > 0:
+            for i in range(nsites):
+                if i == 0 and not self.hostrole == "CommanderOnly":
+                    # if commander participate work, give work to here.
+                    print("arranged for today on this machine....")
+                    self.todays_work["tbd"].append({"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
                 else:
-                    print("cmd sending to platoon: ", i)
-                    task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
+                    #otherwise, send work to platoons in the field.
+                    if self.hostrole == "CommanderOnly":
+                        print("cmd only sending to platoon: ", i)
+                        task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
+                    else:
+                        print("cmd sending to platoon: ", i)
+                        task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
 
-                schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"" + task_group_string + "\"}'
-                fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
+                    # now need to fetch this task associated bots, mission, skills
+                    # get all bots IDs involved. get all mission IDs involved.
+                    tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[i])
+                    resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+                    schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
+                    print("SCHEDULE:::", schedule)
+                    fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
     # find to todos.,
     # 1) check whether need to fetch schedules,
@@ -1296,55 +1376,56 @@ class MainWindow(QtWidgets.QMainWindow):
     # in case of 2 elements, the 0th element will be the fetch schedule, the 1st element will be the bot tasks(as a whole)
     # self.todays_work = {"tbd": [], "allstat": "working"}
     def checkToDos(self):
-        print("checking todos......")
+        print("checking todos......", self.todays_work["tbd"])
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
-        if (not self.todays_work["tbd"][0]["status"] == "done") and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
-            if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
-                nextrun = self.todays_work["tbd"][0]
-        elif not self.todays_work["tbd"][1]["status"] == "done":
-            print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
-            tz = self.todays_work["tbd"][0]["current tz"]
-            bith = self.todays_work["tbd"][0]["current bidx"]
-
-            # determin next task group:
-            current_bw_idx = self.todays_work["tbd"][0]["current widx"]
-            current_other_idx = self.todays_work["tbd"][0]["current oidx"]
-
-            if current_bw_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"]):
-                current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
-            else:
-                # just give it a huge number so that, this group won't get run
-                current_bw_start_time = 1000
-
-            if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
-                current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
-            else:
-                # in case, all just give it a huge number so that, this group won't get run
-                current_other_start_time = 1000
-
-            if current_bw_start_time < current_other_start_time:
-                grp = "bw_works"
-                wjth = current_bw_idx
-            elif current_bw_start_time > current_other_start_time:
-                grp = "other_works"
-                wjth = current_other_idx
-            else:
-                # if both gets 1000 value, that means there is nothing to run.
-                grp = ""
-                wjth = -1
-
-            self.todays_work["tbd"][0]["current grp"] = grp
-
-
-            print("tz: ", tz, "bith: ", bith, "grp: ", grp, "wjth: ", wjth)
-
-            if wjth >= 0:
-                if self.ts2time(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
-                    print("next run is now set up......")
+        if len(self.todays_work["tbd"]) >  0:
+            if (not self.todays_work["tbd"][0]["status"] == "done") and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
+                if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
                     nextrun = self.todays_work["tbd"][0]
-        # elif len(self.todays_work["tbd"]) > 1 and self.todays_work["tbd"][1]["status"] == "done":
+            elif not self.todays_work["tbd"][0]["status"] == "done":
+                print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
+                tz = self.todays_work["tbd"][0]["current tz"]
+                bith = self.todays_work["tbd"][0]["current bidx"]
+
+                # determin next task group:
+                current_bw_idx = self.todays_work["tbd"][0]["current widx"]
+                current_other_idx = self.todays_work["tbd"][0]["current oidx"]
+
+                if current_bw_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"]):
+                    current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
+                else:
+                    # just give it a huge number so that, this group won't get run
+                    current_bw_start_time = 1000
+
+                if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
+                    current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
+                else:
+                    # in case, all just give it a huge number so that, this group won't get run
+                    current_other_start_time = 1000
+
+                if current_bw_start_time < current_other_start_time:
+                    grp = "bw_works"
+                    wjth = current_bw_idx
+                elif current_bw_start_time > current_other_start_time:
+                    grp = "other_works"
+                    wjth = current_other_idx
+                else:
+                    # if both gets 1000 value, that means there is nothing to run.
+                    grp = ""
+                    wjth = -1
+
+                self.todays_work["tbd"][0]["current grp"] = grp
+
+
+                print("tz: ", tz, "bith: ", bith, "grp: ", grp, "wjth: ", wjth)
+
+                if wjth >= 0:
+                    if self.ts2time(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
+                        print("next run is now set up......")
+                        nextrun = self.todays_work["tbd"][0]
+            # elif len(self.todays_work["tbd"]) > 1 and self.todays_work["tbd"][1]["status"] == "done":
 
         return nextrun
 
@@ -1851,14 +1932,36 @@ class MainWindow(QtWidgets.QMainWindow):
             # now that add is successfull, update local file as well.
             self.writeMissionJsonFile()
 
+    def addBotsMissionsFromCommander(self, botsJson, missionsJson):
+
+        print("BOTS String:", type(botsJson), botsJson)
+        print("Missions String:", type(missionsJson), missionsJson)
+        for bjs in botsJson:
+            self.newBot = EBBOT(self)
+            self.newBot.loadJson(bjs)
+            self.bots.append(self.newBot)
+
+        for mjs in missionsJson:
+            self.newMission = EBMISSION(self)
+            self.newMission.loadJson(mjs)
+            self.missions.append(self.newMission)
+
     def addVehicle(self, vinfo):
-        print("adding a vehicle.....", vinfo.peername)
-        newVehicle = VEHICLE(self)
-        newVehicle.setIP(vinfo.peername[0])
         ipfields = vinfo.peername[0].split(".")
         ip = ipfields[len(ipfields) - 1]
-        newVehicle.setVid(ip)
-        self.runningVehicleModel.appendRow(newVehicle)
+        if len(self.vehicles) > 0:
+            vids = [v.getVid() for v in self.vehicles]
+        else:
+            vids = []
+        if ip not in vids:
+            print("adding a new vehicle.....", vinfo.peername)
+            newVehicle = VEHICLE(self)
+            newVehicle.setIP(vinfo.peername[0])
+            newVehicle.setVid(ip)
+            self.vehicles.append(newVehicle)
+            self.runningVehicleModel.appendRow(newVehicle)
+        else:
+            print("Reconnected:", vinfo.peername)
 
     def checkVehicles(self):
         print("adding already linked vehicles.....")
@@ -1869,6 +1972,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ipfields = fieldLinks[i]["ip"][0].split(".")
             ip = ipfields[len(ipfields)-1]
             newVehicle.setVid(ip)
+            self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
 
     def fetchVehicleStatus(self, rows):
@@ -2363,7 +2467,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def fillNewBotFullInfo(self, nbjson, nb):
         print("filling bot data for bot-"+str(nbjson["pubProfile"]["bid"]))
-        nb.setJsonData(nbjson)
+        nb.loadJson(nbjson)
 
 
     def newBotFromFile(self):
@@ -2926,6 +3030,85 @@ class MainWindow(QtWidgets.QMainWindow):
                 if self.todays_work["allstat"] == "all done":
                     self.doneWithToday()
 
+    #update a vehicle's missions status
+    def updateVMStats(self, rx_data):
+        foundV = None
+        for v in self.vehicles:
+            if v.getIP() == rx_data["ip"]:
+                foundV = v
+                break
+
+        if foundV:
+            print("updating vehicle Mission status...")
+            foundV.setMStats(rx_data["stat"])
+
+    # create some test data just to test out the vehichle view GUI.
+    def genGuiTestDat(self):
+        newV = VEHICLE(self)
+        newV.setIP("192.168.22.33")
+        newV.setVid("33")
+        newV.setMStats([{
+            "mid": 1,
+            "botid": 1,
+            "sst": "2023-10-22 00:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 00:12:12",
+            "aet": "2023-10-22 00:22:12",
+            "status": "completed",
+            "error": "",
+        },
+            {
+                "mid": 2,
+                "botid": 2,
+                "sst": "2023-10-22 12:11:12",
+                "sd": 600,
+                "ast": "2023-10-22 12:12:12",
+                "aet": "2023-10-22 12:22:12",
+                "status": "running",
+                "error": "",
+            }])
+        self.parent.vehicles.append(newV)
+
+        newV = VEHICLE(self)
+        newV.setIP("192.168.22.34")
+        newV.setVid("34")
+        newV.setMStats([{
+            "mid": 3,
+            "botid": 3,
+            "sst": "2023-10-22 00:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 00:12:12",
+            "aet": "2023-10-22 00:22:12",
+            "status": "scheduled",
+            "error": "",
+        },
+            {
+                "mid": 4,
+                "botid": 3,
+                "sst": "2023-10-22 12:11:12",
+                "sd": 600,
+                "ast": "2023-10-22 12:12:12",
+                "aet": "2023-10-22 12:22:12",
+                "status": "warned",
+                "error": "100: warning reason 1",
+            }])
+        self.parent.vehicles.append(newV)
+
+        newV = VEHICLE(self)
+        newV.setIP("192.168.22.29")
+        newV.setVid("29")
+        newV.setMStats([{
+            "mid": 5,
+            "botid": 5,
+            "sst": "2023-10-22 00:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 00:12:12",
+            "aet": "2023-10-22 00:22:12",
+            "status": "aborted",
+            "error": "203: Found Captcha",
+        }])
+        self.parent.vehicles.append(newV)
+
     # msg in json format
     # { sender: "ip addr", type: "intro/status/report", content : "another json" }
     # content format varies according to type.
@@ -2947,7 +3130,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.platoonWin.updatePlatoonStatAndShow(msg)
                 self.platoonWin.show()
             else:
-                print("platoon win not created yets....")
+                print("ERROR: platoon win not yet exists.......")
+
+            self.updateVMStats(msg)
 
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
@@ -2958,92 +3143,36 @@ class MainWindow(QtWidgets.QMainWindow):
                 # this means all reports are collected, ready to send to cloud.
                 self.todays_work["allstat"] = "all done"
 
-    def genMissionStatusReport(self, mids):
+    def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
         print("mids: ", mids)
         results = []
-        for mid in mids:
-            result = {
-                "mid": mid,
-                "botid": 0,
-                "sst": "2022-11-09 01:12:02",
-                "sd": 300,
-                "ast": "2023-11-09 01:12:02",
-                "aet": "2023-11-09 01:22:12",
-                "status": "completed",
-                "error": ""
-            }
+        if test_mode:
+            # just to test commander GUI can handle the result
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "scheduled", "error": ""}
             results.append(result)
-        # for mid in mids:
-        #     result = {
-        #         "mid": mid,
-        #         "botid": 0,
-        #         "start_time": "2023-11-09 01:12:02",
-        #         "end_time": "2023-11-09 01:22:12",
-        #         "status": "Done",
-        #         "error": ""
-        #     }
-        #     results.append(result)
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "completed", "error": ""}
+            results.append(result)
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "running", "error": ""}
+            results.append(result)
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "500", "aet": "2023-11-09 01:22:12", "status": "warned", "error": "505"}
+            results.append(result)
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "300", "aet": "2023-11-09 01:22:12", "status": "aborted", "error": "5"}
+            results.append(result)
+        else:
+            for mid in mids:
+                result = {
+                    "mid": mid,
+                    "botid": self.missions[mid].getBid(),
+                    "sst": self.missions[mid].getEstimatedStartTime(),
+                    "sd": self.missions[mid].getEstimatedRunTime(),
+                    "ast": self.missions[mid].getActualStartTime(),
+                    "aet": self.missions[mid].getActualEndTime(),
+                    "status": self.missions[mid].getStatus().split(":")[0],
+                    "error": self.missions[mid].getStatus().split(":")[1],
+                }
+                results.append(result)
 
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "600",
-            "aet": "2023-11-09 01:22:12",
-            "status": "scheduled",
-            "error": ""
-        }
-        results.append(result)
-
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "600",
-            "aet": "2023-11-09 01:22:12",
-            "status": "completed",
-            "error": ""
-        }
-        results.append(result)
-
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "600",
-            "aet": "2023-11-09 01:22:12",
-            "status": "running",
-            "error": ""
-        }
-        results.append(result)
-
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "500",
-            "aet": "2023-11-09 01:22:12",
-            "status": "warned",
-            "error": ""
-        }
-        results.append(result)
-
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "300",
-            "aet": "2023-11-09 01:22:12",
-            "status": "aborted",
-            "error": ""
-        }
-        results.append(result)
 
         print("mission status result:", results)
         return results
@@ -3058,13 +3187,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if msg["cmd"] == "reqStatusUpdate":
             if msg["missions"] != "":
                 if msg["missions"] == "all":
-                    mids = [1, 2, 3]
+                    mids = [m.getMid() for m in self.missions]
                 else:
                     mid_chars = msg["missions"].aplit(",")
                     mids = [int(mc) for mc in mid_chars]
 
                 # capture all the status of all the missions specified and send back the commander...
-                statusJson = self.genMissionStatusReport(mids)
+                statusJson = self.genMissionStatusReport(mids, False)
                 msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"status\", \"content\":\"" + json.dumps(statusJson).replace('"', '\\"') +"\"}"
                 # send to commander
                 self.commanderXport.write(msg.encode('utf8'))
@@ -3076,9 +3205,19 @@ class MainWindow(QtWidgets.QMainWindow):
             # schedule work now..... append to array data structure and set up the pointer to the 1st task.
             # the actual running of the tasks will be taken care of by the schduler.
             localworks = json.loads(msg["todos"])
+            self.addBotsMissionsFromCommander(msg["bots"], msg["missions"])
             print("received work request:", localworks)
             # send work into work Queue which is the self.todays_work["tbd"] data structure.
-            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": "eastern", "current grp": None, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
+            for key, value in localworks.items():
+                if isinstance(value, list) and len(value) > 0:
+                    current_tz = key
+                    current_tz_works = value
+                    if len(current_tz_works[0]["bw_works"]) > 0:
+                        current_group = "bw_works"
+                    else:
+                        current_group = "other_works"
+                    break
+            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
             print("after assigned work, ", len(self.todays_work["tbd"]), "todos exists in the queue.", self.todays_work["tbd"])
         elif msg["cmd"] == "reqCancelAllMissions":
             # update vehicle status display.

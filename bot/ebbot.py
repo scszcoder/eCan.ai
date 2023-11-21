@@ -55,7 +55,14 @@ class BOT_SETTINGS():
 
 
     def loadJson(self, dj):
-        self.tasks = dj["tasks"]
+        if "platform" in dj:
+            self.platform = dj["platform"]
+        if "os" in dj:
+            self.os = dj["os"]
+        if "browser" in dj:
+            self.browser = dj["browser"]
+        if "machine" in dj:
+            self.machine = dj["machine"]
 
     def setComputer(self, platform, os, machine, browser):
         self.platform = platform
@@ -193,7 +200,7 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrzip = dj["shipaddrzip"]
 
 
-    def genJson(self, dj):
+    def genJson(self):
         jd = {
                 "first_name": self.first_name,
                 "last_name": self.last_name,
@@ -202,7 +209,17 @@ class BOT_PRIVATE_PROFILE():
                 "phone": self.phone,
                 "backup_email": self.backup_email,
                 "acct_pw": self.acct_pw,
-                "birthday": self.birthday
+                "birthday": self.birthday,
+                "addrl1": self.addrl1,
+                "addrl2": self.addrl2,
+                "addrcity": self.addrcity,
+                "addrstate": self.addrstate,
+                "addrzip": self.addrzip,
+                "shipaddrl1": self.shipping_addrl1,
+                "shipaddrl2": self.shipping_addrl2,
+                "shipaddrcity": self.shipping_addrcity,
+                "shipaddrstate": self.shipping_addrstate,
+                "shipaddrzip": self.shipping_addrzip
             }
         return jd
 
@@ -298,14 +315,19 @@ class BOT_PUB_PROFILE():
         self.levelStart = dj["levelStart"]
         self.delDate = dj["delDate"]
 
-    def genJson(self, dj):
+    def genJson(self):
         jd = {
                 "pseudo_nick_name": self.pseudo_nick_name,
+                "pseudo_name": self.pseudo_name,
                 "location": self.location,
-                "age": self.age,
+                "pubbirthday": self.pubbirthday,
                 "mf": self.gender,
                 "interests": self.interests,
-                "roles": self.roles
+                "roles": self.roles,
+                "levels": self.levels,
+                "bid": self.bid,
+                "gender": self.gender,
+                "status": self.status
             }
         return jd
 #Notes:
@@ -473,7 +495,7 @@ class EBBOT(QtGui.QStandardItem):
 
 
     # fill up data structure from json data.
-    def setJsonData(self, nbJson):
+    def loadJson(self, nbJson):
         self.pubProfile.loadJson(nbJson["pubProfile"])
         self.privateProfile.loadJson(nbJson["privateProfile"])
         self.settings.loadJson(nbJson["settings"])
