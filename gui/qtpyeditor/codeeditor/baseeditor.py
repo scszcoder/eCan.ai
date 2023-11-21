@@ -54,7 +54,8 @@ from qtpyeditor.codeeditor.abstracteditor import PMAbstractEditor
 if TYPE_CHECKING:
     from qtpyeditor.codeedit import PMBaseCodeEdit
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper
 
 from config.app_info import app_info
 
@@ -365,7 +366,7 @@ class PMGBaseEditor(PMAbstractEditor):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            logger.warning(str(e))
+            logger_helper.warning(str(e))
 
         self._path = path
         self.setWindowTitle(self.filename())
@@ -474,7 +475,7 @@ class PMGBaseEditor(PMAbstractEditor):
             return True
         except Exception as e:
             # 保存失败
-            logger.warning(str(e))
+            logger_helper.warning(str(e))
         return False
 
     def modified(self) -> bool:

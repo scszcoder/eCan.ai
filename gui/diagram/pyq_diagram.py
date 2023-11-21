@@ -301,7 +301,7 @@ class PyQDiagram(QWidget):
 
     def createCellWidget(self, text, diagram_type):
         # item = DiagramItem(diagramType, )
-        print("creating widget type:", diagram_type)
+        print("pyq diagram creating widget type:", diagram_type)
         icon = QIcon(self.diagram_icon_image(diagram_type))
 
         button = QToolButton()

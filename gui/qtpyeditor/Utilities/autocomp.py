@@ -8,8 +8,9 @@ import time
 import logging
 from qtpy.QtCore import QThread, Signal
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# logger = logging.getLogger(__name__)
+# logger.setLevel(logging.DEBUG)
+from utils.logger_helper import logger_helper
 
 
 class AutoCompThread(QThread):
@@ -37,22 +38,25 @@ class AutoCompThread(QThread):
             if self.stop_flag:
                 return
 
-            if self.text == text:
+            target_text = self.text
+            target_text_cursor_pos = self.text_cursor_pos
+
+            if target_text == text:
                 if time.time() - last_complete_time >= 30:
                     self.activated = False
                 time.sleep(0.02 if self.activated else 0.1)
                 continue
 
             try:
-                row_text = self.text.splitlines()[self.text_cursor_pos[0] - 1]
+                row_text = target_text.splitlines()[target_text_cursor_pos[0] - 1]
                 hint = re.split(
                     '[.:;,?!\s \+ \- = \* \\ \/  \( \)\[\]\{\} ]', row_text)[-1]
                 content = (
-                    self.text_cursor_pos[0], self.text_cursor_pos[1], hint
+                    target_text_cursor_pos[0], target_text_cursor_pos[1], hint
                 )
-                logger.debug('Text of current row:%s' % content[2])
-                script = jedi.Script(self.text)
-                l = script.complete(*self.text_cursor_pos)
+                logger_helper.debug('Text of current row:%s' % content[2])
+                script = jedi.Script(target_text)
+                l = script.complete(*target_text_cursor_pos)
 
             except:
                 import traceback
@@ -62,7 +66,7 @@ class AutoCompThread(QThread):
             last_complete_time = time.time()
 
             self.activated = True
-            text = self.text
+            text = target_text
 
     def on_exit(self):
         self.stop_flag = True

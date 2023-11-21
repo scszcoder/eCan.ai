@@ -33,9 +33,11 @@ from config.app_info import app_info
 if TYPE_CHECKING:
     from jedi.api import Completion
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
-logger.setLevel(logging.DEBUG)
+# logger = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.DEBUG)
+# logger.setLevel(logging.DEBUG)
+
+from utils.logger_helper import logger_helper
 
 
 def create_icons():
@@ -47,7 +49,7 @@ def create_icons():
         icon1 = QIcon()  # create_icon(icon_abso_path)
         icon1.addPixmap(QPixmap(icon_abso_path), QIcon.Normal, QIcon.Off)
         # print(icon1)
-        logging.debug('loading {0}'.format(icon_file_name))
+        logger_helper.debug('loading {0}'.format(icon_file_name))
         icons[icon_file_name[:-4]] = icon1
 
     return icons
@@ -162,7 +164,7 @@ class AutoCompList(QTableWidget):
         self.setFocus()
         self.setCurrentItem(self.item(0, 0))
         t1 = time.time()
-        logger.info('completion time:{0},completion list length:{1}'.format(t1 - t0, len(completions)))
+        logger_helper.debug('completion time:{0}, completion list length:{1}'.format(t1 - t0, len(completions)))
 
     def get_complete(self, row: int) -> Tuple[str, str]:
         return self.item(row, 0).data(AutoCompList.ROLE_COMPLETION).complete, self.item(row, 0).data(

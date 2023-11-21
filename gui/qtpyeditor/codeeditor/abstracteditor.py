@@ -47,8 +47,7 @@ from qtpy.QtWidgets import QWidget, QMessageBox
 
 # from pmgwidgets import in_unit_test
 
-logger = logging.getLogger(__name__)
-
+# logger = logging.getLogger(__name__)
 
 class PMAbstractEditor(QWidget):
     def __init__(self, parent):

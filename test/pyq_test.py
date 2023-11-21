@@ -13,6 +13,8 @@ import sys
 from gui.codeeditor import *
 from gui.diagram.pyq_diagram import *
 from gui.qtpyeditor.codeeditor.pythoneditor import PMGPythonEditor
+from config.app_settings import app_settings
+
 
 class GraphEditorWindow(QMainWindow):
     def __init__(self):

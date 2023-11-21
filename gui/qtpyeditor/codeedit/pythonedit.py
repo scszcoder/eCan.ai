@@ -16,8 +16,11 @@ from qtpyeditor.codeedit import PMBaseCodeEdit
 from qtpyeditor.highlighters import PythonHighlighter
 from qtpyeditor.Utilities import AutoCompThread
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# logger = logging.getLogger(__name__)
+# logger.setLevel(logging.DEBUG)
+
+from utils.logger_helper import logger_helper
+
 if TYPE_CHECKING:
     from jedi.api import Completion
 
@@ -52,7 +55,7 @@ class PMPythonCodeEdit(PMBaseCodeEdit):
         '''
 
         hint = self._get_hint()
-        logger.debug('hint_when_completion_triggered:{0},current_hint:{1}'.format(text_cursor_content[2], hint))
+        logger_helper.debug('hint_when_completion_triggered:{0},current_hint:{1}'.format(text_cursor_content[2], hint))
         if hint.startswith(text_cursor_content[2]):
             if len(completions) == 1:
                 if completions[0].name == self._get_hint():
@@ -67,12 +70,13 @@ class PMPythonCodeEdit(PMBaseCodeEdit):
 
     def on_text_changed(self):
         super(PMPythonCodeEdit, self).on_text_changed()
-        self._get_textcursor_pos()
+        # self._get_textcursor_pos()
         cursor_pos = self.cursorRect()
         self.popup_hint_widget.setGeometry(
             cursor_pos.x() + 5, cursor_pos.y() + 20,
             self.popup_hint_widget.sizeHint().width(),
             self.popup_hint_widget.sizeHint().height())
+
         self._request_autocomp()
 
     def _insert_autocomp(self, e: QModelIndex = None):
@@ -111,13 +115,13 @@ class PMPythonCodeEdit(PMBaseCodeEdit):
         return hint
 
     def _request_autocomp(self):
-        pos = self._get_textcursor_pos()
         nearby_text = self._get_nearby_text()
         hint = self._get_hint()
-
         if hint == '' and not nearby_text.endswith(('.', '\\\\', '/')):
             self.popup_hint_widget.hide_autocomp()
             return
+
+        pos = self._get_textcursor_pos()
         self.autocomp_thread.text_cursor_pos = (pos[0] + 1, pos[1])
         self.autocomp_thread.text = self.toPlainText()
 

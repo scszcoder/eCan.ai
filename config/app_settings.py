@@ -75,10 +75,10 @@ def init_settings_files():
 
 
 class AppSettings:
-    def __int__(self):
+    def __init__(self):
         print("init app settings")
         # init application some settings, include create some folder and copy some static files, etc. logs, skill files
-        logger_helper.setup(APP_NAME, app_info.appdata_path + "/runlogs/" + APP_NAME + ".log", logging.INFO)
+        logger_helper.setup(APP_NAME, app_info.app_home_path + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
 
         if getattr(sys, 'frozen', False):
             create_appdata_dirs()
@@ -87,5 +87,6 @@ class AppSettings:
         else:
             print('debug mode version so not need init some appdata config files')
 
-# TODO
-# app_settings = AppSettings()
+
+app_settings = AppSettings()
+
