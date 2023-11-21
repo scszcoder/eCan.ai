@@ -39,7 +39,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         fieldLinks.append({"ip": self.peername, "name": "nyk", "link": self})
         if not self.topgui.mainwin == None:
             if self.topgui.mainwin.platoonWin == None:
-                self.topgui.mainwin.platoonWin = PlatoonWindow(self, "conn")
+                self.topgui.mainwin.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
             self.topgui.mainwin.addVehicle(self)
 
     def data_received(self, data):
