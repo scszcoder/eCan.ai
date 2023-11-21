@@ -14,6 +14,7 @@ options = [
     #'--clean',
     '--log-level=DEBUG',
     '--onefile',
+    '--icon=ECBot.ico',
     # '--add-data=resource:resource'
     pathsep.join(['--add-data=resource/images', 'resource/images']),
     pathsep.join(['--add-data=resource/languages', 'resource/languages']),

@@ -9,7 +9,7 @@ from typing import Dict, Tuple, List, Set
 
 from qtpy.QtCore import QRegularExpression, Qt
 from qtpy.QtWidgets import QApplication
-from qtpy.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QCursor, QBrush, QTextBlock, QFontDatabase
+from qtpy.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QCursor, QBrush
 
 color_scheme_intellij = {'keyword': '#101e96'}
 color_scheme_dark = {'keyword': '#b7602f'}

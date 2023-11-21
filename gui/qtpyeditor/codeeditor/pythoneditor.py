@@ -14,10 +14,10 @@
 # @Email: 1295752786@qq.com
 # @File: editor.py
 
-from qtpy.QtWidgets import QApplication, QListWidgetItem, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QTextBrowser
+from qtpy.QtWidgets import QApplication
 from typing import Dict
 from qtpyeditor.codeeditor import PMGBaseEditor
-from qtpyeditor.codeedit import PMBaseCodeEdit, PMPythonCodeEdit
+from qtpyeditor.codeedit import PMPythonCodeEdit
 
 
 class PMGPythonEditor(PMGBaseEditor):

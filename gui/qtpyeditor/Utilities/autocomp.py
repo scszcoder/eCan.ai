@@ -5,7 +5,6 @@
 # @File: autocomp.py
 import re
 import time
-import logging
 from qtpy.QtCore import QThread, Signal
 
 # logger = logging.getLogger(__name__)
