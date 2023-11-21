@@ -2,7 +2,7 @@ import sys
 import random
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QPainterPath, QPen
+from PySide6.QtGui import QPainterPath, QPen, QColor
 from locale import getdefaultlocale
 
 import ctypes as ct
@@ -22,7 +22,8 @@ import BorderLayout
 from gui.diagram.pyq_diagram import *
 from WorkSkill import *
 from readSkill import *
-from codeeditor import *
+# from codeeditor import *
+from gui.qtpyeditor.codeeditor.pythoneditor import PMGPythonEditor
 
 
 INSTALLED_PATH = ""
@@ -1411,7 +1412,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skvtabs = QtWidgets.QTabWidget()
         self.skconsolelabel = QtWidgets.QLabel("Console", alignment=QtCore.Qt.AlignLeft)
         self.skconsole = QtWidgets.QTextBrowser()
-        self.skcodeeditor = SimpleCodeEditor()
+        self.skcodeeditor = PMGPythonEditor()
 
         self.skill_load_button = QtWidgets.QPushButton("Load Skill")
         self.skill_save_button = QtWidgets.QPushButton("Save Skill")
@@ -1553,6 +1554,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skblayout.addWidget(self.skill_cancel_button)
 
         self.skCodeWidget.setWidget(self.skcodeeditor)
+        self.skCodeWidget.setWidgetResizable(True)
         self.skFCWidget.setWidget(self.skFCDiagram)
 
         self.skvtabs.addTab(self.skFCDiagram.widget, "Flow Chart")
