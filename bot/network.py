@@ -3,6 +3,7 @@ import socket
 import threading
 import selectors
 import aioconsole
+from PlatoonGUI import *
 
 UDP_IP = "127.0.0.1"
 
@@ -37,6 +38,8 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.transport = transport
         fieldLinks.append({"ip": self.peername, "name": "nyk", "link": self})
         if not self.topgui.mainwin == None:
+            if self.topgui.mainwin.platoonWin == None:
+                self.topgui.mainwin.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
             self.topgui.mainwin.addVehicle(self)
 
     def data_received(self, data):

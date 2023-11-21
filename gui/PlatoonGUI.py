@@ -12,6 +12,7 @@ from Cloud import *
 from TrainGUI import *
 from BorderLayout import *
 import lzstring
+from vehicles import *
 
 class IconDelegate(QtWidgets.QStyledItemDelegate):
     def paint(self, painter, option, index):
@@ -67,7 +68,7 @@ class PLATOON(QtGui.QStandardItem):
 
 # class MainWindow(QtWidgets.QWidget):
 class PlatoonWindow(QtWidgets.QMainWindow):
-    def __init__(self, parent):
+    def __init__(self, parent, entrance="msg"):
         super(PlatoonWindow, self).__init__()
         self.BOTS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/bots.json"
         self.MISSIONS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/missions.json"
@@ -76,7 +77,6 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         self.mainWidget = QtWidgets.QWidget()
         self.owner = ""
 
-        self.vehicles = []
         self.platoonTableViews = []
 
         self.refresh_button = QtWidgets.QPushButton("Refresh")
@@ -108,10 +108,10 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         self.centralSplitter = QtWidgets.QSplitter(Qt.Horizontal)
         self.bottomSplitter = QtWidgets.QSplitter(Qt.Vertical)
 
-        self.genGuiTestDat()
-        for v in self.vehicles:
-            ip_last = v["ip"].split(".")[len(v["ip"].split("."))-1]
-            self.tabs.addTab(self._createVehicleTab(v["stats"]), "Platoon"+ip_last)
+        if entrance != "conn":
+            for v in self.parent.vehicles:
+                ip_last = v.getIP().split(".")[len(v.getIP().split("."))-1]
+                self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon"+ip_last)
 
 
         self.mainWidget.setLayout(self.layout)
@@ -130,7 +130,12 @@ class PlatoonWindow(QtWidgets.QMainWindow):
     def updatePlatoonStatAndShow(self, rx_data):
         ip_last = rx_data["ip"].split(".")[len(rx_data["ip"].split(".")) - 1]
         tab_names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
-        tab_index = tab_names.index("Platoon"+ip_last)
+        new_tab_name = "Platoon"+ip_last
+        if new_tab_name in tab_names:
+            tab_index = tab_names.index(new_tab_name)
+        else:
+            # need to add a new tab.
+            print("adding a new tab....")
 
 
         vmodel = self.platoonTableViews[tab_index].model()
@@ -195,66 +200,7 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         text_item = QtGui.QStandardItem(rowDataJson["error"])
         model.setItem(rowIdx, 7, text_item)
 
-    # create some test data just to test out the vehichle view GUI.
-    def genGuiTestDat(self):
-        newV = {"stats": [{
-            "mid": 1,
-            "botid": 1,
-            "sst": "2023-10-22 00:11:12",
-            "sd": 600,
-            "ast": "2023-10-22 00:12:12",
-            "aet": "2023-10-22 00:22:12",
-            "status": "completed",
-            "error": "",
-            },
-            {
-                "mid": 2,
-                "botid": 2,
-                "sst": "2023-10-22 12:11:12",
-                "sd": 600,
-                "ast": "2023-10-22 12:12:12",
-                "aet": "2023-10-22 12:22:12",
-                "status": "running",
-                "error": "",
-            }],
-            "ip": "192.168.22.33"}
-        self.vehicles.append(newV)
 
-        newV = {"stats": [{
-            "mid":3,
-            "botid": 3,
-            "sst": "2023-10-22 00:11:12",
-            "sd": 600,
-            "ast": "2023-10-22 00:12:12",
-            "aet": "2023-10-22 00:22:12",
-            "status": "scheduled",
-            "error": "",
-        },
-            {
-                "mid": 4,
-                "botid": 3,
-                "sst": "2023-10-22 12:11:12",
-                "sd": 600,
-                "ast": "2023-10-22 12:12:12",
-                "aet": "2023-10-22 12:22:12",
-                "status": "warned",
-                "error": "100: warning reason 1",
-            }],
-            "ip": "192.168.22.34"}
-        self.vehicles.append(newV)
-
-        newV = {"stats": [{
-            "mid":5,
-            "botid": 5,
-            "sst": "2023-10-22 00:11:12",
-            "sd": 600,
-            "ast": "2023-10-22 00:12:12",
-            "aet": "2023-10-22 00:22:12",
-            "status": "aborted",
-            "error": "203: Found Captcha",
-        }],
-            "ip": "192.168.22.28"}
-        self.vehicles.append(newV)
 
     def createLabel(self, text):
         label = QtWidgets.QLabel(text)
@@ -349,7 +295,7 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         if len(tasks) > self.LOCAL_BOT_LIMIT:
             localwork = tasks[:self.LOCAL_BOT_LIMIT]
             remaining = tasks[self.LOCAL_BOT_LIMIT:]
-            for v in self.vehicles:
+            for v in self.parent.vehicles:
                 # allocate max of LOCAL_BOT_LIMIT number of bot-tasks to this vehicle
                 if len(remaining) > self.LOCAL_BOT_LIMIT:
                     thiswork = remaining[:self.LOCAL_BOT_LIMIT]

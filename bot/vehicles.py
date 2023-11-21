@@ -27,6 +27,7 @@ class VEHICLE(QtGui.QStandardItem):
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
         self.status = "Idle";
+        self.mstats = []
 
     def getVid(self):
         return self.id
@@ -40,6 +41,12 @@ class VEHICLE(QtGui.QStandardItem):
 
     def setStatus(self, stat):
         self.status = stat
+
+    def setMStats(self, mstats):
+        self.mstats = mstats
+
+    def getMStats(self):
+        return self.mstats
 
     def getIP(self):
         return self.ip

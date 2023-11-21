@@ -98,7 +98,7 @@ class M_Private_Attributes():
         self.feedbacks = dj["feedbacks"]
         self.fb_type = dj["fb_type"]
 
-    def genJson(self, dj):
+    def genJson(self):
         jd = {
                 "item_number": self.item_number,
                 "seller": self.seller,
@@ -183,8 +183,8 @@ class M_Pub_Attributes():
         self.nex = dj["repeat"]
         self.bot_id = dj["bot_id"]
         self.status = dj["status"]
-        self.search_kw = dj["search_kw"]
-        self.search_cat = dj["search_cat"]
+        self.search_kw = dj["phrase"]
+        self.search_cat = dj["category"]
         self.config = dj["config"]
         self.esd = dj["esd"]
         self.ecd = dj["ecd"]
@@ -236,19 +236,43 @@ class M_Pub_Attributes():
         self.cuspas = dj["cuspas"]
         self.createon = dj["createon"]
 
-    def genJson(self, dj):
+    def genJson(self):
         jd = {
                 "missionId": self.missionId,
+                "ticket": self.ticket,
                 "assign_type": self.assign_type,
                 "ms_type": self.ms_type,
-                "ms_config": self.config,
-                "nex": self.nex,
+                "config": self.config,
+                "repeat": self.nex,
                 "bot_id": self.bot_id,
                 "status": self.status,
-                "search_kw": self.search_kw,
-                "category": self.category
+                "phrase": self.search_kw,
+                "category": self.search_cat,
+                "esd": self.esd,
+                "ecd": self.ecd,
+                "asd": self.asd,
+                "abd": self.abd,
+                "aad": self.aad,
+                "afd": self.afd,
+                "acd": self.acd,
+                "pseudo_store": self.pseudo_store,
+                "pseudo_brand": self.pseudo_brand,
+                "pseudo_asin": self.pseudo_asin,
+                "skills": self.skills,
+                "cuspas": self.cuspas,
+                "createon": self.createon,
+                "run_time": self.run_time,
+                "actual_start_time": self.actual_start_time,
+                "eststartt": self.eststartt,
+                "startt": self.startt,
+                "esttime": self.esttime,
+                "del_date": self.del_date,
+                "platoon_id": self.platoon_id,
+                "app_exe": self.app_exe
             }
         return jd
+
+
 
 #Notes:
 # Bot will never visit the user profile page will reveals critical account information.
@@ -414,6 +438,9 @@ class EBMISSION(QtGui.QStandardItem):
         return self.pubAttributes.eststartt
 
     def setEstimatedStartTime(self, est):
+        self.pubAttributes.eststartt = est
+
+    def setEstimatedEndTime(self, est):
         self.pubAttributes.eststartt = est
 
     def getEstimatedRunTime(self):
@@ -604,13 +631,12 @@ class EBMISSION(QtGui.QStandardItem):
         self.setText('mission' + str(self.getMid()))
 
     def genJson(self):
-        print("generating Json..........>>>>")
         jsd = {
-                "pubProfile": self.pubAttributes.genJson,
-                "privateProfile": self.privateAttributes.genJson,
-                "parent_settings": self.parent_settings
+                "pubAttributes": self.pubAttributes.genJson(),
+                "privateAttributes": self.privateAttributes.genJson()
                 }
-        print(json.dumps(jsd))
+        print("GENERATED JSON:", jsd)
+        print("after dump:", json.dumps(jsd))
         return jsd
 
     def loadNetRespJson(self, jd):
@@ -619,8 +645,7 @@ class EBMISSION(QtGui.QStandardItem):
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
-        self.tasks = jd["tasks"]
-        self.parent_settings["mission_id"] = jd["parent_settings"]["mission_id"]
+        # self.tasks = jd["tasks"]
         # self.parent_settings["uid"] = jd["parent_settings"]["uid"]
 
     # load data from a row in sqlite DB.
