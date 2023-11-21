@@ -3,6 +3,8 @@ from qtpy.QtWidgets import QApplication
 
 from qtpyeditor.codeedit import PMPythonCodeEdit
 from qtpyeditor import PMGPythonEditor
+from config.app_settings import app_settings
+
 
 if __name__ == '__main__':
     app = QApplication([])
