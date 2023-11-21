@@ -213,7 +213,7 @@ class M_Pub_Attributes():
         self.ticket = dj["ticket"]
         self.ms_type = dj["type"]
         self.owner = dj["owner"]
-        self.nex = dj["repeat"]
+        self.nex = dj["trepeat"]
         self.bot_id = dj["botid"]
         self.status = dj["status"]
         self.search_kw = dj["phrase"]
@@ -438,6 +438,9 @@ class EBMISSION(QtGui.QStandardItem):
         return self.pubAttributes.eststartt
 
     def setEstimatedStartTime(self, est):
+        self.pubAttributes.eststartt = est
+
+    def setEstimatedEndTime(self, est):
         self.pubAttributes.eststartt = est
 
     def getEstimatedRunTime(self):

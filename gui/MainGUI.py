@@ -562,9 +562,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if (self.machine_role != "Platoon"):
             # load skills into memory.
-            self.loadLocalSkills()
             self.loadLocalBots()
             self.loadLocalMissions()
+
+        # this will handle all skill bundled into software itself.
+        self.loadLocalSkills()
 
         # Done with all UI stuff, now do the instruction set extension work.
         sk_extension_file = self.homepath + "/resource/skills/my/skill_extension.json"
@@ -876,7 +878,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # File actions
         new_action = QtGui.QAction(self)
         new_action.setText("&Fetch Schedules")
-        new_action.triggered.connect(lambda: self.fetchSchedule("5000", None))
+        new_action.triggered.connect(lambda: self.fetchSchedule("6000", None))
         return new_action
 
 
@@ -1945,13 +1947,21 @@ class MainWindow(QtWidgets.QMainWindow):
             self.missions.append(self.newMission)
 
     def addVehicle(self, vinfo):
-        print("adding a vehicle.....", vinfo.peername)
-        newVehicle = VEHICLE(self)
-        newVehicle.setIP(vinfo.peername[0])
         ipfields = vinfo.peername[0].split(".")
         ip = ipfields[len(ipfields) - 1]
-        newVehicle.setVid(ip)
-        self.runningVehicleModel.appendRow(newVehicle)
+        if len(self.vehicles) > 0:
+            vids = [v.getVid() for v in self.vehicles]
+        else:
+            vids = []
+        if ip not in vids:
+            print("adding a new vehicle.....", vinfo.peername)
+            newVehicle = VEHICLE(self)
+            newVehicle.setIP(vinfo.peername[0])
+            newVehicle.setVid(ip)
+            self.vehicles.append(newVehicle)
+            self.runningVehicleModel.appendRow(newVehicle)
+        else:
+            print("Reconnected:", vinfo.peername)
 
     def checkVehicles(self):
         print("adding already linked vehicles.....")
@@ -1962,6 +1972,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ipfields = fieldLinks[i]["ip"][0].split(".")
             ip = ipfields[len(ipfields)-1]
             newVehicle.setVid(ip)
+            self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
 
     def fetchVehicleStatus(self, rows):
@@ -3019,6 +3030,85 @@ class MainWindow(QtWidgets.QMainWindow):
                 if self.todays_work["allstat"] == "all done":
                     self.doneWithToday()
 
+    #update a vehicle's missions status
+    def updateVMStats(self, rx_data):
+        foundV = None
+        for v in self.vehicles:
+            if v.getIP() == rx_data["ip"]:
+                foundV = v
+                break
+
+        if foundV:
+            print("updating vehicle Mission status...")
+            foundV.setMStats(rx_data["stat"])
+
+    # create some test data just to test out the vehichle view GUI.
+    def genGuiTestDat(self):
+        newV = VEHICLE(self)
+        newV.setIP("192.168.22.33")
+        newV.setVid("33")
+        newV.setMStats([{
+            "mid": 1,
+            "botid": 1,
+            "sst": "2023-10-22 00:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 00:12:12",
+            "aet": "2023-10-22 00:22:12",
+            "status": "completed",
+            "error": "",
+        },
+            {
+                "mid": 2,
+                "botid": 2,
+                "sst": "2023-10-22 12:11:12",
+                "sd": 600,
+                "ast": "2023-10-22 12:12:12",
+                "aet": "2023-10-22 12:22:12",
+                "status": "running",
+                "error": "",
+            }])
+        self.parent.vehicles.append(newV)
+
+        newV = VEHICLE(self)
+        newV.setIP("192.168.22.34")
+        newV.setVid("34")
+        newV.setMStats([{
+            "mid": 3,
+            "botid": 3,
+            "sst": "2023-10-22 00:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 00:12:12",
+            "aet": "2023-10-22 00:22:12",
+            "status": "scheduled",
+            "error": "",
+        },
+            {
+                "mid": 4,
+                "botid": 3,
+                "sst": "2023-10-22 12:11:12",
+                "sd": 600,
+                "ast": "2023-10-22 12:12:12",
+                "aet": "2023-10-22 12:22:12",
+                "status": "warned",
+                "error": "100: warning reason 1",
+            }])
+        self.parent.vehicles.append(newV)
+
+        newV = VEHICLE(self)
+        newV.setIP("192.168.22.29")
+        newV.setVid("29")
+        newV.setMStats([{
+            "mid": 5,
+            "botid": 5,
+            "sst": "2023-10-22 00:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 00:12:12",
+            "aet": "2023-10-22 00:22:12",
+            "status": "aborted",
+            "error": "203: Found Captcha",
+        }])
+        self.parent.vehicles.append(newV)
+
     # msg in json format
     # { sender: "ip addr", type: "intro/status/report", content : "another json" }
     # content format varies according to type.
@@ -3040,7 +3130,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.platoonWin.updatePlatoonStatAndShow(msg)
                 self.platoonWin.show()
             else:
-                print("platoon win not created yets....")
+                print("ERROR: platoon win not yet exists.......")
+
+            self.updateVMStats(msg)
 
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
@@ -3051,92 +3143,36 @@ class MainWindow(QtWidgets.QMainWindow):
                 # this means all reports are collected, ready to send to cloud.
                 self.todays_work["allstat"] = "all done"
 
-    def genMissionStatusReport(self, mids):
+    def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
         print("mids: ", mids)
         results = []
-        for mid in mids:
-            result = {
-                "mid": mid,
-                "botid": 0,
-                "sst": "2022-11-09 01:12:02",
-                "sd": 300,
-                "ast": "2023-11-09 01:12:02",
-                "aet": "2023-11-09 01:22:12",
-                "status": "completed",
-                "error": ""
-            }
+        if test_mode:
+            # just to test commander GUI can handle the result
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "scheduled", "error": ""}
             results.append(result)
-        # for mid in mids:
-        #     result = {
-        #         "mid": mid,
-        #         "botid": 0,
-        #         "start_time": "2023-11-09 01:12:02",
-        #         "end_time": "2023-11-09 01:22:12",
-        #         "status": "Done",
-        #         "error": ""
-        #     }
-        #     results.append(result)
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "completed", "error": ""}
+            results.append(result)
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "running", "error": ""}
+            results.append(result)
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "500", "aet": "2023-11-09 01:22:12", "status": "warned", "error": "505"}
+            results.append(result)
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "300", "aet": "2023-11-09 01:22:12", "status": "aborted", "error": "5"}
+            results.append(result)
+        else:
+            for mid in mids:
+                result = {
+                    "mid": mid,
+                    "botid": self.missions[mid].getBid(),
+                    "sst": self.missions[mid].getEstimatedStartTime(),
+                    "sd": self.missions[mid].getEstimatedRunTime(),
+                    "ast": self.missions[mid].getActualStartTime(),
+                    "aet": self.missions[mid].getActualEndTime(),
+                    "status": self.missions[mid].getStatus().split(":")[0],
+                    "error": self.missions[mid].getStatus().split(":")[1],
+                }
+                results.append(result)
 
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "600",
-            "aet": "2023-11-09 01:22:12",
-            "status": "scheduled",
-            "error": ""
-        }
-        results.append(result)
-
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "600",
-            "aet": "2023-11-09 01:22:12",
-            "status": "completed",
-            "error": ""
-        }
-        results.append(result)
-
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "600",
-            "aet": "2023-11-09 01:22:12",
-            "status": "running",
-            "error": ""
-        }
-        results.append(result)
-
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "500",
-            "aet": "2023-11-09 01:22:12",
-            "status": "warned",
-            "error": ""
-        }
-        results.append(result)
-
-        result = {
-            "mid": 1,
-            "botid": 0,
-            "sst": "2023-11-09 01:12:02",
-            "ast": "2023-11-09 01:12:02",
-            "sd": "300",
-            "aet": "2023-11-09 01:22:12",
-            "status": "aborted",
-            "error": ""
-        }
-        results.append(result)
 
         print("mission status result:", results)
         return results
@@ -3151,13 +3187,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if msg["cmd"] == "reqStatusUpdate":
             if msg["missions"] != "":
                 if msg["missions"] == "all":
-                    mids = [1, 2, 3]
+                    mids = [m.getMid() for m in self.missions]
                 else:
                     mid_chars = msg["missions"].aplit(",")
                     mids = [int(mc) for mc in mid_chars]
 
                 # capture all the status of all the missions specified and send back the commander...
-                statusJson = self.genMissionStatusReport(mids)
+                statusJson = self.genMissionStatusReport(mids, False)
                 msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"status\", \"content\":\"" + json.dumps(statusJson).replace('"', '\\"') +"\"}"
                 # send to commander
                 self.commanderXport.write(msg.encode('utf8'))

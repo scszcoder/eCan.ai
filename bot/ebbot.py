@@ -55,10 +55,14 @@ class BOT_SETTINGS():
 
 
     def loadJson(self, dj):
-        self.platform = dj["platform"]
-        self.os = dj["os"]
-        self.browser = dj["browser"]
-        self.machine = dj["machine"]
+        if "platform" in dj:
+            self.platform = dj["platform"]
+        if "os" in dj:
+            self.os = dj["os"]
+        if "browser" in dj:
+            self.browser = dj["browser"]
+        if "machine" in dj:
+            self.machine = dj["machine"]
 
     def setComputer(self, platform, os, machine, browser):
         self.platform = platform
