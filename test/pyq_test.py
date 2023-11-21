@@ -12,6 +12,7 @@ from PySide6.QtTest import QTest
 import sys
 from gui.codeeditor import *
 from gui.diagram.pyq_diagram import *
+from gui.qtpyeditor.codeeditor.pythoneditor import PMGPythonEditor
 
 class GraphEditorWindow(QMainWindow):
     def __init__(self):
@@ -33,8 +34,9 @@ class GraphEditorWindow(QMainWindow):
         self.skFCDiagram = PyQDiagram()
         self.skFCWidget.setWidget(self.skFCDiagram)
 
-        self.skcodeeditor = SimpleCodeEditor()
+        self.skcodeeditor = PMGPythonEditor()
         self.skCodeWidget.setWidget(self.skcodeeditor)
+        self.skCodeWidget.setWidgetResizable(True)
 
         self.skvtabs.addTab(self.skFCDiagram.widget, "Flow Chart")
         self.skvtabs.addTab(self.skCodeWidget, "Code")
