@@ -8,9 +8,9 @@
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
 
-from PySide6.QtCore import *
-from PySide6.QtGui import *
-from PySide6.QtWidgets import *
+from PySide6.QtCore import Qt, QMetaObject, QCoreApplication
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QGridLayout, QLineEdit, QLabel, QDialogButtonBox, QSpacerItem, QSizePolicy
 
 
 class Ui_DialogGoto(object):

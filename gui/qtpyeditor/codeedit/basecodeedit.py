@@ -3,7 +3,6 @@
 # @Author: Zhanyi Hou
 # @Email: 1295752786@qq.com
 # @File: basecodeedit.py
-import logging
 import os
 import re
 import time
@@ -12,13 +11,9 @@ from queue import Queue
 
 from PySide6.QtGui import QDropEvent, QPixmap
 
-from qtpy.QtWidgets import QAction
-from qtpy.QtCore import Qt, QModelIndex, Signal, QThread, QCoreApplication, QTimer, QUrl, QSize
-from qtpy.QtWidgets import QApplication, QFileDialog, QTextEdit, QTabWidget, \
-    QMessageBox, QListWidget, QListWidgetItem, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPlainTextEdit, QShortcut, \
-    QTableWidget, QTableWidgetItem, QHeaderView
-from qtpy.QtGui import QTextCursor, QKeyEvent, QMouseEvent, QIcon, QKeySequence, QFocusEvent, QColor, QTextFormat, \
-    QPainter, QTextDocument, QTextBlock
+from qtpy.QtCore import Qt, QModelIndex, Signal, QTimer, QUrl
+from qtpy.QtWidgets import QApplication, QWidget, QPlainTextEdit, QTableWidget, QTableWidgetItem, QHeaderView
+from qtpy.QtGui import QTextCursor, QKeyEvent, QMouseEvent, QIcon, QFocusEvent
 from typing import List, Tuple, Dict, TYPE_CHECKING
 
 from qtpyeditor.highlighters.python import PythonHighlighter

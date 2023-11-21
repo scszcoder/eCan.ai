@@ -8,9 +8,9 @@ import time
 import re
 from typing import Tuple, List, TYPE_CHECKING
 
-from qtpy.QtGui import QTextCursor, QMouseEvent, QKeyEvent, QTextBlock
-from qtpy.QtWidgets import QLabel, QListWidgetItem, QApplication
-from qtpy.QtCore import QPoint, QModelIndex, Signal
+from qtpy.QtGui import QTextCursor, QMouseEvent, QKeyEvent
+from qtpy.QtWidgets import QLabel, QApplication
+from qtpy.QtCore import QPoint, QModelIndex
 
 from qtpyeditor.codeedit import PMBaseCodeEdit
 from qtpyeditor.highlighters import PythonHighlighter

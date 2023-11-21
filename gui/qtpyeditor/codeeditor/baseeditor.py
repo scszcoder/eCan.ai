@@ -33,17 +33,12 @@ Created on 2020/9/7
 
 __version__ = '0.1'
 
-import ast
-import json
-import logging
 import os
-import re
 import time
-from itertools import groupby
 from typing import TYPE_CHECKING, List, Iterable, Dict, Set, Tuple, Any
-from qtpy.QtGui import QIcon, QKeySequence, QTextDocument, QTextCursor, QTextBlock, QDropEvent
-from qtpy.QtCore import QDir, QCoreApplication, Qt, QPoint, Signal, QTranslator, QLocale, QUrl
-from qtpy.QtWidgets import QWidget, QMessageBox, QFileDialog, QAction, QShortcut, QDialog, QVBoxLayout, QPushButton, \
+from qtpy.QtGui import QIcon, QKeySequence, QTextDocument, QTextCursor
+from qtpy.QtCore import QDir, QCoreApplication, Qt, QPoint, Signal, QTranslator, QLocale
+from qtpy.QtWidgets import QWidget, QMessageBox, QFileDialog, QAction, QShortcut, QDialog, QVBoxLayout, \
     QHBoxLayout, QApplication, QLabel
 
 # from pmgwidgets import in_unit_test

@@ -33,16 +33,9 @@ Created on 2020/9/7
 
 __version__ = '0.1'
 
-import ast
-import json
-import logging
 import os
-import re
-import time
-from itertools import groupby
-from typing import TYPE_CHECKING, List, Iterable, Dict, Set, Tuple, Any
+from typing import Dict, Any
 
-from qtpy.QtCore import QDir
 from qtpy.QtWidgets import QWidget, QMessageBox
 
 # from pmgwidgets import in_unit_test
