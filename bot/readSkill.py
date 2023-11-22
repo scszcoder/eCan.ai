@@ -215,6 +215,7 @@ def readSkillFile(name_space, skill_file, lvl = 0):
 def runAllSteps(steps, mission, skill, mode="normal"):
     global last_step
     global next_step
+    run_result = "Completed:0"
     last_step = -1
     next_step = 0
     next_step_index = 0
@@ -255,6 +256,8 @@ def runAllSteps(steps, mission, skill, mode="normal"):
         print("RUN COMPLETED!")
     else:
         print("RUN ABORTED!")
+
+    return run_result
 
 def runNSteps(steps, prev_step, i_step, e_step, mission, skill, run_stack):
     global last_step

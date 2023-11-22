@@ -135,6 +135,8 @@ def getWorkSettings(lieutenant, bot_works):
             "name_space": name_space
             }
 
+
+# set skill related setting items in worksettings.
 def setWorkSettingsSkill(worksettings, sk):
     # derive full path skill file name.
     print(">>>>>>>getting psk file name:", sk.getPskFileName())
@@ -158,6 +160,7 @@ def setWorkSettingsSkill(worksettings, sk):
     worksettings["cargs"] = sk.getAppArgs()
 
 
+# generate pubilc skills on windows platform.
 def genWinSkillCode(worksettings, start_step, theme):
     print("opening skill file: ", worksettings["skfname"], worksettings["app"], worksettings["site"])
     skf = open(worksettings["skfname"], "w+")
@@ -202,6 +205,8 @@ def genWinSkillCode(worksettings, start_step, theme):
     skf.write(psk_words)
     skf.close()
 
+
+# generate pubilc skills on Mac platform.
 def genMacSkillCode(worksettings, start_step, theme):
     print("hello")
 
@@ -263,6 +268,7 @@ def genWinTestSkill(worksettings, start_step):
 
     skf.write(psk_words)
     skf.close()
+
 
 def genWinTestSkill1(worksettings, start_step):
     skf = open(worksettings["skfname"], "w")
