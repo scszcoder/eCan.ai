@@ -1382,6 +1382,7 @@ class MainWindow(QtWidgets.QMainWindow):
         pt = datetime.now()
         if len(self.todays_work["tbd"]) >  0:
             if (not self.todays_work["tbd"][0]["status"] == "done") and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
+                # in case the 1st todos is fetch schedule
                 if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
                     nextrun = self.todays_work["tbd"][0]
             elif not self.todays_work["tbd"][0]["status"] == "done":
@@ -1444,11 +1445,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         return stepKeys
 
+
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
     async def runRPA(self, worksTBD):
         global rpaConfig
         global skill_code
 
+        all_done = False
         worksettings = getWorkSettings(self, worksTBD)
         print("worksettings: mid, bid", worksettings["botid"], worksettings["mid"])
 
@@ -1503,11 +1506,20 @@ class MainWindow(QtWidgets.QMainWindow):
             # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
             # print("running skid:", rpaSkillIds[0], "len(self.skills): ", len(self.skills), "skill 0 skid: ", self.skills[0].getSkid())
             # print("running skill: ", running_skill)
-            runAllSteps(script, self.missions[worksettings["midx"]], relevant_skills[0])
+            runResult = runAllSteps(script, self.missions[worksettings["midx"]], relevant_skills[0])
 
-        #now update the pointer, status, and so on.....
+        # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
+        # the timer tick will trigger the run of the next mission on the list....
+        self.update1MStat(worksettings["midx"], runResult)
         self.updateRunStatus(worksTBD)
 
+    def timeToRunNext(self):
+        # check whether it's time to run the next mission on the todo list. basically check the current time against the next scheduled run time.
+        print("time is up for the next mission.")
+
+    def update1MStat(self, midx, result):
+        print("1 mission run completed.")
+        self.missions[midx].setStatus(result)
 
     def updateRunStatus(self, worksTBD):
         works = worksTBD["works"]
@@ -1639,6 +1651,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     worksTBD["current oidx"] = -1
 
             else:
+                # already reached the last region in this todo group, consider this group done.
                 worksTBD["status"] == "done"
 
 
@@ -1665,7 +1678,7 @@ class MainWindow(QtWidgets.QMainWindow):
         task_mission = self.missions[task.mid]
         # run all the todo steps
         # (steps, mission, skill, mode="normal"):
-        runAllSteps(task.todos, task_mission.parent_settings)
+        runResult = runAllSteps(task.todos, task_mission.parent_settings)
 
 
     def showAbout(self):
@@ -3008,7 +3021,6 @@ class MainWindow(QtWidgets.QMainWindow):
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
 
                     botTodos["status"] = "done"
-
                 elif botTodos["name"] == "automation":
                     # run 1 bot's work
                     print("running RPA..............")
@@ -3021,9 +3033,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     print("what?????")
 
+                # now need to chop off the 0th todo since that's done by now....
+                finished = self.todays_work["tbd"].pop(0)
+
                 # elif botTodos["name"] == "report":
                 #     self.doneWithToday()
                 self.workingState = "Idle"
+
             else:
                 # nothing to do right now. check if all of today's work are done.
                 # if my own works are done and all platoon's reports are collected.
