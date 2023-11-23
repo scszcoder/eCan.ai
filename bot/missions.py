@@ -92,7 +92,7 @@ class M_Private_Attributes():
         self.item_number = dj["item_number"]
         self.seller = dj["seller"]
         self.title = dj["title"]
-        self.imglink = dj["img_link"]
+        self.imglink = dj["imglink"]
         self.price = dj["price"]
         self.rank = dj["rank"]
         self.feedbacks = dj["feedbacks"]

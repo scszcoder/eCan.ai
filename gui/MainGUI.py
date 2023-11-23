@@ -3217,6 +3217,8 @@ class MainWindow(QtWidgets.QMainWindow):
         elif msg["cmd"] == "reqCancelMissions":
             # update vehicle status display.
             self.showMsg(msg["content"])
+            # first check if the missions are completed or being run or not, if so nothing could be done.
+            # otherwise, simply update the mission status to be "Cancelled"
         elif msg["cmd"] == "reqSetSchedule":
             # schedule work now..... append to array data structure and set up the pointer to the 1st task.
             # the actual running of the tasks will be taken care of by the schduler.
@@ -3241,9 +3243,15 @@ class MainWindow(QtWidgets.QMainWindow):
         elif msg["cmd"] == "reqHaltMissions":
             # update vehicle status display.
             self.showMsg(msg["content"])
+            # simply change the mission's status to be "Halted" again, this will make task runner to run this mission
         elif msg["cmd"] == "reqResumeMissions":
             # update vehicle status display.
             self.showMsg(msg["content"])
+            # simply change the mission's status to be "Scheduled" again, this will make task runner to run this mission
+        elif msg["cmd"] == "reqAddMissions":
+            # update vehicle status display.
+            self.showMsg(msg["content"])
+            # this is for manual generated missions, simply added to the todo list.
     # just an array of the following object:
     # MissionStatus {
     #     mid: ID!
