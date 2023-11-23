@@ -969,7 +969,7 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     site_url = "https://www.amazon.com"
 
     # open browser with amzon web site
-    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 2, start_step)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, start_step)
     psk_words = psk_words + step_words
 
     # this url points to a product list page after a keyword search
