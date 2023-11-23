@@ -1099,7 +1099,10 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self.warn("Warning: Empty Network Response.")
 
-        self.todays_work["tbd"][0]["status"] = "done"
+        if len(self.todays_work["tbd"]) > 0:
+            self.todays_work["tbd"][0]["status"] = "done"
+        else:
+            print("WARNING!!!! no work TBD after fetching schedule...")
 
     def fetchScheduleFromFile(self):
 

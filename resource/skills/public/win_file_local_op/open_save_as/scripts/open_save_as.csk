@@ -32,6 +32,13 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "refresh10",
+                        "anchor_type"  : "icon",
+                        "template"     : "file_refresh10.png",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "file_cancel",
                         "anchor_type"  : "text",
                         "template"     : "Cancel",
