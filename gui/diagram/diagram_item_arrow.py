@@ -2,13 +2,13 @@ from enum import Enum
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, QSizeF, Qt
 from PySide6.QtGui import QPainter, QPen, QColor, QPolygonF, QPainterPath, QBrush, QFont, QPainterPathStroker
-from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsItem, QMenu, QGraphicsSceneMouseEvent, QGraphicsBlurEffect,
-                               QGraphicsDropShadowEffect, QGraphicsColorizeEffect)
+from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsItem, QMenu, QGraphicsSceneMouseEvent,
+                               QGraphicsDropShadowEffect)
 import math
 from datetime import datetime
 from typing import List
 
-from gui.diagram.diagram_item_normal import EnumPortDir, DiagramItemGroup, DiagramSubItemPort, DiagramNormalItem
+from gui.diagram.diagram_item_normal import EnumPortDir, DiagramItemGroup, DiagramNormalItem
 from gui.diagram.diagram_base import EnumItemType, DiagramBase
 
 ARROW_MIN_SIZE = 15
@@ -191,7 +191,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         super().hoverLeaveEvent(event)
 
     def hoverMoveEvent(self, event):
-        local_pos = self.mapFromScene(event.scenePos())
+        local_pos = event.scenePos()
         start_pos = self.path().pointAtPercent(0)
         end_pos = self.path().pointAtPercent(1)
 
@@ -201,6 +201,8 @@ class DiagramArrowItem(QGraphicsPathItem):
             self.setCursor(Qt.CursorShape.SizeAllCursor)
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
+
+        super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
@@ -229,7 +231,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.old_start_item = self.start_item
         self.old_end_item = self.end_item
 
-        local_pos = self.mapFromScene(event.scenePos())
+        local_pos = event.scenePos()
         start_pos = self.path().pointAtPercent(0)
         end_pos = self.path().pointAtPercent(1)
 

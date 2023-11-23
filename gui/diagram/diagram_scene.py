@@ -1,11 +1,10 @@
-from PySide6.QtCore import (Signal, QPointF, QRectF, Qt)
-from PySide6.QtGui import (QFont, QPainter, QPen, QColor, QPalette)
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsTextItem, QMenu
+from PySide6.QtCore import (Signal, QPointF, Qt)
+from PySide6.QtGui import (QFont, QColor)
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QMenu
 from gui.diagram.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup
 from gui.diagram.diagram_item_text import DiagramTextItem
 from gui.diagram.diagram_item_arrow import DiagramArrowItem
 from gui.diagram.diagram_base import EnumItemType
-import json
 
 
 class DiagramScene(QGraphicsScene):

@@ -1,5 +1,5 @@
 from PySide6.QtCore import (QPointF, QRectF, Qt)
-from PySide6.QtGui import (QPainter, QPainterPath, QColor, QFont, QPen, QPixmap, QPolygonF)
+from PySide6.QtGui import (QPainterPath, QColor, QFont, QPen, QPolygonF)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsEllipseItem, QMenu
 from gui.diagram.diagram_item_text import DiagramTextItem
 from gui.diagram.diagram_base import EnumItemType, DiagramBase
