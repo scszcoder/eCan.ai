@@ -225,13 +225,13 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.my_context_menu.exec_(event.screenPos())
 
     # check selected start or end point
-    def selected_start_or_end_pos(self, event) -> bool:
+    def prepare_dragging(self, event) -> bool:
+        self.old_start_item = self.start_item
+        self.old_end_item = self.end_item
+
         local_pos = self.mapFromScene(event.scenePos())
         start_pos = self.path().pointAtPercent(0)
         end_pos = self.path().pointAtPercent(1)
-
-        self.old_start_item = self.start_item
-        self.old_end_item = self.end_item
 
         result = False
         if (local_pos - start_pos).manhattanLength() < MANHANTAN_LENGTH:
