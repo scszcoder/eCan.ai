@@ -1,8 +1,7 @@
-from PySide6.QtCore import (Signal, Qt, QPointF)
+from PySide6.QtCore import QPointF
 from PySide6.QtGui import QFont, QColor, QPalette
 
 from enum import Enum
-import json
 from typing import List
 import uuid
 
