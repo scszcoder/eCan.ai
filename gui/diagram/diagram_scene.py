@@ -88,8 +88,8 @@ class DiagramScene(QGraphicsScene):
         elif self.myMode == self.InsertLine:
             print("inserting a line...")
             if self.isItemChange(DiagramArrowItem):
-                line = self.selectedItems()[0]
-                if line.selected_start_or_end_pos(mouseEvent) is True:
+                line: DiagramArrowItem = self.selectedItems()[0]
+                if line.prepare_dragging(mouseEvent) is True:
                     self.selected_item = line
                 else:
                     print("selected existed line but not start or end point so can not be drag #1")
@@ -115,8 +115,8 @@ class DiagramScene(QGraphicsScene):
             self.selected_item = item
         elif self.myMode == self.MoveItem:
             if self.isItemChange(DiagramArrowItem):
-                line = self.selectedItems()[0]
-                if line.selected_start_or_end_pos(mouseEvent) is True:
+                line: DiagramArrowItem = self.selectedItems()[0]
+                if line.prepare_dragging(mouseEvent) is True:
                     self.selected_item = line
                 else:
                     print("selected existed line but not start or end point so can not be drag #2")
