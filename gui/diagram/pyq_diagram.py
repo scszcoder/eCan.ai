@@ -1,15 +1,26 @@
 import json
 
-from PySide6.QtCore import (QRectF, QSize, Qt, QPointF)
-from PySide6.QtGui import (QAction, QFont, QIcon, QBrush, QIcon, QPixmap, QPainter, QPen)
-from PySide6.QtWidgets import (QGraphicsView, QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QWidget,
-                               QButtonGroup, QGridLayout, QLabel, QSizePolicy, QToolBox, QToolButton, QWidget, QGraphicsView)
+from PySide6.QtCore import (QRectF, QSize, Qt)
+from PySide6.QtGui import (QAction, QFont, QBrush, QIcon, QPixmap, QPainter, QPen)
+from PySide6.QtWidgets import (QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QButtonGroup, QGridLayout,
+                               QLabel, QSizePolicy, QToolBox, QToolButton, QWidget, QGraphicsView)
 from config.app_info import app_info
 from gui.diagram.diagram_scene import DiagramScene
 from gui.diagram.diagram_item_normal import DiagramNormalItem
-from gui.diagram.diagram_item_text import DiagramTextItem
-from gui.diagram.diagram_item_arrow import DiagramArrowItem
 from gui.diagram.diagram_toolbars import DiagramToolBars
+
+
+class SkFCView(QGraphicsView):
+    def __init__(self, scene):
+        super(SkFCView, self).__init__(scene)
+        # self.view.setRubberBandSelectionMode(Qt.IntersectsItemBoundingRect)
+        # self.view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        # self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+
+    # def resizeEvent(self, event):
+    #     super().resizeEvent(event)
+    #     # 调整场景的矩形区域以匹配视图的大小
+    #     self.scene().setSceneRect(self.rect())
 
 
 class PyQDiagram(QWidget):
@@ -26,15 +37,13 @@ class PyQDiagram(QWidget):
         # self.createMenuBars()
 
         self.diagram_scene = DiagramScene(self.context_menu)
-        self.diagram_scene.setSceneRect(QRectF(0, 0, 500, 500))
+        self.diagram_scene.setSceneRect(QRectF(0, 0, 600, 1000))
         self.diagram_scene.itemInserted.connect(self.itemInserted)
         self.diagram_scene.textInserted.connect(self.textInserted)
         self.diagram_scene.arrowInserted.connect(self.arrowInserted)
         self.diagram_scene.itemSelected.connect(self.itemSelected)
 
-        self.drawing_view = QGraphicsView(self.diagram_scene)
-        # self.view.setRubberBandSelectionMode(Qt.IntersectsItemBoundingRect)
-        # self.view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.drawing_view = SkFCView(self.diagram_scene)
 
         self.diagram_toolbox = self.create_toolbox()
         self.diagram_toolbars = DiagramToolBars(self.diagram_scene, self.drawing_view)
@@ -47,8 +56,7 @@ class PyQDiagram(QWidget):
         mainLayout.addLayout(self.diagram_toolbars)
         mainLayout.addLayout(body_layout)
 
-        self.widget = QWidget()
-        self.widget.setLayout(mainLayout)
+        self.setLayout(mainLayout)
         print("init PyQDiagram")
 
         #self.setCentralWidget(self.widget)
