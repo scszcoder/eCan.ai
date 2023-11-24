@@ -36,41 +36,38 @@ class SkFCWidget(QWidget):
         self.context_menu = self.createMenus()
         # self.createMenuBars()
 
-        self.diagram_scene = SkFCScene(self.context_menu)
-        self.diagram_scene.setSceneRect(QRectF(0, 0, 600, 1000))
-        self.diagram_scene.itemInserted.connect(self.itemInserted)
-        self.diagram_scene.textInserted.connect(self.textInserted)
-        self.diagram_scene.arrowInserted.connect(self.arrowInserted)
-        self.diagram_scene.itemSelected.connect(self.itemSelected)
+        self.skfc_scene = SkFCScene(self.context_menu)
+        self.skfc_scene.setSceneRect(QRectF(0, 0, 600, 1000))
+        self.skfc_scene.itemInserted.connect(self.itemInserted)
+        self.skfc_scene.textInserted.connect(self.textInserted)
+        self.skfc_scene.arrowInserted.connect(self.arrowInserted)
+        self.skfc_scene.itemSelected.connect(self.itemSelected)
 
-        self.drawing_view = SkFCView(self.diagram_scene)
+        self.skfc_view = SkFCView(self.skfc_scene)
 
-        self.diagram_toolbox = self.create_toolbox()
-        self.diagram_toolbars = SkFCToolBars(self.diagram_scene, self.drawing_view)
+        self.skfc_toolbox = self.create_toolbox()
+        self.skfc_toolbars = SkFCToolBars(self.skfc_scene, self.skfc_view)
 
         body_layout = QHBoxLayout()
-        body_layout.addWidget(self.diagram_toolbox)
-        body_layout.addWidget(self.drawing_view)
+        body_layout.addWidget(self.skfc_toolbox)
+        body_layout.addWidget(self.skfc_view)
 
         mainLayout = QVBoxLayout()
-        mainLayout.addLayout(self.diagram_toolbars)
+        mainLayout.addLayout(self.skfc_toolbars)
         mainLayout.addLayout(body_layout)
 
         self.setLayout(mainLayout)
-        print("init PyQDiagram")
-
-        #self.setCentralWidget(self.widget)
-        # self.setWindowTitle("Diagramscene")
+        print("init SkFc widget")
 
     def deleteItem(self):
-        for item in self.diagram_scene.selectedItems():
-            self.diagram_scene.remove_diagram_item(item)
+        for item in self.skfc_scene.selectedItems():
+            self.skfc_scene.remove_diagram_item(item)
 
     def bringToFront(self):
-        if not self.diagram_scene.selectedItems():
+        if not self.skfc_scene.selectedItems():
             return
 
-        selectedItem = self.diagram_scene.selectedItems()[0]
+        selectedItem = self.skfc_scene.selectedItems()[0]
         overlapItems = selectedItem.collidingItems()
 
         zValue = 0
@@ -80,10 +77,10 @@ class SkFCWidget(QWidget):
         selectedItem.setZValue(zValue)
 
     def sendToBack(self):
-        if not self.diagram_scene.selectedItems():
+        if not self.skfc_scene.selectedItems():
             return
 
-        selectedItem = self.diagram_scene.selectedItems()[0]
+        selectedItem = self.skfc_scene.selectedItems()[0]
         overlapItems = selectedItem.collidingItems()
 
         zValue = 0
@@ -94,23 +91,23 @@ class SkFCWidget(QWidget):
 
     def itemInserted(self, item):
         print("inserted normal item:", item, ">>", item.diagram_type)
-        self.diagram_toolbars.pointerTypeGroup.button(SkFCScene.MoveItem).setChecked(True)
-        self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
+        self.skfc_toolbars.pointerTypeGroup.button(SkFCScene.MoveItem).setChecked(True)
+        self.skfc_scene.setMode(self.skfc_toolbars.pointerTypeGroup.checkedId())
         #self.diagram_button_group.button(item.diagramType).setChecked(False)
         self.diagram_button_group.button(item.diagram_type).setChecked(False)
 
     def textInserted(self, item):
-        print(f"inserted text: {self.diagram_toolbars.pointerTypeGroup.checkedId()}")
+        print(f"inserted text: {self.skfc_toolbars.pointerTypeGroup.checkedId()}")
         self.diagram_button_group.button(self.InsertTextButton).setChecked(False)
-        self.diagram_toolbars.pointerTypeGroup.button(SkFCScene.MoveItem).setChecked(True)
-        self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
+        self.skfc_toolbars.pointerTypeGroup.button(SkFCScene.MoveItem).setChecked(True)
+        self.skfc_scene.setMode(self.skfc_toolbars.pointerTypeGroup.checkedId())
 
     def arrowInserted(self, item):
         print(f"inserted arrow {item}")
         pass
 
     def encode_json(self, indent=None) -> str:
-        json_dict = self.diagram_scene.to_json()
+        json_dict = self.skfc_scene.to_json()
         json_str = json.dumps(json_dict, indent=indent)
         print(f"encode json str: {json_str}")
 
@@ -118,16 +115,16 @@ class SkFCWidget(QWidget):
 
     def decode_json(self, json_str):
         items_dict = json.loads(json_str)
-        self.diagram_scene.from_json(items_dict, self.context_menu)
+        self.skfc_scene.from_json(items_dict, self.context_menu)
 
     def handleFontChange(self):
-        self.diagram_toolbars.handleFontChange()
+        self.skfc_toolbars.handleFontChange()
 
     def itemSelected(self, item):
         font = item.font()
         color = item.defaultTextColor()
-        self.diagram_toolbars.fontCombo.setCurrentFont(font)
-        self.diagram_toolbars.fontSizeCombo.setEditText(str(font.pointSize()))
+        self.skfc_toolbars.fontCombo.setCurrentFont(font)
+        self.skfc_toolbars.fontSizeCombo.setEditText(str(font.pointSize()))
         self.boldAction.setChecked(font.weight() == QFont.Bold)
         self.italicAction.setChecked(font.italic())
         self.underlineAction.setChecked(font.underline())
@@ -248,11 +245,11 @@ class SkFCWidget(QWidget):
 
         #if id == self.InsertTextButton:
         if self.diagram_button_group.id(button) == self.InsertTextButton:
-            self.diagram_scene.setMode(SkFCScene.InsertText)
+            self.skfc_scene.setMode(SkFCScene.InsertText)
         else:
             #self.scene.setItemType(id)
-            self.diagram_scene.setItemType(self.diagram_button_group.id(button))
-            self.diagram_scene.setMode(SkFCScene.InsertItem)
+            self.skfc_scene.setItemType(self.diagram_button_group.id(button))
+            self.skfc_scene.setMode(SkFCScene.InsertItem)
 
     def background_button_group_clicked(self, button):
         buttons = self.background_button_group.buttons()
@@ -262,13 +259,13 @@ class SkFCWidget(QWidget):
 
         text = button.text()
         if text == "Blue Grid":
-            self.diagram_scene.setBackgroundBrush(QBrush(QPixmap(self.home_path + '/resource/images/skill_editor/background1.png')))
+            self.skfc_scene.setBackgroundBrush(QBrush(QPixmap(self.home_path + '/resource/images/skill_editor/background1.png')))
         elif text == "White Grid":
-            self.diagram_scene.setBackgroundBrush(QBrush(QPixmap(self.home_path + '/resource/images/skill_editor/background2.png')))
+            self.skfc_scene.setBackgroundBrush(QBrush(QPixmap(self.home_path + '/resource/images/skill_editor/background2.png')))
         elif text == "Gray Grid":
-            self.diagram_scene.setBackgroundBrush(QBrush(QPixmap(self.home_path + '/resource/images/skill_editor/background3.png')))
+            self.skfc_scene.setBackgroundBrush(QBrush(QPixmap(self.home_path + '/resource/images/skill_editor/background3.png')))
         else:
-            self.diagram_scene.setBackgroundBrush(QBrush(QPixmap(self.home_path + '/resource/images/skill_editor/background4.png')))
+            self.skfc_scene.setBackgroundBrush(QBrush(QPixmap(self.home_path + '/resource/images/skill_editor/background4.png')))
 
         #self.scene.update()
         #self.view.update()
