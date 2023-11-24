@@ -1474,7 +1474,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skconsolelabel = QtWidgets.QLabel("Console")
         self.skconsolelabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.skconsole = QtWidgets.QTextBrowser()
-        self.skcodeeditor = PMGPythonEditor()
 
         self.skill_load_button = QtWidgets.QPushButton("Load Skill")
         self.skill_save_button = QtWidgets.QPushButton("Save Skill")
@@ -1484,16 +1483,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skill_stop_button = QtWidgets.QPushButton("Stop")
         self.skill_resume_button = QtWidgets.QPushButton("Continue")
 
-        self.skFCWidget = QtWidgets.QScrollArea()
-        self.skFCWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.skFCWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-
-        self.skCodeWidget = QtWidgets.QScrollArea()
-        self.skCodeWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.skCodeWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-
-        print("build PyQDiagram")
-        self.skFCDiagram = PyQDiagram()
         # ------- layouts ------------
         self.pbbuttonlayout = QtWidgets.QHBoxLayout()
         self.pbrunlayout = QtWidgets.QVBoxLayout()
@@ -1624,13 +1613,11 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skblayout.addWidget(self.skill_save_button)
         self.skblayout.addWidget(self.skill_cancel_button)
 
-        self.skCodeWidget.setWidget(self.skcodeeditor)
-        self.skCodeWidget.setWidgetResizable(True)
-        self.skFCWidget.setWidget(self.skFCDiagram)
+        self.skFCWidget = PyQDiagram()
+        self.skCodeWidget = PMGPythonEditor()
 
-        self.skvtabs.addTab(self.skFCDiagram.widget, "Flow Chart")
+        self.skvtabs.addTab(self.skFCWidget, "Flow Chart")
         self.skvtabs.addTab(self.skCodeWidget, "Code")
-
 
         self.hsplitter1.addWidget(self.skvtabs)
         self.consoleWidget = QtWidgets.QWidget()

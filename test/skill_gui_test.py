@@ -11,7 +11,8 @@ class SkillWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.skill_gui = SkillGUI(self)
-        self.skill_gui.showMaximized()
+        # self.skill_gui.showMaximized()
+        self.skill_gui.show()
 
 
 if __name__ == "__main__":

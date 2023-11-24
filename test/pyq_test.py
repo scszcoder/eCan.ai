@@ -10,7 +10,6 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QButtonGroup, 
                             QVBoxLayout, QToolBox, QToolButton, QWidget, QFileDialog
 from PySide6.QtTest import QTest
 import sys
-from gui.codeeditor import *
 from gui.diagram.pyq_diagram import *
 from gui.qtpyeditor.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_settings import app_settings
@@ -25,22 +24,23 @@ class GraphEditorWindow(QMainWindow):
 
         self.skvtabs = QtWidgets.QTabWidget()
 
-        self.skFCWidget = QtWidgets.QScrollArea()
-        self.skFCWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.skFCWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.skFCWidget = QtWidgets.QScrollArea()
+        # self.skFCWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.skFCWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        #
+        # self.skCodeWidget = QtWidgets.QScrollArea()
+        # self.skCodeWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.skCodeWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
 
-        self.skCodeWidget = QtWidgets.QScrollArea()
-        self.skCodeWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.skCodeWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.skFCWidget = PyQDiagram()
+        # self.skFCWidget.setWidget(self.skFCDiagram)
+        # self.skFCWidget.setWidgetResizable(True)
 
-        self.skFCDiagram = PyQDiagram()
-        self.skFCWidget.setWidget(self.skFCDiagram)
+        self.skCodeWidget = PMGPythonEditor()
+        # self.skCodeWidget.setWidget(self.skcodeeditor)
+        # self.skCodeWidget.setWidgetResizable(True)
 
-        self.skcodeeditor = PMGPythonEditor()
-        self.skCodeWidget.setWidget(self.skcodeeditor)
-        self.skCodeWidget.setWidgetResizable(True)
-
-        self.skvtabs.addTab(self.skFCDiagram.widget, "Flow Chart")
+        self.skvtabs.addTab(self.skFCWidget, "Flow Chart")
         self.skvtabs.addTab(self.skCodeWidget, "Code")
 
         layout = QVBoxLayout()

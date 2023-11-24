@@ -1,6 +1,7 @@
 from PySide6.QtCore import (QPointF, QRectF, Qt)
 from PySide6.QtGui import (QPainterPath, QColor, QFont, QPen, QPolygonF)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsEllipseItem, QMenu
+
 from gui.diagram.diagram_item_text import DiagramTextItem
 from gui.diagram.diagram_base import EnumItemType, DiagramBase
 from enum import Enum
@@ -215,12 +216,13 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         #     pass
 
     def itemChange(self, change, value):
-        # print(f"change:{change};value:{value}")
-        # if change == QGraphicsItem.ItemPositionChange:
-        #     for arrow in self.arrows:
-        #         arrow.updatePosition()
+        # print(f"change:{change}; {value}")
+        # if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+        #     # 当拖拽项的位置变化时，调整场景的大小以适应项的位置
+        #     scene_rect = self.scene().itemsBoundingRect()
+        #     self.scene().setSceneRect(scene_rect)
 
-        return value
+        return super().itemChange(change, value)
 
     def set_ports_visible(self, visible):
         self.port_top.setVisible(visible)
