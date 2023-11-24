@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QButtonGroup, 
                             QVBoxLayout, QToolBox, QToolButton, QWidget, QFileDialog
 from PySide6.QtTest import QTest
 import sys
-from gui.diagram.pyq_diagram import *
-from gui.qtpyeditor.codeeditor.pythoneditor import PMGPythonEditor
+from gui.skfc.skfc_widget import *
+from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_settings import app_settings
 
 
@@ -32,7 +32,7 @@ class GraphEditorWindow(QMainWindow):
         # self.skCodeWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         # self.skCodeWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
 
-        self.skFCWidget = PyQDiagram()
+        self.skFCWidget = SkFCWidget()
         # self.skFCWidget.setWidget(self.skFCDiagram)
         # self.skFCWidget.setWidgetResizable(True)
 

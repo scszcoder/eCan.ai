@@ -18,7 +18,7 @@ class EnumItemType(Enum):
         raise TypeError(f"{obj} is not JSON serializable of EnumItemType")
 
 
-class DiagramBase:
+class SkFCBase:
     @staticmethod
     def build_uuid():
         return str(uuid.uuid4())
@@ -38,7 +38,7 @@ class DiagramBase:
         font_dict = {
             "family": font.family(),
             "pointSize": font.pointSize(),
-            "weight": DiagramBase.font_weight_to_enum_name(font.weight()),
+            "weight": SkFCBase.font_weight_to_enum_name(font.weight()),
             "italic": font.italic(),
             "underline": font.underline(),
             # "strikeOut": font.strikeOut(),
@@ -60,7 +60,7 @@ class DiagramBase:
 
         font.setFamily(obj_font["family"])
         font.setPointSize(obj_font["pointSize"])
-        font.setWeight(DiagramBase.enum_name_to_font_weight(obj_font["weight"]))
+        font.setWeight(SkFCBase.enum_name_to_font_weight(obj_font["weight"]))
         font.setItalic(obj_font["italic"])
         font.setUnderline(obj_font["underline"])
         return font
@@ -77,7 +77,7 @@ class DiagramBase:
     def path_points_encode(path_points: List[QPointF]) -> []:
         result = []
         for point in path_points:
-            result.append(DiagramBase.position_encode(point))
+            result.append(SkFCBase.position_encode(point))
 
         # print(f"path_points_encode: {result}")
         return result
@@ -86,7 +86,7 @@ class DiagramBase:
     def path_points_decode(path_points_dict: []) -> []:
         points: List[QPointF] = []
         for point_dict in path_points_dict:
-            points.append(DiagramBase.position_decode(point_dict))
+            points.append(SkFCBase.position_decode(point_dict))
 
         # print(f"path_points_decode: {points}")
         return points

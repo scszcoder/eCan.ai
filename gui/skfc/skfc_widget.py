@@ -5,9 +5,9 @@ from PySide6.QtGui import (QAction, QFont, QBrush, QIcon, QPixmap, QPainter, QPe
 from PySide6.QtWidgets import (QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QButtonGroup, QGridLayout,
                                QLabel, QSizePolicy, QToolBox, QToolButton, QWidget, QGraphicsView)
 from config.app_info import app_info
-from gui.diagram.diagram_scene import DiagramScene
-from gui.diagram.diagram_item_normal import DiagramNormalItem
-from gui.diagram.diagram_toolbars import DiagramToolBars
+from gui.skfc.skfc_scene import SkFCScene
+from gui.skfc.diagram_item_normal import DiagramNormalItem
+from gui.skfc.skfc_toolbars import SkFCToolBars
 
 
 class SkFCView(QGraphicsView):
@@ -23,11 +23,11 @@ class SkFCView(QGraphicsView):
     #     self.scene().setSceneRect(self.rect())
 
 
-class PyQDiagram(QWidget):
+class SkFCWidget(QWidget):
     InsertTextButton = 10
 
     def __init__(self):
-        super(PyQDiagram, self).__init__()
+        super(SkFCWidget, self).__init__()
 
         self.home_path = app_info.app_home_path
 
@@ -36,7 +36,7 @@ class PyQDiagram(QWidget):
         self.context_menu = self.createMenus()
         # self.createMenuBars()
 
-        self.diagram_scene = DiagramScene(self.context_menu)
+        self.diagram_scene = SkFCScene(self.context_menu)
         self.diagram_scene.setSceneRect(QRectF(0, 0, 600, 1000))
         self.diagram_scene.itemInserted.connect(self.itemInserted)
         self.diagram_scene.textInserted.connect(self.textInserted)
@@ -46,7 +46,7 @@ class PyQDiagram(QWidget):
         self.drawing_view = SkFCView(self.diagram_scene)
 
         self.diagram_toolbox = self.create_toolbox()
-        self.diagram_toolbars = DiagramToolBars(self.diagram_scene, self.drawing_view)
+        self.diagram_toolbars = SkFCToolBars(self.diagram_scene, self.drawing_view)
 
         body_layout = QHBoxLayout()
         body_layout.addWidget(self.diagram_toolbox)
@@ -94,7 +94,7 @@ class PyQDiagram(QWidget):
 
     def itemInserted(self, item):
         print("inserted normal item:", item, ">>", item.diagram_type)
-        self.diagram_toolbars.pointerTypeGroup.button(DiagramScene.MoveItem).setChecked(True)
+        self.diagram_toolbars.pointerTypeGroup.button(SkFCScene.MoveItem).setChecked(True)
         self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
         #self.diagram_button_group.button(item.diagramType).setChecked(False)
         self.diagram_button_group.button(item.diagram_type).setChecked(False)
@@ -102,7 +102,7 @@ class PyQDiagram(QWidget):
     def textInserted(self, item):
         print(f"inserted text: {self.diagram_toolbars.pointerTypeGroup.checkedId()}")
         self.diagram_button_group.button(self.InsertTextButton).setChecked(False)
-        self.diagram_toolbars.pointerTypeGroup.button(DiagramScene.MoveItem).setChecked(True)
+        self.diagram_toolbars.pointerTypeGroup.button(SkFCScene.MoveItem).setChecked(True)
         self.diagram_scene.setMode(self.diagram_toolbars.pointerTypeGroup.checkedId())
 
     def arrowInserted(self, item):
@@ -148,7 +148,7 @@ class PyQDiagram(QWidget):
 
         self.deleteAction = QAction(QIcon(self.home_path + '/resource/images/skill_editor/delete.png'),
                 "&Delete", self, shortcut="Delete",
-                statusTip="Delete item from diagram",
+                statusTip="Delete item from skfc",
                 triggered=self.deleteItem)
 
         self.exitAction = QAction("E&xit", self, shortcut="Ctrl+X",
@@ -239,7 +239,7 @@ class PyQDiagram(QWidget):
         return toolbox
 
     def diagram_button_group_clicked(self, button):
-        print("diagram button group clicked:", self.diagram_button_group.id(button))
+        print("skfc button group clicked:", self.diagram_button_group.id(button))
         buttons = self.diagram_button_group.buttons()
         for mbutton in buttons:
             #if self.diagram_button_group.button(id) != mbutton:
@@ -248,11 +248,11 @@ class PyQDiagram(QWidget):
 
         #if id == self.InsertTextButton:
         if self.diagram_button_group.id(button) == self.InsertTextButton:
-            self.diagram_scene.setMode(DiagramScene.InsertText)
+            self.diagram_scene.setMode(SkFCScene.InsertText)
         else:
             #self.scene.setItemType(id)
             self.diagram_scene.setItemType(self.diagram_button_group.id(button))
-            self.diagram_scene.setMode(DiagramScene.InsertItem)
+            self.diagram_scene.setMode(SkFCScene.InsertItem)
 
     def background_button_group_clicked(self, button):
         buttons = self.background_button_group.buttons()
@@ -309,7 +309,7 @@ class PyQDiagram(QWidget):
 
     def createCellWidget(self, text, diagram_type):
         # item = DiagramItem(diagramType, )
-        print("pyq diagram creating widget type:", diagram_type)
+        print("pyq skfc creating widget type:", diagram_type)
         icon = QIcon(self.diagram_icon_image(diagram_type))
 
         button = QToolButton()

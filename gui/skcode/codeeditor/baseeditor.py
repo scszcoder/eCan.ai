@@ -43,11 +43,11 @@ from qtpy.QtWidgets import QWidget, QMessageBox, QFileDialog, QAction, QShortcut
 
 # from pmgwidgets import in_unit_test
 # from pmgwidgets.widgets.composited import PMGPanel
-from qtpyeditor.ui.gotoline import Ui_DialogGoto
-from qtpyeditor.codeeditor.abstracteditor import PMAbstractEditor
+from skcode.ui.gotoline import Ui_DialogGoto
+from skcode.codeeditor.abstracteditor import PMAbstractEditor
 
 if TYPE_CHECKING:
-    from qtpyeditor.codeedit import PMBaseCodeEdit
+    from skcode.codeedit import PMBaseCodeEdit
 
 # logger = logging.getLogger(__name__)
 from utils.logger_helper import logger_helper
@@ -347,7 +347,7 @@ class PMGBaseEditor(PMAbstractEditor):
         :type path: str
         :return: None
         """
-        from qtpyeditor.Utilities import decode
+        from skcode.Utilities import decode
         self._path = ''
         try:
             # 读取文件内容并加载
