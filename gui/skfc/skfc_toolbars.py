@@ -7,18 +7,18 @@ from config.app_info import app_info
 
 
 class SkFCToolBars(QHBoxLayout):
-    def __init__(self, diagram_scene, drawing_view, parent=None):
+    def __init__(self, skfc_scene, skfc_view, parent=None):
         super(SkFCToolBars, self).__init__(parent)
 
-        self.diagram_scene: SkFCScene = diagram_scene
-        self.drawing_view: QGraphicsView = drawing_view
+        self.skfc_scene: SkFCScene = skfc_scene
+        self.skfc_view: QGraphicsView = skfc_view
         self.parent: QWidget = parent
         self.home_path = app_info.app_home_path
 
         # self.toolBarLayout = QHBoxLayout()
         # Times New Roman
         self.fontCombo = QFontComboBox()
-        self.fontCombo.setCurrentFont(self.diagram_scene.myFont)
+        self.fontCombo.setCurrentFont(self.skfc_scene.myFont)
         self.fontCombo.currentFontChanged.connect(self.currentFontChanged)
 
         self.fontSizeCombo = QComboBox()
@@ -27,7 +27,7 @@ class SkFCToolBars(QHBoxLayout):
             self.fontSizeCombo.addItem(str(i))
         validator = QIntValidator(2, 64, self)
         self.fontSizeCombo.setValidator(validator)
-        self.fontSizeCombo.setCurrentText(str(self.diagram_scene.myFont.pointSize()))
+        self.fontSizeCombo.setCurrentText(str(self.skfc_scene.myFont.pointSize()))
         self.fontSizeCombo.currentIndexChanged.connect(self.fontSizeChanged)
 
         self.fontColorToolButton = QToolButton()
@@ -119,19 +119,19 @@ class SkFCToolBars(QHBoxLayout):
         self.addLayout(self.pointerToolbarLayout)
 
     def pointerGroupClicked(self, i):
-        self.diagram_scene.setMode(self.pointerTypeGroup.checkedId())
+        self.skfc_scene.setMode(self.pointerTypeGroup.checkedId())
 
     def txtPropertyGroupClicked(self, i):
         self.handleFontChange()
 
     def textButtonTriggered(self):
-        self.diagram_scene.setTextColor(QColor(self.textAction.data()))
+        self.skfc_scene.setTextColor(QColor(self.textAction.data()))
 
     def fillButtonTriggered(self):
-        self.diagram_scene.setItemColor(QColor(self.fillAction.data()))
+        self.skfc_scene.setItemColor(QColor(self.fillAction.data()))
 
     def lineButtonTriggered(self):
-        self.diagram_scene.setLineColor(QColor(self.lineAction.data()))
+        self.skfc_scene.setLineColor(QColor(self.lineAction.data()))
 
     def currentFontChanged(self, font):
         self.handleFontChange()
@@ -146,11 +146,11 @@ class SkFCToolBars(QHBoxLayout):
         print("scale number:" + str(newScale))
         # newScale = scale.left(scale.indexOf("%")).toDouble()[0] / 100.0
         #oldMatrix = self.drawing_view.matrix()
-        oldMatrix = self.drawing_view.transform()
+        oldMatrix = self.skfc_view.transform()
         # self.drawing_view.resetMatrix()
-        self.drawing_view.resetTransform()
-        self.drawing_view.translate(oldMatrix.dx(), oldMatrix.dy())
-        self.drawing_view.scale(newScale, newScale)
+        self.skfc_view.resetTransform()
+        self.skfc_view.translate(oldMatrix.dx(), oldMatrix.dy())
+        self.skfc_view.scale(newScale, newScale)
 
     def textColorChanged(self):
         self.textAction = self.sender()
@@ -221,4 +221,4 @@ class SkFCToolBars(QHBoxLayout):
         font.setItalic(self.txtItalicButton.isChecked())
         font.setUnderline(self.txtUnderlineButton.isChecked())
 
-        self.diagram_scene.setFont(font)
+        self.skfc_scene.setFont(font)
