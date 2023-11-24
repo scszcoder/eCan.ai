@@ -12,9 +12,9 @@ from qtpy.QtGui import QTextCursor, QMouseEvent, QKeyEvent
 from qtpy.QtWidgets import QLabel, QApplication
 from qtpy.QtCore import QPoint, QModelIndex
 
-from qtpyeditor.codeedit import PMBaseCodeEdit
-from qtpyeditor.highlighters import PythonHighlighter
-from qtpyeditor.Utilities import AutoCompThread
+from skcode.codeedit import PMBaseCodeEdit
+from skcode.highlighters import PythonHighlighter
+from skcode.Utilities import AutoCompThread
 
 # logger = logging.getLogger(__name__)
 # logger.setLevel(logging.DEBUG)

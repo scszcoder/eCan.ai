@@ -19,11 +19,11 @@ from Cloud import *
 import pyqtgraph
 from pyqtgraph import flowchart
 import BorderLayout
-from gui.diagram.pyq_diagram import *
+from gui.skfc.skfc_widget import *
 from WorkSkill import *
 from readSkill import *
 # from codeeditor import *
-from gui.qtpyeditor.codeeditor.pythoneditor import PMGPythonEditor
+from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 
 
 INSTALLED_PATH = ""
@@ -1613,7 +1613,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skblayout.addWidget(self.skill_save_button)
         self.skblayout.addWidget(self.skill_cancel_button)
 
-        self.skFCWidget = PyQDiagram()
+        self.skFCWidget = SkFCWidget()
         self.skCodeWidget = PMGPythonEditor()
 
         self.skvtabs.addTab(self.skFCWidget, "Flow Chart")

@@ -16,8 +16,8 @@
 
 from qtpy.QtWidgets import QApplication
 from typing import Dict
-from qtpyeditor.codeeditor import PMGBaseEditor
-from qtpyeditor.codeedit import PMPythonCodeEdit
+from skcode.codeeditor import PMGBaseEditor
+from skcode.codeedit import PMPythonCodeEdit
 
 
 class PMGPythonEditor(PMGBaseEditor):

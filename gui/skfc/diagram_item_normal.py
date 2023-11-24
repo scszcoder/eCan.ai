@@ -2,8 +2,8 @@ from PySide6.QtCore import (QPointF, QRectF, Qt)
 from PySide6.QtGui import (QPainterPath, QColor, QFont, QPen, QPolygonF)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsEllipseItem, QMenu
 
-from gui.diagram.diagram_item_text import DiagramTextItem
-from gui.diagram.diagram_base import EnumItemType, DiagramBase
+from gui.skfc.diagram_item_text import DiagramTextItem
+from gui.skfc.skfc_base import EnumItemType, SkFCBase
 from enum import Enum
 
 ITEM_PORT_RADIUS = 3
@@ -91,7 +91,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
                  name_text_item: DiagramTextItem=None, tag_text_item: DiagramTextItem=None, parent=None):
         super(DiagramNormalItem, self).__init__(parent)
 
-        self.uuid = uuid if uuid is not None else DiagramBase.build_uuid()
+        self.uuid = uuid if uuid is not None else SkFCBase.build_uuid()
         self.item_type: EnumItemType = EnumItemType.Normal
         self.diagram_type = diagram_type
         self.context_menu: QMenu = context_menu
@@ -211,7 +211,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         super().mouseMoveEvent(event)
         # if event.buttons() == Qt.LeftButton:
         #     # offset = event.pos() - event.lastPos()
-        #     # print(f"diagram item {self}; mouse event {event}")
+        #     # print(f"skfc item {self}; mouse event {event}")
         #     # self.redraw_arrows_path(event)
         #     pass
 
@@ -272,10 +272,10 @@ class DiagramNormalItem(QGraphicsPolygonItem):
             "uuid": self.uuid,
             "item_type": EnumItemType.enum_name(self.item_type),
             "diagram_type": self.diagram_type,
-            "text_color": DiagramBase.color_encode(self.text_color),
-            "item_color": DiagramBase.color_encode(self.brush().color()),
-            "position": DiagramBase.position_encode(self.pos()),
-            "font": DiagramBase.font_encode(self.font),
+            "text_color": SkFCBase.color_encode(self.text_color),
+            "item_color": SkFCBase.color_encode(self.brush().color()),
+            "position": SkFCBase.position_encode(self.pos()),
+            "font": SkFCBase.font_encode(self.font),
             "name_text_item": self.name_text_item.to_dict(),
             "tag_text_item": self.tag_text_item.to_dict()
         }
@@ -286,10 +286,10 @@ class DiagramNormalItem(QGraphicsPolygonItem):
     def from_dict(cls, obj_dict, context_menu: QMenu):
         diagram_type = obj_dict["diagram_type"]
         uuid = obj_dict["uuid"]
-        text_color = QColor(DiagramBase.color_decode(obj_dict["text_color"]))
-        item_color = QColor(DiagramBase.color_decode(obj_dict["item_color"]))
-        position = DiagramBase.position_decode(obj_dict["position"])
-        font = DiagramBase.font_decode(obj_dict["font"])
+        text_color = QColor(SkFCBase.color_decode(obj_dict["text_color"]))
+        item_color = QColor(SkFCBase.color_decode(obj_dict["item_color"]))
+        position = SkFCBase.position_decode(obj_dict["position"])
+        font = SkFCBase.font_decode(obj_dict["font"])
 
         name_text_item_dict = obj_dict["name_text_item"]
         tag_text_item_dict = obj_dict["tag_text_item"]

@@ -2,15 +2,15 @@ from PySide6.QtCore import (QRect, Qt)
 from PySide6.QtGui import (QAction, QColor, QFont, QIcon, QIntValidator, QPainter, QPixmap)
 from PySide6.QtWidgets import QButtonGroup, QComboBox, QFontComboBox, QGraphicsView, \
                             QHBoxLayout, QMenu, QToolButton, QWidget
-from gui.diagram.diagram_scene import DiagramScene
+from gui.skfc.skfc_scene import SkFCScene
 from config.app_info import app_info
 
 
-class DiagramToolBars(QHBoxLayout):
+class SkFCToolBars(QHBoxLayout):
     def __init__(self, diagram_scene, drawing_view, parent=None):
-        super(DiagramToolBars, self).__init__(parent)
+        super(SkFCToolBars, self).__init__(parent)
 
-        self.diagram_scene: DiagramScene = diagram_scene
+        self.diagram_scene: SkFCScene = diagram_scene
         self.drawing_view: QGraphicsView = drawing_view
         self.parent: QWidget = parent
         self.home_path = app_info.app_home_path
@@ -92,14 +92,14 @@ class DiagramToolBars(QHBoxLayout):
         linePointerButton.setIcon(QIcon(self.home_path + '/resource/images/skill_editor/linepointer.png'))
 
         self.txtPropertyGroup = QButtonGroup()
-        self.txtPropertyGroup.addButton(self.txtBoldButton, DiagramScene.SetTxtBold)
-        self.txtPropertyGroup.addButton(self.txtItalicButton, DiagramScene.SetTxtItalic)
-        self.txtPropertyGroup.addButton(self.txtUnderlineButton, DiagramScene.SetTxtUnderline)
+        self.txtPropertyGroup.addButton(self.txtBoldButton, SkFCScene.SetTxtBold)
+        self.txtPropertyGroup.addButton(self.txtItalicButton, SkFCScene.SetTxtItalic)
+        self.txtPropertyGroup.addButton(self.txtUnderlineButton, SkFCScene.SetTxtUnderline)
         self.txtPropertyGroup.buttonClicked.connect(self.txtPropertyGroupClicked)
 
         self.pointerTypeGroup = QButtonGroup()
-        self.pointerTypeGroup.addButton(pointerButton, DiagramScene.MoveItem)
-        self.pointerTypeGroup.addButton(linePointerButton, DiagramScene.InsertLine)
+        self.pointerTypeGroup.addButton(pointerButton, SkFCScene.MoveItem)
+        self.pointerTypeGroup.addButton(linePointerButton, SkFCScene.InsertLine)
         # self.pointerTypeGroup.buttonClicked[int].connect(self.pointerGroupClicked)
         self.pointerTypeGroup.buttonClicked.connect(self.pointerGroupClicked)
 

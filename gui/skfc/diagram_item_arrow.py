@@ -8,8 +8,8 @@ import math
 from datetime import datetime
 from typing import List
 
-from gui.diagram.diagram_item_normal import EnumPortDir, DiagramItemGroup, DiagramNormalItem
-from gui.diagram.diagram_base import EnumItemType, DiagramBase
+from gui.skfc.diagram_item_normal import EnumPortDir, DiagramItemGroup, DiagramNormalItem
+from gui.skfc.skfc_base import EnumItemType, SkFCBase
 
 ARROW_MIN_SIZE = 15
 ARROW_SIZE = 10
@@ -25,7 +25,7 @@ class DiagramArrowItem(QGraphicsPathItem):
 
         print(f"build new arrow item with {target_item_group.diagram_normal_item if target_item_group is not None else None};"
               f" {target_item_group.diagram_item_port_direction if target_item_group is not None else None}")
-        self.uuid = uuid if uuid is not None else DiagramBase.build_uuid()
+        self.uuid = uuid if uuid is not None else SkFCBase.build_uuid()
         self.item_type: EnumItemType = EnumItemType.Arrow
         self.start_point: QPointF = start_point
         self.end_point: QPointF = start_point
@@ -85,8 +85,8 @@ class DiagramArrowItem(QGraphicsPathItem):
         obj_dict = {
             "uuid": self.uuid,
             "item_type": EnumItemType.enum_name(self.item_type),
-            "line_color": DiagramBase.color_encode(self.line_color),
-            "path_points": DiagramBase.path_points_encode(self.path_points),
+            "line_color": SkFCBase.color_encode(self.line_color),
+            "path_points": SkFCBase.path_points_encode(self.path_points),
             "start_item_uuid": self.start_item.uuid if self.start_item is not None else None,
             "end_item_uuid": self.end_item.uuid if self.end_item is not None else None,
             "start_item_port_direction": EnumPortDir.enum_name(self.start_item_port_direction)
@@ -100,8 +100,8 @@ class DiagramArrowItem(QGraphicsPathItem):
     @classmethod
     def from_dict(cls, obj_dict, context_menu: QMenu):
         uuid = obj_dict["uuid"]
-        line_color = QColor(DiagramBase.color_decode(obj_dict["line_color"]))
-        path_points: [] = DiagramBase.path_points_decode(obj_dict["path_points"])
+        line_color = QColor(SkFCBase.color_decode(obj_dict["line_color"]))
+        path_points: [] = SkFCBase.path_points_decode(obj_dict["path_points"])
         start_item_uuid = obj_dict["start_item_uuid"]
         end_item_uuid = obj_dict["end_item_uuid"]
         start_item_port_direction = EnumPortDir.enum_name_to_item_port(obj_dict["start_item_port_direction"])

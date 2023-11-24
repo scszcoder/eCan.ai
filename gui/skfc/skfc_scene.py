@@ -1,13 +1,13 @@
 from PySide6.QtCore import (Signal, QPointF, Qt)
 from PySide6.QtGui import (QFont, QColor)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QMenu
-from gui.diagram.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup
-from gui.diagram.diagram_item_text import DiagramTextItem
-from gui.diagram.diagram_item_arrow import DiagramArrowItem
-from gui.diagram.diagram_base import EnumItemType
+from gui.skfc.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup
+from gui.skfc.diagram_item_text import DiagramTextItem
+from gui.skfc.diagram_item_arrow import DiagramArrowItem
+from gui.skfc.skfc_base import EnumItemType
 
 
-class DiagramScene(QGraphicsScene):
+class SkFCScene(QGraphicsScene):
     InsertItem, InsertLine, InsertText, MoveItem, SetTxtBold, SetTxtItalic, SetTxtUnderline = range(7)
 
     itemInserted = Signal(DiagramNormalItem)
@@ -19,7 +19,7 @@ class DiagramScene(QGraphicsScene):
     itemSelected = Signal(QGraphicsItem)
 
     def __init__(self, item_menu, parent=None):
-        super(DiagramScene, self).__init__(parent)
+        super(SkFCScene, self).__init__(parent)
 
         self.myItemMenu: QMenu = item_menu
         self.myMode = self.MoveItem
@@ -73,7 +73,7 @@ class DiagramScene(QGraphicsScene):
             item.deleteLater()
 
     def mousePressEvent(self, mouseEvent):
-        super(DiagramScene, self).mousePressEvent(mouseEvent)
+        super(SkFCScene, self).mousePressEvent(mouseEvent)
         if mouseEvent.button() != Qt.LeftButton:
             return
 
@@ -142,7 +142,7 @@ class DiagramScene(QGraphicsScene):
         # super().mouseMoveEvent(mouseEvent)
 
     def mouseReleaseEvent(self, mouseEvent):
-        super(DiagramScene, self).mouseReleaseEvent(mouseEvent)
+        super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
         if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramArrowItem):
                 line: DiagramArrowItem = self.selected_item
