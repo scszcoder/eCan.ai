@@ -17,10 +17,14 @@ class SkFCView(QGraphicsView):
         # self.view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         # self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
 
-    # def resizeEvent(self, event):
-    #     super().resizeEvent(event)
-    #     # 调整场景的矩形区域以匹配视图的大小
-    #     self.scene().setSceneRect(self.rect())
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # 调整场景的矩形区域以匹配视图的大小
+        # self.scene().setSceneRect(self.rect())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # self.setCursor(Qt.ArrowCursor)
 
 
 class SkFCWidget(QWidget):
