@@ -148,16 +148,20 @@ class Expander(QtWidgets.QWidget):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, inTokens, tcpserver, ip, user, homepath, machine_role):
         super(MainWindow, self).__init__()
-        self.homepath = homepath
-        self.bot_icon_path = homepath+'/resource/images/icons/c_robot64_0.png'
-        self.mission_icon_path = homepath + '/resource/images/icons/c_mission96_1.png'
-        self.skill_icon_path = homepath + '/resource/images/icons/skills_78.png'
-        self.product_icon_path = homepath + '/resource/images/icons/product80_0.png'
-        self.vehicle_icon_path = homepath + '/resource/images/icons/vehicle_128.png'
-        self.commander_icon_path = homepath + '/resource/images/icons/general1_4.png'
-        self.BOTS_FILE = homepath+"/resource/bots.json"
-        self.MISSIONS_FILE = homepath+"/resource/missions.json"
-        self.SELLER_INVENTORY_FILE = homepath+"/resource/inventory.json"
+        if homepath[len(homepath)-1] == "/":
+            self.homepath = homepath[:len(homepath)-1]
+        else:
+            self.homepath = homepath
+        print("HOME PATH is::", self.homepath)
+        self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_0.png'
+        self.mission_icon_path = self.homepath + '/resource/images/icons/c_mission96_1.png'
+        self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
+        self.product_icon_path = self.homepath + '/resource/images/icons/product80_0.png'
+        self.vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.commander_icon_path = self.homepath + '/resource/images/icons/general1_4.png'
+        self.BOTS_FILE = self.homepath+"/resource/bots.json"
+        self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
+        self.SELLER_INVENTORY_FILE = self.homepath+"/resource/inventory.json"
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.machine_role = machine_role
@@ -169,7 +173,6 @@ class MainWindow(QtWidgets.QMainWindow):
             print("This is a platoon...")
             self.commanderXport = tcpserver
             self.tcpServer = None
-        self.homepath = homepath
         self.user = user
         self.cog = None
         self.cog_client = None
