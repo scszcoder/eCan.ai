@@ -572,7 +572,7 @@ def get_top_level_visible_window():
 
 def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile):
     settings = mission.parent_settings
-
+    global screen_loc
     top_visible_window = get_top_level_visible_window()
     window_rect: QRect = top_visible_window.geometry()
     print("window: ", top_visible_window.title(), " rect: ", window_rect)
