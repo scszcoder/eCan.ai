@@ -32,6 +32,7 @@ MAX_STEPS = 1000000000
 page_stack = []
 current_context = None
 
+screen_loc = (0, 0)
 #####################################################################################
 #  some useful utility functions
 #####################################################################################
@@ -581,6 +582,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
 
     #now we have obtained the top window, take a screen shot.
     im0 = pyautogui.screenshot(imageFilename=sfile, region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    screen_loc = (window_rect[0], window_rect[1])
 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -1145,7 +1147,7 @@ def processMouseClick(step, i):
 
     time.sleep(1)
     print("post click moveto :", post_loc)
-    pyautogui.moveTo(post_loc[0], post_loc[1])
+    pyautogui.moveTo(post_loc[0] + window_rect[0], post_loc[1] + window_rect[1])
     if step["post_wait"] > 0:
         time.sleep(step["post_wait"]-1)
 
@@ -2151,6 +2153,7 @@ def get_save_button_loc(result):
 
 # save web page into html file.
 def processSaveHtml(step, i, mission, skill):
+    global screen_loc
     print("Saving web page to a local html file .....", step)
 
     dtnow = datetime.now()
@@ -2197,7 +2200,7 @@ def processSaveHtml(step, i, mission, skill):
     # locate the html file directory path input text box
     html_file_dir_loc = get_html_file_dir_loc(symTab[step["data_sink"]])
     print("html_file_dir_loc: ", html_file_dir_loc)
-    pyautogui.moveTo(html_file_dir_loc[0], html_file_dir_loc[1])
+    pyautogui.moveTo(html_file_dir_loc[0]+screen_loc[0], html_file_dir_loc[1]+screen_loc[1])
     # pyautogui.click(clicks=2)
     pyautogui.click()
     time.sleep(2)
@@ -2211,7 +2214,7 @@ def processSaveHtml(step, i, mission, skill):
     # locate the file name input text box
     html_file_name_loc = get_html_file_name_loc(symTab[step["data_sink"]])
     print("html_file_name_loc: ", html_file_name_loc)
-    pyautogui.moveTo(html_file_name_loc[0], html_file_name_loc[1])
+    pyautogui.moveTo(html_file_name_loc[0]+screen_loc[0], html_file_name_loc[1]+screen_loc[1])
     pyautogui.click()
     time.sleep(2)
     pyautogui.click()
@@ -2226,7 +2229,7 @@ def processSaveHtml(step, i, mission, skill):
     # locate the save button
     save_button_loc = get_save_button_loc(symTab[step["data_sink"]])
     print("save_button_loc: ", save_button_loc)
-    pyautogui.moveTo(save_button_loc[0], save_button_loc[1])
+    pyautogui.moveTo(save_button_loc[0]+screen_loc[0], save_button_loc[1]+screen_loc[1])
     time.sleep(2)
     pyautogui.click()
 

@@ -20,12 +20,11 @@ from SkillGUI import *
 
 counter = 0
 record_over = False
-temp_dir = "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/temp/"
 
 class STEP:
     def __init__(self, parent):
         super(ReminderWin, self).__init__(parent)
-
+        self.temp_dir = parent.homepth + "/resource/skills/temp/"
         self.order = 0
         self.img = None
         self.location = (0, 0, 0, 0)
@@ -154,7 +153,7 @@ class TrainNewWin(QtWidgets.QMainWindow):
         else:
 
             self.steps = self.steps + 1
-            fname = temp_dir + "step" + str(self.steps) + ".png"
+            fname = self.temp_dir + "step" + str(self.steps) + ".png"
             im = pyautogui.screenshot(fname)
             #self.record.append(im)
             self.steps = self.steps + 1
@@ -174,7 +173,7 @@ class TrainNewWin(QtWidgets.QMainWindow):
             print('Scrolled {0} at {1}'.format(
                 'down' if dy < 0 else 'up',
                 (x, y)))
-            fname = temp_dir + "step" + str(self.steps) + ".png"
+            fname = self.temp_dir + "step" + str(self.steps) + ".png"
             im = pyautogui.screenshot(fname)
             #self.record.append(im)
             self.steps = self.steps + 1
