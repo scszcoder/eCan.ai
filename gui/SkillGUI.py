@@ -562,17 +562,25 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.step_count = 0
         self.step_names = []
 
+        # ------ PbRun layout Start ------ #
         self.playback_start_button = QtWidgets.QPushButton("Start Payback")
-        self.playback_start_button.clicked.connect(self.start_train)
         self.playback_next_button = QtWidgets.QPushButton("Next")
-        self.playback_next_button.clicked.connect(self.train_next_step)
         self.playback_back_button = QtWidgets.QPushButton("Back")
-        self.playback_back_button.clicked.connect(self.train_prev_step)
         self.playback_reload_button = QtWidgets.QPushButton("Refresh")
+
+        self.pbbuttonlayout = QtWidgets.QHBoxLayout()
+        self.pbbuttonlayout.addWidget(self.playback_start_button)
+        self.pbbuttonlayout.addWidget(self.playback_next_button)
+        self.pbbuttonlayout.addWidget(self.playback_back_button)
+        self.pbbuttonlayout.addWidget(self.playback_reload_button)
+
+        self.playback_start_button.clicked.connect(self.start_train)
+        self.playback_next_button.clicked.connect(self.train_next_step)
+        self.playback_back_button.clicked.connect(self.train_prev_step)
         self.playback_reload_button.clicked.connect(self.re_train_step)
-        self.pbmainwin = QtWidgets.QScrollArea()
-        self.pbmainwin.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbmainwin.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.pbmainwin = QtWidgets.QScrollArea()
+        # self.pbmainwin.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.pbmainwin.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
 
         self.pic = QtWidgets.QGraphicsPixmapItem()
         file_name = "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/temp/step1.png"
@@ -591,6 +599,12 @@ class SkillGUI(QtWidgets.QMainWindow):
         #self.pbview.setDragMode(QGraphicsView.RubberBandDrag)
         self.pbview.setContextMenuPolicy(Qt.DefaultContextMenu)
         self.pbview.installEventFilter(self)
+
+        self.pbrunlayout = QtWidgets.QVBoxLayout()
+        self.pbrunlayout.addLayout(self.pbbuttonlayout)
+        self.pbrunlayout.addWidget(self.pbview)
+        self.pbrunWidget = QtWidgets.QWidget()
+        self.pbrunWidget.setLayout(self.pbrunlayout)
 
         self.brush = QBrush()
 
@@ -672,10 +686,56 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.rects.append(rect)
 
         # self.pbmainwin.setWidget(self.pbview)
+        # ------ PbRun layout End ------ #
 
-        # ------ PbInfo Part Start -------- #
-        self.pbInfoLayout = QtWidgets.QGridLayout()
+        # ------ pbsk header layout Start ----- #
+        self.pbskAppLabel = QtWidgets.QLabel("App: ")
+        self.pbskAppLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskAppEdit = QtWidgets.QLineEdit()
+        self.pbskAppEdit.setPlaceholderText("type in App name here")
+        self.pbskAppEdit.textChanged.connect(self.appDomainPage_changed)
 
+        self.pbskDomainLabel = QtWidgets.QLabel("Domain: ")
+        self.pbskDomainLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskDomainEdit = QtWidgets.QLineEdit()
+        self.pbskDomainEdit.setPlaceholderText("type in Domain name here")
+        self.pbskDomainEdit.textChanged.connect(self.appDomainPage_changed)
+
+        self.pbskPageLabel = QtWidgets.QLabel("Page: ")
+        self.pbskPageLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskPageEdit = QtWidgets.QLineEdit()
+        self.pbskPageEdit.setPlaceholderText("type in page name here")
+        self.pbskPageEdit.textChanged.connect(self.appDomainPage_changed)
+
+        self.pbskSkillLabel = QtWidgets.QLabel("Skill: ")
+        self.pbskSkillLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskSkillEdit = QtWidgets.QLineEdit()
+        self.pbskSkillEdit.setPlaceholderText("type in skill name here")
+        self.pbskSkillEdit.textChanged.connect(self.appDomainPage_changed)
+
+        self.pbActionLabel = QtWidgets.QLabel("Action: ")
+        self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbActionSel = QtWidgets.QComboBox()
+        action_items = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data',
+                        'Save Data', 'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine',
+                        'Run Extern']
+        self.add_items_of_combobox(self.pbActionSel, action_items)
+        self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
+
+        pbsk_headers_widgets = [
+            (self.pbskAppLabel, self.pbskAppEdit),
+            (self.pbskDomainLabel, self.pbskDomainEdit),
+            (self.pbskPageLabel, self.pbskPageEdit),
+            (self.pbskSkillLabel, self.pbskSkillEdit),
+            (self.pbActionLabel, self.pbActionSel)
+        ]
+        self.pbsk_header_layout = QGridLayout()
+        self.add_widgets_of_gridlayout(self.pbsk_header_layout, pbsk_headers_widgets)
+        self.pbsk_header_widget = QWidget()
+        self.pbsk_header_widget.setLayout(self.pbsk_header_layout)
+        # ------ pbsk header layout End ----- #
+
+        # ------ pbsk PbInfo Part Start -------- #
         self.pbInfoLabel = QtWidgets.QLabel("Info Type: ")
         self.pbInfoLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbInfoSel = QtWidgets.QComboBox()
@@ -958,6 +1018,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             (self.pbRef4YOffsetValLabel, self.pbRef4YOffsetValEdit),    # L16B
             (self.pbRef4YOffsetUnitLabel, self.pbRef4YOffsetUnitSel)    # L16C
             ]
+        self.pbInfoLayout = QtWidgets.QGridLayout()
         self.add_widgets_of_gridlayout(self.pbInfoLayout, pbinfo_widgets)
         self.pbInfoWidget = QWidget()
         self.pbInfoWidget.setLayout(self.pbInfoLayout)
@@ -967,52 +1028,9 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbInfoArea.setWidgetResizable(True)
         self.pbInfoArea.setWidget(self.pbInfoWidget)
-        # ------- PbInfo Part End ------- #
+        # ------- pbsk PbInfo Part End ------- #
 
-        # end of anchor/user info references
-
-        self.IA_Remove_button = QtWidgets.QPushButton("Remove")
-        self.IA_Add_button = QtWidgets.QPushButton("Add")
-        self.IA_Save_button = QtWidgets.QPushButton("Save")
-
-        self.IA_Remove_button.clicked.connect(self.ia_remove)
-        self.IA_Add_button.clicked.connect(self.ia_add)
-        self.IA_Save_button.clicked.connect(self.ia_save)
-
-        self.pbskButtonsLayout = QtWidgets.QHBoxLayout()
-        self.pbskButtonsLayout.addWidget(self.IA_Remove_button)
-        self.pbskButtonsLayout.addWidget(self.IA_Add_button)
-        self.pbskButtonsLayout.addWidget(self.IA_Save_button)
-
-        # self.pbskAnchorListView = QtWidgets.QListView()
-        self.pbskAnchorListView = AnchorListView()
-        self.pbskAnchorListView.installEventFilter(self)
-        self.anchorListModel = QtGui.QStandardItemModel(self.pbskAnchorListView)
-        self.pbskAnchorListView.setModel(self.anchorListModel)
-        self.pbskAnchorListView.setViewMode(QtWidgets.QListView.IconMode)
-        self.pbskAnchorListView.setMovement(QtWidgets.QListView.Snap)
-        # newach = ANCHOR("abc", "image")
-        # self.anchorListModel.appendRow(newach)
-
-        self.pbskDataListView = QtWidgets.QListView()
-        self.pbskDataListView.installEventFilter(self)
-        self.dataListModel = QtGui.QStandardItemModel(self.pbskDataListView)
-        self.pbskDataListView.setModel(self.dataListModel)
-        self.pbskDataListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.pbskDataListView.setMovement(QtWidgets.QListView.Snap)
-        # newui = USER_INFO("aaa")
-        # self.dataListModel.appendRow(newui)
-
-        self.pbskStepListView = QtWidgets.QListView()
-        self.pbskStepListView.installEventFilter(self)
-        self.stepListModel = QtGui.QStandardItemModel(self.pbskStepListView)
-        self.pbskStepListView.setModel(self.stepListModel)
-        self.pbskStepListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.pbskStepListView.setMovement(QtWidgets.QListView.Snap)
-        # newst = PROCEDURAL_STEP("bbb")
-        # self.stepListModel.appendRow(newst)
-
-        # ------- PbAction Part Start ------- #
+        # ------- pbsk PbAction Part Start ------- #
         self.pbStepNameLabel = QtWidgets.QLabel("Step Name: ")
         self.pbStepNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbStepNameEdit = QtWidgets.QLineEdit()
@@ -1139,124 +1157,102 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbActionArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbActionArea.setWidgetResizable(True)
         self.pbActionArea.setWidget(self.pbActionWidget)
-        ############# PbAction Part End ################
+        # -------- pbsk PbAction Part End ------- #
 
-        # ------- layouts ------------
-
-        # ---- populate layout --------
-        self.pbbuttonlayout = QtWidgets.QHBoxLayout()
-        self.pbbuttonlayout.addWidget(self.playback_start_button)
-        self.pbbuttonlayout.addWidget(self.playback_next_button)
-        self.pbbuttonlayout.addWidget(self.playback_back_button)
-        self.pbbuttonlayout.addWidget(self.playback_reload_button)
-
-        self.pbrunlayout = QtWidgets.QVBoxLayout()
-        self.pbrunlayout.addLayout(self.pbbuttonlayout)
-        self.pbrunlayout.addWidget(self.pbview)
-        self.pbrunWidget = QtWidgets.QWidget()
-        self.pbrunWidget.setLayout(self.pbrunlayout)
-
+        # -------- pbsk pbtabs Start ------ #
         self.pbtabs = QtWidgets.QTabWidget()
         self.pbtabs.addTab(self.pbInfoArea, "Feature Info")
         self.pbtabs.addTab(self.pbActionArea, "Step")
         self.pbtabs.currentChanged.connect(self.IndividualItemChanged)
+        # -------- pbsk pbtabs End ------ #
 
-        self.pbskAppLabel = QtWidgets.QLabel("App: ")
-        self.pbskAppLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        self.pbskDomainLabel = QtWidgets.QLabel("Domain: ")
-        self.pbskDomainLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        self.pbskPageLabel = QtWidgets.QLabel("Page: ")
-        self.pbskPageLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        self.pbskSkillLabel = QtWidgets.QLabel("Skill: ")
-        self.pbskSkillLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        self.pbskAppEdit = QtWidgets.QLineEdit()
-        self.pbskAppEdit.setPlaceholderText("type in App name here")
-        self.pbskAppEdit.textChanged.connect(self.appDomainPage_changed)
-        self.pbskDomainEdit = QtWidgets.QLineEdit()
-        self.pbskDomainEdit.setPlaceholderText("type in Domain name here")
-        self.pbskDomainEdit.textChanged.connect(self.appDomainPage_changed)
-        self.pbskPageEdit = QtWidgets.QLineEdit()
-        self.pbskPageEdit.setPlaceholderText("type in page name here")
-        self.pbskPageEdit.textChanged.connect(self.appDomainPage_changed)
-        self.pbskSkillEdit = QtWidgets.QLineEdit()
-        self.pbskSkillEdit.setPlaceholderText("type in skill name here")
-        self.pbskSkillEdit.textChanged.connect(self.appDomainPage_changed)
-
-        self.pbActionLabel = QtWidgets.QLabel("Action: ")
-        self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.pbActionSel = QtWidgets.QComboBox()
-        action_items = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data',
-                        'Save Data', 'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine',
-                        'Run Extern']
-        self.add_items_of_combobox(self.pbActionSel, action_items)
-        self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
-
-        self.pbskl1Layout = QtWidgets.QHBoxLayout()
-        self.pbskl1Layout.addWidget(self.pbskAppLabel)
-        self.pbskl1Layout.addWidget(self.pbskAppEdit)
-
-        self.pbskl1ALayout = QtWidgets.QHBoxLayout()
-        self.pbskl1ALayout.addWidget(self.pbskDomainLabel)
-        self.pbskl1ALayout.addWidget(self.pbskDomainEdit)
-
-        self.pbskl2Layout = QtWidgets.QHBoxLayout()
-        self.pbskl2Layout.addWidget(self.pbskPageLabel)
-        self.pbskl2Layout.addWidget(self.pbskPageEdit)
-
-        self.pbskl3Layout = QtWidgets.QHBoxLayout()
-        self.pbskl3Layout.addWidget(self.pbskSkillLabel)
-        self.pbskl3Layout.addWidget(self.pbskSkillEdit)
-
-        self.pbskl4Layout = QtWidgets.QHBoxLayout()
-        self.pbskl4Layout.addWidget(self.pbActionLabel)
-        self.pbskl4Layout.addWidget(self.pbActionSel)
-
+        # ------- pbsk List View Start ------- #
         self.pbskALLabel = QtWidgets.QLabel("Anchor List:")
-        self.pbskALLayout = QtWidgets.QVBoxLayout()
-        self.pbskALLayout.addWidget(self.pbskALLabel)
+        # self.pbskAnchorListView = QtWidgets.QListView()
+        self.pbskAnchorListView = AnchorListView()
+        self.pbskAnchorListView.installEventFilter(self)
+        self.anchorListModel = QtGui.QStandardItemModel(self.pbskAnchorListView)
+        self.pbskAnchorListView.setModel(self.anchorListModel)
+        self.pbskAnchorListView.setViewMode(QtWidgets.QListView.IconMode)
+        self.pbskAnchorListView.setMovement(QtWidgets.QListView.Snap)
+        # newach = ANCHOR("abc", "image")
+        # self.anchorListModel.appendRow(newach)
 
         self.pbskAnchorListScroll = QtWidgets.QScrollArea()
         self.pbskAnchorListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskAnchorListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskAnchorListScroll.setWidgetResizable(True)
         self.pbskAnchorListScroll.setWidget(self.pbskAnchorListView)
+
+        self.pbskALLayout = QtWidgets.QVBoxLayout()
+        self.pbskALLayout.addWidget(self.pbskALLabel)
         self.pbskALLayout.addWidget(self.pbskAnchorListScroll)
         self.pbskALWidget = QtWidgets.QWidget()
         self.pbskALWidget.setLayout(self.pbskALLayout)
 
         self.pbskDLLabel = QtWidgets.QLabel("Useful Data List:")
-        self.pbskDLLayout = QtWidgets.QVBoxLayout()
-        self.pbskDLLayout.addWidget(self.pbskDLLabel)
+        self.pbskDataListView = QtWidgets.QListView()
+        self.pbskDataListView.installEventFilter(self)
+        self.dataListModel = QtGui.QStandardItemModel(self.pbskDataListView)
+        self.pbskDataListView.setModel(self.dataListModel)
+        self.pbskDataListView.setViewMode(QtWidgets.QListView.ListMode)
+        self.pbskDataListView.setMovement(QtWidgets.QListView.Snap)
+        # newui = USER_INFO("aaa")
+        # self.dataListModel.appendRow(newui)
 
         self.pbskDataListScroll = QtWidgets.QScrollArea()
         self.pbskDataListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskDataListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskDataListScroll.setWidgetResizable(True)
         self.pbskDataListScroll.setWidget(self.pbskDataListView)
+
+        self.pbskDLLayout = QtWidgets.QVBoxLayout()
+        self.pbskDLLayout.addWidget(self.pbskDLLabel)
         self.pbskDLLayout.addWidget(self.pbskDataListScroll)
         self.pbskDLWidget = QtWidgets.QWidget()
         self.pbskDLWidget.setLayout(self.pbskDLLayout)
 
         self.pbskSLLabel = QtWidgets.QLabel("Step List:")
-        self.pbskSLLayout = QtWidgets.QVBoxLayout()
-        self.pbskSLLayout.addWidget(self.pbskSLLabel)
+        self.pbskStepListView = QtWidgets.QListView()
+        self.pbskStepListView.installEventFilter(self)
+        self.stepListModel = QtGui.QStandardItemModel(self.pbskStepListView)
+        self.pbskStepListView.setModel(self.stepListModel)
+        self.pbskStepListView.setViewMode(QtWidgets.QListView.ListMode)
+        self.pbskStepListView.setMovement(QtWidgets.QListView.Snap)
+        # newst = PROCEDURAL_STEP("bbb")
+        # self.stepListModel.appendRow(newst)
 
         self.pbskStepListScroll = QtWidgets.QScrollArea()
         self.pbskStepListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskStepListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskStepListScroll.setWidgetResizable(True)
         self.pbskStepListScroll.setWidget(self.pbskStepListView)
+
+        self.pbskSLLayout = QtWidgets.QVBoxLayout()
+        self.pbskSLLayout.addWidget(self.pbskSLLabel)
         self.pbskSLLayout.addWidget(self.pbskStepListScroll)
         self.pbskSLWidget = QtWidgets.QWidget()
         self.pbskSLWidget.setLayout(self.pbskSLLayout)
         self.pbskSLWidget.setVisible(False)
+        # ------- pbsk List View End ------- #
+
+        # ------- pbsk buttons Start ------- #
+        self.IA_Remove_button = QtWidgets.QPushButton("Remove")
+        self.IA_Add_button = QtWidgets.QPushButton("Add")
+        self.IA_Save_button = QtWidgets.QPushButton("Save")
+
+        self.IA_Remove_button.clicked.connect(self.ia_remove)
+        self.IA_Add_button.clicked.connect(self.ia_add)
+        self.IA_Save_button.clicked.connect(self.ia_save)
+
+        self.pbskButtonsLayout = QtWidgets.QHBoxLayout()
+        self.pbskButtonsLayout.addWidget(self.IA_Remove_button)
+        self.pbskButtonsLayout.addWidget(self.IA_Add_button)
+        self.pbskButtonsLayout.addWidget(self.IA_Save_button)
 
         self.pbskButtonsWidget = QtWidgets.QWidget()
         self.pbskButtonsWidget.setLayout(self.pbskButtonsLayout)
+        # ------- pbsk buttons End ------- #
 
         self.hsplitter2 = QtWidgets.QSplitter(Qt.Vertical)
         self.hsplitter2.addWidget(self.pbtabs)
@@ -1266,11 +1262,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.hsplitter2.addWidget(self.pbskButtonsWidget)
 
         self.pbsklayout = QtWidgets.QVBoxLayout()
-        self.pbsklayout.addLayout(self.pbskl1Layout)
-        self.pbsklayout.addLayout(self.pbskl1ALayout)
-        self.pbsklayout.addLayout(self.pbskl2Layout)
-        self.pbsklayout.addLayout(self.pbskl3Layout)
-        self.pbsklayout.addLayout(self.pbskl4Layout)
+        self.pbsklayout.addWidget(self.pbsk_header_widget)
         self.pbsklayout.addWidget(self.hsplitter2)
 
         self.pbskWidget = QtWidgets.QWidget()
