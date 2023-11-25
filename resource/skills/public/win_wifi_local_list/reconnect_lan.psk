@@ -20,7 +20,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "reconnect_lan",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_wifi_local_list/reconnect_lan.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_wifi_local_list/reconnect_lan.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -39,9 +39,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -469,7 +469,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
@@ -530,7 +530,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "reconnect_lan",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_wifi_local_list/reconnect_lan.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_wifi_local_list/reconnect_lan.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -549,9 +549,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -979,7 +979,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
@@ -1040,7 +1040,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "reconnect_lan",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_wifi_local_list/reconnect_lan.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_wifi_local_list/reconnect_lan.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -1059,9 +1059,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -1489,7 +1489,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
@@ -1507,7 +1507,7 @@
     "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
-        "ARRIS-8679"
+        "OrbiSongChenHome"
     ],
     "target_types": [
         "anchor text"
@@ -1550,7 +1550,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "reconnect_lan",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_wifi_local_list/reconnect_lan.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_wifi_local_list/reconnect_lan.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -1569,9 +1569,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_wifi_local_list/skills/reconnect_lan/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_wifi_local_list/skills/reconnect_lan/",
         "platform": "win",
         "site": "local",
         "app": "wifi",
@@ -1999,7 +1999,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_wifi_local_list!reconnect_lan!"
@@ -2017,7 +2017,7 @@
     "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
-        "ARRIS-8679"
+        "OrbiSongChenHome"
     ],
     "target_types": [
         "anchor text"
