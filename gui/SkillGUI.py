@@ -535,8 +535,6 @@ class SkillGUI(QtWidgets.QMainWindow):
     def __init__(self, parent):
         super(SkillGUI, self).__init__(parent)
 
-    # def __init__(self):
-    #     super().__init__()
         self.newSkill = None
         self.skill_path = ""
         self.parent = parent
@@ -559,18 +557,10 @@ class SkillGUI(QtWidgets.QMainWindow):
         # self.popMenu.addAction(QtGui.QAction('Clear Boundbox', self))
 
         self.skfsel = QtWidgets.QFileDialog()
-
-        self.mainWidget = QtWidgets.QWidget()
-
-        self.vsplitter1 = QtWidgets.QSplitter(Qt.Horizontal)
-        self.hsplitter1 = QtWidgets.QSplitter(Qt.Vertical)
-        self.vsplitter2 = QtWidgets.QSplitter(Qt.Horizontal)
-        self.hsplitter2 = QtWidgets.QSplitter(Qt.Vertical)
+        # self.vsplitter2 = QtWidgets.QSplitter(Qt.Horizontal)
 
         self.step_count = 0
         self.step_names = []
-
-        self.pbtabs = QtWidgets.QTabWidget()
 
         self.playback_start_button = QtWidgets.QPushButton("Start Payback")
         self.playback_start_button.clicked.connect(self.start_train)
@@ -602,7 +592,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbview.setContextMenuPolicy(Qt.DefaultContextMenu)
         self.pbview.installEventFilter(self)
 
-
         self.brush = QBrush()
 
         self.txtboxPenColor = Qt.darkRed
@@ -617,7 +606,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.udBoxPenWidth = 2
         self.udBoxSelPenColor = Qt.yellow
         self.udBoxSelPenWidth = 3
-
 
         self.txtBoxPen = QPen()
         self.txtBoxPen.setStyle(Qt.DashLine)
@@ -685,7 +673,7 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         # self.pbmainwin.setWidget(self.pbview)
 
-        ############# PbInfo Part Start ################
+        # ------ PbInfo Part Start -------- #
         self.pbInfoLayout = QtWidgets.QGridLayout()
 
         self.pbInfoLabel = QtWidgets.QLabel("Info Type: ")
@@ -979,13 +967,18 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbInfoArea.setWidgetResizable(True)
         self.pbInfoArea.setWidget(self.pbInfoWidget)
-        ############# PbInfo Part End ################
+        # ------- PbInfo Part End ------- #
 
         # end of anchor/user info references
 
-        self.IA_Add_button = QtWidgets.QPushButton("Add")
         self.IA_Remove_button = QtWidgets.QPushButton("Remove")
+        self.IA_Add_button = QtWidgets.QPushButton("Add")
         self.IA_Save_button = QtWidgets.QPushButton("Save")
+
+        self.IA_Remove_button.clicked.connect(self.ia_remove)
+        self.IA_Add_button.clicked.connect(self.ia_add)
+        self.IA_Save_button.clicked.connect(self.ia_save)
+
         self.pbskButtonsLayout = QtWidgets.QHBoxLayout()
         self.pbskButtonsLayout.addWidget(self.IA_Remove_button)
         self.pbskButtonsLayout.addWidget(self.IA_Add_button)
@@ -1019,8 +1012,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         # newst = PROCEDURAL_STEP("bbb")
         # self.stepListModel.appendRow(newst)
 
-
-        ############# PbAction Part Start ################
+        # ------- PbAction Part Start ------- #
         self.pbStepNameLabel = QtWidgets.QLabel("Step Name: ")
         self.pbStepNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbStepNameEdit = QtWidgets.QLineEdit()
@@ -1149,42 +1141,25 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbActionArea.setWidget(self.pbActionWidget)
         ############# PbAction Part End ################
 
-        self.skvtabs = QtWidgets.QTabWidget()
-        self.skconsolelabel = QtWidgets.QLabel("Console")
-        self.skconsolelabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.skconsole = QtWidgets.QTextBrowser()
-
-        self.skill_load_button = QtWidgets.QPushButton("Load Skill")
-        self.skill_save_button = QtWidgets.QPushButton("Save Skill")
-        self.skill_cancel_button = QtWidgets.QPushButton("Cancel")
-        self.skill_run_button = QtWidgets.QPushButton("Trial Run")
-        self.skill_step_button = QtWidgets.QPushButton("Step")
-        self.skill_stop_button = QtWidgets.QPushButton("Stop")
-        self.skill_resume_button = QtWidgets.QPushButton("Continue")
-
         # ------- layouts ------------
-        self.pbbuttonlayout = QtWidgets.QHBoxLayout()
-        self.pbrunlayout = QtWidgets.QVBoxLayout()
-        self.pblayout = QtWidgets.QHBoxLayout()
-        self.pbsklayout = QtWidgets.QVBoxLayout()
-
-        self.skblayout = QtWidgets.QHBoxLayout()
-
-        self.sklayout = QtWidgets.QVBoxLayout()
 
         # ---- populate layout --------
+        self.pbbuttonlayout = QtWidgets.QHBoxLayout()
         self.pbbuttonlayout.addWidget(self.playback_start_button)
         self.pbbuttonlayout.addWidget(self.playback_next_button)
         self.pbbuttonlayout.addWidget(self.playback_back_button)
         self.pbbuttonlayout.addWidget(self.playback_reload_button)
 
+        self.pbrunlayout = QtWidgets.QVBoxLayout()
         self.pbrunlayout.addLayout(self.pbbuttonlayout)
         self.pbrunlayout.addWidget(self.pbview)
         self.pbrunWidget = QtWidgets.QWidget()
         self.pbrunWidget.setLayout(self.pbrunlayout)
 
+        self.pbtabs = QtWidgets.QTabWidget()
         self.pbtabs.addTab(self.pbInfoArea, "Feature Info")
         self.pbtabs.addTab(self.pbActionArea, "Step")
+        self.pbtabs.currentChanged.connect(self.IndividualItemChanged)
 
         self.pbskAppLabel = QtWidgets.QLabel("App: ")
         self.pbskAppLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -1215,8 +1190,8 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbActionSel = QtWidgets.QComboBox()
         action_items = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data',
-                        'Save Data',
-                        'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine', 'Run Extern']
+                        'Save Data', 'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine',
+                        'Run Extern']
         self.add_items_of_combobox(self.pbActionSel, action_items)
         self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
 
@@ -1241,7 +1216,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskl4Layout.addWidget(self.pbActionSel)
 
         self.pbskALLabel = QtWidgets.QLabel("Anchor List:")
-        self.pbskALWidget = QtWidgets.QWidget()
         self.pbskALLayout = QtWidgets.QVBoxLayout()
         self.pbskALLayout.addWidget(self.pbskALLabel)
 
@@ -1250,12 +1224,11 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskAnchorListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskAnchorListScroll.setWidgetResizable(True)
         self.pbskAnchorListScroll.setWidget(self.pbskAnchorListView)
-
         self.pbskALLayout.addWidget(self.pbskAnchorListScroll)
+        self.pbskALWidget = QtWidgets.QWidget()
         self.pbskALWidget.setLayout(self.pbskALLayout)
 
         self.pbskDLLabel = QtWidgets.QLabel("Useful Data List:")
-        self.pbskDLWidget = QtWidgets.QWidget()
         self.pbskDLLayout = QtWidgets.QVBoxLayout()
         self.pbskDLLayout.addWidget(self.pbskDLLabel)
 
@@ -1264,12 +1237,11 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskDataListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskDataListScroll.setWidgetResizable(True)
         self.pbskDataListScroll.setWidget(self.pbskDataListView)
-
         self.pbskDLLayout.addWidget(self.pbskDataListScroll)
+        self.pbskDLWidget = QtWidgets.QWidget()
         self.pbskDLWidget.setLayout(self.pbskDLLayout)
 
         self.pbskSLLabel = QtWidgets.QLabel("Step List:")
-        self.pbskSLWidget = QtWidgets.QWidget()
         self.pbskSLLayout = QtWidgets.QVBoxLayout()
         self.pbskSLLayout.addWidget(self.pbskSLLabel)
 
@@ -1278,19 +1250,22 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskStepListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskStepListScroll.setWidgetResizable(True)
         self.pbskStepListScroll.setWidget(self.pbskStepListView)
-
         self.pbskSLLayout.addWidget(self.pbskStepListScroll)
+        self.pbskSLWidget = QtWidgets.QWidget()
         self.pbskSLWidget.setLayout(self.pbskSLLayout)
+        self.pbskSLWidget.setVisible(False)
 
         self.pbskButtonsWidget = QtWidgets.QWidget()
         self.pbskButtonsWidget.setLayout(self.pbskButtonsLayout)
+
+        self.hsplitter2 = QtWidgets.QSplitter(Qt.Vertical)
         self.hsplitter2.addWidget(self.pbtabs)
         self.hsplitter2.addWidget(self.pbskALWidget)
         self.hsplitter2.addWidget(self.pbskDLWidget)
         self.hsplitter2.addWidget(self.pbskSLWidget)
-        self.pbskSLWidget.setVisible(False)
         self.hsplitter2.addWidget(self.pbskButtonsWidget)
 
+        self.pbsklayout = QtWidgets.QVBoxLayout()
         self.pbsklayout.addLayout(self.pbskl1Layout)
         self.pbsklayout.addLayout(self.pbskl1ALayout)
         self.pbsklayout.addLayout(self.pbskl2Layout)
@@ -1298,11 +1273,27 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbsklayout.addLayout(self.pbskl4Layout)
         self.pbsklayout.addWidget(self.hsplitter2)
 
-
-
         self.pbskWidget = QtWidgets.QWidget()
         self.pbskWidget.setLayout(self.pbsklayout)
 
+        # ------ sk layout start ------- #
+        self.skill_load_button = QtWidgets.QPushButton("Load Skill")
+        self.skill_save_button = QtWidgets.QPushButton("Save Skill")
+        self.skill_cancel_button = QtWidgets.QPushButton("Cancel")
+        self.skill_run_button = QtWidgets.QPushButton("Trial Run")
+        self.skill_step_button = QtWidgets.QPushButton("Step")
+        self.skill_stop_button = QtWidgets.QPushButton("Stop")
+        self.skill_resume_button = QtWidgets.QPushButton("Continue")
+
+        self.skill_load_button.clicked.connect(self.load_skill_file)
+        self.skill_save_button.clicked.connect(self.save_skill_file)
+        self.skill_cancel_button.clicked.connect(self.cancel_run)
+        self.skill_run_button.clicked.connect(self.trial_run)
+        self.skill_step_button.clicked.connect(self.run_step)
+        self.skill_stop_button.clicked.connect(self.stop_run)
+        self.skill_resume_button.clicked.connect(self.continue_run)
+
+        self.skblayout = QtWidgets.QHBoxLayout()
         self.skblayout.addWidget(self.skill_load_button)
         self.skblayout.addWidget(self.skill_run_button)
         self.skblayout.addWidget(self.skill_step_button)
@@ -1312,26 +1303,33 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skFCWidget = SkFCWidget()
         self.skCodeWidget = PMGPythonEditor()
 
+        self.skvtabs = QtWidgets.QTabWidget()
         self.skvtabs.addTab(self.skFCWidget, "Flow Chart")
         self.skvtabs.addTab(self.skCodeWidget, "Code")
-
+        self.hsplitter1 = QtWidgets.QSplitter(Qt.Vertical)
         self.hsplitter1.addWidget(self.skvtabs)
-        self.consoleWidget = QtWidgets.QWidget()
+
+        self.skconsolelabel = QtWidgets.QLabel("Console")
+        self.skconsolelabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.skconsole = QtWidgets.QTextBrowser()
         self.consoleLayout = QtWidgets.QVBoxLayout()
         self.consoleLayout.addWidget(self.skconsolelabel)
         self.consoleLayout.addWidget(self.skconsole)
+
+        self.consoleWidget = QtWidgets.QWidget()
         self.consoleWidget.setLayout(self.consoleLayout)
         self.hsplitter1.addWidget(self.consoleWidget)
 
+        self.sklayout = QtWidgets.QVBoxLayout()
         self.sklayout.addWidget(self.hsplitter1)
         self.sklayout.addLayout(self.skblayout)
 
-        self.layout = QtWidgets.QHBoxLayout()
-
-
         self.skWidget = QtWidgets.QWidget()
         self.skWidget.setLayout(self.sklayout)
+        # -------- sk layout end ------ #
 
+        # ------ main layout ------- #
+        self.vsplitter1 = QtWidgets.QSplitter(Qt.Horizontal)
         self.vsplitter1.addWidget(self.pbrunWidget)
         self.vsplitter1.addWidget(self.pbskWidget)
         self.vsplitter1.addWidget(self.skWidget)
@@ -1339,12 +1337,13 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.vsplitter1.setChildrenCollapsible(0)
         self.vsplitter1.setChildrenCollapsible(1)
 
-        self.pbtabs.currentChanged.connect(self.IndividualItemChanged)
-
-        #self.layout.addLayout(self.pblayout)
-        #self.layout.addLayout(self.sklayout)
+        # self.pblayout = QtWidgets.QHBoxLayout()
+        # self.layout.addLayout(self.pblayout)
+        # self.layout.addLayout(self.sklayout)
+        self.layout = QtWidgets.QHBoxLayout()
         self.layout.addWidget(self.vsplitter1)
 
+        self.mainWidget = QtWidgets.QWidget()
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
@@ -1353,18 +1352,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         #print('Screen: %s' % screen.name())
         size = screen.size()
         print('Size: %d x %d' % (size.width(), size.height()))
-
-        self.IA_Add_button.clicked.connect(self.ia_add)
-        self.IA_Save_button.clicked.connect(self.ia_save)
-        self.IA_Remove_button.clicked.connect(self.ia_remove)
-
-        self.skill_load_button.clicked.connect(self.load_skill_file)
-        self.skill_save_button.clicked.connect(self.save_skill_file)
-        self.skill_cancel_button.clicked.connect(self.cancel_run)
-        self.skill_run_button.clicked.connect(self.trial_run)
-        self.skill_step_button.clicked.connect(self.run_step)
-        self.skill_stop_button.clicked.connect(self.stop_run)
-        self.skill_resume_button.clicked.connect(self.continue_run)
 
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
