@@ -1,6 +1,6 @@
 import sys
 import random
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QPainterPath, QPen, QColor
 from locale import getdefaultlocale
@@ -527,6 +527,8 @@ class BSQGraphicsView(QtWidgets.QGraphicsView):
         #    ri.mousePressEvent(event)
 
 
+OFFSET_UNITS = ['Pixel', 'Letter Height', 'Image Height', 'Full Height', 'Letter Width', 'Image Width', 'Full Width']
+OFFSET_TYPES = ['Absolute', 'Signed', 'Absolute Percent', 'Signed Percent']
 
 
 class SkillGUI(QtWidgets.QMainWindow):
@@ -705,11 +707,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbNRefLabel = QtWidgets.QLabel("# of Refs: ")
         self.pbNRefLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbNRefSel = QtWidgets.QComboBox()
-        self.pbNRefSel.addItem('0')
-        self.pbNRefSel.addItem('1')
-        self.pbNRefSel.addItem('2')
-        self.pbNRefSel.addItem('3')
-        self.pbNRefSel.addItem('4')
+        self.add_items_of_combobox(self.pbNRefSel, ['0', '1', '2', '3', '4'])
         self.pbNRefSel.currentTextChanged.connect(self.pbNRefSel_changed)
 
         self.pbATLabel = QtWidgets.QLabel("Anchor Type: ")
@@ -750,10 +748,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef1XOffsetTypeLabel = QtWidgets.QLabel("Ref1 X Offset Type: ")
         self.pbRef1XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef1XOffsetTypeSel = QtWidgets.QComboBox()
-        self.pbRef1XOffsetTypeSel.addItem('Absolute')
-        self.pbRef1XOffsetTypeSel.addItem('Signed')
-        self.pbRef1XOffsetTypeSel.addItem('Absolute Percent')
-        self.pbRef1XOffsetTypeSel.addItem('Signed Percent')
+        self.add_items_of_combobox(self.pbRef1XOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef1XOffsetValLabel = QtWidgets.QLabel("Ref1 X Offset Value: ")
         self.pbRef1XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -763,13 +758,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef1XOffsetUnitLabel = QtWidgets.QLabel("Ref1 X Offset Unit: ")
         self.pbRef1XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef1XOffsetUnitSel = QtWidgets.QComboBox()
-        self.pbRef1XOffsetUnitSel.addItem('Pixel')
-        self.pbRef1XOffsetUnitSel.addItem('Letter Height')
-        self.pbRef1XOffsetUnitSel.addItem('Image Height')
-        self.pbRef1XOffsetUnitSel.addItem('Full Height')
-        self.pbRef1XOffsetUnitSel.addItem('Letter Width')
-        self.pbRef1XOffsetUnitSel.addItem('Image Width')
-        self.pbRef1XOffsetUnitSel.addItem('Full Width')
+        self.add_items_of_combobox(self.pbRef1XOffsetUnitSel, OFFSET_UNITS)
 
         self.pbRef1YOffsetDirLabel = QtWidgets.QLabel("Ref1 Y Dir: ")
         self.pbRef1YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -780,10 +769,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef1YOffsetTypeLabel = QtWidgets.QLabel("Ref1 Y Offset Type: ")
         self.pbRef1YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef1YOffsetTypeSel = QtWidgets.QComboBox()
-        self.pbRef1YOffsetTypeSel.addItem('Absolute')
-        self.pbRef1YOffsetTypeSel.addItem('Signed')
-        self.pbRef1YOffsetTypeSel.addItem('Absolute Percent')
-        self.pbRef1YOffsetTypeSel.addItem('Signed Percent')
+        self.add_items_of_combobox(self.pbRef1YOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef1YOffsetValLabel = QtWidgets.QLabel("Ref1 Y Offset Value: ")
         self.pbRef1YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -793,13 +779,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef1YOffsetUnitLabel = QtWidgets.QLabel("Ref1 Y Offset Unit: ")
         self.pbRef1YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef1YOffsetUnitSel = QtWidgets.QComboBox()
-        self.pbRef1YOffsetUnitSel.addItem('Pixel')
-        self.pbRef1YOffsetUnitSel.addItem('Letter Height')
-        self.pbRef1YOffsetUnitSel.addItem('Image Height')
-        self.pbRef1YOffsetUnitSel.addItem('Full Height')
-        self.pbRef1YOffsetUnitSel.addItem('Letter Width')
-        self.pbRef1YOffsetUnitSel.addItem('Image Width')
-        self.pbRef1YOffsetUnitSel.addItem('Full Width')
+        self.add_items_of_combobox(self.pbRef1YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 2 widgets ----------------------------
         self.pbRef2NameLabel = QtWidgets.QLabel("Ref2 Name: ")
@@ -816,10 +796,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef2XOffsetTypeLabel = QtWidgets.QLabel("Ref2 X Offset Type: ")
         self.pbRef2XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef2XOffsetTypeSel = QtWidgets.QComboBox()
-        self.pbRef2XOffsetTypeSel.addItem('Absolute')
-        self.pbRef2XOffsetTypeSel.addItem('Signed')
-        self.pbRef2XOffsetTypeSel.addItem('Absolute Percent')
-        self.pbRef2XOffsetTypeSel.addItem('Signed Percent')
+        self.add_items_of_combobox(self.pbRef2XOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef2XOffsetValLabel = QtWidgets.QLabel("Ref2 X Offset Value: ")
         self.pbRef2XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -829,13 +806,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef2XOffsetUnitLabel = QtWidgets.QLabel("Ref2 X Offset Unit: ")
         self.pbRef2XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef2XOffsetUnitSel = QtWidgets.QComboBox()
-        self.pbRef2XOffsetUnitSel.addItem('Pixel')
-        self.pbRef2XOffsetUnitSel.addItem('Letter Height')
-        self.pbRef2XOffsetUnitSel.addItem('Image Height')
-        self.pbRef2XOffsetUnitSel.addItem('Full Height')
-        self.pbRef2XOffsetUnitSel.addItem('Letter Width')
-        self.pbRef2XOffsetUnitSel.addItem('Image Width')
-        self.pbRef2XOffsetUnitSel.addItem('Full Width')
+        self.add_items_of_combobox(self.pbRef2XOffsetUnitSel, OFFSET_UNITS)
 
         self.pbRef2YOffsetDirLabel = QtWidgets.QLabel("Ref2 Y Dir: ")
         self.pbRef2YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -846,10 +817,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef2YOffsetTypeLabel = QtWidgets.QLabel("Ref2 Y Offset Type: ")
         self.pbRef2YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef2YOffsetTypeSel = QtWidgets.QComboBox()
-        self.pbRef2YOffsetTypeSel.addItem('Absolute')
-        self.pbRef2YOffsetTypeSel.addItem('Signed')
-        self.pbRef2YOffsetTypeSel.addItem('Absolute Percent')
-        self.pbRef2YOffsetTypeSel.addItem('Signed Percent')
+        self.add_items_of_combobox(self.pbRef2YOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef2YOffsetValLabel = QtWidgets.QLabel("Ref2 Y Offset Value: ")
         self.pbRef2YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -859,13 +827,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef2YOffsetUnitLabel = QtWidgets.QLabel("Ref2 Y Offset Unit: ")
         self.pbRef2YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef2YOffsetUnitSel = QtWidgets.QComboBox()
-        self.pbRef2YOffsetUnitSel.addItem('Pixel')
-        self.pbRef2YOffsetUnitSel.addItem('Letter Height')
-        self.pbRef2YOffsetUnitSel.addItem('Image Height')
-        self.pbRef2YOffsetUnitSel.addItem('Full Height')
-        self.pbRef2YOffsetUnitSel.addItem('Letter Width')
-        self.pbRef2YOffsetUnitSel.addItem('Image Width')
-        self.pbRef2YOffsetUnitSel.addItem('Full Width')
+        self.add_items_of_combobox(self.pbRef2YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 3 widgets ----------------------------
         self.pbRef3NameLabel = QtWidgets.QLabel("Ref3 Name: ")
@@ -882,10 +844,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef3XOffsetTypeLabel = QtWidgets.QLabel("Ref3 X Offset Type: ")
         self.pbRef3XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef3XOffsetTypeSel = QtWidgets.QComboBox()
-        self.pbRef3XOffsetTypeSel.addItem('Absolute')
-        self.pbRef3XOffsetTypeSel.addItem('Signed')
-        self.pbRef3XOffsetTypeSel.addItem('Absolute Percent')
-        self.pbRef3XOffsetTypeSel.addItem('Signed Percent')
+        self.add_items_of_combobox(self.pbRef3XOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef3XOffsetValLabel = QtWidgets.QLabel("Ref3 X Offset Value: ")
         self.pbRef3XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -895,13 +854,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef3XOffsetUnitLabel = QtWidgets.QLabel("Ref3 X Offset Unit: ")
         self.pbRef3XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef3XOffsetUnitSel = QtWidgets.QComboBox()
-        self.pbRef3XOffsetUnitSel.addItem('Pixel')
-        self.pbRef3XOffsetUnitSel.addItem('Letter Height')
-        self.pbRef3XOffsetUnitSel.addItem('Image Height')
-        self.pbRef3XOffsetUnitSel.addItem('Full Height')
-        self.pbRef3XOffsetUnitSel.addItem('Letter Width')
-        self.pbRef3XOffsetUnitSel.addItem('Image Width')
-        self.pbRef3XOffsetUnitSel.addItem('Full Width')
+        self.add_items_of_combobox(self.pbRef3XOffsetUnitSel, OFFSET_UNITS)
 
         self.pbRef3YOffsetDirLabel = QtWidgets.QLabel("Ref3 Y Dir: ")
         self.pbRef3YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -912,10 +865,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef3YOffsetTypeLabel = QtWidgets.QLabel("Ref3 Y Offset Type: ")
         self.pbRef3YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef3YOffsetTypeSel = QtWidgets.QComboBox()
-        self.pbRef3YOffsetTypeSel.addItem('Absolute')
-        self.pbRef3YOffsetTypeSel.addItem('Signed')
-        self.pbRef3YOffsetTypeSel.addItem('Absolute Percent')
-        self.pbRef3YOffsetTypeSel.addItem('Signed Percent')
+        self.add_items_of_combobox(self.pbRef3YOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef3YOffsetValLabel = QtWidgets.QLabel("Ref3 Y Offset Value: ")
         self.pbRef3YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -925,13 +875,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef3YOffsetUnitLabel = QtWidgets.QLabel("Ref3 Y Offset Unit: ")
         self.pbRef3YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef3YOffsetUnitSel = QtWidgets.QComboBox()
-        self.pbRef3YOffsetUnitSel.addItem('Pixel')
-        self.pbRef3YOffsetUnitSel.addItem('Letter Height')
-        self.pbRef3YOffsetUnitSel.addItem('Image Height')
-        self.pbRef3YOffsetUnitSel.addItem('Full Height')
-        self.pbRef3YOffsetUnitSel.addItem('Letter Width')
-        self.pbRef3YOffsetUnitSel.addItem('Image Width')
-        self.pbRef3YOffsetUnitSel.addItem('Full Width')
+        self.add_items_of_combobox(self.pbRef3YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 4 widgets ----------------------------
         self.pbRef4NameLabel = QtWidgets.QLabel("Ref4 Name: ")
@@ -948,10 +892,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef4XOffsetTypeLabel = QtWidgets.QLabel("Ref4 X Offset Type: ")
         self.pbRef4XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef4XOffsetTypeSel = QtWidgets.QComboBox()
-        self.pbRef4XOffsetTypeSel.addItem('Absolute')
-        self.pbRef4XOffsetTypeSel.addItem('Signed')
-        self.pbRef4XOffsetTypeSel.addItem('Absolute Percent')
-        self.pbRef4XOffsetTypeSel.addItem('Signed Percent')
+        self.add_items_of_combobox(self.pbRef4XOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef4XOffsetValLabel = QtWidgets.QLabel("Ref4 X Offset Value: ")
         self.pbRef4XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -961,13 +902,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef4XOffsetUnitLabel = QtWidgets.QLabel("Ref4 X Offset Unit: ")
         self.pbRef4XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef4XOffsetUnitSel = QtWidgets.QComboBox()
-        self.pbRef4XOffsetUnitSel.addItem('Pixel')
-        self.pbRef4XOffsetUnitSel.addItem('Letter Height')
-        self.pbRef4XOffsetUnitSel.addItem('Image Height')
-        self.pbRef4XOffsetUnitSel.addItem('Full Height')
-        self.pbRef4XOffsetUnitSel.addItem('Letter Width')
-        self.pbRef4XOffsetUnitSel.addItem('Image Width')
-        self.pbRef4XOffsetUnitSel.addItem('Full Width')
+        self.add_items_of_combobox(self.pbRef4XOffsetUnitSel, OFFSET_UNITS)
 
         self.pbRef4YOffsetDirLabel = QtWidgets.QLabel("Ref4 Y Dir: ")
         self.pbRef4YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -978,10 +913,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef4YOffsetTypeLabel = QtWidgets.QLabel("Ref4 Y Offset Type: ")
         self.pbRef4YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef4YOffsetTypeSel = QtWidgets.QComboBox()
-        self.pbRef4YOffsetTypeSel.addItem('Absolute')
-        self.pbRef4YOffsetTypeSel.addItem('Signed')
-        self.pbRef4YOffsetTypeSel.addItem('Absolute Percent')
-        self.pbRef4YOffsetTypeSel.addItem('Signed Percent')
+        self.add_items_of_combobox(self.pbRef4YOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef4YOffsetValLabel = QtWidgets.QLabel("Ref4 Y Offset Value: ")
         self.pbRef4YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -991,13 +923,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRef4YOffsetUnitLabel = QtWidgets.QLabel("Ref4 Y Offset Unit: ")
         self.pbRef4YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbRef4YOffsetUnitSel = QtWidgets.QComboBox()
-        self.pbRef4YOffsetUnitSel.addItem('Pixel')
-        self.pbRef4YOffsetUnitSel.addItem('Letter Height')
-        self.pbRef4YOffsetUnitSel.addItem('Image Height')
-        self.pbRef4YOffsetUnitSel.addItem('Full Height')
-        self.pbRef4YOffsetUnitSel.addItem('Letter Width')
-        self.pbRef4YOffsetUnitSel.addItem('Image Width')
-        self.pbRef4YOffsetUnitSel.addItem('Full Width')
+        self.add_items_of_combobox(self.pbRef4YOffsetUnitSel, OFFSET_UNITS)
 
         # end of reference widgets.
 
@@ -1303,20 +1229,9 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbActionLabel = QtWidgets.QLabel("Action: ")
         self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.pbActionSel = QtWidgets.QComboBox()
-        self.pbActionSel.addItem('App Page Open')
-        self.pbActionSel.addItem('Browse')
-        self.pbActionSel.addItem('Create Data')
-        self.pbActionSel.addItem('Mouse Action')
-        self.pbActionSel.addItem('Keyboard Action')
-        self.pbActionSel.addItem('Load Data')
-        self.pbActionSel.addItem('Save Data')
-        self.pbActionSel.addItem('Conditional Step')
-        self.pbActionSel.addItem('Jump Step')
-        self.pbActionSel.addItem('Run Routine')
-        self.pbActionSel.addItem('Set Wait')
-        self.pbActionSel.addItem('Halt')
-        self.pbActionSel.addItem('Run Routine')
-        self.pbActionSel.addItem('Run Extern')
+        action_items = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data', 'Save Data',
+                        'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine', 'Run Extern']
+        self.add_items_of_combobox(self.pbActionSel, action_items)
         self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
 
         self.pbActionL1Layout = QtWidgets.QHBoxLayout()
@@ -1672,6 +1587,10 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
+
+    def add_items_of_combobox(self, combobox: QComboBox, items: []):
+        for item in items:
+            combobox.addItem(item)
 
     def set_pb_mode(self, inmode):
         self.pb_mode = inmode
