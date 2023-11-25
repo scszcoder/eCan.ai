@@ -685,7 +685,7 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         # self.pbmainwin.setWidget(self.pbview)
 
-        self.pbInfoWidget = QWidget()
+        ############# PbInfo Part Start ################
         self.pbInfoLayout = QtWidgets.QGridLayout()
 
         self.pbInfoLabel = QtWidgets.QLabel("Info Type: ")
@@ -971,6 +971,16 @@ class SkillGUI(QtWidgets.QMainWindow):
             (self.pbRef4YOffsetUnitLabel, self.pbRef4YOffsetUnitSel)    # L16C
             ]
         self.add_widgets_of_gridlayout(self.pbInfoLayout, pbinfo_widgets)
+        self.pbInfoWidget = QWidget()
+        self.pbInfoWidget.setLayout(self.pbInfoLayout)
+
+        self.pbInfoArea = QtWidgets.QScrollArea()
+        self.pbInfoArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbInfoArea.setWidgetResizable(True)
+        self.pbInfoArea.setWidget(self.pbInfoWidget)
+        ############# PbInfo Part End ################
+
         # end of anchor/user info references
 
         self.IA_Add_button = QtWidgets.QPushButton("Add")
@@ -1010,209 +1020,134 @@ class SkillGUI(QtWidgets.QMainWindow):
         # self.stepListModel.appendRow(newst)
 
 
-        self.pbInfoWidget.setLayout(self.pbInfoLayout)
-
-        self.pbInfoArea = QtWidgets.QScrollArea()
-        self.pbInfoArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.pbInfoArea.setWidgetResizable(True)
-        self.pbInfoArea.setWidget(self.pbInfoWidget)
-
+        ############# PbAction Part Start ################
         self.pbStepNameLabel = QtWidgets.QLabel("Step Name: ")
-        self.pbStepNameLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbStepNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbStepNameEdit = QtWidgets.QLineEdit()
         self.pbStepNameEdit.setPlaceholderText("Ex: Step1")
-        self.pbActionL0Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL0Layout.addWidget(self.pbStepNameLabel)
-        self.pbActionL0Layout.addWidget(self.pbStepNameEdit)
 
         self.pbStepNumberLabel = QtWidgets.QLabel("Step #: ")
-        self.pbStepNumberLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbStepNumberLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbStepNumberEdit = QtWidgets.QLineEdit()
         self.pbStepNumberEdit.setPlaceholderText("Ex: 1")
-        self.pbActionL0ALayout = QtWidgets.QHBoxLayout()
-        self.pbActionL0ALayout.addWidget(self.pbStepNumberLabel)
-        self.pbActionL0ALayout.addWidget(self.pbStepNumberEdit)
 
         self.pbStepPrevNextLabel = QtWidgets.QLabel("Located ")
-        self.pbStepPrevNextLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbStepPrevNextLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbStepPrevNextSel = QtWidgets.QComboBox()
         self.pbStepPrevNextSel.addItem('After')
         self.pbStepPrevNextSel.addItem('Before')
-        self.pbActionL0BLayout = QtWidgets.QHBoxLayout()
-        self.pbActionL0BLayout.addWidget(self.pbStepPrevNextLabel)
-        self.pbActionL0BLayout.addWidget(self.pbStepPrevNextSel)
         self.pbStepPrevNextSel.currentTextChanged.connect(self.pbStepPrevNextSel_changed)
 
-
         self.pbStepPrevNextNameLabel = QtWidgets.QLabel("Prev. Step Name: ")
-        self.pbStepPrevNextNameLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbStepPrevNextNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbStepPrevNextNameEdit = QtWidgets.QLineEdit()
         self.stepNameCompleter = QtWidgets.QCompleter(self.step_names)
         self.pbStepPrevNextNameEdit.setCompleter(self.stepNameCompleter)
         self.pbStepPrevNextNameEdit.setPlaceholderText("Ex: step1")
-        self.pbActionL0CLayout = QtWidgets.QHBoxLayout()
-        self.pbActionL0CLayout.addWidget(self.pbStepPrevNextNameLabel)
-        self.pbActionL0CLayout.addWidget(self.pbStepPrevNextNameEdit)
-
-        self.pbActionLabel = QtWidgets.QLabel("Action: ")
-        self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.pbActionSel = QtWidgets.QComboBox()
-        action_items = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data', 'Save Data',
-                        'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine', 'Run Extern']
-        self.add_items_of_combobox(self.pbActionSel, action_items)
-        self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
-
-        self.pbActionL1Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL1Layout.addWidget(self.pbActionLabel)
-        self.pbActionL1Layout.addWidget(self.pbActionSel)
 
         self.pbAppLinkLabel = QtWidgets.QLabel("App Exe: ")
-        self.pbAppLinkLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbAppLinkLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbAppLinkEdit = QtWidgets.QLineEdit()
         self.pbAppLinkEdit.setPlaceholderText("Full Path To .exe")
-        self.pbActionL2Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL2Layout.addWidget(self.pbAppLinkLabel)
-        self.pbActionL2Layout.addWidget(self.pbAppLinkEdit)
 
         self.pbPageURLLabel = QtWidgets.QLabel("Page URL: ")
-        self.pbPageURLLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbPageURLLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbPageURLEdit = QtWidgets.QLineEdit()
         self.pbPageURLEdit.setPlaceholderText("full url")
-        self.pbActionL3Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL3Layout.addWidget(self.pbPageURLLabel)
-        self.pbActionL3Layout.addWidget(self.pbPageURLEdit)
 
         self.pbDataNameLabel = QtWidgets.QLabel("Data Name: ")
-        self.pbDataNameLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbDataNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbDataNameEdit = QtWidgets.QLineEdit()
         self.pbDataNameEdit.setPlaceholderText("ex: abc")
-        self.pbActionL4Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL4Layout.addWidget(self.pbDataNameLabel)
-        self.pbActionL4Layout.addWidget(self.pbDataNameEdit)
 
         self.pbMouseActionLabel = QtWidgets.QLabel("Mouse Action: ")
-        self.pbMouseActionLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbMouseActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbMouseActionSel = QtWidgets.QComboBox()
-        self.pbMouseActionSel.addItem('Single Click')
-        self.pbMouseActionSel.addItem('Double Click')
-        self.pbMouseActionSel.addItem('Right Click')
-        self.pbMouseActionSel.addItem('Scroll Up')
-        self.pbMouseActionSel.addItem('Scroll Down')
-        self.pbActionL5Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL5Layout.addWidget(self.pbMouseActionLabel)
-        self.pbActionL5Layout.addWidget(self.pbMouseActionSel)
+        self.add_items_of_combobox(self.pbMouseActionSel, ['Single Click', 'Double Click', 'Right Click', 'Scroll Up', 'Scroll Down'])
 
         self.pbMouseActionAmountLabel = QtWidgets.QLabel("Scroll Amount: ")
-        self.pbMouseActionAmountLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbMouseActionAmountLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbMouseActionAmountEdit = QtWidgets.QLineEdit()
         self.pbMouseActionAmountEdit.setPlaceholderText("ex: 4")
-        self.pbActionL6Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL6Layout.addWidget(self.pbMouseActionAmountLabel)
-        self.pbActionL6Layout.addWidget(self.pbMouseActionAmountEdit)
 
         self.pbKeyboardActionLabel = QtWidgets.QLabel("String To Input: ")
-        self.pbKeyboardActionLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbKeyboardActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbKeyboardActionEdit = QtWidgets.QLineEdit()
         self.pbKeyboardActionEdit.setPlaceholderText("ex: abc")
-        self.pbActionL7Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL7Layout.addWidget(self.pbKeyboardActionLabel)
-        self.pbActionL7Layout.addWidget(self.pbKeyboardActionEdit)
 
         self.pbDataFileLabel = QtWidgets.QLabel("File Name: ")
-        self.pbDataFileLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbDataFileLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbDataFileEdit = QtWidgets.QLineEdit()
         self.pbDataFileEdit.setPlaceholderText("full path to data file")
-        self.pbActionL8Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL8Layout.addWidget(self.pbDataFileLabel)
-        self.pbActionL8Layout.addWidget(self.pbDataFileEdit)
 
         self.pbConditionLabel = QtWidgets.QLabel("Condition Expression: ")
-        self.pbConditionLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbConditionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbConditionEdit = QtWidgets.QLineEdit()
         self.pbConditionEdit.setPlaceholderText("example: a > 5")
-        self.pbActionL9Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL9Layout.addWidget(self.pbConditionLabel)
-        self.pbActionL9Layout.addWidget(self.pbConditionEdit)
 
         self.pbConditionTrueLabel = QtWidgets.QLabel("If True: ")
-        self.pbConditionTrueLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbConditionTrueLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbConditionTrueEdit = QtWidgets.QLineEdit()
         self.pbConditionTrueEdit.setPlaceholderText("step name here")
-        self.pbActionL10Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL10Layout.addWidget(self.pbConditionTrueLabel)
-        self.pbActionL10Layout.addWidget(self.pbConditionTrueEdit)
 
         self.pbConditionFalseLabel = QtWidgets.QLabel("If False: ")
-        self.pbConditionFalseLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbConditionFalseLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbConditionFalseEdit = QtWidgets.QLineEdit()
         self.pbConditionFalseEdit.setPlaceholderText("step name here")
-        self.pbActionL11Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL11Layout.addWidget(self.pbConditionFalseLabel)
-        self.pbActionL11Layout.addWidget(self.pbConditionFalseEdit)
 
         self.pbJumpLabel = QtWidgets.QLabel("Jump to: ")
-        self.pbJumpLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbJumpLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbJumpEdit = QtWidgets.QLineEdit()
         self.pbJumpEdit.setPlaceholderText("step name here")
-        self.pbActionL12Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL12Layout.addWidget(self.pbJumpLabel)
-        self.pbActionL12Layout.addWidget(self.pbJumpEdit)
 
         self.pbRoutineLabel = QtWidgets.QLabel("Subroutine Name: ")
-        self.pbRoutineLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRoutineLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRoutineEdit = QtWidgets.QLineEdit()
         self.pbRoutineEdit.setPlaceholderText("subroutine name here")
-        self.pbActionL13Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL13Layout.addWidget(self.pbRoutineLabel)
-        self.pbActionL13Layout.addWidget(self.pbRoutineEdit)
 
         self.pbExternLabel = QtWidgets.QLabel("External Script: ")
-        self.pbExternLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbExternLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbExternEdit = QtWidgets.QLineEdit()
         self.pbExternEdit.setPlaceholderText("extern script name here")
-        self.pbActionL14Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL14Layout.addWidget(self.pbExternLabel)
-        self.pbActionL14Layout.addWidget(self.pbExternEdit)
 
         self.pbWaittimeLabel = QtWidgets.QLabel("Wait Time: ")
-        self.pbWaittimeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbWaittimeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbWaittimeEdit = QtWidgets.QLineEdit()
         self.pbWaittimeEdit.setPlaceholderText("time in seconds.")
-        self.pbActionL15Layout = QtWidgets.QHBoxLayout()
-        self.pbActionL15Layout.addWidget(self.pbWaittimeLabel)
-        self.pbActionL15Layout.addWidget(self.pbWaittimeEdit)
 
+        pbAction_widgets = [
+            (self.pbStepNameLabel, self.pbStepNameEdit),                    # L0
+            (self.pbStepNumberLabel, self.pbStepNumberEdit),                # L0A
+            (self.pbStepPrevNextLabel, self.pbStepPrevNextSel),             # L0B
+            (self.pbStepPrevNextNameLabel, self.pbStepPrevNextNameEdit),    # L0C
+            # (self.pbActionLabel, self.pbActionSel),                         # L1
+            (self.pbAppLinkLabel, self.pbAppLinkEdit),                      # L2
+            (self.pbPageURLLabel, self.pbPageURLEdit),                      # L3
+            (self.pbDataNameLabel, self.pbDataNameEdit),                    # L4
+            (self.pbMouseActionLabel, self.pbMouseActionSel),               # L5
+            (self.pbMouseActionAmountLabel, self.pbMouseActionAmountEdit),  # L6
+            (self.pbKeyboardActionLabel, self.pbKeyboardActionEdit),        # L7
+            (self.pbDataFileLabel, self.pbDataFileEdit),                    # L8
+            (self.pbConditionLabel, self.pbConditionEdit),                  # L9
+            (self.pbConditionTrueLabel, self.pbConditionTrueEdit),          # L10
+            (self.pbConditionFalseLabel, self.pbConditionFalseEdit),        # L11
+            (self.pbJumpLabel, self.pbJumpEdit),                            # L12
+            (self.pbRoutineLabel, self.pbRoutineEdit),                      # L13
+            (self.pbExternLabel, self.pbExternEdit),                        # L14
+            (self.pbWaittimeLabel, self.pbWaittimeEdit)                     # L15
+        ]
+
+        self.pbActionLayout = QtWidgets.QGridLayout()
+        self.add_widgets_of_gridlayout(self.pbActionLayout, pbAction_widgets)
         self.pbActionWidget = QtWidgets.QWidget()
-        self.pbActionLayout = QtWidgets.QVBoxLayout()
-        self.pbActionLayout.setAlignment(Qt.AlignTop)
-
-        self.pbActionLayout.addLayout(self.pbActionL0Layout)
-        self.pbActionLayout.addLayout(self.pbActionL0ALayout)
-        self.pbActionLayout.addLayout(self.pbActionL0BLayout)
-        self.pbActionLayout.addLayout(self.pbActionL0CLayout)
-
-        self.pbActionLayout.addLayout(self.pbActionL2Layout)
-        self.pbActionLayout.addLayout(self.pbActionL3Layout)
-        self.pbActionLayout.addLayout(self.pbActionL4Layout)
-        self.pbActionLayout.addLayout(self.pbActionL5Layout)
-        self.pbActionLayout.addLayout(self.pbActionL6Layout)
-        self.pbActionLayout.addLayout(self.pbActionL7Layout)
-        self.pbActionLayout.addLayout(self.pbActionL8Layout)
-        self.pbActionLayout.addLayout(self.pbActionL9Layout)
-        self.pbActionLayout.addLayout(self.pbActionL10Layout)
-        self.pbActionLayout.addLayout(self.pbActionL11Layout)
-        self.pbActionLayout.addLayout(self.pbActionL12Layout)
-        self.pbActionLayout.addLayout(self.pbActionL13Layout)
-        self.pbActionLayout.addLayout(self.pbActionL14Layout)
-        self.pbActionLayout.addLayout(self.pbActionL15Layout)
-
         self.pbActionWidget.setLayout(self.pbActionLayout)
 
         self.pbActionArea = QtWidgets.QScrollArea()
-        self.pbActionArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbActionArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbActionArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbActionArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbActionArea.setWidgetResizable(True)
         self.pbActionArea.setWidget(self.pbActionWidget)
+        ############# PbAction Part End ################
 
         self.skvtabs = QtWidgets.QTabWidget()
         self.skconsolelabel = QtWidgets.QLabel("Console")
@@ -1276,18 +1211,34 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskSkillEdit.setPlaceholderText("type in skill name here")
         self.pbskSkillEdit.textChanged.connect(self.appDomainPage_changed)
 
+        self.pbActionLabel = QtWidgets.QLabel("Action: ")
+        self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbActionSel = QtWidgets.QComboBox()
+        action_items = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data',
+                        'Save Data',
+                        'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine', 'Run Extern']
+        self.add_items_of_combobox(self.pbActionSel, action_items)
+        self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
+
         self.pbskl1Layout = QtWidgets.QHBoxLayout()
         self.pbskl1Layout.addWidget(self.pbskAppLabel)
         self.pbskl1Layout.addWidget(self.pbskAppEdit)
+
         self.pbskl1ALayout = QtWidgets.QHBoxLayout()
         self.pbskl1ALayout.addWidget(self.pbskDomainLabel)
         self.pbskl1ALayout.addWidget(self.pbskDomainEdit)
+
         self.pbskl2Layout = QtWidgets.QHBoxLayout()
         self.pbskl2Layout.addWidget(self.pbskPageLabel)
         self.pbskl2Layout.addWidget(self.pbskPageEdit)
+
         self.pbskl3Layout = QtWidgets.QHBoxLayout()
         self.pbskl3Layout.addWidget(self.pbskSkillLabel)
         self.pbskl3Layout.addWidget(self.pbskSkillEdit)
+
+        self.pbskl4Layout = QtWidgets.QHBoxLayout()
+        self.pbskl4Layout.addWidget(self.pbActionLabel)
+        self.pbskl4Layout.addWidget(self.pbActionSel)
 
         self.pbskALLabel = QtWidgets.QLabel("Anchor List:")
         self.pbskALWidget = QtWidgets.QWidget()
@@ -1295,8 +1246,9 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskALLayout.addWidget(self.pbskALLabel)
 
         self.pbskAnchorListScroll = QtWidgets.QScrollArea()
-        self.pbskAnchorListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbskAnchorListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbskAnchorListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskAnchorListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskAnchorListScroll.setWidgetResizable(True)
         self.pbskAnchorListScroll.setWidget(self.pbskAnchorListView)
 
         self.pbskALLayout.addWidget(self.pbskAnchorListScroll)
@@ -1307,15 +1259,14 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskDLLayout = QtWidgets.QVBoxLayout()
         self.pbskDLLayout.addWidget(self.pbskDLLabel)
 
-
         self.pbskDataListScroll = QtWidgets.QScrollArea()
-        self.pbskDataListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbskDataListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbskDataListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskDataListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskDataListScroll.setWidgetResizable(True)
         self.pbskDataListScroll.setWidget(self.pbskDataListView)
 
         self.pbskDLLayout.addWidget(self.pbskDataListScroll)
         self.pbskDLWidget.setLayout(self.pbskDLLayout)
-
 
         self.pbskSLLabel = QtWidgets.QLabel("Step List:")
         self.pbskSLWidget = QtWidgets.QWidget()
@@ -1323,8 +1274,9 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskSLLayout.addWidget(self.pbskSLLabel)
 
         self.pbskStepListScroll = QtWidgets.QScrollArea()
-        self.pbskStepListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbskStepListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbskStepListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskStepListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskStepListScroll.setWidgetResizable(True)
         self.pbskStepListScroll.setWidget(self.pbskStepListView)
 
         self.pbskSLLayout.addWidget(self.pbskStepListScroll)
@@ -1343,7 +1295,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbsklayout.addLayout(self.pbskl1ALayout)
         self.pbsklayout.addLayout(self.pbskl2Layout)
         self.pbsklayout.addLayout(self.pbskl3Layout)
-        self.pbsklayout.addLayout(self.pbActionL1Layout)
+        self.pbsklayout.addLayout(self.pbskl4Layout)
         self.pbsklayout.addWidget(self.hsplitter2)
 
 
