@@ -1,7 +1,7 @@
 import sys
 import random
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, QEvent
 from PySide6.QtGui import QPainterPath, QPen, QColor
 from locale import getdefaultlocale
 
@@ -686,18 +686,17 @@ class SkillGUI(QtWidgets.QMainWindow):
         # self.pbmainwin.setWidget(self.pbview)
 
         self.pbInfoWidget = QWidget()
-        self.pbInfoLayout = QtWidgets.QVBoxLayout()
-        self.pbInfoLayout.setAlignment(Qt.AlignTop)
+        self.pbInfoLayout = QtWidgets.QGridLayout()
 
         self.pbInfoLabel = QtWidgets.QLabel("Info Type: ")
-        self.pbInfoLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbInfoLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbInfoSel = QtWidgets.QComboBox()
         self.pbInfoSel.addItem('Anchor')
         self.pbInfoSel.addItem('Useful Data')
         self.pbInfoSel.currentTextChanged.connect(self.pbInfoSel_changed)
 
         self.pbRTLabel = QtWidgets.QLabel("Ref. Type: ")
-        self.pbRTLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRTLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRTSel = QtWidgets.QComboBox()
         self.pbRTSel.addItem('No Ref')
         self.pbRTSel.addItem('By Offset')
@@ -705,445 +704,274 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbRTSel.currentTextChanged.connect(self.pbRTSel_changed)
 
         self.pbNRefLabel = QtWidgets.QLabel("# of Refs: ")
-        self.pbNRefLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbNRefLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbNRefSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbNRefSel, ['0', '1', '2', '3', '4'])
         self.pbNRefSel.currentTextChanged.connect(self.pbNRefSel_changed)
 
         self.pbATLabel = QtWidgets.QLabel("Anchor Type: ")
-        self.pbATLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbATLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbATSel = QtWidgets.QComboBox()
         self.pbATSel.addItem('Text')
         self.pbATSel.addItem('Image')
 
         self.pbDTLabel = QtWidgets.QLabel("Data Type: ")
-        self.pbDTLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbDTLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbDTSel = QtWidgets.QComboBox()
         self.pbDTSel.addItem('Paragraph')
         self.pbDTSel.addItem('Lines')
         self.pbDTSel.addItem('Words')
 
         self.pbNLabel = QtWidgets.QLabel("# of Lines: ")
-        self.pbNLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbNLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbNEdit = QtWidgets.QLineEdit()
         self.pbNEdit.setPlaceholderText("type number of lines here")
 
         self.pbInfoNameLabel = QtWidgets.QLabel("Name: ")
-        self.pbInfoNameLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbInfoNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbInfoNameEdit = QtWidgets.QLineEdit()
         self.pbInfoNameEdit.setPlaceholderText("Ex: abc")
 
         # ----------  reference 1 widgets ----------------------------
         self.pbRef1NameLabel = QtWidgets.QLabel("Ref1 Name: ")
-        self.pbRef1NameLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1NameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1NameEdit = QtWidgets.QLineEdit()
         self.pbRef1NameEdit.setPlaceholderText("Ex: abc")
 
         self.pbRef1XOffsetDirLabel = QtWidgets.QLabel("Ref1 X Offset Dir: ")
-        self.pbRef1XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1XOffsetDirSel = QtWidgets.QComboBox()
         self.pbRef1XOffsetDirSel.addItem('Within')
         self.pbRef1XOffsetDirSel.addItem('Beyond')
 
         self.pbRef1XOffsetTypeLabel = QtWidgets.QLabel("Ref1 X Offset Type: ")
-        self.pbRef1XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1XOffsetTypeSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef1XOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef1XOffsetValLabel = QtWidgets.QLabel("Ref1 X Offset Value: ")
-        self.pbRef1XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1XOffsetValEdit = QtWidgets.QLineEdit()
         self.pbRef1XOffsetValEdit.setPlaceholderText("Ex: 1")
 
         self.pbRef1XOffsetUnitLabel = QtWidgets.QLabel("Ref1 X Offset Unit: ")
-        self.pbRef1XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1XOffsetUnitSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef1XOffsetUnitSel, OFFSET_UNITS)
 
         self.pbRef1YOffsetDirLabel = QtWidgets.QLabel("Ref1 Y Dir: ")
-        self.pbRef1YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1YOffsetDirSel = QtWidgets.QComboBox()
         self.pbRef1YOffsetDirSel.addItem('Within')
         self.pbRef1YOffsetDirSel.addItem('Beyond')
 
         self.pbRef1YOffsetTypeLabel = QtWidgets.QLabel("Ref1 Y Offset Type: ")
-        self.pbRef1YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1YOffsetTypeSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef1YOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef1YOffsetValLabel = QtWidgets.QLabel("Ref1 Y Offset Value: ")
-        self.pbRef1YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1YOffsetValEdit = QtWidgets.QLineEdit()
         self.pbRef1YOffsetValEdit.setPlaceholderText("Ex: 1")
 
         self.pbRef1YOffsetUnitLabel = QtWidgets.QLabel("Ref1 Y Offset Unit: ")
-        self.pbRef1YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef1YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef1YOffsetUnitSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef1YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 2 widgets ----------------------------
         self.pbRef2NameLabel = QtWidgets.QLabel("Ref2 Name: ")
-        self.pbRef2NameLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2NameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2NameEdit = QtWidgets.QLineEdit()
         self.pbRef2NameEdit.setPlaceholderText("Ex: abc")
 
         self.pbRef2XOffsetDirLabel = QtWidgets.QLabel("Ref2 X Offset Dir: ")
-        self.pbRef2XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2XOffsetDirSel = QtWidgets.QComboBox()
         self.pbRef2XOffsetDirSel.addItem('Within')
         self.pbRef2XOffsetDirSel.addItem('Beyond')
 
         self.pbRef2XOffsetTypeLabel = QtWidgets.QLabel("Ref2 X Offset Type: ")
-        self.pbRef2XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2XOffsetTypeSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef2XOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef2XOffsetValLabel = QtWidgets.QLabel("Ref2 X Offset Value: ")
-        self.pbRef2XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2XOffsetValEdit = QtWidgets.QLineEdit()
         self.pbRef2XOffsetValEdit.setPlaceholderText("Ex: 1")
 
         self.pbRef2XOffsetUnitLabel = QtWidgets.QLabel("Ref2 X Offset Unit: ")
-        self.pbRef2XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2XOffsetUnitSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef2XOffsetUnitSel, OFFSET_UNITS)
 
         self.pbRef2YOffsetDirLabel = QtWidgets.QLabel("Ref2 Y Dir: ")
-        self.pbRef2YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2YOffsetDirSel = QtWidgets.QComboBox()
         self.pbRef2YOffsetDirSel.addItem('Within')
         self.pbRef2YOffsetDirSel.addItem('Beyond')
 
         self.pbRef2YOffsetTypeLabel = QtWidgets.QLabel("Ref2 Y Offset Type: ")
-        self.pbRef2YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2YOffsetTypeSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef2YOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef2YOffsetValLabel = QtWidgets.QLabel("Ref2 Y Offset Value: ")
-        self.pbRef2YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2YOffsetValEdit = QtWidgets.QLineEdit()
         self.pbRef2YOffsetValEdit.setPlaceholderText("Ex: 1")
 
         self.pbRef2YOffsetUnitLabel = QtWidgets.QLabel("Ref2 Y Offset Unit: ")
-        self.pbRef2YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef2YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef2YOffsetUnitSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef2YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 3 widgets ----------------------------
         self.pbRef3NameLabel = QtWidgets.QLabel("Ref3 Name: ")
-        self.pbRef3NameLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3NameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3NameEdit = QtWidgets.QLineEdit()
         self.pbRef3NameEdit.setPlaceholderText("Ex: abc")
 
         self.pbRef3XOffsetDirLabel = QtWidgets.QLabel("Ref3 X Offset Dir: ")
-        self.pbRef3XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3XOffsetDirSel = QtWidgets.QComboBox()
         self.pbRef3XOffsetDirSel.addItem('Within')
         self.pbRef3XOffsetDirSel.addItem('Beyond')
 
         self.pbRef3XOffsetTypeLabel = QtWidgets.QLabel("Ref3 X Offset Type: ")
-        self.pbRef3XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3XOffsetTypeSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef3XOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef3XOffsetValLabel = QtWidgets.QLabel("Ref3 X Offset Value: ")
-        self.pbRef3XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3XOffsetValEdit = QtWidgets.QLineEdit()
         self.pbRef3XOffsetValEdit.setPlaceholderText("Ex: 1")
 
         self.pbRef3XOffsetUnitLabel = QtWidgets.QLabel("Ref3 X Offset Unit: ")
-        self.pbRef3XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3XOffsetUnitSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef3XOffsetUnitSel, OFFSET_UNITS)
 
         self.pbRef3YOffsetDirLabel = QtWidgets.QLabel("Ref3 Y Dir: ")
-        self.pbRef3YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3YOffsetDirSel = QtWidgets.QComboBox()
         self.pbRef3YOffsetDirSel.addItem('Within')
         self.pbRef3YOffsetDirSel.addItem('Beyond')
 
         self.pbRef3YOffsetTypeLabel = QtWidgets.QLabel("Ref3 Y Offset Type: ")
-        self.pbRef3YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3YOffsetTypeSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef3YOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef3YOffsetValLabel = QtWidgets.QLabel("Ref3 Y Offset Value: ")
-        self.pbRef3YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3YOffsetValEdit = QtWidgets.QLineEdit()
         self.pbRef3YOffsetValEdit.setPlaceholderText("Ex: 1")
 
         self.pbRef3YOffsetUnitLabel = QtWidgets.QLabel("Ref3 Y Offset Unit: ")
-        self.pbRef3YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef3YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef3YOffsetUnitSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef3YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 4 widgets ----------------------------
         self.pbRef4NameLabel = QtWidgets.QLabel("Ref4 Name: ")
-        self.pbRef4NameLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4NameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4NameEdit = QtWidgets.QLineEdit()
         self.pbRef4NameEdit.setPlaceholderText("Ex: abc")
 
         self.pbRef4XOffsetDirLabel = QtWidgets.QLabel("Ref4 X Offset Dir: ")
-        self.pbRef4XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4XOffsetDirSel = QtWidgets.QComboBox()
         self.pbRef4XOffsetDirSel.addItem('Within')
         self.pbRef4XOffsetDirSel.addItem('Beyond')
 
         self.pbRef4XOffsetTypeLabel = QtWidgets.QLabel("Ref4 X Offset Type: ")
-        self.pbRef4XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4XOffsetTypeSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef4XOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef4XOffsetValLabel = QtWidgets.QLabel("Ref4 X Offset Value: ")
-        self.pbRef4XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4XOffsetValEdit = QtWidgets.QLineEdit()
         self.pbRef4XOffsetValEdit.setPlaceholderText("Ex: 1")
 
         self.pbRef4XOffsetUnitLabel = QtWidgets.QLabel("Ref4 X Offset Unit: ")
-        self.pbRef4XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4XOffsetUnitSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef4XOffsetUnitSel, OFFSET_UNITS)
 
         self.pbRef4YOffsetDirLabel = QtWidgets.QLabel("Ref4 Y Dir: ")
-        self.pbRef4YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4YOffsetDirSel = QtWidgets.QComboBox()
         self.pbRef4YOffsetDirSel.addItem('Within')
         self.pbRef4YOffsetDirSel.addItem('Beyond')
 
         self.pbRef4YOffsetTypeLabel = QtWidgets.QLabel("Ref4 Y Offset Type: ")
-        self.pbRef4YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4YOffsetTypeSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef4YOffsetTypeSel, OFFSET_TYPES)
 
         self.pbRef4YOffsetValLabel = QtWidgets.QLabel("Ref4 Y Offset Value: ")
-        self.pbRef4YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4YOffsetValEdit = QtWidgets.QLineEdit()
         self.pbRef4YOffsetValEdit.setPlaceholderText("Ex: 1")
 
         self.pbRef4YOffsetUnitLabel = QtWidgets.QLabel("Ref4 Y Offset Unit: ")
-        self.pbRef4YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.pbRef4YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbRef4YOffsetUnitSel = QtWidgets.QComboBox()
         self.add_items_of_combobox(self.pbRef4YOffsetUnitSel, OFFSET_UNITS)
 
         # end of reference widgets.
-
-        self.pbInfoL0Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL0Layout.addWidget(self.pbInfoNameLabel)
-        self.pbInfoL0Layout.addWidget(self.pbInfoNameEdit)
-
-        self.pbInfoL1Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL1Layout.addWidget(self.pbInfoLabel)
-        self.pbInfoL1Layout.addWidget(self.pbInfoSel)
-
-        self.pbInfoL2ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL2ALayout.addWidget(self.pbATLabel)
-        self.pbInfoL2ALayout.addWidget(self.pbATSel)
-
-        self.pbInfoL2Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL2Layout.addWidget(self.pbRTLabel)
-        self.pbInfoL2Layout.addWidget(self.pbRTSel)
-
-        self.pbInfoL2BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL2BLayout.addWidget(self.pbNRefLabel)
-        self.pbInfoL2BLayout.addWidget(self.pbNRefSel)
-
-        self.pbInfoL3Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL3Layout.addWidget(self.pbDTLabel)
-        self.pbInfoL3Layout.addWidget(self.pbDTSel)
-
-        self.pbInfoL4Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL4Layout.addWidget(self.pbNLabel)            #number of line/words
-        self.pbInfoL4Layout.addWidget(self.pbNEdit)
-
-        # ref 1
-        self.pbInfoL5Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL5Layout.addWidget(self.pbRef1NameLabel)
-        self.pbInfoL5Layout.addWidget(self.pbRef1NameEdit)
-
-        self.pbInfoL6Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL6Layout.addWidget(self.pbRef1XOffsetDirLabel)
-        self.pbInfoL6Layout.addWidget(self.pbRef1XOffsetDirSel)
-
-        self.pbInfoL6ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL6ALayout.addWidget(self.pbRef1XOffsetTypeLabel)
-        self.pbInfoL6ALayout.addWidget(self.pbRef1XOffsetTypeSel)
-
-        self.pbInfoL6BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL6BLayout.addWidget(self.pbRef1XOffsetValLabel)
-        self.pbInfoL6BLayout.addWidget(self.pbRef1XOffsetValEdit)
-
-        self.pbInfoL6CLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL6CLayout.addWidget(self.pbRef1XOffsetUnitLabel)
-        self.pbInfoL6CLayout.addWidget(self.pbRef1XOffsetUnitSel)
-
-        self.pbInfoL7Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL7Layout.addWidget(self.pbRef1YOffsetDirLabel)
-        self.pbInfoL7Layout.addWidget(self.pbRef1YOffsetDirSel)
-
-        self.pbInfoL7ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL7ALayout.addWidget(self.pbRef1YOffsetTypeLabel)
-        self.pbInfoL7ALayout.addWidget(self.pbRef1YOffsetTypeSel)
-
-        self.pbInfoL7BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL7BLayout.addWidget(self.pbRef1YOffsetValLabel)
-        self.pbInfoL7BLayout.addWidget(self.pbRef1YOffsetValEdit)
-
-        self.pbInfoL7CLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL7CLayout.addWidget(self.pbRef1YOffsetUnitLabel)
-        self.pbInfoL7CLayout.addWidget(self.pbRef1YOffsetUnitSel)
-        # ref 2
-        self.pbInfoL8Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL8Layout.addWidget(self.pbRef2NameLabel)
-        self.pbInfoL8Layout.addWidget(self.pbRef2NameEdit)
-
-        self.pbInfoL9Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL9Layout.addWidget(self.pbRef2XOffsetDirLabel)
-        self.pbInfoL9Layout.addWidget(self.pbRef2XOffsetDirSel)
-
-        self.pbInfoL9ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL9ALayout.addWidget(self.pbRef2XOffsetTypeLabel)
-        self.pbInfoL9ALayout.addWidget(self.pbRef2XOffsetTypeSel)
-
-        self.pbInfoL9BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL9BLayout.addWidget(self.pbRef2XOffsetValLabel)
-        self.pbInfoL9BLayout.addWidget(self.pbRef2XOffsetValEdit)
-
-        self.pbInfoL9CLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL9CLayout.addWidget(self.pbRef2XOffsetUnitLabel)
-        self.pbInfoL9CLayout.addWidget(self.pbRef2XOffsetUnitSel)
-
-        self.pbInfoL10Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL10Layout.addWidget(self.pbRef2YOffsetDirLabel)
-        self.pbInfoL10Layout.addWidget(self.pbRef2YOffsetDirSel)
-
-        self.pbInfoL10ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL10ALayout.addWidget(self.pbRef2YOffsetTypeLabel)
-        self.pbInfoL10ALayout.addWidget(self.pbRef2YOffsetTypeSel)
-
-        self.pbInfoL10BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL10BLayout.addWidget(self.pbRef2YOffsetValLabel)
-        self.pbInfoL10BLayout.addWidget(self.pbRef2YOffsetValEdit)
-
-        self.pbInfoL10CLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL10CLayout.addWidget(self.pbRef2YOffsetUnitLabel)
-        self.pbInfoL10CLayout.addWidget(self.pbRef2YOffsetUnitSel)
-        # ref 3
-        self.pbInfoL11Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL11Layout.addWidget(self.pbRef3NameLabel)
-        self.pbInfoL11Layout.addWidget(self.pbRef3NameEdit)
-
-        self.pbInfoL12Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL12Layout.addWidget(self.pbRef3XOffsetDirLabel)
-        self.pbInfoL12Layout.addWidget(self.pbRef3XOffsetDirSel)
-
-        self.pbInfoL12ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL12ALayout.addWidget(self.pbRef3XOffsetTypeLabel)
-        self.pbInfoL12ALayout.addWidget(self.pbRef3XOffsetTypeSel)
-
-        self.pbInfoL12BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL12BLayout.addWidget(self.pbRef3XOffsetValLabel)
-        self.pbInfoL12BLayout.addWidget(self.pbRef3XOffsetValEdit)
-
-        self.pbInfoL12CLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL12CLayout.addWidget(self.pbRef3XOffsetUnitLabel)
-        self.pbInfoL12CLayout.addWidget(self.pbRef3XOffsetUnitSel)
-
-        self.pbInfoL13Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL13Layout.addWidget(self.pbRef3YOffsetDirLabel)
-        self.pbInfoL13Layout.addWidget(self.pbRef3YOffsetDirSel)
-
-        self.pbInfoL13ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL13ALayout.addWidget(self.pbRef3YOffsetTypeLabel)
-        self.pbInfoL13ALayout.addWidget(self.pbRef3YOffsetTypeSel)
-
-        self.pbInfoL13BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL13BLayout.addWidget(self.pbRef3YOffsetValLabel)
-        self.pbInfoL13BLayout.addWidget(self.pbRef3YOffsetValEdit)
-
-        self.pbInfoL13CLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL13CLayout.addWidget(self.pbRef3YOffsetUnitLabel)
-        self.pbInfoL13CLayout.addWidget(self.pbRef3YOffsetUnitSel)
-        # ref 4
-        self.pbInfoL14Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL14Layout.addWidget(self.pbRef4NameLabel)
-        self.pbInfoL14Layout.addWidget(self.pbRef4NameEdit)
-
-        self.pbInfoL15Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL15Layout.addWidget(self.pbRef4XOffsetDirLabel)
-        self.pbInfoL15Layout.addWidget(self.pbRef4XOffsetDirSel)
-
-        self.pbInfoL15ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL15ALayout.addWidget(self.pbRef4XOffsetTypeLabel)
-        self.pbInfoL15ALayout.addWidget(self.pbRef4XOffsetTypeSel)
-
-        self.pbInfoL15BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL15BLayout.addWidget(self.pbRef4XOffsetValLabel)
-        self.pbInfoL15BLayout.addWidget(self.pbRef4XOffsetValEdit)
-
-        self.pbInfoL15CLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL15CLayout.addWidget(self.pbRef4XOffsetUnitLabel)
-        self.pbInfoL15CLayout.addWidget(self.pbRef4XOffsetUnitSel)
-
-        self.pbInfoL16Layout = QtWidgets.QHBoxLayout()
-        self.pbInfoL16Layout.addWidget(self.pbRef4YOffsetDirLabel)
-        self.pbInfoL16Layout.addWidget(self.pbRef4YOffsetDirSel)
-
-        self.pbInfoL16ALayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL16ALayout.addWidget(self.pbRef4YOffsetTypeLabel)
-        self.pbInfoL16ALayout.addWidget(self.pbRef4YOffsetTypeSel)
-
-        self.pbInfoL16BLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL16BLayout.addWidget(self.pbRef4YOffsetValLabel)
-        self.pbInfoL16BLayout.addWidget(self.pbRef4YOffsetValEdit)
-
-        self.pbInfoL16CLayout = QtWidgets.QHBoxLayout()
-        self.pbInfoL16CLayout.addWidget(self.pbRef4YOffsetUnitLabel)
-        self.pbInfoL16CLayout.addWidget(self.pbRef4YOffsetUnitSel)
+        pbinfo_widgets = [
+            (self.pbInfoNameLabel, self.pbInfoNameEdit),                # L0
+            (self.pbInfoLabel, self.pbInfoSel),                         # L1
+            (self.pbATLabel, self.pbATSel),                             # L2A
+            (self.pbRTLabel, self.pbRTSel),                             # L2
+            (self.pbNRefLabel, self.pbNRefSel),                         # L2B
+            (self.pbDTLabel, self.pbDTSel),                             # L3
+            (self.pbNLabel, self.pbNEdit),                              # L4
+            (self.pbRef1NameLabel, self.pbRef1NameEdit),                # ref1 L5
+            (self.pbRef1XOffsetDirLabel, self.pbRef1XOffsetDirSel),     # L6
+            (self.pbRef1XOffsetTypeLabel, self.pbRef1XOffsetTypeSel),   # L6A
+            (self.pbRef1XOffsetValLabel, self.pbRef1XOffsetValEdit),    # L6B
+            (self.pbRef1XOffsetUnitLabel, self.pbRef1XOffsetUnitSel),   # L6C
+            (self.pbRef1YOffsetDirLabel, self.pbRef1YOffsetDirSel),     # L7
+            (self.pbRef1YOffsetTypeLabel, self.pbRef1YOffsetTypeSel),   # L7A
+            (self.pbRef1YOffsetValLabel, self.pbRef1YOffsetValEdit),    # L7B
+            (self.pbRef1YOffsetUnitLabel, self.pbRef1YOffsetUnitSel),   # L7C
+            (self.pbRef2NameLabel, self.pbRef2NameEdit),                # ref2 L8
+            (self.pbRef2XOffsetDirLabel, self.pbRef2XOffsetDirSel),     # L9
+            (self.pbRef2XOffsetTypeLabel, self.pbRef2XOffsetTypeSel),   # L9A
+            (self.pbRef2XOffsetValLabel, self.pbRef2XOffsetValEdit),    # L9B
+            (self.pbRef2XOffsetUnitLabel, self.pbRef2XOffsetUnitSel),   # L9C
+            (self.pbRef2YOffsetDirLabel, self.pbRef2YOffsetDirSel),     # L10
+            (self.pbRef2YOffsetTypeLabel, self.pbRef2YOffsetTypeSel),   # L10A
+            (self.pbRef2YOffsetValLabel, self.pbRef2YOffsetValEdit),    # L10B
+            (self.pbRef2YOffsetUnitLabel, self.pbRef2YOffsetUnitSel),   # L10C
+            (self.pbRef3NameLabel, self.pbRef3NameEdit),                # ref3 L11
+            (self.pbRef3XOffsetDirLabel, self.pbRef3XOffsetDirSel),     # L12
+            (self.pbRef3XOffsetTypeLabel, self.pbRef3XOffsetTypeSel),   # L12A
+            (self.pbRef3XOffsetValLabel, self.pbRef3XOffsetValEdit),    # L12B
+            (self.pbRef3XOffsetUnitLabel, self.pbRef3XOffsetUnitSel),   # L12C
+            (self.pbRef3YOffsetDirLabel, self.pbRef3YOffsetDirSel),     # L13
+            (self.pbRef3YOffsetTypeLabel, self.pbRef3YOffsetTypeSel),   # L13A
+            (self.pbRef3YOffsetValLabel, self.pbRef3YOffsetValEdit),    # L13B
+            (self.pbRef3YOffsetUnitLabel, self.pbRef3YOffsetUnitSel),   # L13C
+            (self.pbRef4NameLabel, self.pbRef4NameEdit),                # ref4 L14
+            (self.pbRef4XOffsetDirLabel, self.pbRef4XOffsetDirSel),     # L15
+            (self.pbRef4XOffsetTypeLabel, self.pbRef4XOffsetTypeSel),   # L15A
+            (self.pbRef4XOffsetValLabel, self.pbRef4XOffsetValEdit),    # L15B
+            (self.pbRef4XOffsetUnitLabel, self.pbRef4XOffsetUnitSel),   # L15C
+            (self.pbRef4YOffsetDirLabel, self.pbRef4YOffsetDirSel),     # L16
+            (self.pbRef4YOffsetTypeLabel, self.pbRef4YOffsetTypeSel),   # L16A
+            (self.pbRef4YOffsetValLabel, self.pbRef4YOffsetValEdit),    # L16B
+            (self.pbRef4YOffsetUnitLabel, self.pbRef4YOffsetUnitSel)    # L16C
+            ]
+        self.add_widgets_of_gridlayout(self.pbInfoLayout, pbinfo_widgets)
         # end of anchor/user info references
-        self.pbInfoLayout.addLayout(self.pbInfoL0Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL1Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL2ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL2Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL2BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL3Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL4Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL5Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL6Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL6ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL6BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL6CLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL7Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL7ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL7BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL7CLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL8Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL9Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL9ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL9BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL9CLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL10Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL10ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL10BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL10CLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL11Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL12Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL12ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL12BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL12CLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL13Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL13ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL13BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL13CLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL14Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL15Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL15ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL15BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL15CLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL16Layout)
-        self.pbInfoLayout.addLayout(self.pbInfoL16ALayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL16BLayout)
-        self.pbInfoLayout.addLayout(self.pbInfoL16CLayout)
-
 
         self.IA_Add_button = QtWidgets.QPushButton("Add")
         self.IA_Remove_button = QtWidgets.QPushButton("Remove")
@@ -1185,8 +1013,9 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbInfoWidget.setLayout(self.pbInfoLayout)
 
         self.pbInfoArea = QtWidgets.QScrollArea()
-        self.pbInfoArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbInfoArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbInfoArea.setWidgetResizable(True)
         self.pbInfoArea.setWidget(self.pbInfoWidget)
 
         self.pbStepNameLabel = QtWidgets.QLabel("Step Name: ")
@@ -1591,6 +1420,11 @@ class SkillGUI(QtWidgets.QMainWindow):
     def add_items_of_combobox(self, combobox: QComboBox, items: []):
         for item in items:
             combobox.addItem(item)
+
+    def add_widgets_of_gridlayout(self, gridlayout: QGridLayout, widgets: ()):
+        for i, (w1, w2) in enumerate(widgets):
+            gridlayout.addWidget(w1, i, 0)
+            gridlayout.addWidget(w2, i, 1)
 
     def set_pb_mode(self, inmode):
         self.pb_mode = inmode
