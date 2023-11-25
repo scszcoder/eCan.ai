@@ -1489,10 +1489,10 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbDataFileEdit.setVisible(True)
 
 
-
     # UI based on action type.
     def pbActionSel_changed(self):
-        if self.pbActionSel.currentText() == 'App Page Open':
+        pbActionSel_text = self.pbActionSel.currentText()
+        if pbActionSel_text == 'App Page Open':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1503,7 +1503,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.show_app_page()
-        elif self.pbActionSel.currentText() == 'Create Data':
+        elif pbActionSel_text == 'Create Data':
             self.hide_condition()
             self.hide_data_file()
             self.show_data_name()
@@ -1514,7 +1514,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Browse':
+        elif pbActionSel_text == 'Browse':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1525,7 +1525,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Mouse Action':
+        elif pbActionSel_text == 'Mouse Action':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1536,7 +1536,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Keyboard Action':
+        elif pbActionSel_text == 'Keyboard Action':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1547,7 +1547,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Load Data':
+        elif pbActionSel_text == 'Load Data':
             self.hide_condition()
             self.show_data_file()
             self.show_data_name()
@@ -1558,7 +1558,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Save Data':
+        elif pbActionSel_text == 'Save Data':
             self.hide_condition()
             self.show_data_file()
             self.show_data_name()
@@ -1569,7 +1569,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Conditional Step':
+        elif pbActionSel_text == 'Conditional Step':
             self.show_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1580,7 +1580,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Jump Step':
+        elif pbActionSel_text == 'Jump Step':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1591,7 +1591,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Set Wait':
+        elif pbActionSel_text == 'Set Wait':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1602,7 +1602,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Run Routine':
+        elif pbActionSel_text == 'Run Routine':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1613,7 +1613,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.show_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Run External':
+        elif pbActionSel_text == 'Run External':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1990,28 +1990,29 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         elif self.pbtabs.currentIndex() == 1:
             print("add a new step....")
-            new_step = PROCEDURAL_STEP(self.pbActionSel.currentText())
-            if self.pbActionSel.currentText() == 'App Page Open':
+            pbActionSel_text = self.pbActionSel.currentText()
+            new_step = PROCEDURAL_STEP(pbActionSel_text)
+            if pbActionSel_text == 'App Page Open':
                 new_step.set_app_page(self.pbAppLinkEdit.text(), self.pbPageURLEdit.text())
-            elif self.pbActionSel.currentText() == 'Create Data':
+            elif pbActionSel_text == 'Create Data':
                 new_step.set_data_name(self.pbDataNameEdit.text())
-            elif self.pbActionSel.currentText() == 'Mouse Action':
+            elif pbActionSel_text == 'Mouse Action':
                 new_step.set_mouse_action(self.pbMouseActionSel.currentText(), self.pbMouseActionAmountEdit.text())
-            elif self.pbActionSel.currentText() == 'Keyboard Action':
+            elif pbActionSel_text == 'Keyboard Action':
                 new_step.set_keyboard_action(self.pbKeyboardActionEdit.text())
-            elif self.pbActionSel.currentText() == 'Load Data':
+            elif pbActionSel_text == 'Load Data':
                 new_step.set_data_file(self.pbDataFileEdit.text())
-            elif self.pbActionSel.currentText() == 'Save Data':
+            elif pbActionSel_text == 'Save Data':
                 new_step.set_data_file(self.pbDataFileEdit.text())
-            elif self.pbActionSel.currentText() == 'Conditional Step':
+            elif pbActionSel_text == 'Conditional Step':
                 new_step.set_condition_jump(self.pbConditionEdit.text(), self.pbConditionTrueEdit.text(), self.pbConditionFalseEdit.text())
-            elif self.pbActionSel.currentText() == 'Jump Step':
+            elif pbActionSel_text == 'Jump Step':
                 new_step.set_jump(self.pbJumpEdit.text())
-            elif self.pbActionSel.currentText() == 'Set Wait':
+            elif pbActionSel_text == 'Set Wait':
                 new_step.set_wait(self.pbWaittimeEdit.text())
-            elif self.pbActionSel.currentText() == 'Run Routine':
+            elif pbActionSel_text == 'Run Routine':
                 new_step.set_routine(self.pbRoutineEdit.text())
-            elif self.pbActionSel.currentText() == 'Run External':
+            elif pbActionSel_text == 'Run External':
                 new_step.set_extern(self.pbExternEdit.text())
             self.stepListModel.appendRow(new_step)
 
@@ -2042,168 +2043,85 @@ class SkillGUI(QtWidgets.QMainWindow):
         elif self.pbtabs.currentIndex() == 1:
             print("hohoho")
 
-    def show_ref1(self):
-        self.pbRef1NameLabel.setVisible(True)
-        self.pbRef1NameEdit.setVisible(True)
-        self.pbRef1XOffsetDirLabel.setVisible(True)
-        self.pbRef1XOffsetDirSel.setVisible(True)
-        self.pbRef1XOffsetTypeLabel.setVisible(True)
-        self.pbRef1XOffsetTypeSel.setVisible(True)
-        self.pbRef1XOffsetValLabel.setVisible(True)
-        self.pbRef1XOffsetValEdit.setVisible(True)
-        self.pbRef1XOffsetUnitLabel.setVisible(True)
-        self.pbRef1XOffsetUnitSel.setVisible(True)
-        self.pbRef1YOffsetDirLabel.setVisible(True)
-        self.pbRef1YOffsetDirSel.setVisible(True)
-        self.pbRef1YOffsetTypeLabel.setVisible(True)
-        self.pbRef1YOffsetTypeSel.setVisible(True)
-        self.pbRef1YOffsetValLabel.setVisible(True)
-        self.pbRef1YOffsetValEdit.setVisible(True)
-        self.pbRef1YOffsetUnitLabel.setVisible(True)
-        self.pbRef1YOffsetUnitSel.setVisible(True)
+    def show_ref1(self, visible: bool):
+        self.pbRef1NameLabel.setVisible(visible)
+        self.pbRef1NameEdit.setVisible(visible)
+        self.pbRef1XOffsetDirLabel.setVisible(visible)
+        self.pbRef1XOffsetDirSel.setVisible(visible)
+        self.pbRef1XOffsetTypeLabel.setVisible(visible)
+        self.pbRef1XOffsetTypeSel.setVisible(visible)
+        self.pbRef1XOffsetValLabel.setVisible(visible)
+        self.pbRef1XOffsetValEdit.setVisible(visible)
+        self.pbRef1XOffsetUnitLabel.setVisible(visible)
+        self.pbRef1XOffsetUnitSel.setVisible(visible)
+        self.pbRef1YOffsetDirLabel.setVisible(visible)
+        self.pbRef1YOffsetDirSel.setVisible(visible)
+        self.pbRef1YOffsetTypeLabel.setVisible(visible)
+        self.pbRef1YOffsetTypeSel.setVisible(visible)
+        self.pbRef1YOffsetValLabel.setVisible(visible)
+        self.pbRef1YOffsetValEdit.setVisible(visible)
+        self.pbRef1YOffsetUnitLabel.setVisible(visible)
+        self.pbRef1YOffsetUnitSel.setVisible(visible)
 
-    def hide_ref1(self):
-        self.pbRef1NameLabel.setVisible(False)
-        self.pbRef1NameEdit.setVisible(False)
-        self.pbRef1XOffsetDirLabel.setVisible(False)
-        self.pbRef1XOffsetDirSel.setVisible(False)
-        self.pbRef1XOffsetTypeLabel.setVisible(False)
-        self.pbRef1XOffsetTypeSel.setVisible(False)
-        self.pbRef1XOffsetValLabel.setVisible(False)
-        self.pbRef1XOffsetValEdit.setVisible(False)
-        self.pbRef1XOffsetUnitLabel.setVisible(False)
-        self.pbRef1XOffsetUnitSel.setVisible(False)
-        self.pbRef1YOffsetDirLabel.setVisible(False)
-        self.pbRef1YOffsetDirSel.setVisible(False)
-        self.pbRef1YOffsetTypeLabel.setVisible(False)
-        self.pbRef1YOffsetTypeSel.setVisible(False)
-        self.pbRef1YOffsetValLabel.setVisible(False)
-        self.pbRef1YOffsetValEdit.setVisible(False)
-        self.pbRef1YOffsetUnitLabel.setVisible(False)
-        self.pbRef1YOffsetUnitSel.setVisible(False)
+    def show_ref2(self, visible: bool):
+        self.pbRef2NameLabel.setVisible(visible)
+        self.pbRef2NameEdit.setVisible(visible)
+        self.pbRef2XOffsetDirLabel.setVisible(visible)
+        self.pbRef2XOffsetDirSel.setVisible(visible)
+        self.pbRef2XOffsetTypeLabel.setVisible(visible)
+        self.pbRef2XOffsetTypeSel.setVisible(visible)
+        self.pbRef2XOffsetValLabel.setVisible(visible)
+        self.pbRef2XOffsetValEdit.setVisible(visible)
+        self.pbRef2XOffsetUnitLabel.setVisible(visible)
+        self.pbRef2XOffsetUnitSel.setVisible(visible)
+        self.pbRef2YOffsetDirLabel.setVisible(visible)
+        self.pbRef2YOffsetDirSel.setVisible(visible)
+        self.pbRef2YOffsetTypeLabel.setVisible(visible)
+        self.pbRef2YOffsetTypeSel.setVisible(visible)
+        self.pbRef2YOffsetValLabel.setVisible(visible)
+        self.pbRef2YOffsetValEdit.setVisible(visible)
+        self.pbRef2YOffsetUnitLabel.setVisible(visible)
+        self.pbRef2YOffsetUnitSel.setVisible(visible)
 
-    def show_ref2(self):
-        self.pbRef2NameLabel.setVisible(True)
-        self.pbRef2NameEdit.setVisible(True)
-        self.pbRef2XOffsetDirLabel.setVisible(True)
-        self.pbRef2XOffsetDirSel.setVisible(True)
-        self.pbRef2XOffsetTypeLabel.setVisible(True)
-        self.pbRef2XOffsetTypeSel.setVisible(True)
-        self.pbRef2XOffsetValLabel.setVisible(True)
-        self.pbRef2XOffsetValEdit.setVisible(True)
-        self.pbRef2XOffsetUnitLabel.setVisible(True)
-        self.pbRef2XOffsetUnitSel.setVisible(True)
-        self.pbRef2YOffsetDirLabel.setVisible(True)
-        self.pbRef2YOffsetDirSel.setVisible(True)
-        self.pbRef2YOffsetTypeLabel.setVisible(True)
-        self.pbRef2YOffsetTypeSel.setVisible(True)
-        self.pbRef2YOffsetValLabel.setVisible(True)
-        self.pbRef2YOffsetValEdit.setVisible(True)
-        self.pbRef2YOffsetUnitLabel.setVisible(True)
-        self.pbRef2YOffsetUnitSel.setVisible(True)
+    def show_ref3(self, visible: bool):
+        self.pbRef3NameLabel.setVisible(visible)
+        self.pbRef3NameEdit.setVisible(visible)
+        self.pbRef3XOffsetDirLabel.setVisible(visible)
+        self.pbRef3XOffsetDirSel.setVisible(visible)
+        self.pbRef3XOffsetTypeLabel.setVisible(visible)
+        self.pbRef3XOffsetTypeSel.setVisible(visible)
+        self.pbRef3XOffsetValLabel.setVisible(visible)
+        self.pbRef3XOffsetValEdit.setVisible(visible)
+        self.pbRef3XOffsetUnitLabel.setVisible(visible)
+        self.pbRef3XOffsetUnitSel.setVisible(visible)
+        self.pbRef3YOffsetDirLabel.setVisible(visible)
+        self.pbRef3YOffsetDirSel.setVisible(visible)
+        self.pbRef3YOffsetTypeLabel.setVisible(visible)
+        self.pbRef3YOffsetTypeSel.setVisible(visible)
+        self.pbRef3YOffsetValLabel.setVisible(visible)
+        self.pbRef3YOffsetValEdit.setVisible(visible)
+        self.pbRef3YOffsetUnitLabel.setVisible(visible)
+        self.pbRef3YOffsetUnitSel.setVisible(visible)
 
-    def hide_ref2(self):
-        self.pbRef2NameLabel.setVisible(False)
-        self.pbRef2NameEdit.setVisible(False)
-        self.pbRef2XOffsetDirLabel.setVisible(False)
-        self.pbRef2XOffsetDirSel.setVisible(False)
-        self.pbRef2XOffsetTypeLabel.setVisible(False)
-        self.pbRef2XOffsetTypeSel.setVisible(False)
-        self.pbRef2XOffsetValLabel.setVisible(False)
-        self.pbRef2XOffsetValEdit.setVisible(False)
-        self.pbRef2XOffsetUnitLabel.setVisible(False)
-        self.pbRef2XOffsetUnitSel.setVisible(False)
-        self.pbRef2YOffsetDirLabel.setVisible(False)
-        self.pbRef2YOffsetDirSel.setVisible(False)
-        self.pbRef2YOffsetTypeLabel.setVisible(False)
-        self.pbRef2YOffsetTypeSel.setVisible(False)
-        self.pbRef2YOffsetValLabel.setVisible(False)
-        self.pbRef2YOffsetValEdit.setVisible(False)
-        self.pbRef2YOffsetUnitLabel.setVisible(False)
-        self.pbRef2YOffsetUnitSel.setVisible(False)
-
-
-    def show_ref3(self):
-        self.pbRef3NameLabel.setVisible(True)
-        self.pbRef3NameEdit.setVisible(True)
-        self.pbRef3XOffsetDirLabel.setVisible(True)
-        self.pbRef3XOffsetDirSel.setVisible(True)
-        self.pbRef3XOffsetTypeLabel.setVisible(True)
-        self.pbRef3XOffsetTypeSel.setVisible(True)
-        self.pbRef3XOffsetValLabel.setVisible(True)
-        self.pbRef3XOffsetValEdit.setVisible(True)
-        self.pbRef3XOffsetUnitLabel.setVisible(True)
-        self.pbRef3XOffsetUnitSel.setVisible(True)
-        self.pbRef3YOffsetDirLabel.setVisible(True)
-        self.pbRef3YOffsetDirSel.setVisible(True)
-        self.pbRef3YOffsetTypeLabel.setVisible(True)
-        self.pbRef3YOffsetTypeSel.setVisible(True)
-        self.pbRef3YOffsetValLabel.setVisible(True)
-        self.pbRef3YOffsetValEdit.setVisible(True)
-        self.pbRef3YOffsetUnitLabel.setVisible(True)
-        self.pbRef3YOffsetUnitSel.setVisible(True)
-
-    def hide_ref3(self):
-        self.pbRef3NameLabel.setVisible(False)
-        self.pbRef3NameEdit.setVisible(False)
-        self.pbRef3XOffsetDirLabel.setVisible(False)
-        self.pbRef3XOffsetDirSel.setVisible(False)
-        self.pbRef3XOffsetTypeLabel.setVisible(False)
-        self.pbRef3XOffsetTypeSel.setVisible(False)
-        self.pbRef3XOffsetValLabel.setVisible(False)
-        self.pbRef3XOffsetValEdit.setVisible(False)
-        self.pbRef3XOffsetUnitLabel.setVisible(False)
-        self.pbRef3XOffsetUnitSel.setVisible(False)
-        self.pbRef3YOffsetDirLabel.setVisible(False)
-        self.pbRef3YOffsetDirSel.setVisible(False)
-        self.pbRef3YOffsetTypeLabel.setVisible(False)
-        self.pbRef3YOffsetTypeSel.setVisible(False)
-        self.pbRef3YOffsetValLabel.setVisible(False)
-        self.pbRef3YOffsetValEdit.setVisible(False)
-        self.pbRef3YOffsetUnitLabel.setVisible(False)
-        self.pbRef3YOffsetUnitSel.setVisible(False)
-
-
-    def show_ref4(self):
-        self.pbRef4NameLabel.setVisible(True)
-        self.pbRef4NameEdit.setVisible(True)
-        self.pbRef4XOffsetDirLabel.setVisible(True)
-        self.pbRef4XOffsetDirSel.setVisible(True)
-        self.pbRef4XOffsetTypeLabel.setVisible(True)
-        self.pbRef4XOffsetTypeSel.setVisible(True)
-        self.pbRef4XOffsetValLabel.setVisible(True)
-        self.pbRef4XOffsetValEdit.setVisible(True)
-        self.pbRef4XOffsetUnitLabel.setVisible(True)
-        self.pbRef4XOffsetUnitSel.setVisible(True)
-        self.pbRef4YOffsetDirLabel.setVisible(True)
-        self.pbRef4YOffsetDirSel.setVisible(True)
-        self.pbRef4YOffsetTypeLabel.setVisible(True)
-        self.pbRef4YOffsetTypeSel.setVisible(True)
-        self.pbRef4YOffsetValLabel.setVisible(True)
-        self.pbRef4YOffsetValEdit.setVisible(True)
-        self.pbRef4YOffsetUnitLabel.setVisible(True)
-        self.pbRef4YOffsetUnitSel.setVisible(True)
-
-    def hide_ref4(self):
-        self.pbRef4NameLabel.setVisible(False)
-        self.pbRef4NameEdit.setVisible(False)
-        self.pbRef4XOffsetDirLabel.setVisible(False)
-        self.pbRef4XOffsetDirSel.setVisible(False)
-        self.pbRef4XOffsetTypeLabel.setVisible(False)
-        self.pbRef4XOffsetTypeSel.setVisible(False)
-        self.pbRef4XOffsetValLabel.setVisible(False)
-        self.pbRef4XOffsetValEdit.setVisible(False)
-        self.pbRef4XOffsetUnitLabel.setVisible(False)
-        self.pbRef4XOffsetUnitSel.setVisible(False)
-        self.pbRef4YOffsetDirLabel.setVisible(False)
-        self.pbRef4YOffsetDirSel.setVisible(False)
-        self.pbRef4YOffsetTypeLabel.setVisible(False)
-        self.pbRef4YOffsetTypeSel.setVisible(False)
-        self.pbRef4YOffsetValLabel.setVisible(False)
-        self.pbRef4YOffsetValEdit.setVisible(False)
-        self.pbRef4YOffsetUnitLabel.setVisible(False)
-        self.pbRef4YOffsetUnitSel.setVisible(False)
-
+    def show_ref4(self, visible: bool):
+        self.pbRef4NameLabel.setVisible(visible)
+        self.pbRef4NameEdit.setVisible(visible)
+        self.pbRef4XOffsetDirLabel.setVisible(visible)
+        self.pbRef4XOffsetDirSel.setVisible(visible)
+        self.pbRef4XOffsetTypeLabel.setVisible(visible)
+        self.pbRef4XOffsetTypeSel.setVisible(visible)
+        self.pbRef4XOffsetValLabel.setVisible(visible)
+        self.pbRef4XOffsetValEdit.setVisible(visible)
+        self.pbRef4XOffsetUnitLabel.setVisible(visible)
+        self.pbRef4XOffsetUnitSel.setVisible(visible)
+        self.pbRef4YOffsetDirLabel.setVisible(visible)
+        self.pbRef4YOffsetDirSel.setVisible(visible)
+        self.pbRef4YOffsetTypeLabel.setVisible(visible)
+        self.pbRef4YOffsetTypeSel.setVisible(visible)
+        self.pbRef4YOffsetValLabel.setVisible(visible)
+        self.pbRef4YOffsetValEdit.setVisible(visible)
+        self.pbRef4YOffsetUnitLabel.setVisible(visible)
+        self.pbRef4YOffsetUnitSel.setVisible(visible)
 
     def pbStepPrevNextSel_changed(self):
         if self.pbStepPrevNextSel.currentIndex() == 0:
@@ -2213,31 +2131,32 @@ class SkillGUI(QtWidgets.QMainWindow):
 
 
     def pbNRefSel_changed(self):
-        if self.pbNRefSel.currentIndex() == 0:
-            self.hide_ref1()
-            self.hide_ref2()
-            self.hide_ref3()
-            self.hide_ref4()
-        elif self.pbNRefSel.currentIndex() == 1:
-            self.show_ref1()
-            self.hide_ref2()
-            self.hide_ref3()
-            self.hide_ref4()
-        elif self.pbNRefSel.currentIndex() == 2:
-            self.show_ref1()
-            self.show_ref2()
-            self.hide_ref3()
-            self.hide_ref4()
-        elif self.pbNRefSel.currentIndex() == 3:
-            self.show_ref1()
-            self.show_ref2()
-            self.show_ref3()
-            self.hide_ref4()
-        elif self.pbNRefSel.currentIndex() == 4:
-            self.show_ref1()
-            self.show_ref2()
-            self.show_ref3()
-            self.show_ref4()
+        pbNRefSel_index = self.pbNRefSel.currentIndex()
+        if pbNRefSel_index == 0:
+            self.show_ref1(False)
+            self.show_ref2(False)
+            self.show_ref3(False)
+            self.show_ref4(False)
+        elif pbNRefSel_index == 1:
+            self.show_ref1(True)
+            self.show_ref2(False)
+            self.show_ref3(False)
+            self.show_ref4(False)
+        elif pbNRefSel_index == 2:
+            self.show_ref1(True)
+            self.show_ref2(True)
+            self.show_ref3(False)
+            self.show_ref4(False)
+        elif pbNRefSel_index == 3:
+            self.show_ref1(True)
+            self.show_ref2(True)
+            self.show_ref3(True)
+            self.show_ref4(False)
+        elif pbNRefSel_index == 4:
+            self.show_ref1(True)
+            self.show_ref2(True)
+            self.show_ref3(True)
+            self.show_ref4(True)
 
 
     def IndividualItemChanged(self):
