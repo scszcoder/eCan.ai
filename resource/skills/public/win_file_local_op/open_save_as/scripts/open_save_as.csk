@@ -27,14 +27,7 @@
                     {
                         "anchor_name"  : "refresh",
                         "anchor_type"  : "icon",
-                        "template"     : "file_refresh.png",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
-                    {
-                        "anchor_name"  : "refresh10",
-                        "anchor_type"  : "icon",
-                        "template"     : "file_refresh10.png",
+                        "template"     : "refresh0.png, file_refresh10.png",
                         "ref_method"   : "0",
                         "ref_constraints" : []
                     },
