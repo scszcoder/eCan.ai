@@ -700,9 +700,7 @@ def processExtractInfo(step, i, mission, skill):
     date_word = dtnow.strftime("%Y%m%d")
     dt_string = str(int(dtnow.timestamp()))
     print("date string:", dt_string)
-    sfile = "C:/Users/songc/PycharmProjects/testdata/"
-    #sfile = sfile + settings["uid"] + "/win/adspower/"
-    #sfile = sfile + "scrn" + settings["uid"] + "_" + dt_string + ".png"
+
     if skill.getPrivacy() == "public":
         ppword = skill.getPrivacy()
     else:
@@ -719,7 +717,9 @@ def processExtractInfo(step, i, mission, skill):
     platform = step_settings["platform"]
     app = step_settings["app"]
     site = step_settings["site"]
-    #     local image:  C:/Users/songc/PycharmProjects/ecbot/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
+
+    if step_settings["root_path"][len(step_settings["root_path"])-1]=="/":
+        step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"])-1]
 
     fdir = step_settings["root_path"] + "/runlogs/"
     fdir = fdir + date_word + "/"
@@ -1736,7 +1736,7 @@ def processCheckExistence(step, i):
     else:
         fn = step["file"]
     print("check existence for :", fn, "of type:", step["fntype"])
-    if "dir" in  step["fntype"]:
+    if "dir" in step["fntype"]:
         symTab[step["result"]] = os.path.isdir(fn)
     else:
         symTab[step["result"]] = os.path.isfile(fn)

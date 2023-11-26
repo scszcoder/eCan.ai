@@ -158,7 +158,7 @@ def find_file_name_box(sfn):
     output = [[0, 0, 0], [0, 0, 0]]
     image = cv2.imread(sfn)
     # mat full star, 0.8, match empty star 0.80, match half star 0.8.
-    template = cv2.imread('c:/amazonseller/jsrpa/aidata/fileName1.jpg')
+    template = cv2.imread('c:/temp/aidata/fileName1.jpg')
     icon_height = template.shape[0]
     icon_width = template.shape[1]
     print("icon size: ", icon_height, " ", icon_width)

@@ -46,7 +46,7 @@ class WaitWindow(QtWidgets.QMainWindow):
         # main_layout.addWidget(self.btn_stop)
 
         # Load the animated GIF
-        gif_path = "C:/Users/songc/PycharmProjects/ecbot/resource/images/icons/waiting3_spinner.gif"  # Replace with the path to your GIF file
+        gif_path = os.environ.get("ECBOT_HOME") + "resource/images/icons/waiting3_spinner.gif"  # Replace with the path to your GIF file
         self.movie = QtGui.QMovie(gif_path, QtCore.QByteArray(), self)
         self.movie.setCacheMode(QtGui.QMovie.CacheAll)
         self.movie.setSpeed(120)
