@@ -1,28 +1,27 @@
 import sys
 import random
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox
-from PySide6.QtCore import QPointF, QEvent
-from PySide6.QtGui import QPainterPath, QPen, QColor
-from locale import getdefaultlocale
-
-import ctypes as ct
-# from ctypes import wintypes as wt
-import time
-import json
-
-from pynput import mouse
-from pynput import keyboard
-import threading
-
-import pyautogui
-from Cloud import *
-import pyqtgraph
-from pyqtgraph import flowchart
-import BorderLayout
-from gui.skfc.skfc_widget import *
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout
+from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
+from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter
+# from locale import getdefaultlocale
+#
+# import ctypes as ct
+# # from ctypes import wintypes as wt
+# import time
+# import json
+#
+# from pynput import mouse
+# from pynput import keyboard
+# import threading
+#
+# import pyautogui
+# from Cloud import *
+# import pyqtgraph
+# from pyqtgraph import flowchart
+# import BorderLayout
 from WorkSkill import *
 from readSkill import *
-# from codeeditor import *
+from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 
 
@@ -43,6 +42,7 @@ PAGE_DIR = ""
 # price_model	varchar(50)	YES		NULL
 # price	int(11)	YES		NULL
 
+
 class SkillListView(QtWidgets.QListView):
     def __init__(self, parent):
         super(SkillListView, self).__init__()
@@ -55,6 +55,7 @@ class SkillListView(QtWidgets.QListView):
                 print("row:", self.indexAt(e.pos()).row())
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.updateSelectedRole(self.selected_row)
+
 
 class AnchorListView(QtWidgets.QListView):
     def __init__(self):
@@ -181,7 +182,6 @@ class BSQGraphicsRectItem(QtWidgets.QGraphicsRectItem):
 
         self.parentView.set_mode(self.mode)
         print("rect pressed....", self.mousePressPos, " rect: ", self.rect())
-
 
     def mouseReleaseEvent(self, mouseEvent):
         """
@@ -395,6 +395,7 @@ class BSQGraphicsRectItem(QtWidgets.QGraphicsRectItem):
                 if self.handleSelected is None or handle == self.handleSelected:
                     painter.drawEllipse(rect)
 
+
 class BSQGraphicsScene(QGraphicsScene):
     def __init__(self, parent):
         super(BSQGraphicsScene, self).__init__()
@@ -468,6 +469,7 @@ class BSQGraphicsScene(QGraphicsScene):
 
     def mouseDoubleClickEvent(self, event):
         print("mouse double clicked.....")
+
 
 # BS stands for Bot Skill
 class BSQGraphicsView(QtWidgets.QGraphicsView):
