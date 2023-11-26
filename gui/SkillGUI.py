@@ -1828,6 +1828,54 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         return x, y, w, h
 
+    def get_ref1xy(self):
+        refx = {"dir": self.pbRef1XOffsetDirSel.currentText(),
+                "type": self.pbRef1XOffsetTypeSel.currentText(),
+                "val": self.pbRef1XOffsetValEdit.text(),
+                "unit": self.pbRef1XOffsetUnitSel.currentText()}
+        refy = {"dir": self.pbRef1YOffsetDirSel.currentText(),
+                "type": self.pbRef1YOffsetTypeSel.currentText(),
+                "val": self.pbRef1YOffsetValEdit.text(),
+                "unit": self.pbRef1YOffsetUnitSel.currentText()}
+
+        return refx, refy
+
+    def get_ref2xy(self):
+        refx = {"dir": self.pbRef2XOffsetDirSel.currentText(),
+                "type": self.pbRef2XOffsetTypeSel.currentText(),
+                "val": self.pbRef2XOffsetValEdit.text(),
+                "unit": self.pbRef2XOffsetUnitSel.currentText()}
+        refy = {"dir": self.pbRef2YOffsetDirSel.currentText(),
+                "type": self.pbRef2YOffsetTypeSel.currentText(),
+                "val": self.pbRef2YOffsetValEdit.text(),
+                "unit": self.pbRef2YOffsetUnitSel.currentText()}
+
+        return refx, refy
+
+    def get_ref3xy(self):
+        refx = {"dir": self.pbRef3XOffsetDirSel.currentText(),
+                "type": self.pbRef3XOffsetTypeSel.currentText(),
+                "val": self.pbRef3XOffsetValEdit.text(),
+                "unit": self.pbRef3XOffsetUnitSel.currentText()}
+        refy = {"dir": self.pbRef3YOffsetDirSel.currentText(),
+                "type": self.pbRef3YOffsetTypeSel.currentText(),
+                "val": self.pbRef3YOffsetValEdit.text(),
+                "unit": self.pbRef3YOffsetUnitSel.currentText()}
+
+        return refx, refy
+
+    def get_ref4xy(self):
+        refx = {"dir": self.pbRef4XOffsetDirSel.currentText(),
+                "type": self.pbRef4XOffsetTypeSel.currentText(),
+                "val": self.pbRef4XOffsetValEdit.text(),
+                "unit": self.pbRef4XOffsetUnitSel.currentText()}
+        refy = {"dir": self.pbRef4YOffsetDirSel.currentText(),
+                "type": self.pbRef4YOffsetTypeSel.currentText(),
+                "val": self.pbRef4YOffsetValEdit.text(),
+                "unit": self.pbRef4YOffsetUnitSel.currentText()}
+
+        return refx, refy
+
     def ia_add(self):
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         self.app = self.pbskAppEdit.text()
@@ -1850,58 +1898,28 @@ class SkillGUI(QtWidgets.QMainWindow):
                 self.newAnchor.set_ref_method(self.pbRTSel.currentText())
 
                 if self.pbNRefSel.currentText == '1':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref1xy()
                     self.newAnchor.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                elif  self.pbNRefSel.currentText == '2':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                elif self.pbNRefSel.currentText == '2':
+                    refx, refy = self.get_ref1xy()
                     self.newAnchor.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newAnchor.add_ref(self.pbRef2NameEdit.text(), refx, refy)
                 elif self.pbNRefSel.currentText == '3':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref1xy()
                     self.newAnchor.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newAnchor.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef3XOffsetDirSel.currentText(), "type": self.pbRef3XOffsetTypeSel.currentText(),
-                            "val": self.pbRef3XOffsetValEdit.text(), "unit": self.pbRef3XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef3YOffsetDirSel.currentText(), "type": self.pbRef3YOffsetTypeSel.currentText(),
-                            "val": self.pbRef3YOffsetValEdit.text(), "unit": self.pbRef3YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref3xy()
                     self.newAnchor.add_ref(self.pbRef3NameEdit.text(), refx, refy)
                 elif self.pbNRefSel.currentText == '4':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref1xy()
                     self.newAnchor.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newAnchor.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef3XOffsetDirSel.currentText(), "type": self.pbRef3XOffsetTypeSel.currentText(),
-                            "val": self.pbRef3XOffsetValEdit.text(), "unit": self.pbRef3XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef3YOffsetDirSel.currentText(), "type": self.pbRef3YOffsetTypeSel.currentText(),
-                            "val": self.pbRef3YOffsetValEdit.text(), "unit": self.pbRef3YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref3xy()
                     self.newAnchor.add_ref(self.pbRef3NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef4XOffsetDirSel.currentText(), "type": self.pbRef4XOffsetTypeSel.currentText(),
-                            "val": self.pbRef4XOffsetValEdit.text(), "unit": self.pbRef4XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef4YOffsetDirSel.currentText(), "type": self.pbRef4YOffsetTypeSel.currentText(),
-                            "val": self.pbRef4YOffsetValEdit.text(), "unit": self.pbRef4YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref4xy()
                     self.newAnchor.add_ref(self.pbRef4NameEdit.text(), refx, refy)
                     print("ready to add....")
                 self.anchorListModel.appendRow(self.newAnchor)
@@ -1911,59 +1929,30 @@ class SkillGUI(QtWidgets.QMainWindow):
                 self.newUserInfo.set_type(self.pbDTSel.currentText())
                 self.newUserInfo.set_nlines(self.pbNEdit.text())
                 self.newUserInfo.set_ref_method(self.pbRTSel.currentText())
-                if self.pbNRefSel.currentText == '1':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                pbNRefSel_text = self.pbNRefSel.currentText
+                if pbNRefSel_text == '1':
+                    refx, refy = self.get_ref1xy()
                     self.newUserInfo.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                elif  self.pbNRefSel.currentText == '2':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                elif pbNRefSel_text == '2':
+                    refx, refy = self.get_ref1xy()
                     self.newUserInfo.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newUserInfo.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                elif self.pbNRefSel.currentText == '3':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                elif pbNRefSel_text == '3':
+                    refx, refy = self.get_ref1xy()
                     self.newUserInfo.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newUserInfo.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef3XOffsetDirSel.currentText(), "type": self.pbRef3XOffsetTypeSel.currentText(),
-                            "val": self.pbRef3XOffsetValEdit.text(), "unit": self.pbRef3XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef3YOffsetDirSel.currentText(), "type": self.pbRef3YOffsetTypeSel.currentText(),
-                            "val": self.pbRef3YOffsetValEdit.text(), "unit": self.pbRef3YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref3xy()
                     self.newUserInfo.add_ref(self.pbRef3NameEdit.text(), refx, refy)
-                elif self.pbNRefSel.currentText == '4':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                elif pbNRefSel_text == '4':
+                    refx, refy = self.get_ref1xy()
                     self.newUserInfo.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newUserInfo.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef3XOffsetDirSel.currentText(), "type": self.pbRef3XOffsetTypeSel.currentText(),
-                            "val": self.pbRef3XOffsetValEdit.text(), "unit": self.pbRef3XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef3YOffsetDirSel.currentText(), "type": self.pbRef3YOffsetTypeSel.currentText(),
-                            "val": self.pbRef3YOffsetValEdit.text(), "unit": self.pbRef3YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref3xy()
                     self.newUserInfo.add_ref(self.pbRef3NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef4XOffsetDirSel.currentText(), "type": self.pbRef4XOffsetTypeSel.currentText(),
-                            "val": self.pbRef4XOffsetValEdit.text(), "unit": self.pbRef4XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef4YOffsetDirSel.currentText(), "type": self.pbRef4YOffsetTypeSel.currentText(),
-                            "val": self.pbRef4YOffsetValEdit.text(), "unit": self.pbRef4YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref4xy()
                     self.newUserInfo.add_ref(self.pbRef4NameEdit.text(), refx, refy)
                 self.dataListModel.appendRow(self.newUserInfo)
 
