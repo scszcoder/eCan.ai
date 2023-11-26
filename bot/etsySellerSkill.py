@@ -372,29 +372,33 @@ def genStepEtsySearchOrders(screen, orderDataName, errFlagName, stepN):
 
 
 def processEtsySearchOrders(step, i):
-    print("Searching....", step["target_types"])
-    global in_exception
-    scrn = symTab[step["screen"]]
-    target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
-    target_types = step["target_types"]
-    logic = step["logic"]
-    fault_names = ["site_not_reached", "bad_request"]
-    fault_found = []
+    ex_stat = "success:0"
+    try:
+        print("Searching....", step["target_types"])
+        global in_exception
+        scrn = symTab[step["screen"]]
+        target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
+        target_types = step["target_types"]
+        logic = step["logic"]
+        fault_names = ["site_not_reached", "bad_request"]
+        fault_found = []
 
-    found = []
-    n_targets_found = 0
+        found = []
+        n_targets_found = 0
 
-    print("status: ", symTab[step["status"]])
+        print("status: ", symTab[step["status"]])
 
-    # didn't find anything, check fault situation.
-    if symTab[step["status"]] == False:
-        fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
-        site_conn = ping(step["site"])
-        if len(fault_found) > 0 or (not site_conn):
-            # exception has occured, flag it.
-            in_exception = True
+        # didn't find anything, check fault situation.
+        if symTab[step["status"]] == False:
+            fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
+            site_conn = ping(step["site"])
+            if len(fault_found) > 0 or (not site_conn):
+                # exception has occured, flag it.
+                in_exception = True
+    except:
+        ex_stat = "ErrorPrepGSOrder:" + str(i)
 
-    return i + 1
+    return (i + 1), ex_stat
 
 
 
@@ -724,56 +728,62 @@ def order_is_for_fbs(order, pbook):
 # ec_order data structure can be refered to scraperEtsy.py file.
 # basically list of pages of orders: each
 def processPrepGSOrder(step, i):
-    next_i = i + 1
-    gs_label_orders = []
+    ex_stat = "success:0"
+    try:
+        next_i = i + 1
+        gs_label_orders = []
 
-    seller = step["seller"]
-    new_orders = symTab[step["ec_order"]]
-    # collaps all pages of order list into a single list or orders.
-    flatlist=[element for sublist in new_orders for element in sublist["ol"]]
+        seller = step["seller"]
+        new_orders = symTab[step["ec_order"]]
+        # collaps all pages of order list into a single list or orders.
+        flatlist=[element for sublist in new_orders for element in sublist["ol"]]
 
-    print("FLAT LIST: ", flatlist)
+        print("FLAT LIST: ", flatlist)
 
-    # combine orders into same person and address into 1 order.
-    combined = combine_duplicates(flatlist)
+        # combine orders into same person and address into 1 order.
+        combined = combine_duplicates(flatlist)
 
-    # filter out Non-USA orders. International Orders such as canadian and mexican should be treatly separately at this time.
-    us_orders = [o for o in combined if o.getRecipientAddrState() != "Canada" and o.getRecipientAddrState() != "Mexico"]
+        # filter out Non-USA orders. International Orders such as canadian and mexican should be treatly separately at this time.
+        us_orders = [o for o in combined if o.getRecipientAddrState() != "Canada" and o.getRecipientAddrState() != "Mexico"]
 
-    # don't put in the order that's not going to be fullfilled by the seller him/her self.
-    fbs_orders = [o for o in us_orders if order_is_for_fbs(o, symTab[step["prod_book"]])]
+        # don't put in the order that's not going to be fullfilled by the seller him/her self.
+        fbs_orders = [o for o in us_orders if order_is_for_fbs(o, symTab[step["prod_book"]])]
 
-    # group orders into two categories: weights less than 1lb and weights more than 1lb
-    light_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) < 1.0 ]
-    regular_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
+        # group orders into two categories: weights less than 1lb and weights more than 1lb
+        light_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) < 1.0 ]
+        regular_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
 
-    # ofname is the order file name, should be etsy_orders+Date.xls
-    dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
+        # ofname is the order file name, should be etsy_orders+Date.xls
+        dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
 
-    if len(light_orders) > 0:
-        ofname1 = step["file_path"]+"/etsyOrdersGround"+dt_string+".xls"
-        ofname1_unzipped = step["file_path"] + "/etsyOrdersGround" + dt_string
-        createLabelOrderFile(seller, "ozs", light_orders, symTab[step["prod_book"]], ofname1)
-        gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.5, "num_orders": len(light_orders), "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1), "unzipped_dir": ofname1_unzipped})
+        if len(light_orders) > 0:
+            ofname1 = step["file_path"]+"/etsyOrdersGround"+dt_string+".xls"
+            ofname1_unzipped = step["file_path"] + "/etsyOrdersGround" + dt_string
+            createLabelOrderFile(seller, "ozs", light_orders, symTab[step["prod_book"]], ofname1)
+            gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.5, "num_orders": len(light_orders), "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1), "unzipped_dir": ofname1_unzipped})
 
-        #create unziped label dir ahead of time.
-        if not os.path.exists(ofname1_unzipped):
-            os.makedirs(ofname1_unzipped)
+            #create unziped label dir ahead of time.
+            if not os.path.exists(ofname1_unzipped):
+                os.makedirs(ofname1_unzipped)
 
-    if len(regular_orders) > 0:
-        ofname2 = step["file_path"]+"/etsyOrdersPriority"+dt_string+".xls"
-        ofname2_unzipped = step["file_path"]+"/etsyOrdersPriority"+dt_string
+        if len(regular_orders) > 0:
+            ofname2 = step["file_path"]+"/etsyOrdersPriority"+dt_string+".xls"
+            ofname2_unzipped = step["file_path"]+"/etsyOrdersPriority"+dt_string
 
-        createLabelOrderFile(seller, "lbs", regular_orders, symTab[step["prod_book"]], ofname2)
-        gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*4.5, "num_orders": len(regular_orders), "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
+            createLabelOrderFile(seller, "lbs", regular_orders, symTab[step["prod_book"]], ofname2)
+            gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*4.5, "num_orders": len(regular_orders), "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
 
-        #create unziped label dir ahead of time.
-        if not os.path.exists(ofname2_unzipped):
-            os.makedirs(ofname2_unzipped)
+            #create unziped label dir ahead of time.
+            if not os.path.exists(ofname2_unzipped):
+                os.makedirs(ofname2_unzipped)
 
-    symTab[step["gs_order"]] = gs_label_orders
+        symTab[step["gs_order"]] = gs_label_orders
 
-    return next_i
+    except:
+        ex_stat = "ErrorPrepGSOrder:" + str(i)
+
+    return next_i, ex_stat
+
 
 
 
@@ -863,27 +873,37 @@ def match_name(img_name, txt_name):
     return matched
 
 def processEtsyGetOrderClickedStatus(step, i):
-    print("Get Order Clicked Status .....")
-    # first extract name, city, state from the text information
-    txt_blocs = symTab[step["shipTo"]][symTab[step["shipToIndex"]]]["text"].split("\n")
+    ex_stat = "success:0"
+    try:
+        print("Get Order Clicked Status .....")
+        # first extract name, city, state from the text information
+        txt_blocs = symTab[step["shipTo"]][symTab[step["shipToIndex"]]]["text"].split("\n")
 
-    fullname = txt_blocs[0].strip()
-    city_state = txt_blocs[1].strip().split(",")
-    city = city_state[0].strip()
-    state = city_state[1].strip()
+        fullname = txt_blocs[0].strip()
+        city_state = txt_blocs[1].strip().split(",")
+        city = city_state[0].strip()
+        state = city_state[1].strip()
 
-    # then find a match of name, city, state from the orders data.
-    symTab[step["foundOrderIndex"]] = next((idx for idx, x in enumerate(symTab[step["orders"]]) if match_name(fullname, x.getRecipientName()) and x.getRecipientCity() == city and x.getRecipientState() == state), -1)
+        # then find a match of name, city, state from the orders data.
+        symTab[step["foundOrderIndex"]] = next((idx for idx, x in enumerate(symTab[step["orders"]]) if match_name(fullname, x.getRecipientName()) and x.getRecipientCity() == city and x.getRecipientState() == state), -1)
 
-    symTab[step["foundOrderClicked"]] = symTab[step["orders"]][symTab[step["foundOrderIndex"]]].getChecked()
+        symTab[step["foundOrderClicked"]] = symTab[step["orders"]][symTab[step["foundOrderIndex"]]].getChecked()
 
-    return i + 1
+    except:
+        ex_stat = "ErrorEtsyGetOrderClickedStatus:" + str(i)
+
+    return (i + 1), ex_stat
 
 def processEtsySetOrderClickedStatus(step, i):
-    print("Opening App .....", step["target_link"] + " " + step["cargs"])
-    symTab[step["orders"]][symTab[step["foundOrderIndex"]]].setChecked(True)
+    ex_stat = "success:0"
+    try:
+        print("Opening App .....", step["target_link"] + " " + step["cargs"])
+        symTab[step["orders"]][symTab[step["foundOrderIndex"]]].setChecked(True)
 
-    return i+1
+    except:
+        ex_stat = "ErrorEtsySetOrderClickedStatus:" + str(i)
+
+    return (i + 1), ex_stat
 
 def contains_states(line):
     us_addr_pattern = re.compile("[a-zA-Z ]+\, *[a-zA-Z][a-zA-Z] *$")
@@ -897,50 +917,64 @@ def contains_states(line):
         return False
 
 def processEtsyRemoveAlreadyExpanded(step, i):
-    print("Remove expanded state .....")
-    # first extract name, city, state from the text information
-    # then find a match of name, city, state from the orders data.
+    ex_stat = "success:0"
+    try:
+        print("Remove expanded state .....")
+        # first extract name, city, state from the text information
+        # then find a match of name, city, state from the orders data.
 
-    # print("SUMMERY:", symTab[step["shipToSummeries"]])
-    # print("{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}")
-    # print("SHIP TO:", symTab[step["shipTos"]])
+        # print("SUMMERY:", symTab[step["shipToSummeries"]])
+        # print("{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}")
+        # print("SHIP TO:", symTab[step["shipTos"]])
 
-    for summery in symTab[step["shipToSummeries"]]:
-        summery_lines = summery["text"].split("\n")
-        # print("summery lines:", summery_lines)
-        state_line_number = next((idx for idx, l in enumerate(summery_lines) if contains_states(l)), -1)
-        # print("summery line number:", state_line_number)
-        if state_line_number == -1:
-            symTab[step["shipTos"]].pop(0)
-        else:
-            break
+        for summery in symTab[step["shipToSummeries"]]:
+            summery_lines = summery["text"].split("\n")
+            # print("summery lines:", summery_lines)
+            state_line_number = next((idx for idx, l in enumerate(summery_lines) if contains_states(l)), -1)
+            # print("summery line number:", state_line_number)
+            if state_line_number == -1:
+                symTab[step["shipTos"]].pop(0)
+            else:
+                break
 
-    # print("SHIPTOnow becomes:", symTab[step["shipTos"]])
+        # print("SHIPTOnow becomes:", symTab[step["shipTos"]])
 
-    return i + 1
+    except:
+        ex_stat = "ErrorEtsyRemoveAlreadyExpanded:" + str(i)
+
+    return (i + 1), ex_stat
 
 def processEtsyAddPageOfOrder(step, i):
+    ex_stat = "success:0"
+    try:
+        symTab[step["fullOrders"]].append(symTab[step["pageOfOrders"]])
 
-    symTab[step["fullOrders"]].append(symTab[step["pageOfOrders"]])
+    except:
+        ex_stat = "ErrorEtsyAddPageOfOrder:" + str(i)
 
-    return i + 1
+    return (i + 1), ex_stat
 
 
 # this func does 2 things:
 # 1) get tracking code & status variable updated into the etsy_orders data structure.
 # 2) need to
 def processEtsyExtractTracking(step, i):
-    gs_orders = symTab[step["gs_orders"]]
-    etsy_orders = symTab[step["fullOrders"]]
+    ex_stat = "success:0"
+    try:
+        gs_orders = symTab[step["gs_orders"]]
+        etsy_orders = symTab[step["fullOrders"]]
 
-        # {"service": "USPS Priority V4", "price": len(regular_orders) * 4.5, "dir": os.path.dirname(ofname2),
-        #  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
-    idx = 0
-    for grp in gs_orders:
-        label_files = os.listdir(grp["unzipped_dir"])
-        idx = idx + 1
+            # {"service": "USPS Priority V4", "price": len(regular_orders) * 4.5, "dir": os.path.dirname(ofname2),
+            #  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
+        idx = 0
+        for grp in gs_orders:
+            label_files = os.listdir(grp["unzipped_dir"])
+            idx = idx + 1
 
-    return i + 1
+    except:
+        ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 # "nth_var": nth order id on screen.
@@ -950,36 +984,41 @@ def processEtsyExtractTracking(step, i):
 # "found_index_var": found_index of the order in the orders list,
 # "n_more_var": how many more orders to update
 def processEtsyFindScreenOrder(step, i):
-    found = -1
-    orders = symTab[step["orders_var"]]
-    nth = symTab[step["nth_var"]]
-    print("nth:", nth, "orders", orders)
+    ex_stat = "success:0"
+    try:
+        found = -1
+        orders = symTab[step["orders_var"]]
+        nth = symTab[step["nth_var"]]
+        print("nth:", nth, "orders", orders)
 
-    template = symTab[step["order_ids_var"]][nth]["text"].strip()
-    button_loc = symTab[step["complete_buttons_var"]][nth]["loc"]
-    ref_loc = symTab[step["order_ids_var"]][nth]["associates"][0]["loc"]
+        template = symTab[step["order_ids_var"]][nth]["text"].strip()
+        button_loc = symTab[step["complete_buttons_var"]][nth]["loc"]
+        ref_loc = symTab[step["order_ids_var"]][nth]["associates"][0]["loc"]
 
-    oid_template = template.split(" ")[0]
-    print("ALL orders:")
-    for o in orders:
-        print("OID:"+o.getOid()+"!")
+        oid_template = template.split(" ")[0]
+        print("ALL orders:")
+        for o in orders:
+            print("OID:"+o.getOid()+"!")
 
-    print("template:", "["+oid_template+"]", "button_loc:", button_loc, "ref_loc:", ref_loc)
-    # just for sanity cross-check
-    if button_loc == ref_loc:
-        found = next((idx for idx, order in enumerate(orders) if oid_template in order.getOid()), -1)
-        print("Found:", found)
-        if found > 0:
-            orders[found].setStatus("TC updated")
-    else:
-        print("ERROR: nth order number doesn't match nth complete order button....")
+        print("template:", "["+oid_template+"]", "button_loc:", button_loc, "ref_loc:", ref_loc)
+        # just for sanity cross-check
+        if button_loc == ref_loc:
+            found = next((idx for idx, order in enumerate(orders) if oid_template in order.getOid()), -1)
+            print("Found:", found)
+            if found > 0:
+                orders[found].setStatus("TC updated")
+        else:
+            print("ERROR: nth order number doesn't match nth complete order button....")
 
-    tobeUpdated = [ o for o in orders if o.getStatus() == "label generated"]
-    symTab[step["n_more_var"]] = len(tobeUpdated)
+        tobeUpdated = [ o for o in orders if o.getStatus() == "label generated"]
+        symTab[step["n_more_var"]] = len(tobeUpdated)
 
-    symTab[step["found_index_var"]] = found
+        symTab[step["found_index_var"]] = found
 
-    return i + 1
+    except:
+        ex_stat = "ErrorEtsyFindScreenOrder:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 
