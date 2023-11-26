@@ -529,6 +529,8 @@ class BSQGraphicsView(QtWidgets.QGraphicsView):
 
 OFFSET_UNITS = ['Pixel', 'Letter Height', 'Image Height', 'Full Height', 'Letter Width', 'Image Width', 'Full Width']
 OFFSET_TYPES = ['Absolute', 'Signed', 'Absolute Percent', 'Signed Percent']
+ACTION_ITEMS = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data', 'Save Data',
+                'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine', 'Run Extern']
 
 
 class SkillGUI(QtWidgets.QMainWindow):
@@ -716,10 +718,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbActionLabel = QtWidgets.QLabel("Action: ")
         self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbActionSel = QtWidgets.QComboBox()
-        action_items = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data',
-                        'Save Data', 'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine',
-                        'Run Extern']
-        self.add_items_of_combobox(self.pbActionSel, action_items)
+        self.add_items_of_combobox(self.pbActionSel, ACTION_ITEMS)
         self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
 
         pbsk_headers_widgets = [
@@ -1645,12 +1644,12 @@ class SkillGUI(QtWidgets.QMainWindow):
         print("next step... ", self.step_count)
         self.req_train(file_name)
 
-
     def train_prev_step(self):
         self.step_count = self.step_count - 1
         file_name = "C:/Users/Teco/PycharmProjects/ecbot/resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
         print("prev step... ", self.step_count)
         self.req_train(file_name)
+
     def re_train_step(self):
         print("refresh... ", self.step_count)
         file_name = "C:/Users/Teco/PycharmProjects/ecbot/resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
@@ -1813,7 +1812,6 @@ class SkillGUI(QtWidgets.QMainWindow):
        new_action = QtGui.QAction(self)
        new_action.setText("&Clear Bound Box")
        return new_action
-
 
     def formRectPos(self, start, end):
         x = start.x()
@@ -2097,7 +2095,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         else:
             self.pbStepPrevNextNameLabel.setText("Next Step Name:")
 
-
     def pbNRefSel_changed(self):
         pbNRefSel_index = self.pbNRefSel.currentIndex()
         if pbNRefSel_index == 0:
@@ -2125,7 +2122,6 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.show_ref2(True)
             self.show_ref3(True)
             self.show_ref4(True)
-
 
     def IndividualItemChanged(self):
         if self.pbtabs.currentIndex() == 0:
@@ -2247,7 +2243,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         #self.botModel.removeRow(self.selected_bot_row)
         #print("delete bot" + str(self.selected_bot_row))
 
-
     def editUserData(self):
         print("edit user data")
 
@@ -2277,7 +2272,6 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         #self.botModel.removeRow(self.selected_bot_row)
         #print("delete bot" + str(self.selected_bot_row))
-
 
     def editStep(self):
         print("edit step")
