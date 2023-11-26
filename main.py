@@ -45,7 +45,6 @@ async def main():
     login.show()
     # login.fakeLogin()
     # allsteps = []
-    # readSkillFile(allsteps, "", "C:/Users/Teco/PycharmProjects/ecbot/resource/skills/enter_amz/enter_amz.ski", 0)
     await future
     return True
 
