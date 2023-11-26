@@ -230,7 +230,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -249,9 +249,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -679,7 +679,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
@@ -787,7 +787,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -806,9 +806,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -1236,7 +1236,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
@@ -1291,7 +1291,7 @@
     "data_type": "string",
     "data_name": "today_date_range",
     "key_name": "NA",
-    "key_value": "09/30/2023 - 10/01/2023"
+    "key_value": "11/18/2023 - 11/19/2023"
 },
 "step 205":
 {
@@ -1391,7 +1391,7 @@
     "data_type": "string",
     "data_name": "todate",
     "key_name": "NA",
-    "key_value": "1001"
+    "key_value": "1119"
 },
 "step 255":
 {
@@ -1409,7 +1409,7 @@
     "key_name": "NA",
     "key_value": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -1428,9 +1428,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -1858,7 +1858,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
@@ -1904,7 +1904,7 @@
     "key_name": "NA",
     "key_value": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -1923,9 +1923,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -2353,7 +2353,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
@@ -2571,7 +2571,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -2590,9 +2590,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -3020,7 +3020,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
@@ -3111,7 +3111,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -3130,9 +3130,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -3560,7 +3560,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
@@ -3633,7 +3633,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -3652,9 +3652,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -4082,7 +4082,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
@@ -4117,7 +4117,7 @@
 "step 460":
 {
     "type": "Create Dir",
-    "dir": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+    "dir": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
     "result": "fileStatus"
 },
 "step 465":
@@ -4135,7 +4135,7 @@
     "data_type": "expr",
     "data_name": "file_save_input",
     "key_name": "NA",
-    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/', 'etsyOrders1696197939.html']"
+    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/', 'etsyOrders1700428540.html']"
 },
 "step 475":
 {
@@ -4158,7 +4158,7 @@
     "data_type": "str",
     "data_name": "html_file",
     "key_name": "NA",
-    "key_value": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/etsyOrders1696197939.html"
+    "key_value": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/etsyOrders1700428540.html"
 },
 "step 490":
 {
@@ -4209,7 +4209,7 @@
     "key_name": "NA",
     "key_value": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -4228,9 +4228,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -4658,7 +4658,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"
@@ -4735,7 +4735,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "bulk_buy",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_goodsupply_label/bulk_buy.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -4754,9 +4754,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_goodsupply_label/skills/bulk_buy/",
         "platform": "win",
         "site": "goodsupply",
         "app": "chrome",
@@ -5184,7 +5184,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_goodsupply_label!bulk_buy!"

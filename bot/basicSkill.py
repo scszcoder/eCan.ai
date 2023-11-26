@@ -569,7 +569,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
 
-    #now we have obtained the top window, take a screen shot.
+    #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
     im0 = pyautogui.screenshot(imageFilename=sfile, region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     screen_loc = (window_rect[0], window_rect[1])
 
@@ -721,6 +721,15 @@ def processExtractInfo(step, i, mission, skill):
         date_word = dtnow.strftime("%Y%m%d")
         dt_string = str(int(dtnow.timestamp()))
         print("date string:", dt_string)
+
+        if skill.getPrivacy() == "public":
+            ppword = skill.getPrivacy()
+        else:
+            ppword = mission.parent_settings["uid"]
+
+        date_word = dtnow.strftime("%Y%m%d")
+        dt_string = str(int(dtnow.timestamp()))
+        print("date string:", dt_string)
         sfile = "C:/Users/songc/PycharmProjects/testdata/"
         #sfile = sfile + settings["uid"] + "/win/adspower/"
         #sfile = sfile + "scrn" + settings["uid"] + "_" + dt_string + ".png"
@@ -740,7 +749,9 @@ def processExtractInfo(step, i, mission, skill):
         platform = step_settings["platform"]
         app = step_settings["app"]
         site = step_settings["site"]
-        #     local image:  C:/Users/songc/PycharmProjects/ecbot/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
+
+        if step_settings["root_path"][len(step_settings["root_path"])-1]=="/":
+            step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"])-1]
 
         fdir = step_settings["root_path"] + "/runlogs/"
         fdir = fdir + date_word + "/"
@@ -2232,7 +2243,7 @@ def get_html_file_dir_loc(result):
     if len(targets_found) > 0:
         # sort found by vertical location.
         refresh_icon_loc = targets_found[len(targets_found)-1]['loc']
-        posX = int(refresh_icon_loc[1]) - (int(refresh_icon_loc[3]) - int(refresh_icon_loc[1]))*2.25
+        posX = int(refresh_icon_loc[1]) - (int(refresh_icon_loc[3]) - int(refresh_icon_loc[1]))*2
         posY = int(refresh_icon_loc[0]) + int((int(refresh_icon_loc[2]) - int(refresh_icon_loc[0]))/2)
         target_loc = [posX, posY]
     else:

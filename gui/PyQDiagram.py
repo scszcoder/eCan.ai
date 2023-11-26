@@ -38,7 +38,7 @@
 ##
 #############################################################################
 
-
+import os
 import math
 
 from PySide6.QtCore import (Signal, QLineF, QPointF, QRect, QRectF, QSize,
@@ -483,6 +483,9 @@ class PyQDiagram(QWidget):
 
     def __init__(self):
         super(PyQDiagram, self).__init__()
+        self.homepath = os.environ.get("ECBOT_HOME")
+        if self.homepath[len(self.homepath)-1] == "/":
+            self.homepath = self.homepath[:len(self.homepath)-1]
 
         self.createActions()
         self.createMenus()
@@ -525,13 +528,13 @@ class PyQDiagram(QWidget):
 
         text = button.text()
         if text == "Blue Grid":
-            self.scene.setBackgroundBrush(QBrush(QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/images/background1.png')))
+            self.scene.setBackgroundBrush(QBrush(QPixmap(self.homepath + 'resource/images/background1.png')))
         elif text == "White Grid":
-            self.scene.setBackgroundBrush(QBrush(QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/images/background2.png')))
+            self.scene.setBackgroundBrush(QBrush(QPixmap(self.homepath + 'resource/images/background2.png')))
         elif text == "Gray Grid":
-            self.scene.setBackgroundBrush(QBrush(QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/images/background3.png')))
+            self.scene.setBackgroundBrush(QBrush(QPixmap(self.homepath + 'resource/images/background3.png')))
         else:
-            self.scene.setBackgroundBrush(QBrush(QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/images/background4.png')))
+            self.scene.setBackgroundBrush(QBrush(QPixmap(self.homepath + 'resource/images/background4.png')))
 
         #self.scene.update()
         #self.view.update()
@@ -624,21 +627,21 @@ class PyQDiagram(QWidget):
     def textColorChanged(self):
         self.textAction = self.sender()
         self.fontColorToolButton.setIcon(
-                self.createColorToolButtonIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/textpointer.png',
+                self.createColorToolButtonIcon(self.homepath + 'resource/images/textpointer.png',
                         QColor(self.textAction.data())))
         self.textButtonTriggered()
 
     def itemColorChanged(self):
         self.fillAction = self.sender()
         self.fillColorToolButton.setIcon(
-                self.createColorToolButtonIcon( 'C:/Users/Teco/PycharmProjects/ecbot/resource/images/floodfill.png',
+                self.createColorToolButtonIcon( self.homepath + 'resource/images/floodfill.png',
                         QColor(self.fillAction.data())))
         self.fillButtonTriggered()
 
     def lineColorChanged(self):
         self.lineAction = self.sender()
         self.lineColorToolButton.setIcon(
-                self.createColorToolButtonIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/linecolor.png',
+                self.createColorToolButtonIcon(self.homepath + 'resource/images/linecolor.png',
                         QColor(self.lineAction.data())))
         self.lineButtonTriggered()
 
@@ -698,7 +701,7 @@ class PyQDiagram(QWidget):
         textButton = QToolButton()
         textButton.setCheckable(True)
         self.buttonGroup.addButton(textButton, self.InsertTextButton)
-        textButton.setIcon(QIcon(QPixmap('C:/Users/Teco/PycharmProjects/ecbot/resource/images/textpointer.png').scaled(30, 30)))
+        textButton.setIcon(QIcon(QPixmap(self.homepath + 'resource/images/textpointer.png').scaled(30, 30)))
         textButton.setIconSize(QSize(32, 32))
 
         textLayout = QGridLayout()
@@ -719,13 +722,13 @@ class PyQDiagram(QWidget):
 
         backgroundLayout = QGridLayout()
         backgroundLayout.addWidget(self.createBackgroundCellWidget("Blue Grid",
-                'C:/Users/Teco/PycharmProjects/ecbot/resource/images/background1.png'), 0, 0)
+                self.homepath + 'resource/images/background1.png'), 0, 0)
         backgroundLayout.addWidget(self.createBackgroundCellWidget("White Grid",
-                'C:/Users/Teco/PycharmProjects/ecbot/resource/images/background2.png'), 0, 1)
+                self.homepath + 'resource/images/background2.png'), 0, 1)
         backgroundLayout.addWidget(self.createBackgroundCellWidget("Gray Grid",
-                'C:/Users/Teco/PycharmProjects/ecbot/resource/images/background3.png'), 1, 0)
+                self.homepath + 'resource/images/background3.png'), 1, 0)
         backgroundLayout.addWidget(self.createBackgroundCellWidget("No Grid",
-                'C:/Users/Teco/PycharmProjects/ecbot/resource/images/background4.png'), 1, 1)
+                self.homepath + 'resource/images/background4.png'), 1, 1)
 
         backgroundLayout.setRowStretch(2, 10)
         backgroundLayout.setColumnStretch(2, 10)
@@ -741,16 +744,16 @@ class PyQDiagram(QWidget):
 
     def createActions(self):
         self.toFrontAction = QAction(
-                QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/bringtofront.png'), "Bring to &Front",
+                QIcon(self.homepath + 'resource/images/bringtofront.png'), "Bring to &Front",
                 self, shortcut="Ctrl+F", statusTip="Bring item to front",
                 triggered=self.bringToFront)
 
         self.sendBackAction = QAction(
-                QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/sendtoback.png'), "Send to &Back", self,
+                QIcon(self.homepath + 'resource/images/sendtoback.png'), "Send to &Back", self,
                 shortcut="Ctrl+B", statusTip="Send item to back",
                 triggered=self.sendToBack)
 
-        self.deleteAction = QAction(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/delete.png'),
+        self.deleteAction = QAction(QIcon(self.homepath + 'resource/images/delete.png'),
                 "&Delete", self, shortcut="Delete",
                 statusTip="Delete item from diagram",
                 triggered=self.deleteItem)
@@ -758,16 +761,16 @@ class PyQDiagram(QWidget):
         self.exitAction = QAction("E&xit", self, shortcut="Ctrl+X",
                 statusTip="Quit Scenediagram example", triggered=self.close)
 
-        self.boldAction = QAction(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/bold.png'),
+        self.boldAction = QAction(QIcon(self.homepath + 'resource/images/bold.png'),
                 "Bold", self, checkable=True, shortcut="Ctrl+B",
                 triggered=self.handleFontChange)
 
-        self.italicAction = QAction(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/italic.png'),
+        self.italicAction = QAction(QIcon(self.homepath + 'resource/images/italic.png'),
                 "Italic", self, checkable=True, shortcut="Ctrl+I",
                 triggered=self.handleFontChange)
 
         self.underlineAction = QAction(
-                QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/underline.png'), "Underline", self,
+                QIcon(self.homepath + 'resource/images/underline.png'), "Underline", self,
                 checkable=True, shortcut="Ctrl+U",
                 triggered=self.handleFontChange)
 
@@ -813,7 +816,7 @@ class PyQDiagram(QWidget):
                 self.createColorMenu(self.textColorChanged, Qt.black))
         self.textAction = self.fontColorToolButton.menu().defaultAction()
         self.fontColorToolButton.setIcon(
-                self.createColorToolButtonIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/textpointer.png',
+                self.createColorToolButtonIcon(self.homepath + 'resource/images/textpointer.png',
                         Qt.black))
         self.fontColorToolButton.setAutoFillBackground(True)
         self.fontColorToolButton.clicked.connect(self.textButtonTriggered)
@@ -824,7 +827,7 @@ class PyQDiagram(QWidget):
                 self.createColorMenu(self.itemColorChanged, Qt.white))
         self.fillAction = self.fillColorToolButton.menu().defaultAction()
         self.fillColorToolButton.setIcon(
-                self.createColorToolButtonIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/floodfill.png',
+                self.createColorToolButtonIcon(self.homepath + 'resource/images/floodfill.png',
                         Qt.white))
         self.fillColorToolButton.clicked.connect(self.fillButtonTriggered)
 
@@ -834,7 +837,7 @@ class PyQDiagram(QWidget):
                 self.createColorMenu(self.lineColorChanged, Qt.black))
         self.lineAction = self.lineColorToolButton.menu().defaultAction()
         self.lineColorToolButton.setIcon(
-                self.createColorToolButtonIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/linecolor.png',
+                self.createColorToolButtonIcon(self.homepath + 'resource/images/linecolor.png',
                         Qt.black))
         self.lineColorToolButton.clicked.connect(self.lineButtonTriggered)
 
@@ -853,10 +856,10 @@ class PyQDiagram(QWidget):
         pointerButton = QToolButton()
         pointerButton.setCheckable(True)
         pointerButton.setChecked(True)
-        pointerButton.setIcon(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/pointer.png'))
+        pointerButton.setIcon(QIcon(self.homepath + 'resource/images/pointer.png'))
         linePointerButton = QToolButton()
         linePointerButton.setCheckable(True)
-        linePointerButton.setIcon(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/linepointer.png'))
+        linePointerButton.setIcon(QIcon(self.homepath + 'resource/images/linepointer.png'))
 
         self.pointerTypeGroup = QButtonGroup()
         self.pointerTypeGroup.addButton(pointerButton, DiagramScene.MoveItem)
@@ -894,7 +897,7 @@ class PyQDiagram(QWidget):
             self.createColorMenu(self.textColorChanged, Qt.black))
         self.textAction = self.fontColorToolButton.menu().defaultAction()
         self.fontColorToolButton.setIcon(
-            self.createColorToolButtonIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/textpointer.png',
+            self.createColorToolButtonIcon(self.homepath + 'resource/images/textpointer.png',
                                            Qt.black))
         self.fontColorToolButton.setAutoFillBackground(True)
         self.fontColorToolButton.clicked.connect(self.textButtonTriggered)
@@ -905,7 +908,7 @@ class PyQDiagram(QWidget):
             self.createColorMenu(self.itemColorChanged, Qt.white))
         self.fillAction = self.fillColorToolButton.menu().defaultAction()
         self.fillColorToolButton.setIcon(
-            self.createColorToolButtonIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/floodfill.png',
+            self.createColorToolButtonIcon(self.homepath + 'resource/images/floodfill.png',
                                            Qt.white))
         self.fillColorToolButton.clicked.connect(self.fillButtonTriggered)
 
@@ -915,22 +918,21 @@ class PyQDiagram(QWidget):
             self.createColorMenu(self.lineColorChanged, Qt.black))
         self.lineAction = self.lineColorToolButton.menu().defaultAction()
         self.lineColorToolButton.setIcon(
-            self.createColorToolButtonIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/linecolor.png',
+            self.createColorToolButtonIcon(self.homepath + 'resource/images/linecolor.png',
                                            Qt.black))
         self.lineColorToolButton.clicked.connect(self.lineButtonTriggered)
 
         self.txtBoldButton = QToolButton()
         self.txtBoldButton.setCheckable(True)
         self.txtBoldButton.setChecked(False)
-        self.txtBoldButton.setIcon(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/bold.png'))
-        self.txtItalicButton = QToolButton()
+        self.txtBoldButton.setIcon(QIcon(self.homepath + 'resource/images/bold.png'))
         self.txtItalicButton.setCheckable(True)
         self.txtItalicButton.setChecked(False)
-        self.txtItalicButton.setIcon(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/italic.png'))
+        self.txtItalicButton.setIcon(QIcon(self.homepath + 'resource/images/italic.png'))
         self.txtUnderlineButton = QToolButton()
         self.txtUnderlineButton.setCheckable(True)
         self.txtUnderlineButton.setChecked(False)
-        self.txtUnderlineButton.setIcon(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/underline.png'))
+        self.txtUnderlineButton.setIcon(QIcon(self.homepath + 'resource/images/underline.png'))
 
         self.textToolBarLayout = QtWidgets.QHBoxLayout()
         self.textToolBarLayout.addWidget(self.fontCombo)
@@ -947,10 +949,10 @@ class PyQDiagram(QWidget):
         pointerButton = QToolButton()
         pointerButton.setCheckable(True)
         pointerButton.setChecked(True)
-        pointerButton.setIcon(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/pointer.png'))
+        pointerButton.setIcon(QIcon(self.homepath + 'resource/images/pointer.png'))
         linePointerButton = QToolButton()
         linePointerButton.setCheckable(True)
-        linePointerButton.setIcon(QIcon('C:/Users/Teco/PycharmProjects/ecbot/resource/images/linepointer.png'))
+        linePointerButton.setIcon(QIcon(self.homepath + 'resource/images/linepointer.png'))
 
         self.txtPropertyGroup = QButtonGroup()
         self.txtPropertyGroup.addButton(self.txtBoldButton, DiagramScene.SetTxtBold)
