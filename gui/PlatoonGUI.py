@@ -3,7 +3,6 @@ from MissionGUI import *
 from ScheduleGUI import *
 from ebbot import *
 from csv import reader
-from tasks import *
 from signio import *
 import platform
 from os.path import exists
@@ -70,8 +69,8 @@ class PLATOON(QtGui.QStandardItem):
 class PlatoonWindow(QtWidgets.QMainWindow):
     def __init__(self, parent, entrance="msg"):
         super(PlatoonWindow, self).__init__()
-        self.BOTS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/bots.json"
-        self.MISSIONS_FILE = "C:/Users/Teco/PycharmProjects/ecbot/resource/missions.json"
+        self.BOTS_FILE = parent.homepath + "/resource/bots.json"
+        self.MISSIONS_FILE = parent.homepath + "/resource/missions.json"
         self.session = set_up_cloud()
         self.parent = parent
         self.mainWidget = QtWidgets.QWidget()

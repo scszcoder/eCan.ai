@@ -9,7 +9,6 @@ from SkillGUI import *
 from ebbot import *
 from inventories import *
 from csv import reader
-from tasks import *
 from signio import *
 import platform
 from os.path import exists
@@ -148,16 +147,20 @@ class Expander(QtWidgets.QWidget):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, inTokens, tcpserver, ip, user, homepath, machine_role):
         super(MainWindow, self).__init__()
-        self.homepath = homepath
-        self.bot_icon_path = homepath+'/resource/images/icons/c_robot64_0.png'
-        self.mission_icon_path = homepath + '/resource/images/icons/c_mission96_1.png'
-        self.skill_icon_path = homepath + '/resource/images/icons/skills_78.png'
-        self.product_icon_path = homepath + '/resource/images/icons/product80_0.png'
-        self.vehicle_icon_path = homepath + '/resource/images/icons/vehicle_128.png'
-        self.commander_icon_path = homepath + '/resource/images/icons/general1_4.png'
-        self.BOTS_FILE = homepath+"/resource/bots.json"
-        self.MISSIONS_FILE = homepath+"/resource/missions.json"
-        self.SELLER_INVENTORY_FILE = homepath+"/resource/inventory.json"
+        if homepath[len(homepath)-1] == "/":
+            self.homepath = homepath[:len(homepath)-1]
+        else:
+            self.homepath = homepath
+        print("HOME PATH is::", self.homepath)
+        self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_0.png'
+        self.mission_icon_path = self.homepath + '/resource/images/icons/c_mission96_1.png'
+        self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
+        self.product_icon_path = self.homepath + '/resource/images/icons/product80_0.png'
+        self.vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.commander_icon_path = self.homepath + '/resource/images/icons/general1_4.png'
+        self.BOTS_FILE = self.homepath+"/resource/bots.json"
+        self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
+        self.SELLER_INVENTORY_FILE = self.homepath+"/resource/inventory.json"
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.machine_role = machine_role
@@ -169,7 +172,6 @@ class MainWindow(QtWidgets.QMainWindow):
             print("This is a platoon...")
             self.commanderXport = tcpserver
             self.tcpServer = None
-        self.homepath = homepath
         self.user = user
         self.cog = None
         self.cog_client = None
@@ -469,15 +471,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.skillShowAction.setDisabled(True)
             self.skillNewFromFileAction.setDisabled(True)
 
-
-        # ic0 = DragIcon("<html><img src='C:/Users/Teco/PycharmProjects/ecbot/resource/c_robot64_0.png'><br><p style='text-align:center;max-width:64px;'>bot0</p></html>")
-        # ic0.install_rc_menu()
-        #
-        # ic1 = DragIcon("<html><img src='C:/Users/Teco/PycharmProjects/ecbot/resource/c_robot64_1.png'><br><p style='text-align:center;max-width:64px;'>bot0</p></html>")
-        # ic1.install_rc_menu()
-        #
-        # centralWidget.addBot(ic0)
-        # centralWidget.addBot(ic1)
 
         # centralWidget.addBot(self.botListView)
         self.centralScroll.setWidget(self.botListView)
@@ -1020,8 +1013,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # this will generate a local skill file to run, the input the skill data structure
         # which contains the configuration part which comes from cloud scheduling API.
-        # testskfile = "C:/Users/songc/PycharmProjects/testdata/testsk.json"
-        # testmissionfile = "C:/Users/songc/PycharmProjects/testdata/testmission.json"
+        # testskfile = self.homepath + "../testdata/testsk.json"
+        # testmissionfile = homepath + "../testdata/testmission.json"
         # with open(testskfile, 'rb') as skfp:
         #     testsk = json.load(skfp)
         #     skillDS = WORKSKILL("browse_search")
@@ -2960,14 +2953,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def manualRunAll(self):
         txt_results = "{}"
         ico_results = "{}"
-
-        # file_name = "C:/AmazonSeller/JSRPA/AIData/EB/D20220202/fox0_000.png"
-        # send_screen(file_name)
-        #  rid = "0", app = "na", domain = "na", req_type = "na", intent = "uk", last_move = "uk", image_file = "uk"):
-        # req = SCRN_READ_REQEST("00", "ff", "ebay", "page", "get label", "ou", file_name)
-        # txt_results = req_cloud_read_screen(self.session, [req], token)
-        # print(txt_results)
-        # print(ico_results)
 
         for m in self.missions:
             status = m.run()

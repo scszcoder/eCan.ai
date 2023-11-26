@@ -26,7 +26,7 @@
     "anchor_value": "",
     "cargs_type": "direct",
     "cargs": "",
-    "wait": 2
+    "wait": 5
 },
 "step 15":
 {
@@ -81,8 +81,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -649,8 +649,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -1083,7 +1083,7 @@
         "options": "{}",
         "name_space": "B2M2!win_chrome_amz_home!browse_search!"
     },
-    "local": "yoga_mats1696468100.html",
+    "local": "yoga_mats1700898545.html",
     "html_var": "current_html_file",
     "template": "",
     "option": "",
@@ -1097,7 +1097,7 @@
 {
     "type": "AMZ Scrape PL Html",
     "action": "Scrape PL",
-    "hfname": "yoga_mats1696468100.html",
+    "hfname": "yoga_mats1700898545.html",
     "html_var": "current_html_file",
     "root": {
         "skname": "browse_search",
@@ -1149,8 +1149,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -1600,7 +1600,7 @@
 {
     "type": "AMZ Scrape PL Html",
     "action": "Scrape PL",
-    "hfname": "yoga_mats1696468100.html",
+    "hfname": "yoga_mats1700898545.html",
     "html_var": "current_html_file",
     "root": {
         "skname": "browse_search",
@@ -1652,8 +1652,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -2103,7 +2103,7 @@
 {
     "type": "AMZ Scrape PL Html",
     "action": "Scrape PL",
-    "hfname": "yoga_mats1696468100.html",
+    "hfname": "yoga_mats1700898545.html",
     "html_var": "current_html_file",
     "root": {
         "skname": "browse_search",
@@ -2155,8 +2155,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -2707,8 +2707,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -3232,8 +3232,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -3947,8 +3947,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -4504,8 +4504,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -5073,8 +5073,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -5699,8 +5699,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -6584,8 +6584,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -7109,8 +7109,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -7824,8 +7824,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -8381,8 +8381,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -8950,8 +8950,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",
@@ -9576,8 +9576,8 @@
             ]
         },
         "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231004/b2m2/win_chrome_amz_home/skills/browse_search/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231124/b2m2/win_chrome_amz_home/skills/browse_search/",
         "platform": "win",
         "site": "amz",
         "app": "chrome",

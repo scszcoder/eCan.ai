@@ -27,7 +27,7 @@ def test_etsy_label_gen():
 
 # can use the following to test any skill file, except the extractInfo one which requiers cloud service.
 def test_use_func_instructions():
-    psk0 = "C:/Users/songc/PycharmProjects/testdata/ut0sk1.psk"
+    psk0 = os.getenv('ECBOT_HOME') +"../testdata/ut0sk1.psk"
     test_settings = {"skfname": psk0}
 
     # a test skill will be writen
@@ -48,8 +48,8 @@ def test_use_func_instructions():
 # can use the following to test any skill file, except the extractInfo one which requiers cloud service.
 def test_multi_skills():
 
-    psk1 = "C:/Users/songc/PycharmProjects/testdata/ut1sk1.psk"
-    psk2 = "C:/Users/songc/PycharmProjects/testdata/ut1sk2.psk"
+    psk1 = os.getenv('ECBOT_HOME') + "../testdata/ut1sk1.psk"
+    psk2 = os.getenv('ECBOT_HOME') + "../testdata/ut1sk2.psk"
     test_settings = {"skfname": psk1}
     # a test skill will be writen
     genWinTestSkill1(test_settings, 0)
@@ -195,8 +195,8 @@ def test_processSearchWordline():
 
 def test_process7z():
     symTab["exe_link"] = 'C:/"Program Files"/7-Zip/7z.exe'
-    symTab["in_file"] = 'C:/Users/songc/Downloads/etsyOrdersPriority09122023.xls_0918221925.zip'
-    symTab["opath"] = 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/etsyOrdersPriority09122023.xls_0918221925'
+    symTab["in_file"] = "C:/Users/"+ os.environ.get("USERNAME") + "/Downloads/etsyOrdersPriority09122023.xls_0918221925.zip"
+    symTab["opath"] = os.getenv('ECBOT_HOME') + "runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/etsyOrdersPriority09122023.xls_0918221925"
     symTab["ovar"] = 'nothing'
     step = {
         "type": "Seven Zip",
@@ -214,8 +214,7 @@ def test_process7z():
 
 
 def test_rar():
-    # subprocess.Popen("C:/Program Files/WinRAR/WinRAR.exe C:/Users/songc/Downloads/Downloads1.rar")
-    subprocess.Popen(["C:/Program Files/WinRAR/WinRAR.exe",  "C:/Users/songc/Downloads/Downloads1.rar"])
+    subprocess.Popen(["C:/Program Files/WinRAR/WinRAR.exe",  "C:/Users/"+os.environ.get("USERNAME")+"/Downloads/Downloads1.rar"])
     for i in range(10):
         print("waiting.......")
         time.sleep(2)

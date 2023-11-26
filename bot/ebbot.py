@@ -560,8 +560,5 @@ class EBBOT(QtGui.QStandardItem):
         self.privateProfile.setBackEmail(dbd[19])
         self.privateProfile.setEBPW(dbd[20])
 
-    def run(self):
-        self.abc = 1
-
 
 

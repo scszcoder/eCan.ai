@@ -844,7 +844,10 @@ def genAMZBrowseProductLists(pageCfgsName, pageCfgs, ith, lastone, flows, stepN,
     psk_words = psk_words + step_words
 
     # SC hacking for speed up the test
-    # hfname = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats1689147960.html"
+    # homepath = os.environ.get("ECBOT_HOME")
+    # if homepath[len(homepath)-1] == "/":
+    #   homepath=homepath[:len(homepath)-1]
+    # hfname = homepath+"runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats1689147960.html"
     # this_step = stepN
     # this_step, step_words = genStepCreateData("string", "current_html_file", "NA", hfname, this_step)
     # psk_words = psk_words + step_words
@@ -949,7 +952,7 @@ def genAMZBrowseProductLists(pageCfgsName, pageCfgs, ith, lastone, flows, stepN,
 def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     psk_words = ""
     # this creates the local private skill file.
-    #f = open("C:/Users/songc/PycharmProjects/ecbot/resource/junk.txt", "a")
+    #f = open(homepath+"resource/junk.txt", "a")
     # skill name should be some like: browse_search
     # find out skill ID from mission ID,
 
@@ -973,13 +976,13 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     psk_words = psk_words + step_words
 
     # this url points to a product list page after a keyword search
-    # url = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats1689147960.html"
+    # url = homepath+"runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats1689147960.html"
 
     # this url points to a detail page.
-    # url = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats168914805.html"
+    # url = homepath+"runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats168914805.html"
 
     # this url points to all review page.
-    # url = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats168914806.html"
+    # url = homepath+"runlogs/20230712/b3m3/win_chrome_amz_file_save_dialog/skills/browse_search/yoga_mats168914806.html"
 
 
 
