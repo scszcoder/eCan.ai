@@ -1,13 +1,5 @@
-import json
-import unittest
-from PySide6.QtCore import (Signal, QLineF, QPointF, QRect, QRectF, QSize, QSizeF, Qt)
-from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QIcon, QIntValidator, QPainter, QPainterPath, QPen, QPixmap, QPolygonF)
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QButtonGroup, QComboBox, \
-                    QFontComboBox, QGraphicsItem, QGraphicsLineItem, QGraphicsPolygonItem, \
-                            QGraphicsScene, QGraphicsEllipseItem, QGraphicsTextItem, QGraphicsView, QGridLayout, \
-                            QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QSizePolicy, \
-                            QVBoxLayout, QToolBox, QToolButton, QWidget, QFileDialog
+from PySide6 import QtWidgets
+from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog
 from PySide6.QtTest import QTest
 import sys
 from gui.skfc.skfc_widget import *
@@ -20,26 +12,12 @@ class GraphEditorWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Graph Editor")
-        self.resize(800, 600)
-
-        self.skvtabs = QtWidgets.QTabWidget()
-
-        # self.skFCWidget = QtWidgets.QScrollArea()
-        # self.skFCWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        # self.skFCWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        #
-        # self.skCodeWidget = QtWidgets.QScrollArea()
-        # self.skCodeWidget.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        # self.skCodeWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.resize(1000, 800)
 
         self.skFCWidget = SkFCWidget()
-        # self.skFCWidget.setWidget(self.skFCDiagram)
-        # self.skFCWidget.setWidgetResizable(True)
-
         self.skCodeWidget = PMGPythonEditor()
-        # self.skCodeWidget.setWidget(self.skcodeeditor)
-        # self.skCodeWidget.setWidgetResizable(True)
 
+        self.skvtabs = QtWidgets.QTabWidget()
         self.skvtabs.addTab(self.skFCWidget, "Flow Chart")
         self.skvtabs.addTab(self.skCodeWidget, "Code")
 
@@ -70,7 +48,7 @@ class GraphEditorWindow(QMainWindow):
         file_menu.addAction(open_action)
 
     def save_json(self):
-        data = self.skFCDiagram.encode_json(indent=4)
+        data = self.skFCWidget.encode_json(indent=4)
         file_path, _ = QFileDialog.getSaveFileName(self, 'Save JSON File', 'diagram_ui.json', 'JSON Files (*.json)')
         if file_path:
             with open(file_path, 'w') as file:
@@ -85,9 +63,7 @@ class GraphEditorWindow(QMainWindow):
                 data = json.load(file)
                 print(f'JSON data loaded from {file_path}: {data}')
 
-                self.skFCDiagram.decode_json(json.dumps(data))
-
-
+                self.skFCWidget.decode_json(json.dumps(data))
 
 
 if __name__ == "__main__":
