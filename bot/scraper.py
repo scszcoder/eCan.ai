@@ -149,9 +149,6 @@ def get_month_days(year, month):
 
 
 
-
-
-
 # input: screen save file name.
 # output: on the screen saving image, find and return the location of the file name input box.
 def find_file_name_box(sfn):
