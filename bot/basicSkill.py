@@ -654,29 +654,47 @@ def restore_current_context(context):
 
 
 def processHalt(step, i):
-    print("Due to supply time lag, this mission is halted till  hours later....")
-    #should kick off a timer to wait .
+    ex_stat = "success:0"
+    try:
+        print("Due to supply time lag, this mission is halted till  hours later....")
+        #should kick off a timer to wait .
+    except:
+        ex_stat = "ErrorHalt:" + str(i)
+
+    return (i+1), ex_stat
 
 def processDone(step, i):
-    print("Mission accomplished!")
+    ex_stat = "success:0"
+    try:
+        print("Mission accomplished!")
+    except:
+        ex_stat = "ErrorDone:" + str(i)
+
+    return (i+1), ex_stat
 
 def processWait(step, i):
-    print("waiting...... make mouse pointer wonder a little bit!")
-    wtime = 1
-    if step["time"] == "":
-        # calculate wait based on page contents, and reading speed.
-        print("waiting for last screen ", wtime, " seconds....")
-        # screen = symTab["last_screen"]
-    else:
-        wtime = step["time"]
-        print("waiting for ", wtime, " seconds....")
+    ex_stat = "success:0"
+    try:
+        print("waiting...... make mouse pointer wonder a little bit!")
+        wtime = 1
+        if step["time"] == "":
+            # calculate wait based on page contents, and reading speed.
+            print("waiting for last screen ", wtime, " seconds....")
+            # screen = symTab["last_screen"]
+        else:
+            wtime = step["time"]
+            print("waiting for ", wtime, " seconds....")
 
-    if step["random_max"] > 0:
-        wtime = random.randrange(step["random_min"], step["random_max"])
+        if step["random_max"] > 0:
+            wtime = random.randrange(step["random_min"], step["random_max"])
 
-    print("actually waiting for ", wtime, " seconds....")
-    time.sleep(wtime)
-    return i+1
+        print("actually waiting for ", wtime, " seconds....")
+        time.sleep(wtime)
+
+    except:
+        ex_stat = "ErrorWait:" + str(i)
+
+    return (i+1), ex_stat
 
 
 
@@ -687,59 +705,65 @@ def processExtractInfo(step, i, mission, skill):
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     global screen_error
-    screen_error = False
-    dtnow = datetime.now()
 
-    if step["page_data_info"]:
-        page_layout = symTab[step["page_data_info"]]["products"]["layout"]
-    else:
-        page_layout = ""
+    ex_stat = "success:0"
+    try:
+        screen_error = False
+        dtnow = datetime.now()
 
-    print("page layout is: [", page_layout, "]")
+        if step["page_data_info"]:
+            page_layout = symTab[step["page_data_info"]]["products"]["layout"]
+        else:
+            page_layout = ""
 
-    date_word = dtnow.strftime("%Y%m%d")
-    dt_string = str(int(dtnow.timestamp()))
-    print("date string:", dt_string)
-    sfile = "C:/Users/songc/PycharmProjects/testdata/"
-    #sfile = sfile + settings["uid"] + "/win/adspower/"
-    #sfile = sfile + "scrn" + settings["uid"] + "_" + dt_string + ".png"
-    if skill.getPrivacy() == "public":
-        ppword = skill.getPrivacy()
-    else:
-        ppword = mission.parent_settings["uid"]
+        print("page layout is: [", page_layout, "]")
 
-    print("mission[", mission.getMid(), "] cuspas: ", mission.getCusPAS())
+        date_word = dtnow.strftime("%Y%m%d")
+        dt_string = str(int(dtnow.timestamp()))
+        print("date string:", dt_string)
+        sfile = "C:/Users/songc/PycharmProjects/testdata/"
+        #sfile = sfile + settings["uid"] + "/win/adspower/"
+        #sfile = sfile + "scrn" + settings["uid"] + "_" + dt_string + ".png"
+        if skill.getPrivacy() == "public":
+            ppword = skill.getPrivacy()
+        else:
+            ppword = mission.parent_settings["uid"]
 
-    if type(step["settings"]) == str:
-        step_settings = symTab[step["settings"]]
-        print("SETTINGS FROM STRING....", step_settings)
-    else:
-        step_settings = step["settings"]
+        print("mission[", mission.getMid(), "] cuspas: ", mission.getCusPAS())
 
-    platform = step_settings["platform"]
-    app = step_settings["app"]
-    site = step_settings["site"]
-    #     local image:  C:/Users/songc/PycharmProjects/ecbot/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
+        if type(step["settings"]) == str:
+            step_settings = symTab[step["settings"]]
+            print("SETTINGS FROM STRING....", step_settings)
+        else:
+            step_settings = step["settings"]
 
-    fdir = step_settings["root_path"] + "/runlogs/"
-    fdir = fdir + date_word + "/"
+        platform = step_settings["platform"]
+        app = step_settings["app"]
+        site = step_settings["site"]
+        #     local image:  C:/Users/songc/PycharmProjects/ecbot/runlogs/date/b0m0/win_chrome_amz_home/browse_search/images/scrnsongc_yahoo_1678175548.png"
 
-    fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
-    # fdir = fdir + ppword + "/"
-    fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
-    fdir = fdir + step_settings["skname"] + "/images/"
-    sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
-    print("sfile: ", sfile)
+        fdir = step_settings["root_path"] + "/runlogs/"
+        fdir = fdir + date_word + "/"
+
+        fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
+        # fdir = fdir + ppword + "/"
+        fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
+        fdir = fdir + step_settings["skname"] + "/images/"
+        sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
+        print("sfile: ", sfile)
 
 
-    print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
-    result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile)
-    symTab[step["data_sink"]] = result
-    print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile)
+        symTab[step["data_sink"]] = result
+        print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-    return i+1
+    except:
+        ex_stat = "ErrorExtractInf:" + str(i)
+
+    return (i+1), ex_stat
 
 
 # this is function is more or less for Etsy or others...
@@ -749,7 +773,6 @@ def processExtractInfo(step, i, mission, skill):
 # Apt. 1209 A
 # Bloomington, IN 47408
 #
-#
 # Mason Stachowicz
 # 817 E Shaw Ln, East Lansing, MI 48825
 # East 666
@@ -757,33 +780,38 @@ def processExtractInfo(step, i, mission, skill):
 # or canadian addresses......
 
 def processFillRecipients(step, i):
-    symTab[step["texts_var"]]
-    for txt_bloc in symTab[step["texts_var"]]:
-        fullname = txt_bloc[0].strip()
-        city_state_zip = txt_bloc[len(txt_bloc)-1].strip().split(",")
-        city = city_state_zip[0].strip()
-        state_zip = city_state_zip[1].strip().split()
-        state = state_zip[0].strip()
-        zip = state_zip[1].strip()
-        if len(txt_bloc) == 4:
-            street2 = txt_bloc[2].strip()
-        else:
-            street2 = ""
+    ex_stat = "success:0"
+    try:
+        print("txts var:", symTab[step["texts_var"]])
+        for txt_bloc in symTab[step["texts_var"]]:
+            fullname = txt_bloc[0].strip()
+            city_state_zip = txt_bloc[len(txt_bloc)-1].strip().split(",")
+            city = city_state_zip[0].strip()
+            state_zip = city_state_zip[1].strip().split()
+            state = state_zip[0].strip()
+            zip = state_zip[1].strip()
+            if len(txt_bloc) == 4:
+                street2 = txt_bloc[2].strip()
+            else:
+                street2 = ""
 
-        street1 = txt_bloc[1].split(",")[0].strip()
+            street1 = txt_bloc[1].split(",")[0].strip()
 
-        # find a match of name in the orders data structure.
-        match = next((x for x in symTab[step["orders_var"]] if x.getRecipientName() == fullname and x.getRecipientCity() == city), None)
-        if match:
-            match.setRecipientAddrState(street1)
-            match.setRecipientAddrState(street2)
-            match.setRecipientAddrState(zip)
-        else:
-            # need to add a recipient
-            print("ERROR, how could the name be not found?")
+            # find a match of name in the orders data structure.
+            match = next((x for x in symTab[step["orders_var"]] if x.getRecipientName() == fullname and x.getRecipientCity() == city), None)
+            if match:
+                match.setRecipientAddrState(street1)
+                match.setRecipientAddrState(street2)
+                match.setRecipientAddrState(zip)
+            else:
+                # need to add a recipient
+                print("ERROR, how could the name be not found?")
 
-        # once found, update the relavant field. such as
+            # once found, update the relavant field. such as
+    except:
+        ex_stat = "ErrorFillRecipients:" + str(i)
 
+    return (i+1), ex_stat
 
 # text input, type only, the click onto the correction place to type should happen before this.
 # action: action to perform here - simply text input
@@ -794,64 +822,69 @@ def processFillRecipients(step, i):
 def processTextInput(step, i):
     global page_stack
     global current_context
-    print("Keyboard typing......")
-    names = []
-    #sd = symTab[step["screen"]]
-    #obj_box = find_clickable_object(sd, step["target"], step["target_type"], step["nth"])
-    #loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"])
+    ex_stat = "success:0"
+    try:
+        print("Keyboard typing......")
+        names = []
+        #sd = symTab[step["screen"]]
+        #obj_box = find_clickable_object(sd, step["target"], step["target_type"], step["nth"])
+        #loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"])
 
-    # def winEnumHandler(hwnd, ctx):
-    #     if win32gui.IsWindowVisible(hwnd):
-    #         n = win32gui.GetWindowText(hwnd)
-    #         if n:
-    #             names.append(n)
-    #
-    # win32gui.EnumWindows(winEnumHandler, None)
-    #
-    # window_handle = win32gui.FindWindow(None, names[0])
-    # window_rect = win32gui.GetWindowRect(window_handle)
-    #
-    # txt_boxes = list(filter(lambda x: x["name"] == "text_input_box" and x["type"] == "info", symTab["last_screen"]))
-    # print("found input locations:", len(txt_boxes))
-    # if len(txt_boxes) > 0:
-    #     loc = txt_boxes[0]["loc"]
-    #     print("loc @ ", loc)
-    # print("global loc@ ", int(loc[0])+window_rect[0], " ,  ", int(loc[1])+window_rect[1])
-    #
-    # pyautogui.moveTo(int(loc[0])+window_rect[0], int(loc[1])+window_rect[1])
+        # def winEnumHandler(hwnd, ctx):
+        #     if win32gui.IsWindowVisible(hwnd):
+        #         n = win32gui.GetWindowText(hwnd)
+        #         if n:
+        #             names.append(n)
+        #
+        # win32gui.EnumWindows(winEnumHandler, None)
+        #
+        # window_handle = win32gui.FindWindow(None, names[0])
+        # window_rect = win32gui.GetWindowRect(window_handle)
+        #
+        # txt_boxes = list(filter(lambda x: x["name"] == "text_input_box" and x["type"] == "info", symTab["last_screen"]))
+        # print("found input locations:", len(txt_boxes))
+        # if len(txt_boxes) > 0:
+        #     loc = txt_boxes[0]["loc"]
+        #     print("loc @ ", loc)
+        # print("global loc@ ", int(loc[0])+window_rect[0], " ,  ", int(loc[1])+window_rect[1])
+        #
+        # pyautogui.moveTo(int(loc[0])+window_rect[0], int(loc[1])+window_rect[1])
 
-    #pyautogui.moveTo(loc[0], loc[1])
-    #pyautogui.click()          # 0th position is X, 1st position is Y
-    # pyautogui.doubleClick()
-    print("typing.....", step["text"][0])
-    time.sleep(2)
-    # pyautogui.click()
-    if step["txt_type"] == "var":
-        print("about to TYPE in:", symTab[step["text"]])
-        pyautogui.write(symTab[step["text"]])
-    else:
-        print("direct type in:", step["text"][0])
-        pyautogui.write(step["text"][0])
+        #pyautogui.moveTo(loc[0], loc[1])
+        #pyautogui.click()          # 0th position is X, 1st position is Y
+        # pyautogui.doubleClick()
+        print("typing.....", step["text"][0])
+        time.sleep(2)
+        # pyautogui.click()
+        if step["txt_type"] == "var":
+            print("about to TYPE in:", symTab[step["text"]])
+            pyautogui.write(symTab[step["text"]])
+        else:
+            print("direct type in:", step["text"][0])
+            pyautogui.write(step["text"][0])
 
-    time.sleep(1)
-    pyautogui.press(step['key_after'])
-    if step['key_after'] != "":
-        print("after typing, pressing:", step['key_after'], "then wait for:", step['wait_after'])
-        pyautogui.press(step['key_after'])
         time.sleep(1)
-        pyautogui.press("enter")
-        time.sleep(step['wait_after'])
+        pyautogui.press(step['key_after'])
+        if step['key_after'] != "":
+            print("after typing, pressing:", step['key_after'], "then wait for:", step['wait_after'])
+            pyautogui.press(step['key_after'])
+            time.sleep(1)
+            pyautogui.press("enter")
+            time.sleep(step['wait_after'])
 
 
-    # now save for roll back if ever needed.
-    # first remove the previously save rollback point, but leave up to 3 rollback points
-    while len(page_stack) > 3:
-        page_stack.pop()
-    # now save the current juncture.
-    current_context = build_current_context()
-    page_stack.append({"pc": i, "context": current_context})
+        # now save for roll back if ever needed.
+        # first remove the previously save rollback point, but leave up to 3 rollback points
+        while len(page_stack) > 3:
+            page_stack.pop()
+        # now save the current juncture.
+        current_context = build_current_context()
+        page_stack.append({"pc": i, "context": current_context})
 
-    return i + 1
+    except:
+        ex_stat = "ErrorTextInput:" + str(i)
+
+    return (i+1), ex_stat
 
 
 # calculate an object’s row col position in a virtual table, given the object's position, origin, table cell width, table cell height.
@@ -1070,124 +1103,131 @@ def processMouseClick(step, i):
     global page_stack
     global current_context
     print("Mouse Clicking .....")
-    if step["target_type"] != "direct" and step["target_type"] != "expr":
-        sd = symTab[step["screen"]]
-        print("finding: ", step["text"], " target name: ", step["target_name"])
-        # print("from data: ", sd)
-        obj_box = find_clickable_object(sd, step["target_name"], step["text"], step["target_type"], step["nth"])
-        print("obj_box: ", obj_box)
-        loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
-        post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
-        post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
+    ex_stat = "success:0"
+    try:
+        if step["target_type"] != "direct" and step["target_type"] != "expr":
+            sd = symTab[step["screen"]]
+            print("finding: ", step["text"], " target name: ", step["target_name"])
+            # print("from data: ", sd)
+            obj_box = find_clickable_object(sd, step["target_name"], step["text"], step["target_type"], step["nth"])
+            print("obj_box: ", obj_box)
+            loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
+            post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
+            post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
 
-    else:
-        # the location is already calculated directly and stored here.
-        if step["target_type"] == "direct":
-            print("obtain directly..... from a variable which is a box type i.e. [l, t, r, b]")
-            box = symTab[step["target_name"]]
-            loc = box_center(box)
-            post_offset_x = (box[2] - box[0]) * step["post_move"][0]
-            post_offset_y = (box[3] - box[1]) * step["post_move"][1]
-            post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
         else:
-            print("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]", step["target_name"])
-            exec("global click_target\nclick_target = " + step["target_name"])
-            print("box: ", symTab["click_target"])
-            box = [symTab["click_target"][1], symTab["click_target"][0], symTab["click_target"][3], symTab["click_target"][2]]
-            loc = box_center(box)
-            post_offset_y = (symTab["click_target"][2] - symTab["click_target"][0]) * step["post_move"][0]
-            post_offset_x = (symTab["click_target"][3] - symTab["click_target"][1]) * step["post_move"][1]
-            post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
+            # the location is already calculated directly and stored here.
+            if step["target_type"] == "direct":
+                print("obtain directly..... from a variable which is a box type i.e. [l, t, r, b]")
+                box = symTab[step["target_name"]]
+                loc = box_center(box)
+                post_offset_x = (box[2] - box[0]) * step["post_move"][0]
+                post_offset_y = (box[3] - box[1]) * step["post_move"][1]
+                post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y]
+            else:
+                print("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]", step["target_name"])
+                exec("global click_target\nclick_target = " + step["target_name"])
+                print("box: ", symTab["click_target"])
+                box = [symTab["click_target"][1], symTab["click_target"][0], symTab["click_target"][3], symTab["click_target"][2]]
+                loc = box_center(box)
+                post_offset_y = (symTab["click_target"][2] - symTab["click_target"][0]) * step["post_move"][0]
+                post_offset_x = (symTab["click_target"][3] - symTab["click_target"][1]) * step["post_move"][1]
+                post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
 
-    print("calculated locations:", loc)
+        print("calculated locations:", loc)
 
-    names = []
-    def winEnumHandler(hwnd, ctx):
-        if win32gui.IsWindowVisible(hwnd):
-            n = win32gui.GetWindowText(hwnd)
-            if n:
-                names.append(n)
+        names = []
+        def winEnumHandler(hwnd, ctx):
+            if win32gui.IsWindowVisible(hwnd):
+                n = win32gui.GetWindowText(hwnd)
+                if n:
+                    names.append(n)
 
-    win32gui.EnumWindows(winEnumHandler, None)
+        win32gui.EnumWindows(winEnumHandler, None)
 
-    # find the top window and get its size and location.
-    window_handle = win32gui.FindWindow(None, names[0])
-    window_rect = win32gui.GetWindowRect(window_handle)
-    print("top windows rect:", window_rect)
+        # find the top window and get its size and location.
+        window_handle = win32gui.FindWindow(None, names[0])
+        window_rect = win32gui.GetWindowRect(window_handle)
+        print("top windows rect:", window_rect)
 
-    # loc[0] = int(loc[0]) + window_rect[0]
-    loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
-    print("global loc@ ", loc[0], " ,  ", loc[1])
-
-
-    pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
-
-    time.sleep(step["move_pause"])
+        # loc[0] = int(loc[0]) + window_rect[0]
+        loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
+        print("global loc@ ", loc[0], " ,  ", loc[1])
 
 
-    if step["action"] == "Single Click":
-        pyautogui.click()
-        # pyautogui.click()
-    elif step["action"] == "Double Click":
-        if is_float(step["action_args"]):
-            pyautogui.click(clicks=2, interval=float(step["action_args"]))
-        else:
-            pyautogui.click(clicks=2, interval=0.3)
-    elif step["action"] == "Triple Click":
-        if is_float(step["action_args"]):
-            pyautogui.click(clicks=3, interval=float(step["action_args"]))
-        else:
-            pyautogui.click(clicks=3, interval=0.3)
-    elif step["action"] == "Right CLick":
-        pyautogui.click(button='right')
-    elif step["action"] == "Drag Drop":
-        # code drop location is embedded in action_args, the code need to added later to process that....
-        pyautogui.dragTo(loc[0], loc[1], duration=2)
+        pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
 
-    time.sleep(1)
-    print("post click moveto :", post_loc)
-    pyautogui.moveTo(post_loc[0] + window_rect[0], post_loc[1] + window_rect[1])
-    if step["post_wait"] > 0:
-        time.sleep(step["post_wait"]-1)
+        time.sleep(step["move_pause"])
 
-    # now save for roll back if ever needed.
-    # first remove the previously save rollback point, but leave up to 3 rollback points
-    while len(page_stack) > 3:
-        page_stack.pop()
-    # now save the current juncture.
-    current_context = build_current_context()
-    page_stack.append({"pc": i, "context": current_context})
 
-    return i + 1
+        if step["action"] == "Single Click":
+            pyautogui.click()
+            # pyautogui.click()
+        elif step["action"] == "Double Click":
+            if is_float(step["action_args"]):
+                pyautogui.click(clicks=2, interval=float(step["action_args"]))
+            else:
+                pyautogui.click(clicks=2, interval=0.3)
+        elif step["action"] == "Triple Click":
+            if is_float(step["action_args"]):
+                pyautogui.click(clicks=3, interval=float(step["action_args"]))
+            else:
+                pyautogui.click(clicks=3, interval=0.3)
+        elif step["action"] == "Right CLick":
+            pyautogui.click(button='right')
+        elif step["action"] == "Drag Drop":
+            # code drop location is embedded in action_args, the code need to added later to process that....
+            pyautogui.dragTo(loc[0], loc[1], duration=2)
+
+        time.sleep(1)
+        print("post click moveto :", post_loc)
+        pyautogui.moveTo(post_loc[0] + window_rect[0], post_loc[1] + window_rect[1])
+        if step["post_wait"] > 0:
+            time.sleep(step["post_wait"]-1)
+
+        # now save for roll back if ever needed.
+        # first remove the previously save rollback point, but leave up to 3 rollback points
+        while len(page_stack) > 3:
+            page_stack.pop()
+        # now save the current juncture.
+        current_context = build_current_context()
+        page_stack.append({"pc": i, "context": current_context})
+    except:
+        ex_stat = "ErrorMouseClick:"+str(i)
+    return (i + 1), ex_stat
 
 # max 4 combo key stroke
 def processKeyInput(step, i):
     global page_stack
     global current_context
     print("Keyboard Action..... hot keys")
-    keys = step["action_value"].split(',')
+    ex_stat = "success:0"
+    try:
+        keys = step["action_value"].split(',')
 
-    if len(keys) == 4:
-        pyautogui.hotkey(keys[0], keys[1], keys[2], keys[3])
-    elif len(keys) == 3:
-        pyautogui.hotkey(keys[0], keys[1], keys[2])
-    if len(keys) == 2:
-        pyautogui.hotkey(keys[0], keys[1])
-    if len(keys) == 1:
-        pyautogui.press(keys[0])
+        if len(keys) == 4:
+            pyautogui.hotkey(keys[0], keys[1], keys[2], keys[3])
+        elif len(keys) == 3:
+            pyautogui.hotkey(keys[0], keys[1], keys[2])
+        if len(keys) == 2:
+            pyautogui.hotkey(keys[0], keys[1])
+        if len(keys) == 1:
+            pyautogui.press(keys[0])
 
-    # now save for roll back if ever needed.
-    # first remove the previously save rollback point, but leave up to 3 rollback points
-    while len(page_stack) > 3:
-        page_stack.pop()
-    # now save the current juncture.
-    current_context = build_current_context()
-    page_stack.append({"pc": i, "context": current_context})
+        # now save for roll back if ever needed.
+        # first remove the previously save rollback point, but leave up to 3 rollback points
+        while len(page_stack) > 3:
+            page_stack.pop()
+        # now save the current juncture.
+        current_context = build_current_context()
+        page_stack.append({"pc": i, "context": current_context})
 
-    # wait after key action.
-    time.sleep(step["wait_after"])
+        # wait after key action.
+        time.sleep(step["wait_after"])
+    except:
+        ex_stat = "ErrorKeyInput:"+str(i)
 
-    return i + 1
+    return (i + 1), ex_stat
 
 # cloud returned screen information data struture:
 # {"id": 0, "data": json_fullinfo}
@@ -1215,59 +1255,70 @@ def box_center(box):
 def processMouseScroll(step, i):
     screen_data = symTab[step["screen"]]
     # print("screen_data: ", screen_data)
-    screen_vsize = screen_data[len(screen_data) - 2]['loc'][2]
+    ex_stat = "success:0"
+    try:
+        screen_vsize = screen_data[len(screen_data) - 2]['loc'][2]
 
-    if step["unit"] == "screen":
-        print("SCREEN SIZE: ", screen_data[len(screen_data) - 2]['loc'], "resultion var: ", step["resolution"], " val: ", symTab[step["resolution"]])
-        if type(step["amount"]) is str:
-            scroll_amount = int(((symTab[step["amount"]]/100)*screen_vsize)/symTab[step["resolution"]])
+        if step["unit"] == "screen":
+            print("SCREEN SIZE: ", screen_data[len(screen_data) - 2]['loc'], "resultion var: ", step["resolution"], " val: ", symTab[step["resolution"]])
+            if type(step["amount"]) is str:
+                scroll_amount = int(((symTab[step["amount"]]/100)*screen_vsize)/symTab[step["resolution"]])
+            else:
+                scroll_amount = int(((step["amount"]/100)*screen_vsize)/symTab[step["resolution"]])
+                print("screen size based scroll amount:", scroll_amount)
+        elif step["unit"] == "raw":
+            if type(step["amount"]) is str:
+                scroll_amount = symTab[step["amount"]]
+            else:
+                scroll_amount = step["amount"]
         else:
-            scroll_amount = int(((step["amount"]/100)*screen_vsize)/symTab[step["resolution"]])
-            print("screen size based scroll amount:", scroll_amount)
-    elif step["unit"] == "raw":
-        if type(step["amount"]) is str:
-            scroll_amount = symTab[step["amount"]]
+            print("ERROR: unrecognized scroll unit!!!")
+
+        if step["action"] == "Scroll Down":
+            scroll_amount = 0 - scroll_amount
+
+        if "scroll_resolution" in symTab:
+            print("Calculated Scroll Amount: ", scroll_amount, "scroll resoution: ", symTab["scroll_resolution"])
         else:
-            scroll_amount = step["amount"]
-    else:
-        print("ERROR: unrecognized scroll unit!!!")
+            print("Calculated Scroll Amount: ", scroll_amount, "scroll resoution: NOT YET AVAILABLE")
 
-    if step["action"] == "Scroll Down":
-        scroll_amount = 0 - scroll_amount
+        if step["random_max"] != step["random_min"]:
+            scroll_amount = scroll_amount - random.randrange(step["random_min"], step["random_max"])
 
-    if "scroll_resolution" in symTab:
-        print("Calculated Scroll Amount: ", scroll_amount, "scroll resoution: ", symTab["scroll_resolution"])
-    else:
-        print("Calculated Scroll Amount: ", scroll_amount, "scroll resoution: NOT YET AVAILABLE")
+        print("after randomized Scroll Amount: ", scroll_amount)
+        mouse.scroll(0, scroll_amount)
 
-    if step["random_max"] != step["random_min"]:
-        scroll_amount = scroll_amount - random.randrange(step["random_min"], step["random_max"])
-
-    print("after randomized Scroll Amount: ", scroll_amount)
-    mouse.scroll(0, scroll_amount)
-
-    time.sleep(step["postwait"])
+        time.sleep(step["postwait"])
 
 
-    if step["breakpoint"]:
-        input("type any key to continue")
+        if step["breakpoint"]:
+            input("type any key to continue")
 
-    return i + 1
+    except:
+        ex_stat = "ErrorMouseScroll:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 def processOpenApp(step, i):
     print("Opening App .....", step["target_link"] + " " + step["cargs"])
-    if step["target_type"] == "browser":
-        url = step["target_link"]
-        webbrowser.open(url, new=0, autoraise=True)
-    else:
-        if step["cargs_type"] == "direct":
-            subprocess.call(step["target_link"] + " " + step["cargs"])
+    ex_stat = "success:0"
+    try:
+        if step["target_type"] == "browser":
+            url = step["target_link"]
+            webbrowser.open(url, new=0, autoraise=True)
         else:
-            print("running shell on :", symTab[step["cargs"]])
-            subprocess.Popen([symTab[step["target_link"]], symTab[step["cargs"]]])
-    time.sleep(step["wait"])
-    return i+1
+            if step["cargs_type"] == "direct":
+                subprocess.call(step["target_link"] + " " + step["cargs"])
+            else:
+                print("running shell on :", symTab[step["cargs"]])
+                subprocess.Popen([symTab[step["target_link"]], symTab[step["cargs"]]])
+        time.sleep(step["wait"])
+
+    except:
+        ex_stat = "ErrorOpenApp:" + str(i)
+
+    return (i + 1), ex_stat
 
 # create a new variable in the name space and assign initial value to it.
 # data_name: name of the variable.
@@ -1275,40 +1326,50 @@ def processOpenApp(step, i):
 def processCreateData(step, i):
     print("Creating Data .....")
     global mission_vars
-    if step["key_name"] == "NA":
-        # this is the case of direct assignment.
-        if step["data_type"] == "expr":
-            print("TBEx: ", step["data_name"] + " = " + step["key_value"])
-            symTab[step["data_name"]] = None
-            exec("global " + step["data_name"] + "\n" + step["data_name"] + " = " + step["key_value"])
-            print(step["data_name"] + " is now: ", symTab[step["data_name"]])
+    ex_stat = "success:0"
+    try:
+        if step["key_name"] == "NA":
+            # this is the case of direct assignment.
+            if step["data_type"] == "expr":
+                print("TBEx: ", step["data_name"] + " = " + step["key_value"])
+                symTab[step["data_name"]] = None
+                exec("global " + step["data_name"] + "\n" + step["data_name"] + " = " + step["key_value"])
+                print(step["data_name"] + " is now: ", symTab[step["data_name"]])
 
+            else:
+                symTab[step["data_name"]] = step["key_value"]
         else:
-            symTab[step["data_name"]] = step["key_value"]
-    else:
-        if not re.match("\[.*\]|\{.*\}", step["key_value"]):
-            symTab[step["data_name"]] = {step["key_name"]: step["key_value"]}
-        else:
-            symTab[step["data_name"]] = {step["key_name"]: json.loads(step["key_value"])}
+            if not re.match("\[.*\]|\{.*\}", step["key_value"]):
+                symTab[step["data_name"]] = {step["key_name"]: step["key_value"]}
+            else:
+                symTab[step["data_name"]] = {step["key_name"]: json.loads(step["key_value"])}
 
-    mission_vars.append(step["data_name"])
-    return i + 1
+        mission_vars.append(step["data_name"])
+
+    except:
+        ex_stat = "ErrorCreateData:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 def processTextToNumber(step, i):
     original = symTab[step["intext"]]
+    ex_stat = "success:0"
+    try:
+        num = original.strip().split(" ")[0].replace("$", "").replace("#", "").replace("%", "").replace(",", "").replace(" ", "")
 
-    num = original.strip().split(" ")[0].replace("$", "").replace("#", "").replace("%", "").replace(",", "").replace(" ", "")
+        if "." in num:
+            symTab[step["numvar"]] = float(num)
+        else:
+            symTab[step["numvar"]] = int(num)
 
-    if "." in num:
-        symTab[step["numvar"]] = float(num)
-    else:
-        symTab[step["numvar"]] = int(num)
+        if "%" in original:
+            symTab[step["numvar"]] = symTab[step["numvar"]]/100
 
-    if "%" in original:
-        symTab[step["numvar"]] = symTab[step["numvar"]]/100
+    except:
+        ex_stat = "ErrorTextToNumber:" + str(i)
 
-    return i + 1
+    return (i + 1), ex_stat
 
 
 
@@ -1319,58 +1380,63 @@ def processTextToNumber(step, i):
 # fill_type: "assign"/"copy"/"append"/"prepend"/"merge"/"clear"/"pop":
 def processFillData(step, i):
     print("Filling Data .....", step)
-
-    # if not re.match("\[.*\]|\{.*\}", step["from"]):
-    if type(step["from"]) is str:
-        from_words = re.split('\[|\(|\{', step["from"])
-        source = from_words[0]
-    else:
-        source = step["from"]
-    print("source var:", source)
-
-    if type(step["to"]) is str:
-        to_words = re.split('\[|\(|\{', step["to"])
-        sink = to_words[0]
-    else:
-        sink = step["to"]
-    print("sink var:", sink)
-
-    if step["result"] != "":
-        res_words = re.split('\[|\(|\{', step["result"])
-        res = to_words[0]
-        print("res var:", res)
-
-    if step["fill_type"] == "assign":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + " = " + step["from"]
-    elif step["fill_type"] == "copy":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + " = deepcopy(" + step["from"] + ")"
-    elif step["fill_type"] == "append":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + ".append(" + step["from"] + ")"
-    elif step["fill_type"] == "prepend":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + ".insert(0, " + step["from"] + ")"
-    elif step["fill_type"] == "merge":
-        statement = "global " + source + ", " + sink + "; " + step["to"] + ".extend(" + step["from"] + ")"
-    elif step["fill_type"] == "clear":
-        statement = "global " + sink + "; " + step["to"] + ".clear()"
-    elif step["fill_type"] == "pop":
-        if step["result"] != "":
-            if step["from"].isnumeric():
-                statement = "global " + res + ", " + sink + "; " + step["result"] + " = " + step["to"] + ".pop(" + \
-                            step["from"] + ")"
-            else:
-                statement = "global " + res + ", " + source + ", " + sink + "; " + step["result"] + " = " + step[
-                    "to"] + ".pop(" + step["from"] + ")"
-    else:
-        #in the special case of "direct" assign value.
+    ex_stat = "success:0"
+    try:
+        # if not re.match("\[.*\]|\{.*\}", step["from"]):
         if type(step["from"]) is str:
-            statement = "global " + sink + "; " + step["to"] + " = " + step["from"]
-        elif type(step["from"]) is dict:
-            statement = "global " + sink + "; " + step["to"] + " = " + json.dumps(step["from"])
+            from_words = re.split('\[|\(|\{', step["from"])
+            source = from_words[0]
         else:
-            statement = "global " + sink + "; " + step["to"] + " = " + str(step["from"])
-    print("Statement: ", statement)
-    exec(statement)
-    return i + 1
+            source = step["from"]
+        print("source var:", source)
+
+        if type(step["to"]) is str:
+            to_words = re.split('\[|\(|\{', step["to"])
+            sink = to_words[0]
+        else:
+            sink = step["to"]
+        print("sink var:", sink)
+
+        if step["result"] != "":
+            res_words = re.split('\[|\(|\{', step["result"])
+            res = to_words[0]
+            print("res var:", res)
+
+        if step["fill_type"] == "assign":
+            statement = "global " + source + ", " + sink + "; " + step["to"] + " = " + step["from"]
+        elif step["fill_type"] == "copy":
+            statement = "global " + source + ", " + sink + "; " + step["to"] + " = deepcopy(" + step["from"] + ")"
+        elif step["fill_type"] == "append":
+            statement = "global " + source + ", " + sink + "; " + step["to"] + ".append(" + step["from"] + ")"
+        elif step["fill_type"] == "prepend":
+            statement = "global " + source + ", " + sink + "; " + step["to"] + ".insert(0, " + step["from"] + ")"
+        elif step["fill_type"] == "merge":
+            statement = "global " + source + ", " + sink + "; " + step["to"] + ".extend(" + step["from"] + ")"
+        elif step["fill_type"] == "clear":
+            statement = "global " + sink + "; " + step["to"] + ".clear()"
+        elif step["fill_type"] == "pop":
+            if step["result"] != "":
+                if step["from"].isnumeric():
+                    statement = "global " + res + ", " + sink + "; " + step["result"] + " = " + step["to"] + ".pop(" + \
+                                step["from"] + ")"
+                else:
+                    statement = "global " + res + ", " + source + ", " + sink + "; " + step["result"] + " = " + step[
+                        "to"] + ".pop(" + step["from"] + ")"
+        else:
+            #in the special case of "direct" assign value.
+            if type(step["from"]) is str:
+                statement = "global " + sink + "; " + step["to"] + " = " + step["from"]
+            elif type(step["from"]) is dict:
+                statement = "global " + sink + "; " + step["to"] + " = " + json.dumps(step["from"])
+            else:
+                statement = "global " + sink + "; " + step["to"] + " = " + str(step["from"])
+        print("Statement: ", statement)
+        exec(statement)
+
+    except:
+        ex_stat = "ErrorFillData:" + str(i)
+
+    return (i + 1), ex_stat
 
 # basically context switching here...
 def processEndException(step, i, step_keys):
@@ -1461,14 +1527,20 @@ def evalCondition(condition):
 # "if_end": ifend
 def processCheckCondition(step, i, step_keys):
     print("Check Condition.....")
-    condition = step["condition"]
+    ex_stat = "success:0"
+    try:
+        condition = step["condition"]
 
-    if evalCondition(condition):
-        idx = i + 1
-    else:
-        idx = step_keys.index(step["if_else"])
-        print("else: ", step["if_else"], "else idx: ", idx)
-    return idx
+        if evalCondition(condition):
+            idx = i + 1
+        else:
+            idx = step_keys.index(step["if_else"])
+            print("else: ", step["if_else"], "else idx: ", idx)
+
+    except:
+        ex_stat = "ErrorCheckCondition:" + str(i)
+
+    return idx, ex_stat
 
 
 # "type": "Repeat",
@@ -1478,53 +1550,68 @@ def processCheckCondition(step, i, step_keys):
 # "end": loop end marker.
 def processRepeat(step, i,  step_keys):
     print("Looping.....: ", step)
+    ex_stat = "success:0"
+    try:
+        if step["count"].isnumeric():
+            repeat_count = int(step["count"])
+        else:
+            repeat_count = 0
 
-    if step["count"].isnumeric():
-        repeat_count = int(step["count"])
-    else:
-        repeat_count = 0
+        loop_condition = step["until"]
+        end_step = step_keys.index(step["end"])
 
-    loop_condition = step["until"]
-    end_step = step_keys.index(step["end"])
+        #prefix = (skey.split("!"))[0]
+        #end_words = step["end"].split()
+        #loop_end = prefix + "!" + "step" + end_words[1]
+        end_idx = end_step
+        #prev_idx = steps.index(skey)
 
-    #prefix = (skey.split("!"))[0]
-    #end_words = step["end"].split()
-    #loop_end = prefix + "!" + "step" + end_words[1]
-    end_idx = end_step
-    #prev_idx = steps.index(skey)
+        if loop_condition == "":
+            # create eval loop condition which is whether loop counter is the repeat count.
+            # at the address generation routine, at the loop end stub, needs to add a code to
+            # update loop counter, before jumping back to condition here.
+            # lcvar_name = "lcv_" + step["lc_name"]+str(i)
+            lcvar_name = step["lc_name"]
+            print("repeat counter: ", symTab[lcvar_name], "target count: ", step["count"])
+            if symTab[lcvar_name] < int(step["count"]):
+                symTab[lcvar_name] = symTab[lcvar_name] + 1
+                end_idx = i + 1
 
-    if loop_condition == "":
-        # create eval loop condition which is whether loop counter is the repeat count.
-        # at the address generation routine, at the loop end stub, needs to add a code to
-        # update loop counter, before jumping back to condition here.
-        # lcvar_name = "lcv_" + step["lc_name"]+str(i)
-        lcvar_name = step["lc_name"]
-        print("repeat counter: ", symTab[lcvar_name], "target count: ", step["count"])
-        if symTab[lcvar_name] < int(step["count"]):
-            symTab[lcvar_name] = symTab[lcvar_name] + 1
-            end_idx = i + 1
+        else:
+            # use loop condition.
+            if evalCondition(loop_condition):
+                end_idx = i + 1
 
-    else:
-        # use loop condition.
-        if evalCondition(loop_condition):
-            end_idx = i + 1
+    except:
+        ex_stat = "ErrorCheckCondition:" + str(i)
 
-    return end_idx
+    return end_idx, ex_stat
 
 # assumption: data is in form of a single json which can be easily dumped.
 def processLoadData(step, i):
     print("Loading Data .....")
-    with open(step["file_link"], 'r') as f:
-        symTab[step["data_name"]] = json.load(f)
+    ex_stat = "success:0"
+    try:
+        with open(step["file_link"], 'r') as f:
+            symTab[step["data_name"]] = json.load(f)
 
-    return i + 1
+    except:
+        ex_stat = "ErrorLoadData:" + str(i)
+
+    return (i+1), ex_stat
 
 
 def processSaveData(step, i):
     print("Saving Data .....")
-    with open(step["file_link"], 'w') as f:
-        json.dump(symTab[step["data_name"]], f)
-    return i+1
+    ex_stat = "success:0"
+    try:
+        with open(step["file_link"], 'w') as f:
+            json.dump(symTab[step["data_name"]], f)
+
+    except:
+        ex_stat = "ErrorSaveData:" + str(i)
+
+    return (i+1), ex_stat
 
 # fname: external script/function name  - very IMPORTANT： this is calling python routine either in a file or a function， this is different from
 #          psk function/subroutine
@@ -1533,35 +1620,39 @@ def processSaveData(step, i):
 # output: output data variable
 def processCallExtern(step, i):
     print("Run External Script/code as strings .....")
+    ex_stat = "success:0"
+    try:
+        if step["entity"] == "file":
+            cmdline = ["python", step["file"]]
 
-    if step["entity"] == "file":
-        cmdline = ["python", step["file"]]
+            if step["args"] != "":
+                args_strings = json.loads(step["args"])
+                # converts string(var name) into variables in symbol table.
+                args = list(map(lambda x: symTab[x], args_strings))
+            else:
+                args = []
 
-        if step["args"] != "":
-            args_strings = json.loads(step["args"])
-            # converts string(var name) into variables in symbol table.
-            args = list(map(lambda x: symTab[x], args_strings))
+            cmdline.extend(args)
+            oargs = ["capture_output=True", "text=True"]
+            cmdline.extend(oargs)
+            print("command line: ", cmdline)
+            result = subprocess.call(cmdline, shell=True)
         else:
-            args = []
+            # execute a string as raw python code.
+            result = exec(step["file"])
+            if "nNRP" in step["file"]:
+                print("nNRP: ", symTab["nNRP"])
+        # if symTab[step["fill_method"]] == "assign":
+        #     symTab[step["output"]] = result
+        # elif symTab[step["fill_method"]] == "copy_obj":
+        #     symTab[step["output"]] = copy.deepcopy(result)
 
-        cmdline.extend(args)
-        oargs = ["capture_output=True", "text=True"]
-        cmdline.extend(oargs)
-        print("command line: ", cmdline)
-        result = subprocess.call(cmdline, shell=True)
-    else:
-        # execute a string as raw python code.
-        result = exec(step["file"])
-        if "nNRP" in step["file"]:
-            print("nNRP: ", symTab["nNRP"])
-    # if symTab[step["fill_method"]] == "assign":
-    #     symTab[step["output"]] = result
-    # elif symTab[step["fill_method"]] == "copy_obj":
-    #     symTab[step["output"]] = copy.deepcopy(result)
+        symTab[step["output"]] = result
 
-    symTab[step["output"]] = result
+    except:
+        ex_stat = "ErrorSaveData:" + str(i)
 
-    return i+1
+    return (i+1), ex_stat
 
 # this is for call a skill function.
 # fname: function name.
@@ -1571,31 +1662,36 @@ def processCallExtern(step, i):
 def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
     global skill_code
 
-    # push current address pointer onto stack,
-    stack.append(i+1)
-    sk_stack.append(step["skill_name"])
+    ex_stat = "success:0"
+    try:
+        # push current address pointer onto stack,
+        stack.append(i+1)
+        sk_stack.append(step["skill_name"])
 
-    #save current fin, fout whatever that is.
-    stack.append(symTab["fout"])
-    stack.append(symTab["fin"])
+        #save current fin, fout whatever that is.
+        stack.append(symTab["fout"])
+        stack.append(symTab["fin"])
 
-    # push function output var to the stack
-    stack.append(step["output"])
+        # push function output var to the stack
+        stack.append(step["output"])
 
-    # push input args onto stack
-    stack.append(step["skill_args"])
+        # push input args onto stack
+        stack.append(step["skill_args"])
 
-    fin_par = stack.pop()
-    symTab["fin"] = symTab[fin_par]
-    print("geting skill call input parameter: ", fin_par, " [val: ", symTab[fin_par])
-    print("current skill table: ", sk_table)
+        fin_par = stack.pop()
+        symTab["fin"] = symTab[fin_par]
+        print("geting skill call input parameter: ", fin_par, " [val: ", symTab[fin_par])
+        print("current skill table: ", sk_table)
 
-    # start execuation on the function, find the function name's address, and set next pointer to it.
-    # the function name address key value pair was created in gen_addresses
-    skname = step["skill_path"] + "/" + step["skill_name"]
-    idx = step_keys.index(sk_table[skname])
+        # start execuation on the function, find the function name's address, and set next pointer to it.
+        # the function name address key value pair was created in gen_addresses
+        skname = step["skill_path"] + "/" + step["skill_name"]
+        idx = step_keys.index(sk_table[skname])
 
-    return idx
+    except:
+        ex_stat = "ErrorUseSkill:" + str(i)
+
+    return idx, ex_stat
 
 # this is for call a skill function.
 # fname: function name.
@@ -1605,24 +1701,29 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
 def processOverloadSkill(step, i, stack, step_keys):
     global skill_code
     global skill_table
-    # push current address pointer onto stack,
-    stack.append(i)
+    ex_stat = "success:0"
+    try:
+        # push current address pointer onto stack,
+        stack.append(i)
 
-    #save current fin, fout whatever that is.
-    stack.append(symTab["fout"])
-    stack.append(symTab["fin"])
+        #save current fin, fout whatever that is.
+        stack.append(symTab["fout"])
+        stack.append(symTab["fin"])
 
-    # push function output var to the stack
-    stack.append(step["output"])
+        # push function output var to the stack
+        stack.append(step["output"])
 
-    # push input args onto stack
-    stack.append(step["args"])
+        # push input args onto stack
+        stack.append(step["args"])
 
-    # start execuation on the function, find the function name's address, and set next pointer to it.
-    # the function name address key value pair was created in gen_addresses
-    idx = step_keys.index(skill_table[step["skill_name"]])
+        # start execuation on the function, find the function name's address, and set next pointer to it.
+        # the function name address key value pair was created in gen_addresses
+        idx = step_keys.index(skill_table[step["skill_name"]])
 
-    return idx
+    except:
+        ex_stat = "ErrorOverloadSkill:" + str(i)
+
+    return idx, ex_stat
 
 
 # this is for call a skill function.
@@ -1631,171 +1732,212 @@ def processOverloadSkill(step, i, stack, step_keys):
 # return_point: where does function return. (maybe not needed with stack.)
 # output: function returned result
 def processCallFunction(step, i, stack, func_table, step_keys):
+    ex_stat = "success:0"
+    try:
+        # push current address pointer onto stack,
+        stack.append(i+1)
 
+        #save current fin, fout whatever that is.
+        stack.append(symTab["fout"])
+        stack.append(symTab["fin"])
 
-    # push current address pointer onto stack,
-    stack.append(i+1)
+        # push function output var name to the stack
+        stack.append(step["output"])
 
-    #save current fin, fout whatever that is.
-    stack.append(symTab["fout"])
-    stack.append(symTab["fin"])
+        # push input args onto stack
+        stack.append(step["fargs"])
 
-    # push function output var name to the stack
-    stack.append(step["output"])
+        fin_par = stack.pop()
+        symTab["fin"] = symTab[fin_par]
+        print("geting function call input parameter: ", fin_par, " [val: ", symTab[fin_par])
 
-    # push input args onto stack
-    stack.append(step["fargs"])
+        # start execuation on the function, find the function name's address, and set next pointer to it.
+        # the function name address key value pair was created in gen_addresses
+        idx = step_keys.index(func_table[step["fname"]])
 
-    fin_par = stack.pop()
-    symTab["fin"] = symTab[fin_par]
-    print("geting function call input parameter: ", fin_par, " [val: ", symTab[fin_par])
+    except:
+        ex_stat = "ErrorCallFunction:" + str(i)
 
-    # start execuation on the function, find the function name's address, and set next pointer to it.
-    # the function name address key value pair was created in gen_addresses
-    idx = step_keys.index(func_table[step["fname"]])
-
-    return idx
+    return idx, ex_stat
 
 
 def processReturn(step, i, stack, step_keys):
+    ex_stat = "success:0"
+    try:
+        # push current address pointer onto stack,
+        return_var_name = stack.pop()
 
-    # push current address pointer onto stack,
-    return_var_name = stack.pop()
+        if return_var_name != "":
+            symTab[return_var_name] = symTab[step["val_var_name"]]
+            # print("return var.....", step["val_var_name"], "[val:", symTab[step["val_var_name"]])
+            # print("return result to .....", return_var_name, "[val:", symTab[return_var_name])
 
-    if return_var_name != "":
-        symTab[return_var_name] = symTab[step["val_var_name"]]
-        # print("return var.....", step["val_var_name"], "[val:", symTab[step["val_var_name"]])
-        # print("return result to .....", return_var_name, "[val:", symTab[return_var_name])
-
-    # restoer original fin and fout.
-    symTab["fin"] = stack.pop()
-    symTab["fout"] = stack.pop()
+        # restoer original fin and fout.
+        symTab["fin"] = stack.pop()
+        symTab["fout"] = stack.pop()
 
 
-    #  set the pointer to the return to pointer.
-    next_i = stack.pop()
-    print("after return, will run @", next_i)
+        #  set the pointer to the return to pointer.
+        next_i = stack.pop()
+        print("after return, will run @", next_i)
 
-    return next_i
+    except:
+        ex_stat = "ErrorReturn:" + str(i)
+
+    return next_i, ex_stat
 
 
 # this is a stub/marker for end of if-else, end of function, end of loop etc. SC - 20230723 total mistake of this function....
 # whatever written here should be in address generation.
 def processStub(step, i, stack, sk_stack, sk_table, step_keys):
-    next_i = i + 1
+    ex_stat = "success:0"
+    try:
+        next_i = i + 1
 
-    # note, end condition, else, end loop will not even exist because they will be replaced by "Goto" during
-    # the gen_addresses step.
-    if step["stub_name"] == "end function":
-        # restore caller's fin and fout.
-        # when reaching here, there is nothing to return. so, the return receiver var is a junk.
-        junk = stack.pop()
+        # note, end condition, else, end loop will not even exist because they will be replaced by "Goto" during
+        # the gen_addresses step.
+        if step["stub_name"] == "end function":
+            # restore caller's fin and fout.
+            # when reaching here, there is nothing to return. so, the return receiver var is a junk.
+            junk = stack.pop()
 
-        # restore fin and fout.
-        symTab["fin"] = stack.pop()
-        symTab["fout"] = stack.pop()
-
-        #  set the pointer to the return to pointer.
-        next_i = stack.pop()
-
-    if step["stub_name"] == "end skill":
-        print("end of a skill", step["func_name"], "reached.")
-        if len(sk_stack) == 0:
-            #set next_i to be a huage number, that wuold stop the code.
-            next_i = MAX_STEPS
-        else:
-            junk = sk_stack.pop()
-
-            return_var_name = stack.pop()
-            if return_var_name != "" and step["fargs"] != "":
-                symTab[return_var_name] = symTab[step["fargs"]]             # assign return value
-
+            # restore fin and fout.
             symTab["fin"] = stack.pop()
             symTab["fout"] = stack.pop()
 
             #  set the pointer to the return to pointer.
             next_i = stack.pop()
 
-    return next_i
+        if step["stub_name"] == "end skill":
+            print("end of a skill", step["func_name"], "reached.")
+            if len(sk_stack) == 0:
+                #set next_i to be a huage number, that wuold stop the code.
+                next_i = MAX_STEPS
+            else:
+                junk = sk_stack.pop()
+
+                return_var_name = stack.pop()
+                if return_var_name != "" and step["fargs"] != "":
+                    symTab[return_var_name] = symTab[step["fargs"]]             # assign return value
+
+                symTab["fin"] = stack.pop()
+                symTab["fout"] = stack.pop()
+
+                #  set the pointer to the return to pointer.
+                next_i = stack.pop()
+
+    except:
+        ex_stat = "ErrorStub:" + str(i)
+
+    return next_i, ex_stat
 
 
 def processGoto(step, i,  step_keys):
-    step_keys.index(step["goto"])
-    return step_keys.index(step["goto"])
+    ex_stat = "success:0"
+    try:
+        step_keys.index(step["goto"])
+
+    except:
+        ex_stat = "ErrorGoTo:" + str(i)
+
+    return step_keys.index(step["goto"]), ex_stat
 
 
 def processListDir(step, i):
-    lof = os.listdir(step["dir"])
-    symTab[step["result"]] = [f for f in lof if x.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
-    return i + 1
+    ex_stat = "success:0"
+    try:
+        lof = os.listdir(step["dir"])
+        symTab[step["result"]] = [f for f in lof if x.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
+
+    except:
+        ex_stat = "ErrorListDir:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 def processCheckExistence(step, i):
-    if "var" in step["fntype"]:
-        fn = symTab[step["file"]]
-    else:
-        fn = step["file"]
-    print("check existence for :", fn, "of type:", step["fntype"])
-    if "dir" in  step["fntype"]:
-        symTab[step["result"]] = os.path.isdir(fn)
-    else:
-        symTab[step["result"]] = os.path.isfile(fn)
+    ex_stat = "success:0"
+    try:
+        if "var" in step["fntype"]:
+            fn = symTab[step["file"]]
+        else:
+            fn = step["file"]
+        print("check existence for :", fn, "of type:", step["fntype"])
+        if "dir" in  step["fntype"]:
+            symTab[step["result"]] = os.path.isdir(fn)
+        else:
+            symTab[step["result"]] = os.path.isfile(fn)
 
-    print("Existence is:", symTab[step["result"]])
-    return i + 1
+        print("Existence is:", symTab[step["result"]])
+
+    except:
+        ex_stat = "ErrorListDir:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 def processCreateDir(step, i):
-    subds = step["dir"].split("/")
-    if len(subds) == 1:
-        newdir = symTab[step["dir"]]
-    else:
-        newdir = step["dir"]
+    ex_stat = "success:0"
+    try:
+        subds = step["dir"].split("/")
+        if len(subds) == 1:
+            newdir = symTab[step["dir"]]
+        else:
+            newdir = step["dir"]
 
-    print("Creating dir:", newdir)
-    if not os.path.exists(newdir):
-        #create only if the dir doesn't exist
-        os.makedirs(newdir)
-        print("Created.....")
-    else:
-        print("Already existed.")
-    return i + 1
+        print("Creating dir:", newdir)
+        if not os.path.exists(newdir):
+            #create only if the dir doesn't exist
+            os.makedirs(newdir)
+            print("Created.....")
+        else:
+            print("Already existed.")
+
+    except:
+        ex_stat = "ErrorListDir:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 # run 7z for the zip and unzip.
 def process7z(step, i):
-    if step["var_type"] == "direct":
-        exe = step["exe_var"]
-        input = step["in_var"]
-        output_dir = step["out_path"]
-        out_file = step["out_var"]
-    else:
-        exe = symTab[step["exe_var"]]
-        input = symTab[step["in_var"]]
-        output_dir = symTab[step["out_path"]]
-        out_file = symTab[step["out_var"]]
-
-    if step["action"] == "zip":
-        if output_dir != "":
-
-            symTab[step["result"]] = subprocess.call(exe + " a " + input + "-o" + output_dir)
+    ex_stat = "success:0"
+    try:
+        if step["var_type"] == "direct":
+            exe = step["exe_var"]
+            input = step["in_var"]
+            output_dir = step["out_path"]
+            out_file = step["out_var"]
         else:
-            symTab[step["result"]] = subprocess.call(exe + " e " + input)
+            exe = symTab[step["exe_var"]]
+            input = symTab[step["in_var"]]
+            output_dir = symTab[step["out_path"]]
+            out_file = symTab[step["out_var"]]
 
-    elif step["action"] == "unzip":
-        if output_dir != "":
-            print("executing....", exe + " e " + input + " -o" + output_dir)
-            # output_dir = "-o"+output_dir
-            print("outputdir:", output_dir)
-            # extremely key here, there should be no "" around Program Files....
-            cmd = ['C:/Program Files/7-Zip/7z.exe', 'e', input,  f'-o{output_dir}']
-            symTab[step["result"]] = subprocess.Popen(cmd)
-            # symTab[step["result"]] = subprocess.run(exe + " e " + input + " -o" + output_dir)
-            # symTab[step["result"]] = subprocess.Popen(['C:/Program Files/7-Zip/7z.exe'])
-        else:
-            symTab[step["result"]] = subprocess.call(exe + " e " + input)
+        if step["action"] == "zip":
+            if output_dir != "":
 
-    return i + 1
+                symTab[step["result"]] = subprocess.call(exe + " a " + input + "-o" + output_dir)
+            else:
+                symTab[step["result"]] = subprocess.call(exe + " e " + input)
+
+        elif step["action"] == "unzip":
+            if output_dir != "":
+                print("executing....", exe + " e " + input + " -o" + output_dir)
+                # output_dir = "-o"+output_dir
+                print("outputdir:", output_dir)
+                # extremely key here, there should be no "" around Program Files....
+                cmd = ['C:/Program Files/7-Zip/7z.exe', 'e', input,  f'-o{output_dir}']
+                symTab[step["result"]] = subprocess.Popen(cmd)
+                # symTab[step["result"]] = subprocess.run(exe + " e " + input + " -o" + output_dir)
+                # symTab[step["result"]] = subprocess.Popen(['C:/Program Files/7-Zip/7z.exe'])
+            else:
+                symTab[step["result"]] = subprocess.call(exe + " e " + input)
+
+    except:
+        ex_stat = "Error7z:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 # create a data structure holder for anchor....
@@ -1809,64 +1951,70 @@ def process7z(step, i):
 def processSearchAnchorInfo(step, i):
     print("Searching....", step["target_types"])
     global in_exception
-    scrn = symTab[step["screen"]]
-    target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
-    target_types = step["target_types"]
-    logic = step["logic"]
+    ex_stat = "success:0"
+    try:
+        scrn = symTab[step["screen"]]
+        target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
+        target_types = step["target_types"]
+        logic = step["logic"]
 
-    fault_names = ["site_not_reached", "bad_request"]
-    fault_found = []
+        fault_names = ["site_not_reached", "bad_request"]
+        fault_found = []
 
-    found = []
-    n_targets_found = 0
+        found = []
+        n_targets_found = 0
 
-    # print("Searching screen....", scrn)
+        # print("Searching screen....", scrn)
 
-    if not (type(target_names) is list):
-        target_names = [step["names"]]  # make it a list.
-        target_types = [step["target_types"]]
+        if not (type(target_names) is list):
+            target_names = [step["names"]]  # make it a list.
+            target_types = [step["target_types"]]
 
-    # now do the search
-    for target_name, target_type in zip(target_names, target_types):
-        print("searching: ", target_name, ", ", target_type, "==================")
-        targets_found = [element for index, element in enumerate(scrn) if
-                         element["name"] == target_name and element["type"] == target_type]
-        if len(targets_found) > 0:
-            n_targets_found = n_targets_found + 1
-        found = found + targets_found
+        # now do the search
+        for target_name, target_type in zip(target_names, target_types):
+            print("searching: ", target_name, ", ", target_type, "==================")
+            targets_found = [element for index, element in enumerate(scrn) if
+                             element["name"] == target_name and element["type"] == target_type]
+            if len(targets_found) > 0:
+                n_targets_found = n_targets_found + 1
+            found = found + targets_found
 
-    # reg = re.compile(target_names + "[0-9]+")
-    # found = [element for index, element in enumerate(scrn["data"]) if reg.match(element["name"]) and element["type"] == target_types]
+        # reg = re.compile(target_names + "[0-9]+")
+        # found = [element for index, element in enumerate(scrn["data"]) if reg.match(element["name"]) and element["type"] == target_types]
 
-    print("found.... ", found)
-    # search result should be put into the result variable.
-    symTab[step["result"]] = found
+        print("found.... ", found)
+        # search result should be put into the result variable.
+        symTab[step["result"]] = found
 
-    if logic == "any":
-        if len(found) == 0:
-            symTab[step["status"]] = False
+        if logic == "any":
+            if len(found) == 0:
+                symTab[step["status"]] = False
+            else:
+                symTab[step["status"]] = True
         else:
-            symTab[step["status"]] = True
-    else:
-        # treat everything else as "all" logic.
-        if n_targets_found < len(target_names):
-            symTab[step["status"]] = False
-        else:
-            symTab[step["status"]] = True
+            # treat everything else as "all" logic.
+            if n_targets_found < len(target_names):
+                symTab[step["status"]] = False
+            else:
+                symTab[step["status"]] = True
 
-    print("status: ", symTab[step["status"]])
+        print("status: ", symTab[step["status"]])
 
-    # didn't find anything, check fault situation.
-    if symTab[step["status"]] == False:
-        fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
-        site_conn = ping(step["site"])
-        if len(fault_found) > 0 or (not site_conn):
-            # exception has occured, flag it.
-            in_exception = True
+        # didn't find anything, check fault situation.
+        if symTab[step["status"]] == False:
+            fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
+            site_conn = ping(step["site"])
+            if len(fault_found) > 0 or (not site_conn):
+                # exception has occured, flag it.
+                in_exception = True
 
-    if step["breakpoint"]:
-        input("type any key to continuue")
-    return i + 1
+        if step["breakpoint"]:
+            input("type any key to continuue")
+
+    except:
+        ex_stat = "ErrorSearchAnchorInfo:" + str(i)
+
+    return (i + 1), ex_stat
 
 def matched_loc(pattern, text):
     match = re.search(pattern, text)
@@ -1882,85 +2030,91 @@ def matched_loc(pattern, text):
 def processSearchWordLine(step, i):
     print("Searching....words and/or lines", step["target_type"])
     global in_exception
-    scrn = symTab[step["screen"]]
-    target_name = step["target_name"]           #contains anchor/info name, or the text string to matched against.
-    target_type = step["target_type"]
+    ex_stat = "success:0"
+    try:
+        scrn = symTab[step["screen"]]
+        target_name = step["target_name"]           #contains anchor/info name, or the text string to matched against.
+        target_type = step["target_type"]
 
-    pattern = symTab[step["template_var"]]
+        pattern = symTab[step["template_var"]]
 
-    fault_names = ["site_not_reached", "bad_request"]
-    fault_found = []
+        fault_names = ["site_not_reached", "bad_request"]
+        fault_found = []
 
-    found = []
-    n_targets_found = 0
+        found = []
+        n_targets_found = 0
 
-    # print("Searching screen....", scrn)
+        # print("Searching screen....", scrn)
 
-    # now do the search
-    print("searching: ", target_name, ", ", target_type, "==================")
-    infos = [element for index, element in enumerate(scrn) if element["type"] == target_type and element["name"] == target_name]
+        # now do the search
+        print("searching: ", target_name, ", ", target_type, "==================")
+        infos = [element for index, element in enumerate(scrn) if element["type"] == target_type and element["name"] == target_name]
 
-    for info in infos:
+        for info in infos:
 
-        match = re.search(pattern, info["text"])
+            match = re.search(pattern, info["text"])
 
-        if match:
+            if match:
 
-            # Pattern found, get the starting index of the match
-            index = match.start()
-            print("pattern found @ index", index, "["+info["text"].strip()+"]", "location:", info["loc"])
-            if index == 0:
-                loc = [info["loc"][1], info["loc"][0] + int((info["loc"][2] - info["loc"][0])/2)]
-                found.append(loc)
-            else:
-                words = info["text"].strip().split(" ")
-                if len(words) == 1:
-                    wordlen = len(info["text"].strip()) - 1
-                    print("# of Char gaps:", wordlen)
-                    gap = int((info["loc"][3] - info["loc"][1])/wordlen)
-                    loc = [info["loc"][1] + gap * index, info["loc"][0] + int((info["loc"][2] - info["loc"][0]) / 2)]
+                # Pattern found, get the starting index of the match
+                index = match.start()
+                print("pattern found @ index", index, "["+info["text"].strip()+"]", "location:", info["loc"])
+                if index == 0:
+                    loc = [info["loc"][1], info["loc"][0] + int((info["loc"][2] - info["loc"][0])/2)]
+                    found.append(loc)
                 else:
-                    print("# of words:", (len(words)-1))
-                    gap = int((info["loc"][3] - info["loc"][1]) / (len(words)-1))
-                    n = 0
-                    subidxs = []
+                    words = info["text"].strip().split(" ")
+                    if len(words) == 1:
+                        wordlen = len(info["text"].strip()) - 1
+                        print("# of Char gaps:", wordlen)
+                        gap = int((info["loc"][3] - info["loc"][1])/wordlen)
+                        loc = [info["loc"][1] + gap * index, info["loc"][0] + int((info["loc"][2] - info["loc"][0]) / 2)]
+                    else:
+                        print("# of words:", (len(words)-1))
+                        gap = int((info["loc"][3] - info["loc"][1]) / (len(words)-1))
+                        n = 0
+                        subidxs = []
 
-                    for i in range(len(words)):
-                        subidxs.append(n)
-                        n = n + len(words[i]) + 1
+                        for i in range(len(words)):
+                            subidxs.append(n)
+                            n = n + len(words[i]) + 1
 
-                    index = next((i for i, w in enumerate(subidxs) if matched_loc(pattern, info["text"][w:]) == 0), -1)
-                    print("subidxs:", subidxs, "found word index:", index, "gap is:", gap)
-                    if index >= 0:
-                        loc = [info["loc"][1]+gap*index, info["loc"][0] + int((info["loc"][2] - info["loc"][0])/2)]
-                found.append(loc)
+                        index = next((i for i, w in enumerate(subidxs) if matched_loc(pattern, info["text"][w:]) == 0), -1)
+                        print("subidxs:", subidxs, "found word index:", index, "gap is:", gap)
+                        if index >= 0:
+                            loc = [info["loc"][1]+gap*index, info["loc"][0] + int((info["loc"][2] - info["loc"][0])/2)]
+                    found.append(loc)
+            else:
+                print("pattern NOT FOUND")
+        # reg = re.compile(target_names + "[0-9]+")
+        # found = [element for index, element in enumerate(scrn["data"]) if reg.match(element["name"]) and element["type"] == target_types]
+
+        print("found.... ", found)
+        # search result should be put into the result variable.
+        symTab[step["result"]] = found
+
+        if len(found) == 0:
+            symTab[step["status"]] = False
         else:
-            print("pattern NOT FOUND")
-    # reg = re.compile(target_names + "[0-9]+")
-    # found = [element for index, element in enumerate(scrn["data"]) if reg.match(element["name"]) and element["type"] == target_types]
+            symTab[step["status"]] = True
 
-    print("found.... ", found)
-    # search result should be put into the result variable.
-    symTab[step["result"]] = found
+        print("status: ", symTab[step["status"]])
 
-    if len(found) == 0:
-        symTab[step["status"]] = False
-    else:
-        symTab[step["status"]] = True
+        # didn't find anything, check fault situation.
+        if symTab[step["status"]] == False:
+            fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
+            site_conn = ping(step["site"])
+            if len(fault_found) > 0 or (not site_conn):
+                # exception has occured, flag it.
+                in_exception = True
 
-    print("status: ", symTab[step["status"]])
+        if step["breakpoint"]:
+            input("type any key to continuue")
 
-    # didn't find anything, check fault situation.
-    if symTab[step["status"]] == False:
-        fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
-        site_conn = ping(step["site"])
-        if len(fault_found) > 0 or (not site_conn):
-            # exception has occured, flag it.
-            in_exception = True
+    except:
+        ex_stat = "ErrorSearchWordLine:" + str(i)
 
-    if step["breakpoint"]:
-        input("type any key to continuue")
-    return i + 1
+    return (i + 1), ex_stat
 
 # this is a convinience function.
 # scroll anchor nearest to the north of at_location, to the target loction.
@@ -1979,44 +2133,48 @@ def processSearchWordLine(step, i):
 def processSearchScroll(step, i):
 
     print("Searching....", step["anchor"])
+    ex_stat = "success:0"
+    try:
+        scrn = symTab[step["screen"]]
+        anchor = step["anchor"]
+        at_loc_top = int(step["at_loc"][0])/100
+        at_loc_bottom = int(step["at_loc"][1]) / 100
+        target_loc = int(step["target_loc"])/100
+        scroll_resolution = step["resolution"]
+        screensize = (scrn[len(scrn)-2]["loc"][2], scrn[len(scrn)-2]["loc"][3])
+        print("screen size: ", screensize, "scroll resolution: ", symTab[scroll_resolution], " target_loc:", target_loc)
 
-    scrn = symTab[step["screen"]]
-    anchor = step["anchor"]
-    at_loc_top = int(step["at_loc"][0])/100
-    at_loc_bottom = int(step["at_loc"][1]) / 100
-    target_loc = int(step["target_loc"])/100
-    scroll_resolution = step["resolution"]
-    screensize = (scrn[len(scrn)-2]["loc"][2], scrn[len(scrn)-2]["loc"][3])
-    print("screen size: ", screensize, "scroll resolution: ", symTab[scroll_resolution], " target_loc:", target_loc)
+        at_loc_top_v = int(screensize[0]*at_loc_top)
+        at_loc_bottom_v = int(screensize[0] * at_loc_bottom)
+        target_loc_v = int(screensize[0]*target_loc)
+        print(" target_loc_V: ", target_loc_v, "at_loc_top_v: ", at_loc_top_v, "at_loc_bottom_v: ", at_loc_bottom_v)
 
-    at_loc_top_v = int(screensize[0]*at_loc_top)
-    at_loc_bottom_v = int(screensize[0] * at_loc_bottom)
-    target_loc_v = int(screensize[0]*target_loc)
-    print(" target_loc_V: ", target_loc_v, "at_loc_top_v: ", at_loc_top_v, "at_loc_bottom_v: ", at_loc_bottom_v)
+        # find all anchors matches the name and above the at_loc
+        print("finding....:", anchor)
+        anyancs = [element for index, element in enumerate(scrn) if element["name"] == anchor]
+        print("found any anchorss: ", anyancs)
+        ancs = [element for index, element in enumerate(scrn) if element["name"] == anchor and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
+        print("found anchorss in bound: ", ancs)
+        if len(ancs) > 0:
+            # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
+            vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
+            print("FFOUND: ", vsorted[0])
+            offset = round((target_loc_v - vsorted[0]["loc"][2])/symTab[scroll_resolution])
+            print("calculated offset: ", offset, "setting flag var [", step["flag"], "] to be TRUE....")
+            symTab[step["flag"]] = True
+        else:
+            # if anchor is not on the page, set the flag and scroll down 90 of a screen
+            offset = 0-round(screensize[0]*0.5/symTab[scroll_resolution])
+            symTab[step["flag"]] = False
+            print("KEEP scrolling calculated offset: ", offset, "setting flag var [", step["flag"], "] to be FALSE....")
 
-    # find all anchors matches the name and above the at_loc
-    print("finding....:", anchor)
-    anyancs = [element for index, element in enumerate(scrn) if element["name"] == anchor]
-    print("found any anchorss: ", anyancs)
-    ancs = [element for index, element in enumerate(scrn) if element["name"] == anchor and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
-    print("found anchorss in bound: ", ancs)
-    if len(ancs) > 0:
-        # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
-        vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
-        print("FFOUND: ", vsorted[0])
-        offset = round((target_loc_v - vsorted[0]["loc"][2])/symTab[scroll_resolution])
-        print("calculated offset: ", offset, "setting flag var [", step["flag"], "] to be TRUE....")
-        symTab[step["flag"]] = True
-    else:
-        # if anchor is not on the page, set the flag and scroll down 90 of a screen
-        offset = 0-round(screensize[0]*0.5/symTab[scroll_resolution])
-        symTab[step["flag"]] = False
-        print("KEEP scrolling calculated offset: ", offset, "setting flag var [", step["flag"], "] to be FALSE....")
+        mouse.scroll(0, offset)
+        time.sleep(step["postwait"])
 
-    mouse.scroll(0, offset)
-    time.sleep(step["postwait"])
+    except:
+        ex_stat = "ErrorSearchScroll:" + str(i)
 
-    return i + 1
+    return (i + 1), ex_stat
 
 
 # this routine scroll until certain a product is right in the middle of the screen and capture its information.
@@ -2024,7 +2182,7 @@ def processSearchScroll(step, i):
 # target_anchor: to anchor to adjust postion to
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
 def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, page, sect, site, theme):
-    psk_words = ""
+    ex_stat = "success:0"
     print("DEBUG", "gen_psk_for_scroll_down_until...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
@@ -2154,86 +2312,91 @@ def get_save_button_loc(result):
 def processSaveHtml(step, i, mission, skill):
     global screen_loc
     print("Saving web page to a local html file .....", step)
+    ex_stat = "success:0"
+    try:
+        dtnow = datetime.now()
 
-    dtnow = datetime.now()
+        date_word = dtnow.strftime("%Y%m%d")
+        print("date word:", date_word)
 
-    date_word = dtnow.strftime("%Y%m%d")
-    print("date word:", date_word)
+        fdir = step["settings"]["root_path"] + "/runlogs/"
+        fdir = fdir + date_word + "/"
 
-    fdir = step["settings"]["root_path"] + "/runlogs/"
-    fdir = fdir + date_word + "/"
+        platform = mission.getPlatform()
+        app = mission.getApp()
+        site = mission.getSite()
 
-    platform = mission.getPlatform()
-    app = mission.getApp()
-    site = mission.getSite()
+        fdir = fdir + "b" + str(step["settings"]["mid"]) + "m" + str(step["settings"]["botid"]) + "/"
+        # fdir = fdir + ppword + "/"
+        fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
+        # fdir = fdir + skill.getName() + "/webpages/"
+        fdir = fdir + skill.getName()
 
-    fdir = fdir + "b" + str(step["settings"]["mid"]) + "m" + str(step["settings"]["botid"]) + "/"
-    # fdir = fdir + ppword + "/"
-    fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
-    # fdir = fdir + skill.getName() + "/webpages/"
-    fdir = fdir + skill.getName()
+        hfile = fdir + "/" + step["local"]
 
-    hfile = fdir + "/" + step["local"]
-
-    symTab[step["html_var"]] = hfile
-    print("hfile: ", hfile)
-
-
-    # now save the web page into a file.
-    pyautogui.hotkey('ctrl', 's')
-
-    # wait till the dialog windows is shown on screen
-    time.sleep(3)
-
-    # now a file save dialog box will show up on screen, analyze it to figure out where to type and click.
-    ni = processExtractInfo(step, i, mission, skill)
-
-    # get ready the html file path and the file name
-    html_file_dir_name = fdir
-    print("html_file_dir_name: ", html_file_dir_name)
-
-    html_file_name = step["local"].split(".")[0]
-    print("html_file_name: ", html_file_name)
+        symTab[step["html_var"]] = hfile
+        print("hfile: ", hfile)
 
 
-    # locate the html file directory path input text box
-    html_file_dir_loc = get_html_file_dir_loc(symTab[step["data_sink"]])
-    print("html_file_dir_loc: ", html_file_dir_loc)
-    pyautogui.moveTo(html_file_dir_loc[0]+screen_loc[0], html_file_dir_loc[1]+screen_loc[1])
-    # pyautogui.click(clicks=2)
-    pyautogui.click()
-    time.sleep(2)
-    for i in range(50):
-        pyautogui.press('backspace')
-    time.sleep(2)
-    pyautogui.write(html_file_dir_name)
-    time.sleep(5)
-    pyautogui.press('enter')
+        # now save the web page into a file.
+        pyautogui.hotkey('ctrl', 's')
 
-    # locate the file name input text box
-    html_file_name_loc = get_html_file_name_loc(symTab[step["data_sink"]])
-    print("html_file_name_loc: ", html_file_name_loc)
-    pyautogui.moveTo(html_file_name_loc[0]+screen_loc[0], html_file_name_loc[1]+screen_loc[1])
-    pyautogui.click()
-    time.sleep(2)
-    pyautogui.click()
-    pyautogui.click(clicks=2)
-    time.sleep(2)
-    for i in range(50):
-        pyautogui.press('backspace')
-    pyautogui.write(html_file_name)
-    time.sleep(2)
-    # pyautogui.press('enter')
+        # wait till the dialog windows is shown on screen
+        time.sleep(3)
 
-    # locate the save button
-    save_button_loc = get_save_button_loc(symTab[step["data_sink"]])
-    print("save_button_loc: ", save_button_loc)
-    pyautogui.moveTo(save_button_loc[0]+screen_loc[0], save_button_loc[1]+screen_loc[1])
-    time.sleep(2)
-    pyautogui.click()
+        # now a file save dialog box will show up on screen, analyze it to figure out where to type and click.
+        ni = processExtractInfo(step, i, mission, skill)
 
-    # give enough to save html, as it could take some time.
-    time.sleep(65)
+        # get ready the html file path and the file name
+        html_file_dir_name = fdir
+        print("html_file_dir_name: ", html_file_dir_name)
+
+        html_file_name = step["local"].split(".")[0]
+        print("html_file_name: ", html_file_name)
+
+
+        # locate the html file directory path input text box
+        html_file_dir_loc = get_html_file_dir_loc(symTab[step["data_sink"]])
+        print("html_file_dir_loc: ", html_file_dir_loc)
+        pyautogui.moveTo(html_file_dir_loc[0]+screen_loc[0], html_file_dir_loc[1]+screen_loc[1])
+        # pyautogui.click(clicks=2)
+        pyautogui.click()
+        time.sleep(2)
+        for i in range(50):
+            pyautogui.press('backspace')
+        time.sleep(2)
+        pyautogui.write(html_file_dir_name)
+        time.sleep(5)
+        pyautogui.press('enter')
+
+        # locate the file name input text box
+        html_file_name_loc = get_html_file_name_loc(symTab[step["data_sink"]])
+        print("html_file_name_loc: ", html_file_name_loc)
+        pyautogui.moveTo(html_file_name_loc[0]+screen_loc[0], html_file_name_loc[1]+screen_loc[1])
+        pyautogui.click()
+        time.sleep(2)
+        pyautogui.click()
+        pyautogui.click(clicks=2)
+        time.sleep(2)
+        for i in range(50):
+            pyautogui.press('backspace')
+        pyautogui.write(html_file_name)
+        time.sleep(2)
+        # pyautogui.press('enter')
+
+        # locate the save button
+        save_button_loc = get_save_button_loc(symTab[step["data_sink"]])
+        print("save_button_loc: ", save_button_loc)
+        pyautogui.moveTo(save_button_loc[0]+screen_loc[0], save_button_loc[1]+screen_loc[1])
+        time.sleep(2)
+        pyautogui.click()
+
+        # give enough to save html, as it could take some time.
+        time.sleep(65)
 
     # ni is already incremented by processExtract(), so simply return it.
-    return ni
+    except:
+        ex_stat = "ErrorSaveHtml:" + str(i)
+
+    return ni, ex_stat
+
