@@ -135,7 +135,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "collect_orders",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_etsy_orders/collect_orders.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_etsy_orders/collect_orders.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -154,9 +154,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -584,7 +584,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_etsy_orders!collect_orders!"
@@ -769,6 +769,7 @@
     "random_min": 0,
     "random_max": 0,
     "breakpoint": false,
+    "postwait": 0.5,
     "unit": "screen"
 },
 "step 170":
@@ -788,7 +789,7 @@
 "step 180":
 {
     "type": "Create Dir",
-    "dir": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
+    "dir": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
     "result": "fileStatus"
 },
 "step 185":
@@ -806,7 +807,7 @@
     "data_type": "expr",
     "data_name": "file_save_input",
     "key_name": "NA",
-    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_etsy_orders/skills/collect_orders/', 'etsyOrders1696197939.html']"
+    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/collect_orders/', 'etsyOrders1700428540.html']"
 },
 "step 195":
 {
@@ -827,7 +828,7 @@
 {
     "type": "ETSY Scrape Orders",
     "pidx": "currentPage",
-    "html_file": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1696197939.html",
+    "html_file": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1700428540.html",
     "result": "pageOfOrders",
     "status": ""
 },

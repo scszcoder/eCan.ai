@@ -120,7 +120,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "update_tracking",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_etsy_orders/update_tracking.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_etsy_orders/update_tracking.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -139,9 +139,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -569,7 +569,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_etsy_orders!update_tracking!"
@@ -700,7 +700,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "update_tracking",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_chrome_etsy_orders/update_tracking.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_etsy_orders/update_tracking.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -719,9 +719,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/update_tracking/",
         "platform": "win",
         "site": "etsy",
         "app": "chrome",
@@ -1149,7 +1149,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_chrome_etsy_orders!update_tracking!"
@@ -1324,6 +1324,7 @@
     "random_min": 0,
     "random_max": 0,
     "breakpoint": false,
+    "postwait": 0.5,
     "unit": "screen"
 },
 "step 190":

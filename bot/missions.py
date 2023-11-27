@@ -39,13 +39,6 @@ class M_Action_Items():
 
         self.tasks = []
 
-        # self.
-
-    def run(self):
-        self.abc = 1
-
-
-
 
 class M_Private_Attributes():
     def __init__(self):
