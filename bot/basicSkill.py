@@ -1778,7 +1778,6 @@ def process7z(step, i):
 
     if step["action"] == "zip":
         if output_dir != "":
-
             symTab[step["result"]] = subprocess.call(exe + " a " + input + "-o" + output_dir)
         else:
             symTab[step["result"]] = subprocess.call(exe + " e " + input)
@@ -1789,7 +1788,7 @@ def process7z(step, i):
             # output_dir = "-o"+output_dir
             print("outputdir:", output_dir)
             # extremely key here, there should be no "" around Program Files....
-            cmd = ['C:/Program Files/7-Zip/7z.exe', 'e', input,  f'-o{output_dir}']
+            cmd = [exe, 'e', input,  f'-o{output_dir}']
             symTab[step["result"]] = subprocess.Popen(cmd)
             # symTab[step["result"]] = subprocess.run(exe + " e " + input + " -o" + output_dir)
             # symTab[step["result"]] = subprocess.Popen(['C:/Program Files/7-Zip/7z.exe'])
