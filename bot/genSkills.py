@@ -86,7 +86,7 @@ def getWorkSettings(lieutenant, bot_works):
     name_space = "B" + str(bot_id) + "M" + str(mission_id) + "!" + "" + "!"
 
     run_config = works[tz][bidx][grp][idx]["config"]
-    root_path = lieutenant.homepath
+    root_path = lieutenant.home_path
 
     dtnow = datetime.now()
 

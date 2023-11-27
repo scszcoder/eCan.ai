@@ -149,7 +149,7 @@ class PROCEDURAL_SKILL(QtGui.QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.pageName = "AMZ"
-        self.homepath = parent.homepath
+        self.homepath = parent.home_path
         self.steps = None
         self.setText(self.pageName)
         self.icon = QtGui.QIcon(self.homepath+'/resource/skills-78.png')
@@ -159,7 +159,7 @@ class PROCEDURAL_SKILL(QtGui.QStandardItem):
         self.nameSpace = ""
         self.parent = parent
         self.path = "resource/skills/public/"
-        self.homepath = self.parent.homepath
+        self.homepath = self.parent.home_path
 
 
     def getSteps(self):
@@ -206,7 +206,7 @@ class WORKSKILL(QtGui.QStandardItem):
         self.owner = 0
         self.price = 0
         self.parent = parent
-        self.homepath = parent.homepath
+        self.homepath = parent.home_path
         self.price_model = ""
         self.price_model = ""
         self.path = "/resource/skills/public/"

@@ -23,6 +23,7 @@ from WorkSkill import *
 from readSkill import *
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
+from config.app_info import app_info
 
 
 INSTALLED_PATH = ""
@@ -540,7 +541,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         super(SkillGUI, self).__init__(parent)
 
         self.newSkill = None
-        self.homepath = os.environ.get("ECBOT_HOME")
+        self.home_path = app_info.app_home_path
         self.skill_path = ""
         self.parent = parent
 
@@ -588,7 +589,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         # self.pbmainwin.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
 
         self.pic = QtWidgets.QGraphicsPixmapItem()
-        file_name = self.homepath + "resource/skills/temp/step1.png"
+        file_name = self.home_path + "resource/skills/temp/step1.png"
         self.load_image_file(file_name)
 
         img_size = self.pic.pixmap().size()
@@ -1638,24 +1639,24 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def start_train(self):
         print("start training...")
-        file_name = self.homepath + "resource/songc_yahoo/win/chrome_amz_main/temp/step1.png"
+        file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step1.png"
         self.req_train(file_name)
 
     def train_next_step(self):
         self.step_count = self.step_count + 1
-        file_name = self.homepath + "resource/songc_yahoo/win/chrome_amz_main/temp/step" + str(self.step_count) + ".png"
+        file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step" + str(self.step_count) + ".png"
         print("next step... ", self.step_count)
         self.req_train(file_name)
 
     def train_prev_step(self):
         self.step_count = self.step_count - 1
-        file_name = self.homepath + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
+        file_name = self.home_path + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
         print("prev step... ", self.step_count)
         self.req_train(file_name)
 
     def re_train_step(self):
         print("refresh... ", self.step_count)
-        file_name = self.homepath + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
+        file_name = self.home_path + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
         self.req_train(file_name)
 
     def remove_all_rects(self):
