@@ -13,7 +13,6 @@ import json
 from os.path import exists
 import locale
 from MainGUI import *
-from PlatoonMainGUI import *
 from pycognito.aws_srp import AWSSRP
 # from envi import *
 from Cloud import *

@@ -98,7 +98,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "unzip_archive",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -117,9 +117,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -547,7 +547,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
@@ -646,7 +646,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "unzip_archive",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -665,9 +665,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -1095,7 +1095,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
@@ -1140,7 +1140,7 @@
     "type": "Extract Info",
     "settings": {
         "skname": "unzip_archive",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
+        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_rar_local_unzip/unzip_archive.psk",
         "cargs": "",
         "botid": 3,
         "seller": {
@@ -1159,9 +1159,9 @@
         "run_config": {
             "estRunTime": 1
         },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20231001/b3m3/win_rar_local_unzip/skills/unzip_archive/",
+        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
+        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
+        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_rar_local_unzip/skills/unzip_archive/",
         "platform": "win",
         "site": "local",
         "app": "rar",
@@ -1589,7 +1589,7 @@
         ],
         "rpaName": "sell",
         "wifis": [
-            "ARRIS-8679"
+            "OrbiSongChenHome"
         ],
         "options": "{}",
         "name_space": "B3M3!win_rar_local_unzip!unzip_archive!"
