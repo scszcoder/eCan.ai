@@ -1,5 +1,7 @@
 import json
 
+from PySide6.QtGui import QFont
+
 from BotGUI import *
 from MissionGUI import *
 from ScheduleGUI import *
