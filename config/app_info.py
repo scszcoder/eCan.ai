@@ -79,6 +79,8 @@ class AppInfo:
 
     def _appdata_temp_path(self):
         temp_path = os.path.join(tempfile.gettempdir(), "AppData", "Local", "Temp")
+        if not os.path.exists(temp_path):
+            os.makedirs(temp_path)
         print(f"appdata temp path:{temp_path}")
 
         return temp_path

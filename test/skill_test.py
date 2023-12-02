@@ -1,14 +1,77 @@
 import unittest
 
+import pyautogui
+
 from basicSkill import *
 from genSkills import genWinTestSkill1, genWinTestSkill2
 from config.app_settings import app_settings
 from config.app_info import app_info
-from readSkill import prepRunSkill
+from readSkill import prepRunSkill, runAllSteps
+from skill.steps.step_header import StepHeader
+from skill.steps.step_app_open import StepAppOpen, EnumAppOpenAction, EnumAppOpenTargetType
+from skill.steps.step_mouse_scroll import StepMouseScroll, EnumMouseScrollAction, EnumMouseScrollUnit
+from skill.steps.step_stub import StepStub, EnumStubName
+from skill.steps.step_wait import StepWait
 
 
 # 编写测试用例
 class TestSkillFunction(unittest.TestCase):
+    def savePskFile(self, file, psk_words):
+        skf = open(file, "w")
+        skf.write("\n")
+
+        skf.write(psk_words)
+        skf.close()
+
+    def test_mouse_scroll(self):
+        psk_words = "{"
+
+        # header
+        first_step = 0
+        this_step, step_words = StepHeader(first_step, "test mouse scroll", "win", "1.0", "AIPPS LLC",
+                                           "PUBWINFILEOP001", "File Open Dialog Handling for Windows.").gen_step()
+        psk_words = psk_words + step_words
+
+        # 1. stub
+        this_step, step_words = StepStub(this_step, EnumStubName.StartSkill.value, "", "").gen_step()
+        psk_words = psk_words + step_words
+
+        # 2.open app
+        site_url = "https://www.amazon.com"
+        this_step, step_words = StepAppOpen(this_step, EnumAppOpenAction.Run.value, True, EnumAppOpenTargetType.Browser.value, site_url, "",
+                                            "", "direct", "", 5).gen_step()
+        psk_words = psk_words + step_words
+
+        # 3.mouse scroll
+        this_step, step_words = StepMouseScroll(this_step, EnumMouseScrollAction.ScrollDown.value, "screen_info", 100, EnumMouseScrollUnit.Raw.value,
+                                                "scroll_resolution", 0, 0, 0.5, False).gen_step()
+        psk_words = psk_words + step_words
+
+        # 4.wait
+        this_step, step_words = StepWait(this_step, 3, 0, 0).gen_step()
+        psk_words = psk_words + step_words
+
+        # 5.mouse scroll
+        this_step, step_words = StepMouseScroll(this_step, EnumMouseScrollAction.ScrollDown.value, "screen_info", 200,  EnumMouseScrollUnit.Raw.value,
+                                                "scroll_resolution", 0, 0, 0.5, False).gen_step()
+        psk_words = psk_words + step_words
+
+        # dummy
+        psk_words = psk_words + "\"dummy\" : \"\"}"
+        print(psk_words)
+
+        file = app_info.appdata_temp_path + "/test_mouse_sroll.psk"
+        self.savePskFile(file, psk_words)
+
+        print("done generating skill============================>")
+        skodes = [{"ns": "TestMouseScrollSK", "skfile": file}]
+        rpa_script = prepRunSkill(skodes)
+        print("done all address gen.................")
+
+        runAllSteps(rpa_script, None, None)
+
+        print("done testing....")
+
     def test_processSearchWordline(self):
         # test_page0 = [{'name': 'paragraph', 'text': '5 6 7 8 9 10 \n', 'loc': (1870, 2938, 1892, 3254), 'type': 'info 1'}]
         test_page0 = [{'name': 'paragraph', 'text': '12345‘ \n', 'loc': (1869, 3426, 1914, 3747), 'type': 'info 1'}]

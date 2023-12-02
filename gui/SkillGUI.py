@@ -1324,29 +1324,20 @@ class SkillGUI(QtWidgets.QMainWindow):
         # -------- sk layout end ------ #
 
         # ------ main layout ------- #
-        self.vsplitter1 = QtWidgets.QSplitter(Qt.Horizontal)
-        self.vsplitter1.addWidget(self.pbrunWidget)
-        self.vsplitter1.addWidget(self.pbskWidget)
-        self.vsplitter1.addWidget(self.skWidget)
-        self.vsplitter1.setStretchFactor(1, 1)
-        self.vsplitter1.setChildrenCollapsible(0)
-        self.vsplitter1.setChildrenCollapsible(1)
-
-        # self.pblayout = QtWidgets.QHBoxLayout()
-        # self.layout.addLayout(self.pblayout)
-        # self.layout.addLayout(self.sklayout)
         self.layout = QtWidgets.QHBoxLayout()
-        self.layout.addWidget(self.vsplitter1)
+        self.layout.addWidget(self.pbrunWidget, 1)
+        self.layout.addWidget(self.pbskWidget, 1)
+        self.layout.addWidget(self.skWidget, 3)
 
         self.mainWidget = QtWidgets.QWidget()
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
-        app = QtWidgets.QApplication.instance()
-        screen = app.primaryScreen()
-        #print('Screen: %s' % screen.name())
-        size = screen.size()
-        print('Size: %d x %d' % (size.width(), size.height()))
+        # app = QtWidgets.QApplication.instance()
+        # screen = app.primaryScreen()
+        # #print('Screen: %s' % screen.name())
+        # size = screen.size()
+        # print('Size: %d x %d' % (size.width(), size.height()))
 
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
@@ -1359,6 +1350,9 @@ class SkillGUI(QtWidgets.QMainWindow):
         for i, (w1, w2) in enumerate(widgets):
             gridlayout.addWidget(w1, i, 0)
             gridlayout.addWidget(w2, i, 1)
+
+            gridlayout.setAlignment(w1, Qt.AlignmentFlag.AlignVCenter)
+            gridlayout.setAlignment(w2, Qt.AlignmentFlag.AlignVCenter)
 
     def set_pb_mode(self, inmode):
         self.pb_mode = inmode
