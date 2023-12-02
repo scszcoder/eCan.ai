@@ -36,7 +36,6 @@ class SkFCWidget(QWidget):
         self.home_path = app_info.app_home_path
 
         self.createActions()
-
         self.context_menu = self.createMenus()
         # self.createMenuBars()
 
@@ -48,7 +47,6 @@ class SkFCWidget(QWidget):
         self.skfc_scene.itemSelected.connect(self.itemSelected)
 
         self.skfc_view = SkFCView(self.skfc_scene)
-
         self.skfc_toolbox = self.create_toolbox()
         self.skfc_toolbars = SkFCToolBars(self.skfc_scene, self.skfc_view)
 
@@ -197,13 +195,13 @@ class SkFCWidget(QWidget):
 
         layout = QGridLayout()
         layout.addWidget(self.createCellWidget("Conditional", DiagramNormalItem.Conditional), 0, 0)
-        layout.addWidget(self.createCellWidget("Process", DiagramNormalItem.Step), 0, 1)
-        layout.addWidget(self.createCellWidget("Input/Output", DiagramNormalItem.Io), 1, 0)
-        layout.addWidget(self.createCellWidget("Start/End", DiagramNormalItem.StartEnd), 1, 1)
-        layout.addWidget(self.create_text_cell_widget(), 2, 0)
+        layout.addWidget(self.createCellWidget("Process", DiagramNormalItem.Step), 1, 0)
+        layout.addWidget(self.createCellWidget("Input/Output", DiagramNormalItem.Io), 2, 0)
+        layout.addWidget(self.createCellWidget("Start/End", DiagramNormalItem.StartEnd), 3, 0)
+        layout.addWidget(self.create_text_cell_widget(), 4, 0)
 
-        layout.setRowStretch(3, 10)
-        layout.setColumnStretch(2, 10)
+        # layout.setRowStretch(3, 10)
+        # layout.setColumnStretch(2, 10)
 
         diagram_item_widget = QWidget()
         diagram_item_widget.setLayout(layout)
@@ -217,16 +215,16 @@ class SkFCWidget(QWidget):
                                             self.home_path + '/resource/images/skill_editor/background1.png'), 0, 0)
         backgroundLayout.addWidget(
             self.createBackgroundCellWidget("White Grid",
-                                            self.home_path + '/resource/images/skill_editor/background2.png'), 0, 1)
+                                            self.home_path + '/resource/images/skill_editor/background2.png'), 1, 0)
         backgroundLayout.addWidget(
             self.createBackgroundCellWidget("Gray Grid",
-                                            self.home_path + '/resource/images/skill_editor/background3.png'), 1, 0)
+                                            self.home_path + '/resource/images/skill_editor/background3.png'), 2, 0)
         backgroundLayout.addWidget(
             self.createBackgroundCellWidget("No Grid",
-                                            self.home_path + '/resource/images/skill_editor/background4.png'), 1, 1)
+                                            self.home_path + '/resource/images/skill_editor/background4.png'), 3, 0)
 
-        backgroundLayout.setRowStretch(2, 10)
-        backgroundLayout.setColumnStretch(2, 10)
+        # backgroundLayout.setRowStretch(2, 10)
+        # backgroundLayout.setColumnStretch(2, 10)
 
         background_widget = QWidget()
         background_widget.setLayout(backgroundLayout)
