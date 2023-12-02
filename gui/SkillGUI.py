@@ -1324,10 +1324,18 @@ class SkillGUI(QtWidgets.QMainWindow):
         # -------- sk layout end ------ #
 
         # ------ main layout ------- #
+        self.vsplitter1 = QtWidgets.QSplitter(Qt.Horizontal)
+        self.vsplitter1.addWidget(self.pbrunWidget)
+        self.vsplitter1.addWidget(self.pbskWidget)
+        self.vsplitter1.addWidget(self.skWidget)
+        self.vsplitter1.setStretchFactor(0, 1)
+        self.vsplitter1.setStretchFactor(1, 1)
+        self.vsplitter1.setStretchFactor(2, 3)
+        # self.vsplitter1.setChildrenCollapsible(0)
+        # self.vsplitter1.setChildrenCollapsible(1)
+
         self.layout = QtWidgets.QHBoxLayout()
-        self.layout.addWidget(self.pbrunWidget, 1)
-        self.layout.addWidget(self.pbskWidget, 1)
-        self.layout.addWidget(self.skWidget, 3)
+        self.layout.addWidget(self.vsplitter1)
 
         self.mainWidget = QtWidgets.QWidget()
         self.mainWidget.setLayout(self.layout)
