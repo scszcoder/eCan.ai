@@ -274,12 +274,20 @@ class DiagramArrowItem(QGraphicsPathItem):
             self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
             if old_point == self.start_point:
                 update_path = False
+            else:
+                # when start and end item is same
+                if self.end_item is not None and self.end_item_port_direction is not None:
+                    self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
 
         elif target_item == self.end_item and self.end_item_port_direction is not None:
             old_point = self.end_point
             self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
             if old_point == self.end_point:
                 update_path = False
+            else:
+                # when start and end item is same
+                if self.start_item is not None and self.start_item_port_direction is not None:
+                    self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
 
         if update_path is True:
             self.path_points = self.calculate_path_points()
