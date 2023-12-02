@@ -3,11 +3,12 @@ import json
 from PySide6.QtCore import (QRectF, QSize, Qt)
 from PySide6.QtGui import (QAction, QFont, QBrush, QIcon, QPixmap, QPainter, QPen)
 from PySide6.QtWidgets import (QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QButtonGroup, QGridLayout,
-                               QLabel, QSizePolicy, QToolBox, QToolButton, QWidget, QGraphicsView)
+                               QLabel, QSizePolicy, QToolBox, QToolButton, QWidget, QGraphicsView, QSplitter)
 from config.app_info import app_info
 from gui.skfc.skfc_scene import SkFCScene
 from gui.skfc.diagram_item_normal import DiagramNormalItem
 from gui.skfc.skfc_toolbars import SkFCToolBars
+from skfc.skfc_infobox import SkFCInfoBox
 
 
 class SkFCView(QGraphicsView):
@@ -49,10 +50,15 @@ class SkFCWidget(QWidget):
         self.skfc_view = SkFCView(self.skfc_scene)
         self.skfc_toolbox = self.create_toolbox()
         self.skfc_toolbars = SkFCToolBars(self.skfc_scene, self.skfc_view)
+        self.skfc_infobox = SkFCInfoBox(self.skfc_scene, self.skfc_view, self)
+
+        self.vsplitter_body = QSplitter(Qt.Horizontal)
+        self.vsplitter_body.addWidget(self.skfc_toolbox)
+        self.vsplitter_body.addWidget(self.skfc_view)
+        self.vsplitter_body.addWidget(self.skfc_infobox)
 
         body_layout = QHBoxLayout()
-        body_layout.addWidget(self.skfc_toolbox)
-        body_layout.addWidget(self.skfc_view)
+        body_layout.addWidget(self.vsplitter_body)
 
         mainLayout = QVBoxLayout()
         mainLayout.addLayout(self.skfc_toolbars)
@@ -194,10 +200,10 @@ class SkFCWidget(QWidget):
         self.diagram_button_group.buttonClicked.connect(self.diagram_button_group_clicked)
 
         layout = QGridLayout()
-        layout.addWidget(self.createCellWidget("Conditional", DiagramNormalItem.Conditional), 0, 0)
-        layout.addWidget(self.createCellWidget("Process", DiagramNormalItem.Step), 1, 0)
-        layout.addWidget(self.createCellWidget("Input/Output", DiagramNormalItem.Io), 2, 0)
-        layout.addWidget(self.createCellWidget("Start/End", DiagramNormalItem.StartEnd), 3, 0)
+        layout.addWidget(self.createCellWidget("Start/End", DiagramNormalItem.StartEnd), 0, 0)
+        layout.addWidget(self.createCellWidget("Conditional", DiagramNormalItem.Conditional), 1, 0)
+        layout.addWidget(self.createCellWidget("Process", DiagramNormalItem.Step), 2, 0)
+        layout.addWidget(self.createCellWidget("Input/Output", DiagramNormalItem.Io), 3, 0)
         layout.addWidget(self.create_text_cell_widget(), 4, 0)
 
         # layout.setRowStretch(3, 10)
