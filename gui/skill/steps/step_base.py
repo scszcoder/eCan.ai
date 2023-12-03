@@ -1,6 +1,21 @@
 from abc import ABC, abstractmethod
+from enum import Enum
+
 from basicSkill import STEP_GAP
 import json
+
+
+class EnumAnchorType(Enum):
+    Text = "text"
+    Icon = "icon"
+    IconGroup = "icon group"
+
+
+class EnumAnchorMethod(Enum):
+    Distinct = 0
+    Polygon = 1
+    Line = 2
+    Group = 3
 
 
 class StepBase(ABC):
