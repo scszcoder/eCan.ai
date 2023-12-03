@@ -26,19 +26,12 @@ class EnumAppOpenCArgsType(Enum):
     Custom = "custom"
 
 
-class EnumAppOpenAnchorType(Enum):
-    Text = "text"
-    Icon = "icon"
-    IconGroup = "icon group"
-
-
 class StepAppOpen(StepBase):
     def __init__(self, stepN, action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, args, wait):
         super().__init__(stepN)
 
         self.type = "App Open"
         self.action = action   # enum: run, cmd
-        # TODO rename
         self.save_rb = saverb
         self.target_type = target_type   # enum: browser, shell, other
         self.target_link = target_link   # enum: website, exe path
