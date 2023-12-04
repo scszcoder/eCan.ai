@@ -3,9 +3,11 @@ from enum import Enum
 
 
 class StepReturn(StepBase):
-    def __init__(self, stepN, output):
+    TYPE_KEY = "Return"
+
+    def __init__(self, stepN=0, output=None):
         super().__init__(stepN)
 
-        self.type = "Return"
+        self.type = self.TYPE_KEY
         self.val_var_name = output
 

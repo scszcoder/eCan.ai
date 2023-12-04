@@ -1,4 +1,4 @@
-from skill.steps.step_base import StepBase
+from skill.steps.step_base import StepBase, EnumAnchorType
 from enum import Enum
 
 
@@ -27,15 +27,18 @@ class EnumAppOpenCArgsType(Enum):
 
 
 class StepAppOpen(StepBase):
-    def __init__(self, stepN, action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, args, wait):
+    TYPE_KEY = "App Open"
+
+    def __init__(self, stepN=0, action=None, saverb=None, target_type=None, target_link=None, anchor_type=None,
+                 anchor_value=None, cargs_type=None, args=None, wait=0):
         super().__init__(stepN)
 
-        self.type = "App Open"
+        self.type = self.TYPE_KEY
         self.action = action   # enum: run, cmd
         self.save_rb = saverb
-        self.target_type = target_type   # enum: browser, shell, other
+        self.target_type: EnumAppOpenTargetType = target_type   # enum: browser, shell, other
         self.target_link = target_link   # enum: website, exe path
-        self.anchor_type = anchor_type
+        self.anchor_type: EnumAnchorType = anchor_type
         self.anchor_value = anchor_value
         self.cargs_type = cargs_type  # enum: direct, shell
         self.cargs = args

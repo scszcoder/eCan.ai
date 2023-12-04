@@ -4,10 +4,12 @@ from skill.steps.step_base import StepBase, STEP_GAP
 
 
 class StepHeader(StepBase):
+    TYPE_KEY = "Header"
+
     def __init__(self, stepN, name, os, version, author, skid, description):
         super().__init__(stepN)
 
-        self.type = "Header"
+        self.type = self.TYPE_KEY
         self.name = name
         self.os = os
         self.version = version

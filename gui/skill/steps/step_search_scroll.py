@@ -3,10 +3,13 @@ from enum import Enum
 
 
 class StepSearchScroll(StepBase):
-    def __init__(self, stepN, screen, anchor, at_loc, target_loc, flag, resolution, postwait, site):
+    TYPE_KEY = "Search Scroll"
+
+    def __init__(self, stepN=0, screen=None, anchor=None, at_loc=None, target_loc=None, flag=None, resolution=None,
+                 postwait=None, site=None):
         super().__init__(stepN)
 
-        self.type = "Search Scroll"
+        self.type = self.TYPE_KEY
         self.action = "Search Scroll"
         self.anchor = anchor
         self.at_loc = at_loc

@@ -13,11 +13,13 @@ class EnumStubName(Enum):
 
 
 class StepStub(StepBase):
-    def __init__(self, stepN, sname, fname, fargs):
+    TYPE_KEY = "Stub"
+
+    def __init__(self, stepN=0, sname=None, fname=None, fargs=None):
         super().__init__(stepN)
 
-        self.type = "Stub"
-        self.stub_name: str = sname
+        self.type = self.TYPE_KEY
+        self.stub_name: EnumStubName = sname
         self.func_name: str = fname
         self.fargs: str = fargs
 

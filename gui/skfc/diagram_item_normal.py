@@ -6,6 +6,8 @@ from gui.skfc.diagram_item_text import DiagramTextItem
 from gui.skfc.skfc_base import EnumItemType, SkFCBase
 from enum import Enum
 
+from skill.steps.step_base import StepBase
+
 ITEM_PORT_RADIUS = 3
 
 
@@ -99,6 +101,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         self.item_color: QColor = item_color
         self.font: QFont = font
         self.arrows = []
+        self.step: StepBase = None
 
         self.setBrush(item_color)
         self.setPos(position)

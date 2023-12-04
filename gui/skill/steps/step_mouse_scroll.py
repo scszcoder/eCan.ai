@@ -13,11 +13,14 @@ class EnumMouseScrollUnit(Enum):
 
 
 class StepMouseScroll(StepBase):
-    def __init__(self, stepN, action, screen, val, unit, resolution, ran_min, ran_max, postwait, break_here):
+    TYPE_KEY = "Mouse Scroll"
+
+    def __init__(self, stepN=0, action=None, screen=None, val=None, unit=None, resolution=None, ran_min=None,
+                 ran_max=None, postwait=None, break_here=None):
         super().__init__(stepN)
 
-        self.type = "Mouse Scroll"
-        self.action = action  # scroll up/scroll down
+        self.type = self.TYPE_KEY
+        self.action: EnumMouseScrollAction = action  # scroll up/scroll down
         self.screen = screen
         self.amount = val
         self.resolution = resolution
@@ -25,4 +28,4 @@ class StepMouseScroll(StepBase):
         self.random_max = ran_max
         self.breakpoint = break_here
         self.postwait = postwait
-        self.unit = unit  # raw/screen
+        self.unit: EnumMouseScrollUnit = unit  # raw/screen
