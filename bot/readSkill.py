@@ -155,6 +155,8 @@ def readSkillFile(name_space, skill_file, lvl = 0):
 
     # get rid of comments.
     lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+    json_as_string.close()
+
     # get rid of empty lines.
     #new_list = list(filter(lambda x: x != '', list_with_empty_strings))
     useful_lines = list(filter(lambda x: x.rstrip(), lines))

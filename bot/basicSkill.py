@@ -18,7 +18,7 @@ from ping3 import ping, verbose_ping
 from scraper import *
 from Cloud import *
 from pynput.mouse import Button, Controller
-from readSkill import *
+# from readSkill import *
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QRect
 
@@ -1214,11 +1214,11 @@ def box_center(box):
     return (box[0]+int((box[2]-box[0])/2), box[1]+int((box[3]-box[1])/2))
 
 def processMouseScroll(step, i):
-    screen_data = symTab[step["screen"]]
-    # print("screen_data: ", screen_data)
-    screen_vsize = screen_data[len(screen_data) - 2]['loc'][2]
-
     if step["unit"] == "screen":
+        screen_data = symTab[step["screen"]]
+        # print("screen_data: ", screen_data)
+        screen_vsize = screen_data[len(screen_data) - 2]['loc'][2]
+
         print("SCREEN SIZE: ", screen_data[len(screen_data) - 2]['loc'], "resultion var: ", step["resolution"], " val: ", symTab[step["resolution"]])
         if type(step["amount"]) is str:
             scroll_amount = int(((symTab[step["amount"]]/100)*screen_vsize)/symTab[step["resolution"]])
@@ -1727,7 +1727,7 @@ def processGoto(step, i,  step_keys):
 
 def processListDir(step, i):
     lof = os.listdir(step["dir"])
-    symTab[step["result"]] = [f for f in lof if x.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
+    symTab[step["result"]] = [f for f in lof if f.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
     return i + 1
 
 
