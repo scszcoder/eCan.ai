@@ -1455,16 +1455,22 @@ def processEndException(step, i, step_keys):
     global page_stack
     global in_exception
     print("Return from Exception .....")
-    # basically do a rollback, and resume running from the last rollback point.
-    rollback_point = page_stack.pop()
-    idx = rollback_point["pc"]
-    restore_current_context(rollback_point["context"])
-    exception_stack.pop()
-    if len(exception_stack) == 0:
-        # clear the exception flag.
-        in_exception = False
+    ex_stat = "success:0"
+    try:
+        # basically do a rollback, and resume running from the last rollback point.
+        rollback_point = page_stack.pop()
+        idx = rollback_point["pc"]
+        restore_current_context(rollback_point["context"])
+        exception_stack.pop()
+        if len(exception_stack) == 0:
+            # clear the exception flag.
+            in_exception = False
 
-    return idx
+    except:
+        ex_stat = "ErrorFillData:" + str(i)
+
+    return idx, ex_stat
+
 
 # this is the exception handler, basically keep retry ping the target website until success.
 def processExceptionHandler(step, i, step_keys):
@@ -1475,27 +1481,32 @@ def processExceptionHandler(step, i, step_keys):
     n_retries = 0
     global net_connected
 
-    while n_retries <= max_retries:
-        # back off some time,
-        rand_back_off = random.randrange(min_retry_back_off, max_retry_back_off)
-        time.sleep(rand_back_off)
+    ex_stat = "success:0"
+    try:
+        while n_retries <= max_retries:
+            # back off some time,
+            rand_back_off = random.randrange(min_retry_back_off, max_retry_back_off)
+            time.sleep(rand_back_off)
 
-        # then retry connect to the internet, later can add more action here to use mouse to disconnect and reconnect wifi....
-        conn_time = ping(site)
+            # then retry connect to the internet, later can add more action here to use mouse to disconnect and reconnect wifi....
+            conn_time = ping(site)
 
-        if conn_time:
-            net_connected = True
-            break
+            if conn_time:
+                net_connected = True
+                break
 
-    if net_connected:
-        print("reconnected, set up to resume from the rollback point")
-        # hit refresh page. Ctrl-F5
-        pyautogui.hotkey("ctrl", "f5")
+        if net_connected:
+            print("reconnected, set up to resume from the rollback point")
+            # hit refresh page. Ctrl-F5
+            pyautogui.hotkey("ctrl", "f5")
 
-    else:
-        print("MISSION failed...")
+        else:
+            print("MISSION failed...")
 
-    return i+1
+    except:
+        ex_stat = "ErrorFillData:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 # big assumptions: all involved variables have already been created in globals

@@ -31,6 +31,7 @@ from pynput.mouse import Button, Controller
 from genSkills import *
 import importlib
 import sys
+import copy
 
 from vehicles import *
 
@@ -191,7 +192,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.readSellerInventoryJsonFile("")
         self.vehicles = []                      # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
-        self.missions = []
+        self.missions = []              # mission 0 will always default to be the fetch schedule mission
         self.skills = []
         self.missionsToday = []
         self.platoons = []
@@ -210,6 +211,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.commanderName = ""
         self.todaysReport = []
         self.todaysReports = []
+        self.todaysLocalReports = []
         self.tester = TestAll.Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
@@ -575,10 +577,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # now hand daily tasks
 
         self.todays_work = {"tbd": [], "allstat": "working"}
+        self.todays_completed = []
         if not self.hostrole == "Platoon":
+            # For commander creates
             self.todays_work["tbd"].append({"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
             # point to the 1st task to run for the day.
-            self.updateRunStatus(self.todays_work["tbd"][0])
+            self.updateRunStatus(self.todays_work["tbd"][0], 0)
 
     def getHomePath(self):
         return self.homepath
@@ -1000,9 +1004,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         #the grand test,
         # 1) fetch today's schedule.
-        self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
-        # self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
-        # self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
+        result = self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
+        # result = self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
+        # result = self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
 
         # ===================
         # 2) run all tasks, with bot profile loading on ADS taken care of....
@@ -1038,64 +1042,74 @@ class MainWindow(QtWidgets.QMainWindow):
         #     mfp.close()
         # skfp.close()
 
+
+    # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings):
-        jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
-        if "errorType" in jresp:
-            screen_error = True
-            print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
-        else:
-            # first, need to decompress the body.
-            # very important to use compress and decompress on Base64
-            uncompressed = self.zipper.decompressFromBase64(jresp["body"])
-            # uncompressed = jresp["body"]
-            print("decomppressed response:", uncompressed, "!")
-            if uncompressed != "":
-                # print("body string:", uncompressed, "!", len(uncompressed), "::")
-                bodyobj = json.loads(uncompressed)
-                # bodyobj = uncompressed
-
-                # body object will be a list of task groups[
-                # {
-                # "eastern": [{
-                #       bid : 0,
-                #       tz : "eastern",
-                #       bw_works : [{
-                #           mid : 0,
-                #           name: "",
-                #           cuspas : "",
-                #           todos : null,
-                #           start_time : null
-                #       }],
-                #       other_works : [],
-                # }...],
-                # "central": [],
-                # "mountain": [],
-                # "pacific": [],
-                # "alaska": [],
-                # "hawaii": []
-                #}, ....
-                #]
-                # each task is a json, { skill steps. [...]
-                # each step is a json
-                ##print("resp body: ", bodyobj)
-                #if len(bodyobj.keys()) > 0:
-                    #jbody = json.loads(jresp["body"])
-                    #jbody = json.loads(originalS)
-
-                print("bodyobj: ", json.dumps(bodyobj))
-                if len(bodyobj) > 0:
-                    self.updateMissions(bodyobj)
-                    self.assignWork(bodyobj["task_groups"])
-                    self.logDailySchedule(uncompressed)
-                else:
-                    self.warn("Warning: NO schedule generated.")
+        fetch_stat = "Completed:0"
+        try:
+            jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+            if "errorType" in jresp:
+                screen_error = True
+                print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
             else:
-                self.warn("Warning: Empty Network Response.")
+                # first, need to decompress the body.
+                # very important to use compress and decompress on Base64
+                uncompressed = self.zipper.decompressFromBase64(jresp["body"])
+                # uncompressed = jresp["body"]
+                print("decomppressed response:", uncompressed, "!")
+                if uncompressed != "":
+                    # print("body string:", uncompressed, "!", len(uncompressed), "::")
+                    bodyobj = json.loads(uncompressed)
+                    # bodyobj = uncompressed
 
-        if len(self.todays_work["tbd"]) > 0:
-            self.todays_work["tbd"][0]["status"] = "done"
-        else:
-            print("WARNING!!!! no work TBD after fetching schedule...")
+                    # body object will be a list of task groups[
+                    # {
+                    # "eastern": [{
+                    #       bid : 0,
+                    #       tz : "eastern",
+                    #       bw_works : [{
+                    #           mid : 0,
+                    #           name: "",
+                    #           cuspas : "",
+                    #           todos : null,
+                    #           start_time : null
+                    #       }],
+                    #       other_works : [],
+                    # }...],
+                    # "central": [],
+                    # "mountain": [],
+                    # "pacific": [],
+                    # "alaska": [],
+                    # "hawaii": []
+                    #}, ....
+                    #]
+                    # each task is a json, { skill steps. [...]
+                    # each step is a json
+                    ##print("resp body: ", bodyobj)
+                    #if len(bodyobj.keys()) > 0:
+                        #jbody = json.loads(jresp["body"])
+                        #jbody = json.loads(originalS)
+
+                    print("bodyobj: ", json.dumps(bodyobj))
+                    if len(bodyobj) > 0:
+                        self.updateMissions(bodyobj)
+                        self.assignWork(bodyobj["task_groups"])
+                        self.logDailySchedule(uncompressed)
+                    else:
+                        self.warn("Warning: NO schedule generated.")
+                else:
+                    self.warn("Warning: Empty Network Response.")
+
+            if len(self.todays_work["tbd"]) > 0:
+                self.todays_work["tbd"][0]["status"] = fetch_stat
+            else:
+                print("WARNING!!!! no work TBD after fetching schedule...")
+
+        # ni is already incremented by processExtract(), so simply return it.
+        except:
+            fetch_stat = "ErrorFetchSchedule:" + jresp["errorType"]
+
+        return fetch_stat
 
     def fetchScheduleFromFile(self):
 
@@ -1362,6 +1376,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     print("SCHEDULE:::", schedule)
                     fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
+        # now that a new day starts, clear all reports data structure
+        self.todaysReports = []
+
     # find to todos.,
     # 1) check whether need to fetch schedules,
     # 2) checking whether need to do RPA
@@ -1376,14 +1393,16 @@ class MainWindow(QtWidgets.QMainWindow):
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
-        if len(self.todays_work["tbd"]) >  0:
-            if (not self.todays_work["tbd"][0]["status"] == "done") and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
+        if len(self.todays_work["tbd"]) > 0:
+            if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
                 if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
                     nextrun = self.todays_work["tbd"][0]
-            elif not self.todays_work["tbd"][0]["status"] == "done":
+            elif "Completed" not in self.todays_work["tbd"][0]["status"]:
+                # in case the 1st todos is an automation task.
                 print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
                 tz = self.todays_work["tbd"][0]["current tz"]
+
                 bith = self.todays_work["tbd"][0]["current bidx"]
 
                 # determin next task group:
@@ -1402,6 +1421,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # in case, all just give it a huge number so that, this group won't get run
                     current_other_start_time = 1000
 
+                # if a buy-walk task is scheduled earlier than other tasks, arrange the buy-walk task, otherwise arrange other works.
                 if current_bw_start_time < current_other_start_time:
                     grp = "bw_works"
                     wjth = current_bw_idx
@@ -1422,9 +1442,45 @@ class MainWindow(QtWidgets.QMainWindow):
                     if self.ts2time(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
                         print("next run is now set up......")
                         nextrun = self.todays_work["tbd"][0]
-            # elif len(self.todays_work["tbd"]) > 1 and self.todays_work["tbd"][1]["status"] == "done":
+
 
         return nextrun
+
+    def findMissonsToBeRetried(self, todos):
+        retryies = copied_dict = copy.deepcopy(todos)
+        for key1, value1 in todos.items():
+            # regions
+            if isinstance(value1, dict):
+                for key2, value2 in value1.items():
+                    # botids
+                    if isinstance(value2, dict):
+                        for key3, value3 in value2.items():
+                            # groups
+                            if isinstance(value3, dict):
+                                for key4, value4 in value3.items():
+                                    # missions
+                                    if isinstance(value4, dict):
+                                        if "Completed" in value4["status"]:
+                                            junk = retryies[key1][key2][key3].pop(key4)
+
+        #now point to the 1st item in this todo list
+
+        print("MISSIONS needs retry:", retryies)
+        return retryies
+
+    def flatten_todos(self, todos):
+        all_missions = {}
+        for key1, value1 in todos.items():
+            # regions
+            if isinstance(value1, dict):
+                for key2, value2 in value1.items():
+                    # botids
+                    if isinstance(value2, dict):
+                        for key3, value3 in value2.items():
+                            # groups
+                            if isinstance(value3, dict):
+                                all_missions.update(value3)
+        return all_missions
 
 
     def loadSkillFile(self, skname, pub):
@@ -1488,8 +1544,6 @@ class MainWindow(QtWidgets.QMainWindow):
         print("generated psk:", rpa_script)
 
         rpaScripts.append(rpa_script)
-
-
         print("rpaScripts:[", len(rpaScripts), "] ", rpaScripts)
 
         #now run the steps
@@ -1503,22 +1557,27 @@ class MainWindow(QtWidgets.QMainWindow):
             # print("running skid:", rpaSkillIds[0], "len(self.skills): ", len(self.skills), "skill 0 skid: ", self.skills[0].getSkid())
             # print("running skill: ", running_skill)
             runResult = runAllSteps(script, self.missions[worksettings["midx"]], relevant_skills[0])
+            if runResult.split(":")[0] != "Completed":
+                # some thing is wrong.... simply exit and claim this mission execution failed.
+                break
 
         # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
         # the timer tick will trigger the run of the next mission on the list....
         self.update1MStat(worksettings["midx"], runResult)
-        self.updateRunStatus(worksTBD)
+        self.updateRunStatus(worksTBD, worksettings["midx"])
 
-    def timeToRunNext(self):
-        # check whether it's time to run the next mission on the todo list. basically check the current time against the next scheduled run time.
-        print("time is up for the next mission.")
 
     def update1MStat(self, midx, result):
         print("1 mission run completed.")
         self.missions[midx].setStatus(result)
+        retry_count = self.self.missions[midx].getRetry()
+        if retry_count > 0:
+            self.self.missions[midx].setRetry(retry_count - 1)
 
-    def updateRunStatus(self, worksTBD):
+    def updateRunStatus(self, worksTBD, midx):
+
         works = worksTBD["works"]
+
         tz = worksTBD["current tz"]
         grp = worksTBD["current grp"]
         bidx = worksTBD["current bidx"]
@@ -1527,131 +1586,360 @@ class MainWindow(QtWidgets.QMainWindow):
         switch_tz = False
         switch_grp = False
         switch_bot = False
-        worksTBD["status"] == "working"
-        # check whether need to switch group?
-        if grp == None:
-            # just the begining....
-            tzi = 0
-            switch_tz = True
+        if grp == "other_works":
+            idx = oidx
         else:
-            # update after already started
-            if len(works[tz]) > 0:
-                if grp == "other_works":
-                    if len(works[tz][bidx][grp])-1 > oidx:
-                        oidx = oidx + 1
+            idx = widx
+
+        this_stat = self.missions[midx].getStatus()
+
+        if "Completed" in this_stat:
+            # check whether need to switch group?
+            if grp == None:
+                # just the begining....
+                tzi = 0
+                switch_tz = True
+            else:
+                # update after already started
+                if len(works[tz]) > 0:
+                    if grp == "other_works":
+                        if len(works[tz][bidx][grp])-1 > oidx:
+                            oidx = oidx + 1
+                        else:
+                            # all other_works are done. simply go to the next wb_works if there are more
+                            # simply switch group
+                            grp = "bw_works"
+                            # but if no more work after switching grp, switch timezone.
+                            if len(works[tz][bidx][grp]) > 0:
+                                if widx > len(works[tz][bidx][grp])-1:
+                                    if bidx < len(works[tz]) - 1:
+                                        bidx = bidx + 1
+                                        switch_bot = True
+                                    else:
+                                        # in case this is the last bot, then switch timezone.
+                                        switch_tz = True
+                                else:
+                                    switch_grp = True
+                                    widx = widx + 1
+                            else:
+                                # all other_works and wb_works of this region(timezone) are done, check to see whether to switch bot.
+                                if bidx < len(works[tz])-1:
+                                    bidx = bidx + 1
+                                    switch_bot = True
+                                else:
+                                    # in case this is the last bot, then switch timezone.
+                                    switch_tz = True
                     else:
-                        # all other_works are done. simply go to the next wb_works if there are more
-                        # simply switch group
-                        grp = "bw_works"
-                        # but if no more work after switching grp, switch timezone.
-                        if len(works[tz][bidx][grp]) > 0:
-                            if widx > len(works[tz][bidx][grp])-1:
+                        # bw works
+                        if len(works[tz][bidx][grp])-1 > widx:
+                            widx = widx + 1
+                        else:
+                            # all walk-buy works are done. simply go to the next other_works  if there are more
+                            grp = "other_works"
+                            if len(works[tz][bidx][grp]) > 0:
+                                if oidx > len(works[tz][bidx][grp])-1:
+                                    if bidx < len(works[tz]) - 1:
+                                        bidx = bidx + 1
+                                        switch_bot = True
+                                    else:
+                                        # switch tz.
+                                        switch_tz = True
+                                else:
+                                    switch_grp = True
+                                    oidx = oidx + 1
+                            else:
+                                if bidx < len(works[tz])-1:
+                                    bidx = bidx + 1
+                                    switch_bot = True
+                                else:
+                                    # switch tz.
+                                    switch_tz = True
+                    # now compare time.
+                    if switch_tz == False:
+                        if switch_bot == False:
+                            if switch_grp == False:
+                                if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx]["start_time"]:
+                                    worksTBD["current grp"] = "other_works"
+                                else:
+                                    worksTBD["current grp"] = "wb_works"
+                            else:
+                                worksTBD["current grp"] = grp
+                        else:
+                            # if bot is changed, oidx and widx restart from 0.
+                            oidx = 0
+                            widx = 0
+                            if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx][
+                                "start_time"]:
+                                worksTBD["current grp"] = "other_works"
+                            else:
+                                worksTBD["current grp"] = "wb_works"
+
+                        worksTBD["current bidx"] = bidx
+                        worksTBD["current widx"] = widx
+                        worksTBD["current oidx"] = oidx
+                        worksTBD["current tz"] = tz
+                else:
+                    switch_tz = True
+
+            # check whether need to switch region?
+            if switch_tz:
+                tzi = Tzs.index(tz)
+                while tzi < len(Tzs) and len(works[tz]) == 0:
+                    tzi = tzi + 1
+
+                if tzi < len(Tzs):
+                    tz = Tzs[tzi]
+                    if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
+                        # see which one's start time is earlier
+                        if works[tz][bidx]["other_works"][0]["start_time"] < works[tz][bidx]["bw_works"][0]["start_time"]:
+                            worksTBD["current grp"] = "other_works"
+                            worksTBD["current bidx"] = 0
+                            worksTBD["current widx"] = -1
+                            worksTBD["current oidx"] = 0
+                        else:
+                            worksTBD["current grp"] = "wb_works"
+                            worksTBD["current bidx"] = 0
+                            worksTBD["current widx"] = 0
+                            worksTBD["current oidx"] = -1
+                    elif len(works[tz][bidx]["other_works"]) > 0:
+                        worksTBD["current grp"] = "other_works"
+                        worksTBD["current bidx"] = 0
+                        worksTBD["current widx"] = -1
+                        worksTBD["current oidx"] = 0
+                    elif len(works[tz][bidx]["bw_works"]) > 0:
+                        worksTBD["current grp"] = "wb_works"
+                        worksTBD["current bidx"] = 0
+                        worksTBD["current widx"] = 0
+                        worksTBD["current oidx"] = -1
+
+                else:
+                    # already reached the last region in this todo group, consider this group done.
+                    # now check whether there is any failed missions, if there is, now it's time to set
+                    # up to re-run it, simply by set the pointers to it.
+                    rt_tz, rt_bid, rt_grp, rt_mid = self.findNextMissonsToBeRetried(worksTBD)
+                    if rt_tz == "":
+                        # if nothing is found, we're done with this todo list...
+                        worksTBD["status"] == "Completed"
+                    else:
+                        # now set the pointer to the next mission that needs to be retried....
+                        tz = rt_tz
+                        worksTBD["current grp"] = rt_grp
+                        worksTBD["current bidx"] = int(rt_bid)
+                        if rt_grp == "bw_works":
+                            worksTBD["current widx"] = int(rt_mid)
+                            worksTBD["current oidx"] = 0
+                        else:
+                            worksTBD["current oidx"] = int(rt_mid)
+                            worksTBD["current widx"] = 0
+
+        worksTBD["current tz"] = tz
+
+
+    def findNextMissonsToBeRetried(self, workgroup):
+        found = False
+        works = workgroup["works"]
+        while not found:
+            tz = workgroup["current tz"]
+            grp = workgroup["current grp"]
+            bidx = workgroup["current bidx"]
+            widx = workgroup["current widx"]
+            oidx = workgroup["current oidx"]
+
+            switch_tz = False
+            switch_grp = False
+            switch_bot = False
+
+            # check whether need to switch group?
+            if grp == None:
+                # just the begining....
+                tzi = 0
+                switch_tz = True
+            else:
+                # update after already started
+                if len(works[tz]) > 0:
+                    if grp == "other_works":
+                        if len(works[tz][bidx][grp]) - 1 > oidx:
+                            oidx = oidx + 1
+                        else:
+                            # all other_works are done. simply go to the next wb_works if there are more
+                            # simply switch group
+                            grp = "bw_works"
+                            # but if no more work after switching grp, switch timezone.
+                            if len(works[tz][bidx][grp]) > 0:
+                                if widx > len(works[tz][bidx][grp]) - 1:
+                                    if bidx < len(works[tz]) - 1:
+                                        bidx = bidx + 1
+                                        switch_bot = True
+                                    else:
+                                        # in case this is the last bot, then switch timezone.
+                                        switch_tz = True
+                                else:
+                                    switch_grp = True
+                                    widx = widx + 1
+                            else:
+                                # all other_works and wb_works of this region(timezone) are done, check to see whether to switch bot.
                                 if bidx < len(works[tz]) - 1:
                                     bidx = bidx + 1
                                     switch_bot = True
                                 else:
                                     # in case this is the last bot, then switch timezone.
                                     switch_tz = True
-                            else:
-                                switch_grp = True
-                                widx = widx + 1
-                        else:
-                            # all other_works and wb_works of this region(timezone) are done, check to see whether to switch bot.
-                            if bidx < len(works[tz])-1:
-                                bidx = bidx + 1
-                                switch_bot = True
-                            else:
-                                # in case this is the last bot, then switch timezone.
-                                switch_tz = True
-                else:
-                    # bw works
-                    if len(works[tz][bidx][grp])-1 > widx:
-                        widx = widx + 1
                     else:
-                        # all walk-buy works are done. simply go to the next other_works  if there are more
-                        grp = "other_works"
-                        if len(works[tz][bidx][grp]) > 0:
-                            if oidx > len(works[tz][bidx][grp])-1:
+                        # bw works
+                        if len(works[tz][bidx][grp]) - 1 > widx:
+                            widx = widx + 1
+                        else:
+                            # all walk-buy works are done. simply go to the next other_works  if there are more
+                            grp = "other_works"
+                            if len(works[tz][bidx][grp]) > 0:
+                                if oidx > len(works[tz][bidx][grp]) - 1:
+                                    if bidx < len(works[tz]) - 1:
+                                        bidx = bidx + 1
+                                        switch_bot = True
+                                    else:
+                                        # switch tz.
+                                        switch_tz = True
+                                else:
+                                    switch_grp = True
+                                    oidx = oidx + 1
+                            else:
                                 if bidx < len(works[tz]) - 1:
                                     bidx = bidx + 1
                                     switch_bot = True
                                 else:
                                     # switch tz.
                                     switch_tz = True
+                    # now compare time.
+                    if switch_tz == False:
+                        if switch_bot == False:
+                            if switch_grp == False:
+                                if works[tz][bidx]["other_works"][oidx]["start_time"] < \
+                                        works[tz][bidx]["bw_works"][widx]["start_time"]:
+                                    workgroup["current grp"] = "other_works"
+                                else:
+                                    workgroup["current grp"] = "wb_works"
                             else:
-                                switch_grp = True
-                                oidx = oidx + 1
+                                workgroup["current grp"] = grp
                         else:
-                            if bidx < len(works[tz])-1:
-                                bidx = bidx + 1
-                                switch_bot = True
+                            # if bot is changed, oidx and widx restart from 0.
+                            oidx = 0
+                            widx = 0
+                            if works[tz][bidx]["other_works"][oidx]["start_time"] < \
+                                    works[tz][bidx]["bw_works"][widx][
+                                        "start_time"]:
+                                workgroup["current grp"] = "other_works"
                             else:
-                                # switch tz.
-                                switch_tz = True
-                # now compare time.
-                if switch_tz == False:
-                    if switch_bot == False:
-                        if switch_grp == False:
-                            if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx]["start_time"]:
-                                worksTBD["current grp"] = "other_works"
-                            else:
-                                worksTBD["current grp"] = "wb_works"
-                        else:
-                            worksTBD["current grp"] = grp
-                    else:
-                        # if bot is changed, oidx and widx restart from 0.
-                        oidx = 0
-                        widx = 0
-                        if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx][
+                                workgroup["current grp"] = "wb_works"
+
+                        workgroup["current bidx"] = bidx
+                        workgroup["current widx"] = widx
+                        workgroup["current oidx"] = oidx
+                        workgroup["current tz"] = tz
+                else:
+                    switch_tz = True
+
+            # check whether need to switch region?
+            if switch_tz:
+                tzi = Tzs.index(tz)
+                while tzi < len(Tzs) and len(works[tz]) == 0:
+                    tzi = tzi + 1
+
+                if tzi < len(Tzs):
+                    tz = Tzs[tzi]
+                    if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
+                        # see which one's start time is earlier
+                        if works[tz][bidx]["other_works"][0]["start_time"] < works[tz][bidx]["bw_works"][0][
                             "start_time"]:
-                            worksTBD["current grp"] = "other_works"
+                            workgroup["current grp"] = "other_works"
+                            workgroup["current bidx"] = 0
+                            workgroup["current widx"] = -1
+                            workgroup["current oidx"] = 0
                         else:
-                            worksTBD["current grp"] = "wb_works"
-
-                    worksTBD["current bidx"] = bidx
-                    worksTBD["current widx"] = widx
-                    worksTBD["current oidx"] = oidx
-                    worksTBD["current tz"] = tz
-            else:
-                switch_tz = True
-
-        # check whether need to switch region?
-        if switch_tz:
-            tzi = Tzs.index(tz)
-            while tzi < len(Tzs) and len(works[tz]) == 0:
-                tzi = tzi + 1
-
-            if tzi < len(Tzs):
-                tz = Tzs[tzi]
-                if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
-                    # see which one's start time is earlier
-                    if works[tz][bidx]["other_works"][0]["start_time"] < works[tz][bidx]["bw_works"][0]["start_time"]:
-                        worksTBD["current grp"] = "other_works"
-                        worksTBD["current bidx"] = 0
-                        worksTBD["current widx"] = -1
-                        worksTBD["current oidx"] = 0
+                            workgroup["current grp"] = "wb_works"
+                            workgroup["current bidx"] = 0
+                            workgroup["current widx"] = 0
+                            workgroup["current oidx"] = -1
+                    elif len(works[tz][bidx]["other_works"]) > 0:
+                        workgroup["current grp"] = "other_works"
+                        workgroup["current bidx"] = 0
+                        workgroup["current widx"] = -1
+                        workgroup["current oidx"] = 0
+                    elif len(works[tz][bidx]["bw_works"]) > 0:
+                        workgroup["current grp"] = "wb_works"
+                        workgroup["current bidx"] = 0
+                        workgroup["current widx"] = 0
+                        workgroup["current oidx"] = -1
+                else:
+                    # this is the case we have reach the last mission of the todo list...
+                    tz, bid, grp, mid  = self.findFirstMissonsToBeRetried(works)
+                    if tz == "":
+                        # in such a case there is nothing to retry. consider it done....
+                        found = True
+                        workgroup["status"] = "Completed"
                     else:
-                        worksTBD["current grp"] = "wb_works"
-                        worksTBD["current bidx"] = 0
-                        worksTBD["current widx"] = 0
-                        worksTBD["current oidx"] = -1
-                elif len(works[tz][bidx]["other_works"]) > 0:
-                    worksTBD["current grp"] = "other_works"
-                    worksTBD["current bidx"] = 0
-                    worksTBD["current widx"] = -1
-                    worksTBD["current oidx"] = 0
-                elif len(works[tz][bidx]["bw_works"]) > 0:
-                    worksTBD["current grp"] = "wb_works"
-                    worksTBD["current bidx"] = 0
-                    worksTBD["current widx"] = 0
-                    worksTBD["current oidx"] = -1
+                        workgroup["current tz"] = tz
+                        workgroup["current bidx"] = bid
+                        workgroup["current grp"] = grp
+                        if grp == "wb_works":
+                            workgroup["current widx"] = mid
+                        else:
+                            workgroup["current oidx"] = mid
 
+            workgroup["current tz"] = tz
+
+            if grp == "other_works":
+                idx = oidx
             else:
-                # already reached the last region in this todo group, consider this group done.
-                worksTBD["status"] == "done"
+                idx = widx
+
+            mission_id = works[tz][bidx][grp][idx]["mid"]
+            midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
+            this_stat = self.missions[midx].getStatus()
+            n_retries = self.missions[midx].getRetry()
+            if "Completed" not in this_stat and n_retries > 0:
+                found = True
 
 
-        worksTBD["current tz"] = tz
+    # go thru all todos to find the first mission that's incomplete and retry count is not down to 0 yet.
+    def findFirstMissonsToBeRetried(self, todos):
+        found = False
+        mid = grp = bid = tz = ""
+        for key1, value1 in todos.items():
+            # regions
+            if isinstance(value1, dict):
+                for key2, value2 in value1.items():
+                    # botids
+                    if isinstance(value2, dict):
+                        for key3, value3 in value2.items():
+                            # groups
+                            if isinstance(value3, dict):
+                                mid = 0
+                                for item in value3.items():
+                                    # missions
+                                    mission_id = item["mid"]
+                                    midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
+                                    this_stat = self.missions[midx].getStatus()
+                                    n_retry = self.missions[midx].getRetry()
+                                    if "Completed" not in this_stat and n_retry > 0:
+                                        found = True
+                                        grp = key3
+                                        bid = key2
+                                        tz = key1
+                                        break
+                                    else:
+                                        mid = mid + 1
+                            if found:
+                                break
+                    if found:
+                        break
+            if found:
+                break
+        #now point to the 1st item in this todo list
+
+        print("MISSIONS needs retry:", tz, bid, grp, mid)
+        return tz, bid, grp, mid
+
+
 
 
     #convert time zone, time slot to datetime
@@ -3003,36 +3291,54 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    self.fetchSchedule("", None)
-
+                    last_start = str(datetime.now().timestamp())
+                    botTodos["status"] = self.fetchSchedule("", None)
+                    last_end = str(datetime.now().timestamp())
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
-
-                    botTodos["status"] = "done"
+                    # if "Completed" in botTodos["status"]:
+                    current_run_report = self.genRunReport(last_start, last_end)
+                    finished = self.todays_work["tbd"].pop(0)
+                    self.todays_completed.append(finished)
                 elif botTodos["name"] == "automation":
                     # run 1 bot's work
                     print("running RPA..............")
-                    if not botTodos["status"] == "done":
+                    if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
+                        last_start = str(datetime.now().timestamp())
                         await self.runRPA(botTodos)
-                    else:
-                        print("Done with today!!!!!!!!!")
-                        self.doneWithToday()
+                        last_end = str(datetime.now().timestamp())
+                    # else:
+                        # now need to chop off the 0th todo since that's done by now....
+                        current_run_report = self.genRunReport(last_start, last_end)
+
+                        finished = self.todays_work["tbd"].pop(0)
+                        self.todays_completed.append(finished)
+
+                        if len(self.todays_work["tbd"]) == 0:
+                            if self.hostrole == "Platoon":
+                                print("Platoon Done with today!!!!!!!!!")
+                                self.doneWithToday()
+                            else:
+                                # check whether we have collected all reports so far, there is 1 count difference between,
+                                # at this point the local report on this machine has not been added to toddaysReports yet.
+                                # this will be done in doneWithToday....
+                                if len(self.todaysReports) == (len(self.todays_completed) - 2):
+                                    print("Commander Done with today!!!!!!!!!")
+                                    self.doneWithToday()
                 else:
-                    print("what?????")
-
-                # now need to chop off the 0th todo since that's done by now....
-                finished = self.todays_work["tbd"].pop(0)
-
-                # elif botTodos["name"] == "report":
-                #     self.doneWithToday()
-                self.workingState = "Idle"
+                    print("Unrecogizable todo name....", botTodos["name"])
 
             else:
                 # nothing to do right now. check if all of today's work are done.
                 # if my own works are done and all platoon's reports are collected.
-                if self.todays_work["allstat"] == "all done":
-                    self.doneWithToday()
+                if self.hostrole == "Platoon":
+                    if len(self.todays_work["tbd"]) == 0:
+                        self.doneWithToday()
+
+        if self.workingState != "Idle":
+            self.workingState = "Idle"
+
 
     #update a vehicle's missions status
     def updateVMStats(self, rx_data):
@@ -3140,12 +3446,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
-            self.todaysReports.append(json.loads(msg["content"]))
+            self.todaysReports.append(json.loads(msg))
             # keep statistics on all platoon runs.
-            if len(self.todaysReports) == len(self.todays_work["tbd"][1]):
+            if len(self.todaysReports) == (len(self.todays_completed)-1):
                 # check = all(item in List1 for item in List2)
                 # this means all reports are collected, ready to send to cloud.
-                self.todays_work["allstat"] = "all done"
+                self.doneWithToday()
 
     def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
@@ -3225,6 +3531,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     break
             self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
             print("after assigned work, ", len(self.todays_work["tbd"]), "todos exists in the queue.", self.todays_work["tbd"])
+            # clean up the reports on this vehicle....
+            self.todaysReports = []
+
         elif msg["cmd"] == "reqCancelAllMissions":
             # update vehicle status display.
             self.showMsg(msg["content"])
@@ -3240,64 +3549,80 @@ class MainWindow(QtWidgets.QMainWindow):
             # update vehicle status display.
             self.showMsg(msg["content"])
             # this is for manual generated missions, simply added to the todo list.
-    # just an array of the following object:
+
+
+    # a run report is just an array of the following object:
     # MissionStatus {
     #     mid: ID!
     #     bid: ID!
     #     blevels: String!
     #     status: String!
     #     }
-    def genRunReport(self):
+    # 1 report is for 1 TBD workgroup.
+    def genRunReport(self, last_start, last_end):
         statReport = None
         tzi = 0
         #only generate report when all done.
-        works = self.todays_work["tbd"][1]
+        works = self.todays_work["tbd"][0]
 
         if not self.hostrole == "CommanderOnly":
+            # for platoon or commander does work itself, need to gather current todo's report , each mission's run result
             while tzi in range(len(Tzs)):
                 if len(works[tzi]) > 0:
                     for bi in range(len(works[tzi])):
                         if len(works[tzi][bi]["other_works"]) > 0:
                             for oi in range(len(works[tzi][bi]["other_works"])):
-                                self.todaysReport.append({ "mid": works[tzi][bi]["other_works"][oi].mid, "bid": works[tzi][bi].bid, "blevels": "", "status": works[tzi][bi]["other_works"][oi].stat})
+                                self.todaysReport.append({ "mid": works[tzi][bi]["other_works"][oi].mid, "bid": works[tzi][bi].bid, "starttime": last_start, "endtime": last_end, "status": works[tzi][bi]["other_works"][oi].stat})
 
                         if len(works[tzi][bi]["wb_works"]) > 0:
                             for wi in range(len(works[tzi][bi]["wb_works"])):
-                                self.todaysReport.append({ "mid": works[tzi][bi]["wb_works"][wi].mid, "bid": works[tzi][bi].bid, "blevels": "", "status": works[tzi][bi]["wb_works"][wi].stat})
+                                self.todaysReport.append({ "mid": works[tzi][bi]["wb_works"][wi].mid, "bid": works[tzi][bi].bid, "starttime": last_start, "endtime": last_end, "status": works[tzi][bi]["wb_works"][wi].stat})
 
+            if self.hostrole != "Platoon":
+                # add generated report to report list....
+                self.todaysLocalReports.append(self.todaysReport)
+            else:
+                # self.todaysReports.append(str.encode(json.dumps(rpt)))
+                self.todaysReports.append(self.todaysReport)
 
-        if not self.hostrole == "Platoon":
-            # generate complete report based on reports generated on this local host and the ones sent from platoons on the network.
-            rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
-            self.todaysReports.append(str.encode(json.dumps(rpt)))
-            statReport = [item for pr in self.todaysReports for item in pr]         #pr - platoon report, statReport is list of list.
-        else:
-            # generate report only for this machine.
-            statReport = self.todaysReport
-
-        return statReport
+        return self.todaysReport
 
     # all work done today, now
     # 1) send report to the network,
     # 2) save report to local logs,
     # 3) clear today's work data structures.
+    #
     def doneWithToday(self):
         global commanderXport
         # call reportStatus API to send today's report to API
         print("Done with today!")
-        todays_stat = self.genRunReport()
 
         if not self.hostrole == "Platoon":
-            if todays_stat:
-                #send report to cloud
-                send_completion_status_to_cloud(self.session, todays_stat, self.tokens['AuthenticationResult']['IdToken'])
+            if self.hostrole == "Commander":
+                rpt = {"ip": self.ip, "type": "report", "content": self.todaysLocalReports}
+                self.todaysReports.append(rpt)
+
+            if len(self.todaysReports) > 0:
+                # flatten the report data structure...
+                allTodoReports = [item for pr in self.todaysReports for item in pr["content"]]
+                missionReports = [item for pr in allTodoReports for item in pr]
+            else:
+                missionReports = []
+
+            # if this is a commmander, then send report to cloud
+            send_completion_status_to_cloud(self.session, missionReports, self.tokens['AuthenticationResult']['IdToken'])
         else:
-            rpt = {"ip": self.ip, "type": "report", "content": todays_stat}
+            # if this is a platoon, send report to commander
+            rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
             commanderXport.write(str.encode(json.dumps(rpt)))
 
-        # 2) log reports.
-        self.saveDailyRunReport(todays_stat)
+        # 2) log reports on local drive.
+        self.saveDailyRunReport(self.todaysReports)
 
         # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
         if not self.hostrole == "Platoon":
             self.todays_work = {"tbd": [{"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}
+
+        self.todays_completed = []
+        self.todaysReports = []
+        self.todaysLocalReports = []
