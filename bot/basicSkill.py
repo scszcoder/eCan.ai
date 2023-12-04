@@ -1158,9 +1158,9 @@ def processMouseClick(step, i):
 
         print("calculated locations:", loc)
 
-    top_visible_window = get_top_level_visible_window()
-    window_rect: QRect = top_visible_window.geometry()
-    print("top windows rect:", window_rect)
+        top_visible_window = get_top_level_visible_window()
+        window_rect: QRect = top_visible_window.geometry()
+        print("top windows rect:", window_rect)
 
         # loc[0] = int(loc[0]) + window_rect[0]
         loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
@@ -1870,7 +1870,7 @@ def processListDir(step, i):
     ex_stat = "success:0"
     try:
         lof = os.listdir(step["dir"])
-        symTab[step["result"]] = [f for f in lof if x.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
+        symTab[step["result"]] = [f for f in lof if f.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
 
     except:
         ex_stat = "ErrorListDir:" + str(i)
