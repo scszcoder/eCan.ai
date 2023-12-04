@@ -227,35 +227,40 @@ def runAllSteps(steps, mission, skill, mode="normal"):
     #     print("steps: ", k, " -> ", steps[k])
     print("=====================================")
     while next_step_index <= len(stepKeys)-1 and running:
-        next_step_index = run1step(steps, next_step_index, mission, skill, run_stack)
+        next_step_index, step_stat = run1step(steps, next_step_index, mission, skill, run_stack)
 
-        # debugging mode. if the next instruction is one of the breakpoints, then stop and pendin for
-        # keyboard input. (should fix later to support GUI button press.....)
-        if next_step_index in breakpoints:
-            cmd = input("cmd for next action('<Space>' to step, 'c' to continue to run, 'q' to abort. \n")
-            if cmd == "c":
-                mode = "normal"
-            elif cmd == "q":
-                break
+        if step_stat == "success:0":
 
-        # in case an exeption occurred, handle the exception.
-        if in_exception:
-            print("EXCEPTION THROWN:")
-            # push next_step_index onto exception stack.
-            exception_stack.append(next_step_index)
+            # debugging mode. if the next instruction is one of the breakpoints, then stop and pendin for
+            # keyboard input. (should fix later to support GUI button press.....)
+            if next_step_index in breakpoints:
+                cmd = input("cmd for next action('<Space>' to step, 'c' to continue to run, 'q' to abort. \n")
+                if cmd == "c":
+                    mode = "normal"
+                elif cmd == "q":
+                    break
 
-            # set the next_step_index to be the start of the exception handler, which always starts @8000000
-            next_step_index = stepKeys.index("step8000000")
+            # in case an exeption occurred, handle the exception.
+            if in_exception:
+                print("EXCEPTION THROWN:")
+                # push next_step_index onto exception stack.
+                exception_stack.append(next_step_index)
 
-        if mode == "debug":
-            input("hit any key to continue")
+                # set the next_step_index to be the start of the exception handler, which always starts @8000000
+                next_step_index = stepKeys.index("step8000000")
 
-        print("next_step_index: ", next_step_index, "len(stepKeys)-1: ", len(stepKeys)-1)
+            if mode == "debug":
+                input("hit any key to continue")
 
-    if next_step_index > len(stepKeys)-1:
+            print("next_step_index: ", next_step_index, "len(stepKeys)-1: ", len(stepKeys)-1)
+        else:
+            break
+
+    if step_stat == "success:0":
         print("RUN COMPLETED!")
     else:
         print("RUN ABORTED!")
+        run_result = step_stat
 
     return run_result
 
@@ -306,8 +311,9 @@ def run1step(steps, si, mission, skill, stack):
 
     else:
         si = si + 1
+        isat = "ErrorInstructionNotType:400"
 
-    return si
+    return si, isat
 
 
 def cancelRun():

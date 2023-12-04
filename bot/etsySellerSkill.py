@@ -377,6 +377,7 @@ def genStepEtsySearchOrders(screen, orderDataName, errFlagName, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+# check whether there are orders
 def processEtsySearchOrders(step, i):
     ex_stat = "success:0"
     try:
