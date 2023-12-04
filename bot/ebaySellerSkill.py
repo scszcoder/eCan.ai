@@ -15,46 +15,51 @@ def genWinEbayHandleOrderSkill(lieutenant, bot_works, start_step, theme):
     return all_orders
 
 def processEbayScrapeOrdersHtml(step, i, mission, skill):
-    print("Extract Order List from HTML: ", step)
+    ex_stat = "success:0"
+    try:
+        print("Extract Order List from HTML: ", step)
 
-    hfile = symTab[step["html_var"]]
-    print("hfile: ", hfile)
+        hfile = symTab[step["html_var"]]
+        print("hfile: ", hfile)
 
-    pl = ebay_seller_fetch_order_list(hfile, step["page_num"])
-    print("scrape product list result: ", pl)
+        pl = ebay_seller_fetch_order_list(hfile, step["page_num"])
+        print("scrape product list result: ", pl)
 
-    att_pl = []
+        att_pl = []
 
-    for p in step["page_cfg"]["products"]:
-        print("current page config: ", p)
-        found = found_match(p, pl["pl"])
-        if found:
-            # remove found from the pl
-            if found["summery"]["title"] != "CUSTOM":
-                pl["pl"].remove(found)
-            else:
-                # now swap in the swipe product.
-                found = {"summery": {
-                            "title": mission.getTitle(),
-                            "rank": mission.getRating(),
-                            "feedbacks": mission.getFeedbacks(),
-                            "price": mission.getPrice()
-                            },
-                    "detailLvl": p["detailLvl"],
-                    "purchase": p["purchase"]
-                }
+        for p in step["page_cfg"]["products"]:
+            print("current page config: ", p)
+            found = found_match(p, pl["pl"])
+            if found:
+                # remove found from the pl
+                if found["summery"]["title"] != "CUSTOM":
+                    pl["pl"].remove(found)
+                else:
+                    # now swap in the swipe product.
+                    found = {"summery": {
+                                "title": mission.getTitle(),
+                                "rank": mission.getRating(),
+                                "feedbacks": mission.getFeedbacks(),
+                                "price": mission.getPrice()
+                                },
+                        "detailLvl": p["detailLvl"],
+                        "purchase": p["purchase"]
+                    }
 
-            att_pl.append(found)
+                att_pl.append(found)
 
-    if not step["product_list"] in symTab:
-        # if new, simply assign the result.
-        symTab[step["product_list"]] = {"products": pl, "attention": att_pl}
-    else:
-        # otherwise, extend the list with the new results.
-        symTab[step["product_list"]].append({"products": pl, "attention": att_pl})
+        if not step["product_list"] in symTab:
+            # if new, simply assign the result.
+            symTab[step["product_list"]] = {"products": pl, "attention": att_pl}
+        else:
+            # otherwise, extend the list with the new results.
+            symTab[step["product_list"]].append({"products": pl, "attention": att_pl})
 
-    print("var step['product_list']: ", symTab[step["product_list"]])
-    return i+1
+        print("var step['product_list']: ", symTab[step["product_list"]])
+    except:
+        ex_stat = "ErrorEbayScrapeOrdersHtml:" + str(i)
+
+    return (i + 1), ex_stat
 
 #
 def genWinEbayObtainLabelsSkill(lieutenant, bot_works, start_step, theme):

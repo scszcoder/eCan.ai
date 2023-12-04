@@ -113,7 +113,7 @@ class M_Pub_Attributes():
         self.assign_type = "USER"         # user assigned or cloud auto assigned.
         self.search_kw = ""               # search phrase
         self.search_cat = "NA"
-        self.nex = 1                      # number of time this mission to repeated.
+        self.retry = 3                      # number of time this mission to repeated.
         self.status = "NA"
         self.ms_type = "SELL"             # buy/sell type of mission.
         self.config = ""
@@ -141,6 +141,7 @@ class M_Pub_Attributes():
         self.current_sk_idx = 0
         self.platoon_id = ""
 
+
     def setType(self, mid, atype, mtype):
         self.missionId = mid
         self.assign_type = atype
@@ -149,8 +150,8 @@ class M_Pub_Attributes():
     def setBot(self, bid):
         self.bot_id = bid
 
-    def setNex(self, nRetry):
-        self.nex = nRetry
+    def setRetry(self, nRetry):
+        self.retry = nRetry
 
     def setStatus(self, stat):
         self.status = stat
@@ -173,7 +174,7 @@ class M_Pub_Attributes():
         self.missionId = dj["missionId"]
         self.ticket = dj["ticket"]
         self.ms_type = dj["ms_type"]
-        self.nex = dj["repeat"]
+        self.retry = dj["repeat"]
         self.bot_id = dj["bot_id"]
         self.status = dj["status"]
         self.search_kw = dj["phrase"]
@@ -206,7 +207,7 @@ class M_Pub_Attributes():
         self.ticket = dj["ticket"]
         self.ms_type = dj["type"]
         self.owner = dj["owner"]
-        self.nex = dj["trepeat"]
+        self.retry = dj["trepeat"]
         self.bot_id = dj["botid"]
         self.status = dj["status"]
         self.search_kw = dj["phrase"]
@@ -236,7 +237,7 @@ class M_Pub_Attributes():
                 "assign_type": self.assign_type,
                 "ms_type": self.ms_type,
                 "config": self.config,
-                "repeat": self.nex,
+                "repeat": self.retry,
                 "bot_id": self.bot_id,
                 "status": self.status,
                 "phrase": self.search_kw,
@@ -343,11 +344,11 @@ class EBMISSION(QtGui.QStandardItem):
     def setSearchCat(self, scat):
         self.pubAttributes.search_cat = scat
 
-    def getRepeat(self):
-        return self.pubAttributes.nex
+    def getRetry(self):
+        return self.pubAttributes.retry
 
-    def setRepeat(self, nex):
-        self.pubAttributes.nex = nex
+    def setRetry(self, retry):
+        self.pubAttributes.retry = retry
 
     def getMtype(self):
         return self.pubAttributes.ms_type

@@ -9,6 +9,8 @@ from labelSkill import *
 from wifiSkill import *
 from printLabel import *
 
+
+# locate the correct mission to work on....
 def getWorkSettings(lieutenant, bot_works):
     works = bot_works["works"]
     tz = bot_works["current tz"]
@@ -34,7 +36,7 @@ def getWorkSettings(lieutenant, bot_works):
 
     print("mission_id: ", mission_id, "midx: ", midx)
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
-    settings = lieutenant.missions[midx].getParentSettings()
+    # settings = lieutenant.missions[midx].getParentSettings()
     platform = lieutenant.missions[midx].getPlatform()
     site = lieutenant.missions[midx].getSite()
     app = lieutenant.missions[midx].getApp()
@@ -43,24 +45,6 @@ def getWorkSettings(lieutenant, bot_works):
 
     rpaName = works[tz][bidx][grp][idx]["name"]
 
-    # required_skids = lieutenant.missions[works[tz][bidx][grp][idx]["mid"]].getSkills()
-    # print("mission required skill IDs: ", required_skids)
-    #
-    # print("number of skills loade: ", len(lieutenant.skills))
-    # print("first skill id: ", lieutenant.skills[0].getSkid())
-    # iidx = (i for i, sk in enumerate(lieutenant.skills) if i >= 0)
-    # print("is: ", iidx)
-    #
-    # # use skill ID to find the index of the skill among the list of skills.
-    # skidx = next((i for i, sk in enumerate(lieutenant.skills) if sk.getSkid() == required_skids[0]), -1)
-    # print("skidx: ", skidx)
-    #
-    # # derive full path skill file name.
-    # skfname = lieutenant.homepath + "/" + lieutenant.skills[skidx].getPskFileName()
-    #
-    # skname = os.path.basename(lieutenant.skills[skidx].getName())
-    # print("GENERATING STEPS into: ", skfname, "  skill name: ", skname)
-    #
     # cargs = lieutenant.skills[skidx].getAppArgs()
 
     bot_id = works[tz][bidx]["bid"]

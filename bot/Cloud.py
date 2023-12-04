@@ -684,6 +684,32 @@ def gen_remove_skills_string(removeOrders):
     return query_string
 
 
+def gen_train_request_string(mStats):
+    query_string = """
+            mutation MyUBMutation {
+          updateMissionsExStatus (input:[
+        """
+    rec_string = ""
+    for i in range(len(mStats)):
+        rec_string = rec_string + "{ mid: " + str(mStats[i]["mid"]) + ", "
+        rec_string = rec_string + "bid: '" + str(mStats[i]["bid"]) + "', "
+        rec_string = rec_string + "status: '" + mStats[i]["status"] + "', "
+        rec_string = rec_string + "starttime: '" + mStats[i]["starttime"] + "', "
+        rec_string = rec_string + "endtime: '" + mStats[i]["endtime"] + "'} "
+
+        if i != len(mStats) - 1:
+            rec_string = rec_string + ', '
+        else:
+            rec_string = rec_string + ']'
+
+    tail_string = """
+        ) 
+        } """
+    query_string = query_string + rec_string + tail_string
+    print(query_string)
+    return query_string
+
+
 
 def set_up_cloud():
     REGION = 'us-east-1'
@@ -758,41 +784,9 @@ def req_train_read_screen(session, request, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_completion_status_to_cloud(session, stat, token):
+def send_completion_status_to_cloud(session, missionStats, token):
 
-    query = """
-    query MyQuery {
-    getPeople(attrs: [{
-        number: 100,
-        startAge: 40,
-        endAge: 50,
-        race: "",
-        sex: "",
-        locState: "CA",
-        incomeLow: 1000,
-        incomeHigh: 50000,
-        orderID: "65598",
-        customer: "sctisz@163.com"}]) {
-      birthday
-      emails
-      firstName
-      id
-      lastName
-      middleName
-      phones
-      suffix
-      addrs {
-        city
-        endDate
-        startDate
-        state
-        street1
-        street2
-        zip
-      }
-    }
-  }
- """
+    query = gen_train_request_string(missionStats)
 
     jresp = appsync_http_request(query, session, token)
 

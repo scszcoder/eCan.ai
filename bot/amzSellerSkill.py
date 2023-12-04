@@ -13,34 +13,40 @@ def genWinEbayHandleOrderSkill(lieutenant, bot_works, start_step, theme):
     return all_orders
 
 def processAMZScrapeOrdersHtml(step, i, mission, skill):
-    print("Extract Order List from HTML: ", step)
+    ex_stat = "success:0"
+    try:
+        print("Extract Order List from HTML: ", step)
 
-    hfile = symTab[step["html_var"]]
-    print("hfile: ", hfile)
+        hfile = symTab[step["html_var"]]
+        print("hfile: ", hfile)
 
-    pl = amz_seller_fetch_order_list(hfile, step["page_num"])
-    print("scrape product list result: ", pl)
+        pl = amz_seller_fetch_order_list(hfile, step["page_num"])
+        print("scrape product list result: ", pl)
 
-    att_pl = []
+        att_pl = []
 
-    for p in step["page_cfg"]["products"]:
-        print("current page config: ", p)
-        found = found_match(p, pl["pl"])
-        if found:
-            # remove found from the pl
-            if found["summery"]["title"] != "CUSTOM":
-                pl["pl"].remove(found)
-            else:
-                # now swap in the swipe product.
-                found = {"summery": {
-                            "title": mission.getTitle(),
-                            "rank": mission.getRating(),
-                            "feedbacks": mission.getFeedbacks(),
-                            "price": mission.getPrice()
-                            },
-                    "detailLvl": p["detailLvl"],
-                    "purchase": p["purchase"]
-                }
+        for p in step["page_cfg"]["products"]:
+            print("current page config: ", p)
+            found = found_match(p, pl["pl"])
+            if found:
+                # remove found from the pl
+                if found["summery"]["title"] != "CUSTOM":
+                    pl["pl"].remove(found)
+                else:
+                    # now swap in the swipe product.
+                    found = {"summery": {
+                                "title": mission.getTitle(),
+                                "rank": mission.getRating(),
+                                "feedbacks": mission.getFeedbacks(),
+                                "price": mission.getPrice()
+                                },
+                        "detailLvl": p["detailLvl"],
+                        "purchase": p["purchase"]
+                    }
 
-            att_pl.append(found)
+                att_pl.append(found)
 
+    except:
+        ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+
+    return (i + 1), ex_stat
