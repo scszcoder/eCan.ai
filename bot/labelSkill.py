@@ -698,17 +698,22 @@ def genStepGSExtractZippedFileName(screen_txt_var, outvar, statusvar, stepN):
 
 
 def processGSExtractZippedFileName(step, i):
-    print("extracting from:", symTab[step["zipped_screen_text"]])
-    fn_txt = x = re.sub(' +', ' ', symTab[step["zipped_screen_text"]][0]["text"])
-    fn_txts = fn_txt.split(" ")
+    ex_stat = "success:0"
+    try:
+        print("extracting from:", symTab[step["zipped_screen_text"]])
+        fn_txt = x = re.sub(' +', ' ', symTab[step["zipped_screen_text"]][0]["text"])
+        fn_txts = fn_txt.split(" ")
 
-    # Define a regular expression pattern to match "x*s" where * can be any character
-    pattern = r'\.x\ws'
+        # Define a regular expression pattern to match "x*s" where * can be any character
+        pattern = r'\.x\ws'
 
-    # Use re.sub() to replace all occurrences of the pattern with "xls"
-    symTab[step["result"]] = re.sub(pattern, '.xls', fn_txts[0])
-    # print("Extracted ZIPPED file name:", symTab[step["result"]])
-    return i + 1
+        # Use re.sub() to replace all occurrences of the pattern with "xls"
+        symTab[step["result"]] = re.sub(pattern, '.xls', fn_txts[0])
+        # print("Extracted ZIPPED file name:", symTab[step["result"]])
+    except:
+        ex_stat = "ErrorGSExtractZippedFileName:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 

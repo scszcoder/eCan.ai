@@ -1184,43 +1184,58 @@ def genStepAMZSearchReviews(screen, sink, flag, stepN):
 
 
 def processAMZSearchProducts(step, i):
-    scrn = symTab[step["screen"]]
-    found = []
+    ex_stat = "success:0"
+    try:
+        scrn = symTab[step["screen"]]
+        found = []
 
-    # search for products on this screen.
+        # search for products on this screen.
 
-    # search result should be put into the result variable.
-    symTab[step["sink"]] = found
-    return i + 1
+        # search result should be put into the result variable.
+        symTab[step["sink"]] = found
+    except:
+        ex_stat = "ErrorAMZSearchProducts:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 # process product detail pages on screen, basically this function searches.
 # for reviews to click.
 def processAMZBrowseDetails(step, i):
-    print("Searching....", step["target"])
+    ex_stat = "success:0"
+    try:
+        print("Searching....", step["target"])
 
-    scrn = symTab[step["screen"]]
-    rvs = extractAMZProductsFromScreen(scrn)
+        scrn = symTab[step["screen"]]
+        rvs = extractAMZProductsFromScreen(scrn)
 
-    # search for details on this screen.
+        # search for details on this screen.
 
-    # search result should be put into the result variable.
-    symTab[step["sink"]] = None
-    return i + 1
+        # search result should be put into the result variable.
+        symTab[step["sink"]] = None
+    except:
+        ex_stat = "ErrorAMZBrowseDetails:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 def processAMZBrowseReviews(step, i):
-    print("Searching....", step["target"])
+    ex_stat = "success:0"
+    try:
+        print("Searching....", step["target"])
 
-    scrn = symTab[step["screen"]]
+        scrn = symTab[step["screen"]]
 
-    found = []
+        found = []
 
-    # search for reviews on this screen.
+        # search for reviews on this screen.
 
-    # search result should be put into the result variable.
-    symTab[step["sink"]] = found
-    return i+1
+        # search result should be put into the result variable.
+        symTab[step["sink"]] = found
+    except:
+        ex_stat = "ErrorAMZBrowseReviews:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 # screen is a list of clickables, we'll need to search thru the clickables to find extracted product list.
@@ -1354,69 +1369,79 @@ def match_product(summery, screen_data):
 
 
 def processAMZMatchProduct(step, i):
+    ex_stat = "success:0"
+    try:
+        scrn = symTab[step["screen"]]
 
-    scrn = symTab[step["screen"]]
+        tbMatched = symTab[step["product_list"]]["attention"]  # contains anchor/info name, or the text string to matched against.
+        print("find to be paid attention: ", tbMatched)
 
-    tbMatched = symTab[step["product_list"]]["attention"]  # contains anchor/info name, or the text string to matched against.
-    print("find to be paid attention: ", tbMatched)
+        # now extract all products from the screen capture: scrn
+        matched = []
+        matched_tbm = []
+        if len(tbMatched) > 0:
+            for tbm in tbMatched:
+                title_matched, matched_paragraph = match_product(tbm["summery"], scrn)
+                if title_matched:
+                    # swap x-y in prep for the mouse click function.....
+                    tempy0 = matched_paragraph["txt_struct"][0]["box"][1]
+                    tempy1 = matched_paragraph["txt_struct"][0]["box"][3]
+                    matched_paragraph["txt_struct"][0]["box"][1] = matched_paragraph["txt_struct"][0]["box"][0]
+                    matched_paragraph["txt_struct"][0]["box"][3] = matched_paragraph["txt_struct"][0]["box"][2]
+                    matched_paragraph["txt_struct"][0]["box"][0] = tempy0
+                    matched_paragraph["txt_struct"][0]["box"][2] = tempy1
 
-    # now extract all products from the screen capture: scrn
-    matched = []
-    matched_tbm = []
-    if len(tbMatched) > 0:
-        for tbm in tbMatched:
-            title_matched, matched_paragraph = match_product(tbm["summery"], scrn)
-            if title_matched:
-                # swap x-y in prep for the mouse click function.....
-                tempy0 = matched_paragraph["txt_struct"][0]["box"][1]
-                tempy1 = matched_paragraph["txt_struct"][0]["box"][3]
-                matched_paragraph["txt_struct"][0]["box"][1] = matched_paragraph["txt_struct"][0]["box"][0]
-                matched_paragraph["txt_struct"][0]["box"][3] = matched_paragraph["txt_struct"][0]["box"][2]
-                matched_paragraph["txt_struct"][0]["box"][0] = tempy0
-                matched_paragraph["txt_struct"][0]["box"][2] = tempy1
-
-                matched.append({"txts": matched_paragraph["txt_struct"][0], "detailLvl": tbm["detailLvl"], "purchase": tbm["purchase"]})
-                matched_tbm.append(tbm)
+                    matched.append({"txts": matched_paragraph["txt_struct"][0], "detailLvl": tbm["detailLvl"], "purchase": tbm["purchase"]})
+                    matched_tbm.append(tbm)
 
 
-    print(">>>>>>>>matched_tbm: ", matched_tbm)
-    print("--------->matched locations: ", matched)
-    #for the matched ones, remove from the attention list.
-    for tbm in matched_tbm:
-        symTab[step["product_list"]]["attention"].remove(tbm)
+        print(">>>>>>>>matched_tbm: ", matched_tbm)
+        print("--------->matched locations: ", matched)
+        #for the matched ones, remove from the attention list.
+        for tbm in matched_tbm:
+            symTab[step["product_list"]]["attention"].remove(tbm)
 
-    print("<<<<>>>>>>>>>>>>remaining attention: ", symTab[step["product_list"]]["attention"])
-    # see whether current screen contains the product to be cliced into.
-    print("Setting result("+step["result"]+") to be: ", matched)
-    symTab[step["result"]] = matched
-    # search result should be put into the result variable.
-    if len(matched) > 0:
-        symTab[step["flag"]] = True
-    else:
-        symTab[step["flag"]] = False
+        print("<<<<>>>>>>>>>>>>remaining attention: ", symTab[step["product_list"]]["attention"])
+        # see whether current screen contains the product to be cliced into.
+        print("Setting result("+step["result"]+") to be: ", matched)
+        symTab[step["result"]] = matched
+        # search result should be put into the result variable.
+        if len(matched) > 0:
+            symTab[step["flag"]] = True
+        else:
+            symTab[step["flag"]] = False
 
-    print("RESULT of check: ", step["flag"], " :: ", symTab[step["flag"]])
+        print("RESULT of check: ", step["flag"], " :: ", symTab[step["flag"]])
 
-    return i+1
+    except:
+        ex_stat = "ErrorAMZMatchProduct:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 def processExtractPurchaseOrder(step, i):
-    print("Searching....", step["target"])
+    ex_stat = "success:0"
+    try:
+        print("Searching....", step["target"])
 
-    scrn = symTab[step["screen"]]
-    template = step["template"]  # contains anchor/info name, or the text string to matched against.
+        scrn = symTab[step["screen"]]
+        template = step["template"]  # contains anchor/info name, or the text string to matched against.
 
-    if step["target"] == "Anchor":
-        print("")
-    elif step["target"] == "Info":
-        print("")
-    elif step["target"] == "Text":
-        template = step["template"]
-        print("")
+        if step["target"] == "Anchor":
+            print("")
+        elif step["target"] == "Info":
+            print("")
+        elif step["target"] == "Text":
+            template = step["template"]
+            print("")
 
-    # search result should be put into the result variable.
-    symTab[step["result"]] = None
-    return i+1
+        # search result should be put into the result variable.
+        symTab[step["result"]] = None
+
+    except:
+        ex_stat = "ErrorExtractPurchaseOrder:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 
@@ -1438,39 +1463,43 @@ def amzProductsOnSameRow(p1_txt_box, p2_txt_box):
 # The algorithm analyze keyword "Free Shipping" to the next "Free Shipping" Assumption is there are
 # at lease 2 free shipping on the page, and
 def processAMZCalcProductLayout(step, i):
-    vdistance = 0                         #unit in pixel.
-    scrn = symTab[step["screen"]]
+    ex_stat = "success:0"
+    try:
+        vdistance = 0                         #unit in pixel.
+        scrn = symTab[step["screen"]]
 
-    # first get all info paragraphs out
-    ps = [element for index, element in enumerate(scrn["data"]) if element["name"] == "paragraph" and element["type"] == "info"]
+        # first get all info paragraphs out
+        ps = [element for index, element in enumerate(scrn["data"]) if element["name"] == "paragraph" and element["type"] == "info"]
 
-    #then search for the one contains the Free Shipping
-    found = [element for index, element in enumerate(ps) if textContains(element["name"], "FREE delivery")]
-    foundBoxes = []
+        #then search for the one contains the Free Shipping
+        found = [element for index, element in enumerate(ps) if textContains(element["name"], "FREE delivery")]
+        foundBoxes = []
 
-    if len(found) > 2:
-        for p in found:
-            for l in p["txt_struct"]:
-                if textContains(l["text"], "FREE delivery"):
-                    foundBoxes.append(l["box"])
-                    break
+        if len(found) > 2:
+            for p in found:
+                for l in p["txt_struct"]:
+                    if textContains(l["text"], "FREE delivery"):
+                        foundBoxes.append(l["box"])
+                        break
 
-        # that check the location of the boxes.
-        # if the last two occurances have the on-par vertical location and distinct horiznotal location, that means it's a grid type of layout.
-        #
-        if amzProductsOnSameRow(foundBoxes[len(foundBoxes)-1], foundBoxes[len(foundBoxes)-2]) or amzProductsOnSameRow(foundBoxes[len(foundBoxes) - 2], foundBoxes[len(foundBoxes) - 3]):
-            symTab[step["pl_page_layout"]] = "grid"
-        else:
+            # that check the location of the boxes.
+            # if the last two occurances have the on-par vertical location and distinct horiznotal location, that means it's a grid type of layout.
+            #
+            if amzProductsOnSameRow(foundBoxes[len(foundBoxes)-1], foundBoxes[len(foundBoxes)-2]) or amzProductsOnSameRow(foundBoxes[len(foundBoxes) - 2], foundBoxes[len(foundBoxes) - 3]):
+                symTab[step["pl_page_layout"]] = "grid"
+            else:
+                symTab[step["pl_page_layout"]] = "list"
+        elif len(found) == 2:
+            # if grid layout, we should never catch only 2 "free delivery" key phrases.
             symTab[step["pl_page_layout"]] = "list"
-    elif len(found) == 2:
-        # if grid layout, we should never catch only 2 "free delivery" key phrases.
-        symTab[step["pl_page_layout"]] = "list"
-    else:
-        # this is inconclusive, should re-scroll and check.....
-        print("WARNING: inconclusive on the layout")
+        else:
+            # this is inconclusive, should re-scroll and check.....
+            print("WARNING: inconclusive on the layout")
 
+    except:
+        ex_stat = "ErrorAMZCalcProductLayout:" + str(i)
 
-    return i+1
+    return (i + 1), ex_stat
 
 
 
@@ -1537,89 +1566,106 @@ def found_match(p, pl):
 # will "pay attention to" (i.e. click into it to browse more details).
 # Note: this is the place, to swap the custom product to the actual to be swiped product.
 def processAMZScrapePLHtml(step, i, mission, skill):
-    print("Extract Product List from HTML: ", step)
+    ex_stat = "success:0"
+    try:
+        print("Extract Product List from HTML: ", step)
 
-    hfile = symTab[step["html_var"]]
-    print("hfile: ", hfile)
+        hfile = symTab[step["html_var"]]
+        print("hfile: ", hfile)
 
-    pl = amz_buyer_fetch_product_list(hfile, step["page_num"])
-    print("scrape product list result: ", pl)
+        pl = amz_buyer_fetch_product_list(hfile, step["page_num"])
+        print("scrape product list result: ", pl)
 
-    att_pl = []
+        att_pl = []
 
-    for p in step["page_cfg"]["products"]:
-        print("current page config: ", p)
-        found = found_match(p, pl["pl"])
-        if found:
-            # remove found from the pl
-            if found["summery"]["title"] != "CUSTOM":
-                pl["pl"].remove(found)
-            else:
-                # now swap in the swipe product.
-                found = {"summery": {
-                            "title": mission.getTitle(),
-                            "rank": mission.getRating(),
-                            "feedbacks": mission.getFeedbacks(),
-                            "price": mission.getPrice()
-                            },
-                    "detailLvl": p["detailLvl"],
-                    "purchase": p["purchase"]
-                }
+        for p in step["page_cfg"]["products"]:
+            print("current page config: ", p)
+            found = found_match(p, pl["pl"])
+            if found:
+                # remove found from the pl
+                if found["summery"]["title"] != "CUSTOM":
+                    pl["pl"].remove(found)
+                else:
+                    # now swap in the swipe product.
+                    found = {"summery": {
+                                "title": mission.getTitle(),
+                                "rank": mission.getRating(),
+                                "feedbacks": mission.getFeedbacks(),
+                                "price": mission.getPrice()
+                                },
+                        "detailLvl": p["detailLvl"],
+                        "purchase": p["purchase"]
+                    }
 
-            att_pl.append(found)
+                att_pl.append(found)
 
-    if not step["product_list"] in symTab:
-        # if new, simply assign the result.
-        symTab[step["product_list"]] = {"products": pl, "attention": att_pl}
-    else:
-        # otherwise, extend the list with the new results.
-        symTab[step["product_list"]].append({"products": pl, "attention": att_pl})
+        if not step["product_list"] in symTab:
+            # if new, simply assign the result.
+            symTab[step["product_list"]] = {"products": pl, "attention": att_pl}
+        else:
+            # otherwise, extend the list with the new results.
+            symTab[step["product_list"]].append({"products": pl, "attention": att_pl})
 
-    print("var step['product_list']: ", symTab[step["product_list"]])
-    return i+1
+        print("var step['product_list']: ", symTab[step["product_list"]])
+
+    except:
+        ex_stat = "ErrorAMZScrapePLHtml:" + str(i)
+
+    return (i + 1), ex_stat
 
 def processAMZScrapeDetailsHtml(step, i, mission, skill):
-    print("Extract Product Details from HTML")
+    ex_stat = "success:0"
+    try:
+        print("Extract Product Details from HTML")
 
-    hfile = symTab[step["html_var"]]
-    print("hfile: ", hfile)
+        hfile = symTab[step["html_var"]]
+        print("hfile: ", hfile)
 
-    if step["result"] in symTab:
-        # if new, simply assign the result.
-        symTab[step["result"]] = amz_buyer_fetch_product_details(hfile)
-    else:
-        # otherwise, extend the list with the new results.
-        symTab[step["result"]] = symTab[step["result"]] + amz_buyer_fetch_product_details(hfile)
+        if step["result"] in symTab:
+            # if new, simply assign the result.
+            symTab[step["result"]] = amz_buyer_fetch_product_details(hfile)
+        else:
+            # otherwise, extend the list with the new results.
+            symTab[step["result"]] = symTab[step["result"]] + amz_buyer_fetch_product_details(hfile)
 
-    return i+1
+    except:
+        ex_stat = "ErrorAMZScrapeDetailsHtml:" + str(i)
+
+    return (i + 1), ex_stat
 
 def processAMZScrapeReviewsHtml(step, i, mission, skill):
-    print("Extract Product Reviews from HTML")
-    # dtnow = datetime.now()
-    #
-    # date_word = dtnow.strftime("%Y%m%d")
-    # print("date word:", date_word)
-    #
-    # fdir = step["root"] + "/runlogs/"
-    # fdir = fdir + date_word + "/"
-    #
-    # platform = mission.getPlatform()
-    # app = mission.getApp()
-    # site = mission.getSite()
-    #
-    # fdir = fdir + "b" + str(mission.getMid()) + "m" + str(mission.getBid()) + "/"
-    # # fdir = fdir + ppword + "/"
-    # fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
-    # fdir = fdir + skill.getName() + "/webpages/"
-    # hfile = fdir + step["hfname"] + ".html"
+    ex_stat = "success:0"
+    try:
+        print("Extract Product Reviews from HTML")
+        # dtnow = datetime.now()
+        #
+        # date_word = dtnow.strftime("%Y%m%d")
+        # print("date word:", date_word)
+        #
+        # fdir = step["root"] + "/runlogs/"
+        # fdir = fdir + date_word + "/"
+        #
+        # platform = mission.getPlatform()
+        # app = mission.getApp()
+        # site = mission.getSite()
+        #
+        # fdir = fdir + "b" + str(mission.getMid()) + "m" + str(mission.getBid()) + "/"
+        # # fdir = fdir + ppword + "/"
+        # fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
+        # fdir = fdir + skill.getName() + "/webpages/"
+        # hfile = fdir + step["hfname"] + ".html"
 
-    hfile = symTab[step["html_var"]]
-    print("hfile: ", hfile)
+        hfile = symTab[step["html_var"]]
+        print("hfile: ", hfile)
 
-    if step["result"] in symTab:
-        # if new, simply assign the result.
-        symTab[step["result"]] = amz_buyer_fetch_product_reviews(hfile)
-    else:
-        # otherwise, extend the list with the new results.
-        symTab[step["result"]] = symTab[step["result"]] + amz_buyer_fetch_product_reviews(hfile)
-    return i+1
+        if step["result"] in symTab:
+            # if new, simply assign the result.
+            symTab[step["result"]] = amz_buyer_fetch_product_reviews(hfile)
+        else:
+            # otherwise, extend the list with the new results.
+            symTab[step["result"]] = symTab[step["result"]] + amz_buyer_fetch_product_reviews(hfile)
+
+    except:
+        ex_stat = "ErrorAMZScrapeReviewsHtml:" + str(i)
+
+    return (i + 1), ex_stat

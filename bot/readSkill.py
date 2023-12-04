@@ -229,35 +229,40 @@ def runAllSteps(steps, mission, skill, mode="normal"):
     #     print("steps: ", k, " -> ", steps[k])
     print("=====================================")
     while next_step_index <= len(stepKeys)-1 and running:
-        next_step_index = run1step(steps, next_step_index, mission, skill, run_stack)
+        next_step_index, step_stat = run1step(steps, next_step_index, mission, skill, run_stack)
 
-        # debugging mode. if the next instruction is one of the breakpoints, then stop and pendin for
-        # keyboard input. (should fix later to support GUI button press.....)
-        if next_step_index in breakpoints:
-            cmd = input("cmd for next action('<Space>' to step, 'c' to continue to run, 'q' to abort. \n")
-            if cmd == "c":
-                mode = "normal"
-            elif cmd == "q":
-                break
+        if step_stat == "success:0":
 
-        # in case an exeption occurred, handle the exception.
-        if in_exception:
-            print("EXCEPTION THROWN:")
-            # push next_step_index onto exception stack.
-            exception_stack.append(next_step_index)
+            # debugging mode. if the next instruction is one of the breakpoints, then stop and pendin for
+            # keyboard input. (should fix later to support GUI button press.....)
+            if next_step_index in breakpoints:
+                cmd = input("cmd for next action('<Space>' to step, 'c' to continue to run, 'q' to abort. \n")
+                if cmd == "c":
+                    mode = "normal"
+                elif cmd == "q":
+                    break
 
-            # set the next_step_index to be the start of the exception handler, which always starts @8000000
-            next_step_index = stepKeys.index("step8000000")
+            # in case an exeption occurred, handle the exception.
+            if in_exception:
+                print("EXCEPTION THROWN:")
+                # push next_step_index onto exception stack.
+                exception_stack.append(next_step_index)
 
-        if mode == "debug":
-            input("hit any key to continue")
+                # set the next_step_index to be the start of the exception handler, which always starts @8000000
+                next_step_index = stepKeys.index("step8000000")
 
-        print("next_step_index: ", next_step_index, "len(stepKeys)-1: ", len(stepKeys)-1)
+            if mode == "debug":
+                input("hit any key to continue")
 
-    if next_step_index > len(stepKeys)-1:
+            print("next_step_index: ", next_step_index, "len(stepKeys)-1: ", len(stepKeys)-1)
+        else:
+            break
+
+    if step_stat == "success:0":
         print("RUN COMPLETED!")
     else:
         print("RUN ABORTED!")
+        run_result = step_stat
 
     return run_result
 
@@ -286,30 +291,31 @@ def run1step(steps, si, mission, skill, stack):
     if "type" in step:
         if step["type"] == "Halt":
             # run step using the funcion look up table.
-            si = vicrop[step["type"]](step, si)
+            si,isat = vicrop[step["type"]](step, si)
         elif step["type"] == "Goto" or step["type"] == "Check Condition" or step["type"] == "Repeat":
             # run step using the funcion look up table.
-            si = vicrop[step["type"]](step, si, stepKeys)
+            si,isat = vicrop[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html" or step["type"] == "AMZ Scrape PL Html":
-            si = vicrop[step["type"]](step, si, mission, skill)
+            si,isat = vicrop[step["type"]](step, si, mission, skill)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
-            si = vicrop[step["type"]](step, si, stack, stepKeys)
+            si,isat = vicrop[step["type"]](step, si, stack, stepKeys)
         elif step["type"] == "Stub" or step["type"] == "Use Skill":
-            si = vicrop[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
+            si,isat = vicrop[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
         elif step["type"] == "Call Function":
-            si = vicrop[step["type"]](step, si, stack, function_table, stepKeys)
+            si,isat = vicrop[step["type"]](step, si, stack, function_table, stepKeys)
         elif "EXT:" in step["type"]:
             if step["type"].index("EXT:") == 0:
                 # this is an extension instruction, execute differently, simply call extern. as to what to actually call, it's all
                 # embedded in the step dictionary.
-                si = processCallExtern(step, si)
+                si,isat = processCallExtern(step, si)
         else:
-            si = vicrop[step["type"]](step, si)
+            si,isat = vicrop[step["type"]](step, si)
 
     else:
         si = si + 1
+        isat = "ErrorInstructionNotType:400"
 
-    return si
+    return si, isat
 
 
 def cancelRun():
@@ -337,7 +343,13 @@ def continueRun(steps, settings):
 
 
 def processBrowse(step, i):
-    print("browsing the page....")
+    ex_stat = "success:0"
+    try:
+        print("browsing the page....")
+    except:
+        ex_stat = "ErrorBrowse:" + str(i)
+
+    return (i + 1), ex_stat
 
 def is_uniq(word, allwords):
     matched = [x for x in allwords if word in x["text"]]
@@ -416,57 +428,63 @@ def find_marker_on_screen(screen_data, target_word):
 # screen: variable that contains the screen content data structure.
 # to: put result in this varable name.
 def processRecordTxtLineLocation(step, i):
-    loc_word = step["location"]
-    scrn = step["screen"]
-    marker_text = step["text"]
-    marker_loc = step["to"]
-    found_line = None
-    found_text = None
-    screen_data = symTab[scrn]
-    symTab["last_screen_cal01"] = screen_data
-    screen_size = (screen_data[len(screen_data) - 2]['loc'][3], screen_data[len(screen_data) - 2]['loc'][2])
-    print("screen_size: ", screen_size)
+    ex_stat = "success:0"
+    try:
+        loc_word = step["location"]
+        scrn = step["screen"]
+        marker_text = step["text"]
+        marker_loc = step["to"]
+        found_line = None
+        found_text = None
+        screen_data = symTab[scrn]
+        symTab["last_screen_cal01"] = screen_data
+        screen_size = (screen_data[len(screen_data) - 2]['loc'][3], screen_data[len(screen_data) - 2]['loc'][2])
+        print("screen_size: ", screen_size)
 
-    if marker_text == "":
-        # this means just grab any line closest to the target location.
-        if loc_word == "middle":
-            # now go thru scrn data structure to find a line that's nearest to middle of the screen.
-            # grab the full screen item in the symTab[scrn] which should always be present.
-            target_loc = (int(screen_size[0]*2/3), int(screen_size[1]*2/3))
-            found_phrase, found_box = find_phrase_at_target(screen_data, target_loc)
+        if marker_text == "":
+            # this means just grab any line closest to the target location.
+            if loc_word == "middle":
+                # now go thru scrn data structure to find a line that's nearest to middle of the screen.
+                # grab the full screen item in the symTab[scrn] which should always be present.
+                target_loc = (int(screen_size[0]*2/3), int(screen_size[1]*2/3))
+                found_phrase, found_box = find_phrase_at_target(screen_data, target_loc)
 
-            print("FOUND implicit marker: [", found_phrase, "] at location: ", found_box)
+                print("FOUND implicit marker: [", found_phrase, "] at location: ", found_box)
 
-            #mid = int(abc.get_box()[1] + 0.5*abc.get_box()[3])
-            # now filter out all lines above mid point and leave only text lines below the mid point,
-            # sort them based on vertical position, and then take the 1st item which is vertically nearest to the mid point.
-            symTab["InternalMarker"] = found_phrase
+                #mid = int(abc.get_box()[1] + 0.5*abc.get_box()[3])
+                # now filter out all lines above mid point and leave only text lines below the mid point,
+                # sort them based on vertical position, and then take the 1st item which is vertically nearest to the mid point.
+                symTab["InternalMarker"] = found_phrase
 
-    else:
-        print("FINDINg text: ", marker_text, " ............ ")
-        if loc_word.isnumeric():
-            # percentage deal
-            target_loc = (int(screen_size[0] / 2), int(screen_size[1] * (int(loc_word)/100)))
         else:
-            if loc_word == "top":
-                target_loc = (int(screen_size[0]/2), 0)
-                # find the template text that's nearest to refvloc
-            elif loc_word == "middle":
-                target_loc = (int(screen_size[0] / 2), int(screen_size[1] / 2))
-            elif loc_word == "bottom":
-                target_loc = (int(screen_size[0] / 2), int(screen_size[1]))
+            print("FINDINg text: ", marker_text, " ............ ")
+            if loc_word.isnumeric():
+                # percentage deal
+                target_loc = (int(screen_size[0] / 2), int(screen_size[1] * (int(loc_word)/100)))
             else:
-                target_loc = (int(screen_size[0] / 2), 0)
+                if loc_word == "top":
+                    target_loc = (int(screen_size[0]/2), 0)
+                    # find the template text that's nearest to refvloc
+                elif loc_word == "middle":
+                    target_loc = (int(screen_size[0] / 2), int(screen_size[1] / 2))
+                elif loc_word == "bottom":
+                    target_loc = (int(screen_size[0] / 2), int(screen_size[1]))
+                else:
+                    target_loc = (int(screen_size[0] / 2), 0)
 
-        print("target_loc: ", target_loc)
+            print("target_loc: ", target_loc)
 
-        found_box = find_marker_on_screen(screen_data, marker_text)
-        print("found_loc: ", found_box)
+            found_box = find_marker_on_screen(screen_data, marker_text)
+            print("found_loc: ", found_box)
 
-    # symTab[marker_loc] = box_center(found_paragraph["loc"])
-    symTab[marker_loc] = box_center(found_box)
-    print("found text at loc: ", found_box, "stored in var: ", marker_loc, " with box center: ", symTab[marker_loc])
-    return i + 1
+        # symTab[marker_loc] = box_center(found_paragraph["loc"])
+        symTab[marker_loc] = box_center(found_box)
+        print("found text at loc: ", found_box, "stored in var: ", marker_loc, " with box center: ", symTab[marker_loc])
+
+    except:
+        ex_stat = "ErrorRecordTxtLineLocation:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 
@@ -497,39 +515,45 @@ def find_paragraph_match(target, screen_data):
 # "screen": screen
 # "marker": marker
 def processCalibrateScroll(step, i):
-    screen_resolution = 30
-    marker_text = step["marker"]
-    scroll_amount = int(step["amount"])
-    resolution = step["data_sink"]
-    prev_loc = symTab[step["last_record"]]
-    screen = step["screen"]
-    found_line = None
+    ex_stat = "success:0"
+    try:
+        screen_resolution = 30
+        marker_text = step["marker"]
+        scroll_amount = int(step["amount"])
+        resolution = step["data_sink"]
+        prev_loc = symTab[step["last_record"]]
+        screen = step["screen"]
+        found_line = None
 
-    screen_data = symTab[screen]
-    screen_size = (screen_data[len(screen_data) - 2]['loc'][3], screen_data[len(screen_data) - 2]['loc'][2])
+        screen_data = symTab[screen]
+        screen_size = (screen_data[len(screen_data) - 2]['loc'][3], screen_data[len(screen_data) - 2]['loc'][2])
 
-    target_loc = (int(screen_size[0] / 2), 0)
-    print("FINDing near target loc: ", target_loc)
-    # find the template text that's nearest to refvloc
-    if marker_text == "":
-        marker_text = symTab["InternalMarker"]
-        print("finding implicit marker: [", symTab["InternalMarker"], "]")
-    found_box = find_marker_on_screen(screen_data, marker_text)
-    print("calibration scroll found location:: ", found_box, " vs. previous location::", prev_loc, " in var: ", step["last_record"])
-    # matched_paragraph = find_paragraph_match(marker_paragraph, screen)
+        target_loc = (int(screen_size[0] / 2), 0)
+        print("FINDing near target loc: ", target_loc)
+        # find the template text that's nearest to refvloc
+        if marker_text == "":
+            marker_text = symTab["InternalMarker"]
+            print("finding implicit marker: [", symTab["InternalMarker"], "]")
+        found_box = find_marker_on_screen(screen_data, marker_text)
+        print("calibration scroll found location:: ", found_box, " vs. previous location::", prev_loc, " in var: ", step["last_record"])
+        # matched_paragraph = find_paragraph_match(marker_paragraph, screen)
 
-    if found_box:
-        delta_v = abs(box_center(found_box)[1] - prev_loc[1])
-        print("abs delta v: ", delta_v, " for scrool_amount: ", scroll_amount)
-        scroll_resolution = delta_v/scroll_amount
-    else:
-        scroll_resolution = 0
-        print("ERROR: scroll calibration FAILED!!!!")
+        if found_box:
+            delta_v = abs(box_center(found_box)[1] - prev_loc[1])
+            print("abs delta v: ", delta_v, " for scrool_amount: ", scroll_amount)
+            scroll_resolution = delta_v/scroll_amount
+        else:
+            scroll_resolution = 0
+            print("ERROR: scroll calibration FAILED!!!!")
 
-    symTab[resolution] = scroll_resolution
-    symTab[screen] = symTab["last_screen_cal01"]
-    print("scroll resolution is found as: ", scroll_resolution, " stored in var: ", resolution)
-    return i+1
+        symTab[resolution] = scroll_resolution
+        symTab[screen] = symTab["last_screen_cal01"]
+        print("scroll resolution is found as: ", scroll_resolution, " stored in var: ", resolution)
+
+    except:
+        ex_stat = "ErrorCalibrateScroll:" + str(i)
+
+    return (i + 1), ex_stat
 
 
 
