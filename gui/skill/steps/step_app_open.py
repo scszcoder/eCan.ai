@@ -29,17 +29,18 @@ class EnumAppOpenCArgsType(Enum):
 class StepAppOpen(StepBase):
     TYPE_KEY = "App Open"
 
-    def __init__(self, stepN=0, action=None, saverb=None, target_type=None, target_link=None, anchor_type=None,
-                 anchor_value=None, cargs_type=None, args=None, wait=0):
+    def __init__(self, stepN=0, action=EnumAppOpenAction.Cmd, saverb=True, target_type=EnumAppOpenTargetType.Custom,
+                 target_link=EnumAppOpenTargetLink.WebSite, anchor_type=EnumAnchorType.Text, anchor_value=None,
+                 cargs_type=EnumAppOpenCArgsType.Custom, args=None, wait=0):
         super().__init__(stepN)
 
         self.type = self.TYPE_KEY
-        self.action = action   # enum: run, cmd
-        self.save_rb = saverb
+        self.action: EnumAppOpenAction = action
+        self.save_rb: bool = saverb
         self.target_type: EnumAppOpenTargetType = target_type   # enum: browser, shell, other
-        self.target_link = target_link   # enum: website, exe path
+        self.target_link: EnumAppOpenTargetLink = target_link   # enum: website, exe path
         self.anchor_type: EnumAnchorType = anchor_type
         self.anchor_value = anchor_value
-        self.cargs_type = cargs_type  # enum: direct, shell
+        self.cargs_type: EnumAppOpenCArgsType = cargs_type
         self.cargs = args
-        self.wait = wait
+        self.wait: int = wait
