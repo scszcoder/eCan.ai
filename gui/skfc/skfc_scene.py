@@ -22,6 +22,7 @@ class SkFCScene(QGraphicsScene):
         super(SkFCScene, self).__init__(parent)
 
         self.myItemMenu: QMenu = item_menu
+        self.parent = parent
         self.myMode = self.MoveItem
         self.myItemType: DiagramNormalItem = DiagramNormalItem.Step
         self.selected_item = None
@@ -122,6 +123,10 @@ class SkFCScene(QGraphicsScene):
             else:
                 if len(self.selectedItems()) > 0:
                     self.selected_item = self.selectedItems()[0]
+
+        if self.selected_item is not None:
+            if isinstance(self.selected_item, DiagramNormalItem):
+                self.parent.skfc_infobox.show_item_step_attrs(self.selected_item)
 
         # super(DiagramScene, self).mousePressEvent(mouseEvent)
 

@@ -3,10 +3,13 @@ from enum import Enum
 
 
 class StepExtractInfo(StepBase):
-    def __init__(self, stepN, template, settings, sink, page, sect, theme, page_data, option=""):
+    TYPE_KEY = "Extract Info"
+
+    def __init__(self, stepN=0, template=None, settings=None, sink=None, page=None, sect=None, theme=None,
+                 page_data=None, option=""):
         super().__init__(stepN)
 
-        self.type = "Extract Info"
+        self.type = self.TYPE_KEY
         self.settings = settings
         self.template = template
         self.option = option

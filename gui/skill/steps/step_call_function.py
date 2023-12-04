@@ -4,10 +4,12 @@ from enum import Enum
 
 
 class StepCallFunction(StepBase):
-    def __init__(self, stepN, fname, fargs, output):
+    TYPE_KEY = "Call Function"
+
+    def __init__(self, stepN=0, fname=None, fargs=None, output=None):
         super().__init__(stepN)
 
-        self.type = "Call Function"
+        self.type = self.TYPE_KEY
         self.fname = fname
         self.fargs = fargs
         self.return_to = stepN + STEP_GAP

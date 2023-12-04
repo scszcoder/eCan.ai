@@ -24,12 +24,15 @@ class EnumMouseClickOffsetUnit(Enum):
 
 
 class StepMouseClick(StepBase):
-    def __init__(self, stepN, action, action_args, saverb, screen, target, target_type, template, nth, offset_from,
-                 offset, offset_unit, move_pause, post_wait, post_move):
+    TYPE_KEY = "Mouse Click"
+
+    def __init__(self, stepN=0, action=None, action_args=None, saverb=None, screen=None, target=None, target_type=None,
+                 template=None, nth=None, offset_from=None, offset=None, offset_unit=None, move_pause=None,
+                 post_wait=None, post_move=None):
         super().__init__(stepN)
 
-        self.type = "Mouse Click"
-        self.action = action
+        self.type = self.TYPE_KEY
+        self.action: EnumMouseClickAction = action
         self.action_args = action_args
         self.save_rb = saverb
         self.screen = screen
@@ -37,8 +40,8 @@ class StepMouseClick(StepBase):
         self.target_type = target_type
         self.text = template
         self.nth = nth
-        self.offset_from = offset_from
-        self.offset_unit = offset_unit
+        self.offset_from: EnumMouseClickOffsetFrom = offset_from
+        self.offset_unit: EnumMouseClickOffsetUnit = offset_unit
         self.offset = offset
         self.move_pause = move_pause
         self.post_move = post_move

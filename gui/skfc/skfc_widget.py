@@ -13,8 +13,9 @@ from skfc.skfc_toolbox import SkFCToolBox
 
 
 class SkFCView(QGraphicsView):
-    def __init__(self, scene):
+    def __init__(self, scene: SkFCScene):
         super(SkFCView, self).__init__(scene)
+        self.skfc_scene = scene
         # self.view.setRubberBandSelectionMode(Qt.IntersectsItemBoundingRect)
         # self.view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         # self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
@@ -41,7 +42,7 @@ class SkFCWidget(QWidget):
         self.context_menu = self.createMenus()
         # self.createMenuBars()
 
-        self.skfc_scene = SkFCScene(self.context_menu)
+        self.skfc_scene = SkFCScene(self.context_menu, self)
         self.skfc_scene.setSceneRect(QRectF(0, 0, 600, 1000))
         self.skfc_scene.itemInserted.connect(self.itemInserted)
         self.skfc_scene.textInserted.connect(self.textInserted)

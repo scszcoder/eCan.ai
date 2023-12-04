@@ -10,11 +10,13 @@ class EnumCreateDataType(Enum):
 
 
 class StepCreateData(StepBase):
-    def __init__(self, stepN, dtype, dname, keyname, keyval):
+    TYPE_KEY = "Create Data"
+
+    def __init__(self, stepN=0, dtype=None, dname=None, keyname=None, keyval=None):
         super().__init__(stepN)
 
-        self.type = "Create Data"
-        self.data_type = dtype
+        self.type = self.TYPE_KEY
+        self.data_type: EnumCreateDataType = dtype
         self.data_name = dname
         self.key_name = keyname
         self.key_value = keyval

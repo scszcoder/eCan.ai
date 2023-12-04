@@ -13,19 +13,21 @@ class EnumFillDataType(Enum):
 
 
 class StepFillData(StepBase):
-    def __init__(self, stepN, fill_type, src, sink, result):
+    TYPE_KEY = "Fill Data"
+
+    def __init__(self, stepN=0, fill_type=None, src=None, sink=None, result=False):
         super().__init__(stepN)
 
-        self.type = "Fill Data"
-        self.fill_type = fill_type
-        self.src = src
+        self.type = self.TYPE_KEY
+        self.fill_type: EnumFillDataType = fill_type
+        self.from_ = src
         self.to = sink
-        self.result = result
+        self.result: bool = result
 
-    # TODO from is keyword, shoud replace other word
+    # TODO from is keyword, should replace other word
     def gen_step(self):
         json_step = super().gen_step()
-        json_step.replace("src", "from")
+        json_step.replace("from_", "from")
 
         return json_step
 

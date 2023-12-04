@@ -8,11 +8,13 @@ class EnumTextInputType(Enum):
 
 
 class StepTextInput(StepBase):
-    def __init__(self, stepN, txt_type, saverb, txt, speed, key_after, wait_after):
+    TYPE_KEY = "Text Input"
+
+    def __init__(self, stepN=0, txt_type=None, saverb=None, txt=None, speed=None, key_after=None, wait_after=None):
         super().__init__(stepN)
 
-        self.type = "Text Input"
-        self.txt_type = txt_type
+        self.type = self.TYPE_KEY
+        self.txt_type: EnumTextInputType = txt_type
         self.save_rb = saverb
         self.text = txt
         self.speed = speed
