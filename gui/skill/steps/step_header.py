@@ -18,11 +18,7 @@ class StepHeader(StepBase):
         self.description = description
 
     def gen_step(self):
-        obj = self.__dict__.copy()
-        del obj['stepN']  # delete 'stepN' field
-        if self.remark is None:
-            del obj['remark']
-        json_str = json.dumps(obj, indent=4)
+        json_str = self.gen_json_str()
         json_step = ((self.stepN + STEP_GAP), ("\"header\":\n" + json_str + ",\n"))
 
         return json_step

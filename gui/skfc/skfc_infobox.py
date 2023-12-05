@@ -1,6 +1,6 @@
 from enum import Enum
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QFont, QPainter, QColor
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QLabel, QTableWidgetItem, QGraphicsView, \
     QHBoxLayout, QFrame, QLineEdit, QHeaderView, QComboBox
@@ -18,6 +18,8 @@ PROPS_COLUMN_COUNT = 2
 
 
 class SwitchButton(QWidget):
+    stateChanged = Signal(bool)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(64, 24)
@@ -46,7 +48,10 @@ class SwitchButton(QWidget):
         return self._checked
 
     def setChecked(self, checked):
-        self._checked = checked
+        if self._checked != checked:
+            self._checked = checked
+            self.stateChanged.emit(checked)
+            self.update()
 
 
 class SkFCInfoBox(QFrame):
@@ -61,8 +66,6 @@ class SkFCInfoBox(QFrame):
         self.parent: QWidget = parent
         self.home_path = app_info.app_home_path
         self.current_diagram_item = None
-        self.step_attrs_widget = {}
-
 
         self.panel_title_label = QLabel("Basic Information")
         self.panel_title_layout = QHBoxLayout()
@@ -122,45 +125,51 @@ class SkFCInfoBox(QFrame):
         elif diagram_type == DiagramNormalItem.Io:
             return StepFillData()
 
-    def show_item_step_attrs(self, diagram_item: DiagramNormalItem):
-        self.current_diagram_item = diagram_item
+    def show_diagram_item_step_attrs(self, diagram_item: DiagramNormalItem):
         diagram_type = diagram_item.diagram_type
-        step = diagram_item.step
-        if step is None:
-            step = self.create_step_obj(diagram_type)
+        if diagram_item.step is None:
+            diagram_item.step = self.create_step_obj(diagram_type)
 
-        attrs = step.gen_attrs()
+        self.current_diagram_item = diagram_item
+
+        attrs = diagram_item.step.gen_attrs()
         self.attrs_table.setRowCount(len(attrs))
 
         for row, (key, value) in enumerate(attrs.items()):
             print(f"Row: {row}, Key: {key}, Value: {value}")
-            self.attrs_table.setCellWidget(row, 0, QLabel(self.convert_field_name(key)))
-            self.attrs_table.setCellWidget(row, 1, self.create_attrs_cell_widget(diagram_type, key, value))
+            item_label = QLabel(self.convert_field_name(key))
+            item_widget = self.create_attrs_cell_widget(diagram_type, key, value)
 
-    def create_attrs_cell_widget(self, diagram_type, step_attrs_key, step_attrs_value):
-        widget = None
-        if step_attrs_key == "type":
+            self.attrs_table.setCellWidget(row, 0, item_label)
+            self.attrs_table.setCellWidget(row, 1, item_widget)
+
+    def create_attrs_cell_widget(self, diagram_type, step_attr_key, step_attrs_value):
+        if step_attr_key == "type":
             widget = QComboBox()
             for item in self.create_step_type_items(diagram_type):
                 widget.addItem(item)
             widget.setCurrentText(step_attrs_value)
-            widget.currentTextChanged.connect(self.step_type_sel_changed)
+            widget.currentTextChanged.connect(self.step_attrs_type_cmb_changed)
         else:
             if isinstance(step_attrs_value, Enum):
-                print(f"step enum attrs: key {step_attrs_key}= {step_attrs_value.value}")
+                print(f"step enum attrs: key {step_attr_key}= {step_attrs_value.value}")
                 widget = QComboBox()
                 for name, member in type(step_attrs_value).__members__.items():
                     widget.addItem(member.value)
                 widget.setCurrentText(step_attrs_value.value)
+                widget.currentTextChanged.connect(self.step_attrs_normal_cmb_changed)
             elif isinstance(step_attrs_value, bool):
                 widget = SwitchButton()
                 widget.setChecked(step_attrs_value)
+                widget.stateChanged.connect(self.step_attrs_toggle_state_changed)
                 widget.show()
             else:
                 widget = QLineEdit()
-                widget.setText(step_attrs_value)
+                widget.setText(str(step_attrs_value))
+                widget.textChanged.connect(self.step_attrs_text_changed)
 
-        self.step_attrs_widget[step_attrs_key] = widget
+        widget.setProperty("step_attr_key", step_attr_key)
+        print(f"create field: {step_attr_key}; cell widget {widget}")
         return widget
 
     def create_step_type_items(self, diagram_type):
@@ -178,12 +187,23 @@ class SkFCInfoBox(QFrame):
 
         return types
 
-    def step_type_sel_changed(self, step_key):
+    def step_attrs_type_cmb_changed(self, step_key):
         print(f"step_key: {step_key}")
-        step = EnumStepType.gen_step_obj(step_key)
+        self.current_diagram_item.step = EnumStepType.gen_step_obj(step_key)
+        self.show_diagram_item_step_attrs(self.current_diagram_item)
 
-        self.current_diagram_item.step = step
-        self.show_item_step_attrs(self.current_diagram_item)
+    def step_attrs_normal_cmb_changed(self, text):
+        print("cmb changed ", text, self.sender())
+        pass
+
+    def step_attrs_toggle_state_changed(self, checked):
+        print('SwitchButton state changed:', checked, self.sender())
+        step: StepBase = self.current_diagram_item.step
+        step.set_attr_value(self.sender().property('step_attr_key'), checked)
+
+    def step_attrs_text_changed(self, text):
+        print("text changed: ", text, self.sender())
+
 
 
 
