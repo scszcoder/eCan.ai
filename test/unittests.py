@@ -265,3 +265,4 @@ def test_get_account_info(session, token):
     result = send_account_info_request_to_cloud(session, qs, token)
 
     print("RESULT:", result)
+
