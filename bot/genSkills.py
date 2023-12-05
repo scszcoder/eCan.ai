@@ -177,6 +177,8 @@ def genWinSkillCode(worksettings, start_step, theme):
         this_step, step_words = genWinPrinterLocalReformatPrintSkill(worksettings, "file_dialog", "top", start_step, theme)
     elif worksettings["app"] == "wifi" and worksettings["site"] == "local" and worksettings["skname"] == "reconnect_lan":
         this_step, step_words = genWinWiFiLocalReconnectLanSkill(worksettings, "wifi", "top", start_step, theme)
+    elif worksettings["app"] == "test" and worksettings["site"] == "local" and worksettings["skname"] == "run_simple_loop":
+        this_step, step_words = genTestRunSimpleLoopSkill(start_step)
     else:
         this_step, step_words = genWinCustomSkill(worksettings, "custom", "top", start_step, theme)
 
@@ -325,3 +327,40 @@ def genWinTestSkill2(worksettings, start_step):
 
     skf.write(psk_words)
     skf.close()
+
+
+def genTestRunSimpleLoopSkill(stepN):
+
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_test_local_run_simple_loop", "win", "1.0", "AIPPS LLC", "PUBWINTESTOP001",
+                                          "Simple Loop Test On Windows.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_test_local_loop/run_simple_loop", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # delete everything there
+    # do some overall review scroll, should be mostly positive.
+    lcvarname = "test" + str(stepN)
+    this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("", "30", "", lcvarname, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_test_local_loop/run_simple_loop", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows loop test...." + psk_words)
+
+    return this_step, psk_words

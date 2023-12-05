@@ -40,7 +40,7 @@ class PlatoonListView(QtWidgets.QListView):
         self.parent = parent
 
     def mousePressEvent(self, e):
-        if e.type() == QtCore.QEvent.MouseButtonPress:
+        if e.type() == QtCore.QEvent.MouseButtonDblClick:
             if e.button() == QtCore.Qt.LeftButton:
                 print("row:", self.indexAt(e.pos()).row())
                 self.selected_row = self.indexAt(e.pos()).row()
