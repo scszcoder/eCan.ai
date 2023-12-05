@@ -875,7 +875,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # File actions
         new_action = QtGui.QAction(self)
         new_action.setText("&Fetch Schedules")
-        new_action.triggered.connect(lambda: self.fetchSchedule("6000", None))
+        new_action.triggered.connect(lambda: self.fetchSchedule("7000", None))
         return new_action
 
 
@@ -2204,6 +2204,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "location": amission.getLocation(),
             "interests": amission.getInterests()
         }]
+        api_missions = [amission]
         jresp = send_update_missions_request_to_cloud(self.session, api_missions, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
