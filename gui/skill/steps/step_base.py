@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from enum import Enum
 
 from basicSkill import STEP_GAP
@@ -23,15 +23,23 @@ class StepBase(ABC):
     def __init__(self, stepN=0):
         self.stepN = stepN
         self.type = None
-        self.remark: EnumAnchorType = None
+        self.description = None
 
-    # @abstractmethod
-    def gen_step(self):
+    def get_dict_attrs(self):
         obj = self.__dict__.copy()
-        del obj['stepN']  # delete 'stepN' field
-        if self.remark is None:
-            del obj['remark']
-        json_str = json.dumps(obj, indent=4)
+        del obj['stepN']
+        # if self.description is None:
+        #     del obj['description']
+
+        return obj
+
+    def gen_json_str(self):
+        json_str = json.dumps(self.get_dict_attrs(), indent=4)
+
+        return json_str
+
+    def gen_step(self):
+        json_str = self.gen_json_str()
         json_step = ((self.stepN + STEP_GAP), ("\"step " + str(self.stepN) + "\":\n" + json_str + ",\n"))
 
         return json_step
@@ -44,9 +52,7 @@ class StepBase(ABC):
             return 1
 
     def gen_attrs(self):
-        obj = self.__dict__.copy()
-        del obj['stepN']
-
+        obj = self.get_dict_attrs()
         obj = sorted(obj.items(), key=self.custom_sort)
 
         return dict(obj)
@@ -56,12 +62,17 @@ class StepBase(ABC):
         print(f" {field_name} attr type = {type(value)}")
         return type(value)
 
+    def set_attr_value(self, attr_key, value):
+        print(f"set attrs key ({attr_key}) value ({value})")
+        setattr(self, attr_key, value)
 
-if __name__ == '__main__':
-    step = StepBase()
-    # step.remark = EnumAnchorType.Text
-    print(step.attr_type("remark"))
-    if isinstance(step.remark, EnumAnchorType):
-        print("#####")
-    else:
-        print("****")
+
+
+# if __name__ == '__main__':
+    # step = StepBase()
+    # # step.remark = EnumAnchorType.Text
+    # print(step.attr_type("remark"))
+    # if isinstance(step.remark, EnumAnchorType):
+    #     print("#####")
+    # else:
+    #     print("****")
