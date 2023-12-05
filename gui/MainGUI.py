@@ -1517,9 +1517,10 @@ class MainWindow(QtWidgets.QMainWindow):
         print("rpaSkillIds:", rpaSkillIds, type(rpaSkillIds[0]), "running mission id:", running_mission.getMid())
 
         # get skills data structure by IDs
+        print("all skills ids:", [sk.getSkid() for sk in self.skills])
         relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
         relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
-
+        print("relevant skills ids:", relevant_skill_ids)
 
         if len(relevant_skill_ids) < len(rpaSkillIds):
             s = set(relevant_skill_ids)
@@ -1530,7 +1531,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         all_skill_codes = []
         for sk in ordered_relevant_skills:
-            # print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
+            print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
             # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
             genSkillCode(worksettings, first_step, "light")

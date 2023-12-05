@@ -266,37 +266,3 @@ def test_get_account_info(session, token):
 
     print("RESULT:", result)
 
-
-def test_gen_basic_skill(worksettings, page, sect, stepN, theme):
-
-    psk_words = "{"
-
-    this_step, step_words = genStepHeader("win_test_local_run_simple_loop", "win", "1.0", "AIPPS LLC", "PUBWINTESTOP001",
-                                          "Simple Loop Test On Windows.", stepN)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("start skill", "public/win_test_local_loop/run_simple_loop", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    # delete everything there
-    # do some overall review scroll, should be mostly positive.
-    lcvarname = "test" + str(stepN)
-    this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepLoop("", "30", "", lcvarname, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepStub("end skill", "public/win_test_local_loop/run_simple_loop", "", this_step)
-    psk_words = psk_words + step_words
-
-    psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows loop test...." + psk_words)
