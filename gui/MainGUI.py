@@ -1189,16 +1189,21 @@ class MainWindow(QtWidgets.QMainWindow):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        dailyRunReportFile = self.homepath + "/resource/logs/{}/runreport{}{}{}.txt".format(year, month, day, year)
+        dailyRunReportFile = self.homepath + "/runlogs/{}/runreport{}{}{}.txt".format(year, month, day, year)
 
         if os.path.isfile(dailyRunReportFile):
-            file1 = open(dailyRunReportFile, "a")  # append mode
-            file1.write(runStat + "\n")
-            file1.close()
+            with open(dailyRunReportFile, 'a') as f:
+
+                f.write(json.dumps(runStat) + "\n")
+
+                f.close()
         else:
-            file1 = open(dailyRunReportFile, "w")  # append mode
-            file1.write(runStat + "\n")
-            file1.close()
+            with open(dailyRunReportFile, 'w') as f:
+
+                f.write(json.dumps(runStat) + "\n")
+
+                f.close()
+
 
     def fill_mission(self, blank_m, m, tgs):
         blank_m.loadNetRespJson(m)
@@ -1581,9 +1586,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def update1MStat(self, midx, result):
         print("1 mission run completed.")
         self.missions[midx].setStatus(result)
-        retry_count = self.self.missions[midx].getRetry()
+        retry_count = self.missions[midx].getRetry()
         if retry_count > 0:
-            self.self.missions[midx].setRetry(retry_count - 1)
+            self.missions[midx].setRetry(retry_count - 1)
 
     def updateRunStatus(self, worksTBD, midx):
 
@@ -1603,6 +1608,8 @@ class MainWindow(QtWidgets.QMainWindow):
             idx = widx
 
         this_stat = self.missions[midx].getStatus()
+
+        print("TZ:", tz, "GRP:", grp, "BIDX:", bidx, "WIDX:", widx, "OIDX:", oidx, "THIS STATUS:", this_stat)
 
         if "Completed" in this_stat:
             # check whether need to switch group?
@@ -1679,8 +1686,14 @@ class MainWindow(QtWidgets.QMainWindow):
                             # if bot is changed, oidx and widx restart from 0.
                             oidx = 0
                             widx = 0
-                            if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx][
-                                "start_time"]:
+                            print("SWITCHED BOT:", bidx)
+                            if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
+                                if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx][
+                                    "start_time"]:
+                                    worksTBD["current grp"] = "other_works"
+                                else:
+                                    worksTBD["current grp"] = "wb_works"
+                            elif len(works[tz][bidx]["other_works"]) > 0:
                                 worksTBD["current grp"] = "other_works"
                             else:
                                 worksTBD["current grp"] = "wb_works"
@@ -1700,6 +1713,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 if tzi < len(Tzs):
                     tz = Tzs[tzi]
+                    print("SWITCHED TZ:", tz)
                     if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
                         # see which one's start time is earlier
                         if works[tz][bidx]["other_works"][0]["start_time"] < works[tz][bidx]["bw_works"][0]["start_time"]:
@@ -1727,6 +1741,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # already reached the last region in this todo group, consider this group done.
                     # now check whether there is any failed missions, if there is, now it's time to set
                     # up to re-run it, simply by set the pointers to it.
+                    print("all workdsTBD exhausted...")
                     rt_tz, rt_bid, rt_grp, rt_mid = self.findNextMissonsToBeRetried(worksTBD)
                     if rt_tz == "":
                         # if nothing is found, we're done with this todo list...
@@ -3601,9 +3616,10 @@ class MainWindow(QtWidgets.QMainWindow):
         #only generate report when all done.
         works = self.todays_work["tbd"][0]
 
+        print("GEN REPORT FOR WORKS:", works)
         if not self.hostrole == "CommanderOnly":
             # for platoon or commander does work itself, need to gather current todo's report , each mission's run result
-            while tzi in range(len(Tzs)):
+            while tzi in Tzs:
                 if len(works[tzi]) > 0:
                     for bi in range(len(works[tzi])):
                         if len(works[tzi][bi]["other_works"]) > 0:
@@ -3650,7 +3666,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             # if this is a platoon, send report to commander
             rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
-            commanderXport.write(str.encode(json.dumps(rpt)))
+            self.commanderXport.write(str.encode(json.dumps(rpt)))
 
         # 2) log reports on local drive.
         self.saveDailyRunReport(self.todaysReports)

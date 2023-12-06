@@ -174,7 +174,7 @@ class M_Pub_Attributes():
         self.missionId = dj["missionId"]
         self.ticket = dj["ticket"]
         self.ms_type = dj["ms_type"]
-        self.retry = dj["repeat"]
+        self.retry = int(dj["repeat"])
         self.bot_id = dj["bot_id"]
         self.status = dj["status"]
         self.search_kw = dj["phrase"]
@@ -207,7 +207,7 @@ class M_Pub_Attributes():
         self.ticket = dj["ticket"]
         self.ms_type = dj["type"]
         self.owner = dj["owner"]
-        self.retry = dj["trepeat"]
+        self.retry = int(dj["trepeat"])
         self.bot_id = dj["botid"]
         self.status = dj["status"]
         self.search_kw = dj["phrase"]
