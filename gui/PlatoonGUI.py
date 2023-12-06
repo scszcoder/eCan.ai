@@ -69,12 +69,8 @@ class PLATOON(QtGui.QStandardItem):
 class PlatoonWindow(QtWidgets.QMainWindow):
     def __init__(self, parent, entrance="msg"):
         super(PlatoonWindow, self).__init__()
-        self.BOTS_FILE = parent.homepath + "/resource/bots.json"
-        self.MISSIONS_FILE = parent.homepath + "/resource/missions.json"
-        self.session = set_up_cloud()
         self.parent = parent
         self.mainWidget = QtWidgets.QWidget()
-        self.owner = ""
 
         self.platoonTableViews = []
 
@@ -109,6 +105,7 @@ class PlatoonWindow(QtWidgets.QMainWindow):
 
         if entrance != "conn":
             for v in self.parent.vehicles:
+                print("adding vehicle tab")
                 ip_last = v.getIP().split(".")[len(v.getIP().split("."))-1]
                 self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon"+ip_last)
 
@@ -124,7 +121,12 @@ class PlatoonWindow(QtWidgets.QMainWindow):
             self.fill1TableRow(i, stat, model)
             i = i + 1
 
-
+    # this function is called when a new vehicle is added to the platoonWin.
+    def updatePlatoonWinWithMostRecentlyAddedVehicle(self):
+        v = self.parent.vehicles[len(self.parent.vehicles)-1]
+        print("adding most recently added vehicle tab")
+        ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
+        self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
 
     def updatePlatoonStatAndShow(self, rx_data):
         ip_last = rx_data["ip"].split(".")[len(rx_data["ip"].split(".")) - 1]
@@ -261,156 +263,6 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         vTab.setLayout(vTab.layout)
 
         return vTab
-
-
-    def fetchSchedule(self, ts_name, settings):
-        jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
-        if "errorType" in jresp:
-            screen_error = True
-            print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
-        else:
-            # first, need to decompress the body.
-            # very important to use compress and decompress on Base64
-            uncompressed = self.zipper.decompressFromBase64(jresp["body"])
-            print("decomppressed response:", uncompressed, "!")
-            if uncompressed != "":
-                # print("body string:", uncompressed, "!", len(uncompressed), "::")
-                bodyobj = json.loads(uncompressed)
-
-                # body object will be a list of tasks [...]
-                # each task is a json, { skill steps. [...]
-                # each step is a json
-                ##print("resp body: ", bodyobj)
-                #if len(bodyobj.keys()) > 0:
-                    #jbody = json.loads(jresp["body"])
-                    #jbody = json.loads(originalS)
-                if len(bodyobj) > 0:
-                    self.assign_work(bodyobj)
-                else:
-                    print("Warning: NO schedule generated.")
-
-    def assignWork(self, tasks):
-        # tasks should already be sorted by botid,
-        if len(tasks) > self.LOCAL_BOT_LIMIT:
-            localwork = tasks[:self.LOCAL_BOT_LIMIT]
-            remaining = tasks[self.LOCAL_BOT_LIMIT:]
-            for v in self.parent.vehicles:
-                # allocate max of LOCAL_BOT_LIMIT number of bot-tasks to this vehicle
-                if len(remaining) > self.LOCAL_BOT_LIMIT:
-                    thiswork = remaining[:self.LOCAL_BOT_LIMIT]
-                    remaining = remaining[self.LOCAL_BOT_LIMIT:]
-                    thiswork_string = self.zipper.compressToBase64(json.dumps(thiswork))
-
-                    # send thiswork_string to v
-                    v.transport.write(thiswork_string)
-
-                else:
-                    # send remaining to this vehicle v. and break out of the loop.
-                    thiswork_string = self.zipper.compressToBase64(json.dumps(remaining))
-                    v.transport.write(thiswork_string)
-                    break
-
-            # after send networked tasks out, now do the local work
-        else:
-            localwork = tasks
-
-        self.dowork(localwork)
-        #now get to work.
-
-
-    def dowork(self, tasks):
-        # tasks should be already sorted according to the time of the day.
-        # simply setup a timer for each task.
-        # this is actually tricky due to the fact that:
-        # 1) scheduled task start time might be blocked due to previous task is not yet finished.
-        #   a) this should be a serial process. after task N is done, if task N+1's designated
-        #      start time is passed, immediately starts task N+1, if not schedule it to happen
-        #      as designed.
-        print("Setting up timers for the tasks....")
-
-
-
-    def saveAll(self):
-        # Logic for creating a new bot:
-        self.writeBotJsonFile()
-        self.writeMissionJsonFile()
-
-
-
-    def updateAMission(self, amission):
-        # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
-        # otherwise, only update locally.
-        jresp = {"body": []}
-        api_bots = [{
-            "bid": amission.getBid(),
-            "owner": "",
-            "role": amission.getRole(),
-            "age": amission.getAge(),
-            "gender": amission.getGender(),
-            "location": amission.getLocation(),
-            "interests": amission.getInterests()
-        }]
-        jresp = send_update_missions_request_to_cloud(self.session, api_bots, self.tokens['AuthenticationResult']['IdToken'])
-        if "errorType" in jresp:
-            screen_error = True
-            print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
-        else:
-            jbody = json.loads(jresp["body"])
-            #now that add is successfull, update local file as well.
-            self.writeMissionJsonFile()
-
-
-
-    # This function translate bots data structure matching ebbot.py to Json format for file storage.
-    def genMissionsJson(self):
-        mjs = []
-        for mission in self.missions:
-            print("bot gen json0...." + str(len(self.bots)))
-            mjs.append(mission.genJson())
-        #print(json.dumps(bjs))
-        return mjs
-
-
-    # This function translate bots data from Json format to the data structure matching ebbot.py
-    def translateMissionsJson(self):
-        for mj in self.missionJsonData:
-            new_mission = EBMISSION()
-            new_mission.setJsonData(mj)
-            self.bots.append(new_mission)
-
-
-    def readMissionJsonFile(self):
-        if exists(self.MISSIONS_FILE):
-            with open(self.MISSIONS_FILE, 'r') as file:
-                self.missionJsonData = json.load(file)
-                self.translateMissionsJson(self.missionJsonData)
-
-
-    def writeMissionJsonFile(self):
-        if self.MISSIONS_FILE == None:
-            filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self,
-                'Save Json File',
-                '',
-                "Json Files (*.json)"
-            )
-            self.MISSIONS_FILE = filename
-
-        if self.MISSIONS_FILE and exists(self.MISSIONS_FILE):
-            try:
-                missionsdata = self.genMissionsJson()
-                print(self.MISSIONS_FILE)
-                with open(self.MISSIONS_FILE, 'w') as jsonfile:
-                    json.dump(missionsdata, jsonfile)
-
-                jsonfile.close()
-                # self.rebuildHTML()
-            except IOError:
-                QtGui.QMessageBox.information(
-                    self,
-                    "Unable to save file: %s" % filename
-                )
-
 
 
     def updateSelectedPlatoon(self, row):
