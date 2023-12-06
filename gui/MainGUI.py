@@ -361,7 +361,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionNewFromFileAction = self._createMissionNewFromFileAction()
 
         self.mtvViewAction = self._createMTVViewAction()
-        self.fieldMonitorAction = self._createFieldMonitorAction()
+        # self.fieldMonitorAction = self._createFieldMonitorAction()
         self.commandSendAction = self._createCommandSendAction()
 
         self.settingsAccountAction = self._createSettingsAccountAction()
@@ -659,7 +659,7 @@ class MainWindow(QtWidgets.QMainWindow):
         platoon_menu = QtWidgets.QMenu("&Platoons", self)
         platoon_menu.setFont(self.main_menu_font)
         platoon_menu.addAction(self.mtvViewAction)
-        platoon_menu.addAction(self.fieldMonitorAction)
+        # platoon_menu.addAction(self.fieldMonitorAction)
         platoon_menu.addAction(self.commandSendAction)
         menu_bar.addMenu(platoon_menu)
 
@@ -800,7 +800,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createCommandSendAction(self):
         new_action = QtGui.QAction(self)
         new_action.setText("&Send Command")
-        new_action.triggered.connect(self.sendToPlatoons)
+        new_action.triggered.connect(lambda: self.sendToPlatoons("7000", None))
 
         return new_action
 
@@ -1364,9 +1364,18 @@ class MainWindow(QtWidgets.QMainWindow):
                     if self.hostrole == "CommanderOnly":
                         print("cmd only sending to platoon: ", i)
                         task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
+                        self.todays_work["tbd"].append(
+                            {"name": "automation", "works": task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                             "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                             "current oidx": 0, "competed": [], "aborted": []})
+
                     else:
                         print("cmd sending to platoon: ", i)
                         task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
+                        self.todays_work["tbd"].append(
+                            {"name": "automation", "works": task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                             "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                             "current oidx": 0, "competed": [], "aborted": []})
 
                     # now need to fetch this task associated bots, mission, skills
                     # get all bots IDs involved. get all mission IDs involved.
@@ -1374,6 +1383,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
                     schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
                     print("SCHEDULE:::", schedule)
+
                     fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
         # now that a new day starts, clear all reports data structure
@@ -2259,6 +2269,8 @@ class MainWindow(QtWidgets.QMainWindow):
             newVehicle.setVid(ip)
             self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
+            if self.platoonWin:
+                self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
         else:
             print("Reconnected:", vinfo.peername)
 
@@ -2574,8 +2586,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def newVehiclesView(self):
         if self.platoonWin == None:
-            self.platoonWin = PlatoonWindow(self)
-            self.platoonWin.setOwner(self.owner)
+            print("creating platoon monitor window....")
+            self.platoonWin = PlatoonWindow(self, "init")
+        else:
+            print("Shows existing windows...")
         self.platoonWin.show()
 
     def eventFilter(self, source, event):
@@ -3448,9 +3462,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
-            self.todaysReports.append(json.loads(msg))
+            print("msg type:", type(msg), msg)
+            self.todaysReports.append(msg)
+
+            # now using ip to find the item added to self.self.todays_work["tbd"]
+            task_idx = 0
+            found = False
+            for item in self.todays_work["tbd"]:
+                if "ip" in item:
+                    if item["ip"] == msg["ip"]:
+                        found = True
+                        break
+                task_idx = task_idx + 1
+
+            if found:
+                print("finising a task....", task_idx)
+                finished = self.todays_work["tbd"].pop(task_idx)
+                self.todays_completed.append(finished)
+
+            print("len todays's reports:", len(self.todaysReports), "len todays's completed:", len(self.todays_completed))
+            print("completd：", self.todays_completed)
+
             # keep statistics on all platoon runs.
-            if len(self.todaysReports) == (len(self.todays_completed)-1):
+            if len(self.todaysReports) == (len(self.todays_completed)):
                 # check = all(item in List1 for item in List2)
                 # this means all reports are collected, ready to send to cloud.
                 self.doneWithToday()
