@@ -8,6 +8,7 @@ import json
 from WorkSkill import *
 from readSkill import *
 import os
+import datetime
 
 # Every bot has a run schedule which is specified in the following parameters
 # start time for the day, example: 7am pacific time.
@@ -131,6 +132,9 @@ class M_Pub_Attributes():
         self.run_time = 0
         self.createon = ""
         self.actual_start_time = ""
+        self.actual_start_time_in_ms = 0
+        self.actual_end_time = ""
+        self.actual_end_time_in_ms = 0
         self.cuspas = ""
         self.app_exe = ""
         self.pseudo_store = ""
@@ -426,7 +430,36 @@ class EBMISSION(QtGui.QStandardItem):
         return self.pubAttributes.actual_start_time
 
     def setActualStartTime(self, ast):
-        self.pubAttributes.actual_start_time = ast
+        if type(ast) == int:
+            self.pubAttributes.actual_start_time_in_ms = ast
+            datetime_obj = datetime.datetime.fromtimestamp(ast, tz=datetime.timezone.utc)
+            # Format the datetime object as a string in AWS datetime format
+            aws_datetime_str = datetime_obj.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            self.pubAttributes.actual_start_time = aws_datetime_str
+        elif type(ast) == str:
+            self.pubAttributes.actual_start_time = ast
+            datetime_obj = datetime.datetime.strptime(ast, "%Y-%m-%dT%H:%M:%S.%fZ")
+            # Convert the datetime object to epoch time in seconds
+            epoch_time = int(datetime_obj.timestamp())
+            self.pubAttributes.actual_start_time_in_ms = epoch_time
+
+
+    def getActualEndTime(self):
+        return self.pubAttributes.actual_end_time
+
+    def setActualEndTime(self, aet):
+        if type(aet) == int:
+            self.pubAttributes.actual_end_time_in_ms = aet
+            datetime_obj = datetime.datetime.fromtimestamp(aet, tz=datetime.timezone.utc)
+            # Format the datetime object as a string in AWS datetime format
+            aws_datetime_str = datetime_obj.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            self.pubAttributes.actual_end_time = aws_datetime_str
+        elif type(aet) == str:
+            self.pubAttributes.actual_end_time = aet
+            datetime_obj = datetime.datetime.strptime(aet, "%Y-%m-%dT%H:%M:%S.%fZ")
+            # Convert the datetime object to epoch time in seconds
+            epoch_time = int(datetime_obj.timestamp())
+            self.pubAttributes.actual_end_time_in_ms = epoch_time
 
     def getEstimatedStartTime(self):
         return self.pubAttributes.eststartt
