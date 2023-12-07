@@ -360,10 +360,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionImportAction = self._createMissionImportAction()
         self.missionNewFromFileAction = self._createMissionNewFromFileAction()
 
-        self.mtvViewAction = self._createMTVViewAction()
-        # self.fieldMonitorAction = self._createFieldMonitorAction()
-        self.commandSendAction = self._createCommandSendAction()
-
         self.settingsAccountAction = self._createSettingsAccountAction()
         self.settingsEditAction = self._createSettingsEditAction()
 
@@ -421,6 +417,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.completed_missionListView = MissionListView()
         self.completedMissionModel = QtGui.QStandardItemModel(self.completed_missionListView)
 
+        self.mtvViewAction = self._createMTVViewAction()
+        # self.fieldMonitorAction = self._createFieldMonitorAction()
+        self.commandSendAction = self._createCommandSendAction()
 
         # Apply the model to the list view
         self.botListView.setModel(self.botModel)
@@ -800,7 +799,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createCommandSendAction(self):
         new_action = QtGui.QAction(self)
         new_action.setText("&Send Command")
-        new_action.triggered.connect(lambda: self.sendToPlatoons("7000", None))
+        # new_action.triggered.connect(lambda: self.sendToPlatoons("7000", None))
+        cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
+        new_action.triggered.connect(lambda: self.sendToPlatoons([], cmd))
 
         return new_action
 
@@ -2343,6 +2344,9 @@ class MainWindow(QtWidgets.QMainWindow):
         print("tcp server.....", self.tcpServer)
         print("commander server.....", commanderServer)
 
+        if len(idxs) == 0:
+            idxs = range(self.runningVehicleModel.rowCount())
+
         # if not self.tcpServer == None:
         if len(fieldLinks) > 0:
             print("Currently, there are (", len(fieldLinks), ") connection to this server.....")
@@ -3322,9 +3326,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    last_start = str(datetime.now().timestamp())
+                    last_start = int(datetime.now().timestamp()*1)
                     botTodos["status"] = self.fetchSchedule("", None)
-                    last_end = str(datetime.now().timestamp())
+                    last_end = int(datetime.now().timestamp()*1)
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
                     # if "Completed" in botTodos["status"]:
@@ -3336,9 +3340,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     print("running RPA..............")
                     if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
-                        last_start = str(datetime.now().timestamp())
+                        last_start = int(datetime.now().timestamp()*1)
                         await self.runRPA(botTodos)
-                        last_end = str(datetime.now().timestamp())
+                        last_end = int(datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
                         current_run_report = self.genRunReport(last_start, last_end)
@@ -3639,6 +3643,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
         return self.todaysReport
 
+    def updateMissionsStatsFromReports(self, all_reports):
+        for rpt in all_reports:
+            found = next((x for x in self.missions if x.getMid() == rpt["mid"]), None)
+            if found:
+                found.setStatus(rpt["status"])
+                found.setActualStartTime(rpt["starttime"])
+                found.setActualEndTime(rpt["endtime"])
+
+            # for tz, tzw in rpt:
+            #     if len(tzw) > 0:
+            #         if len(tzw["bw_works"]) > 0:
+            #             for m in tzw["bw_works"]:
+            #                 found = next((x for x in self.missions if x.getMid() == m["mid"]), None)
+            #                 if found:
+            #                     found.setStatus(m["status"])
+            #
+            #         if len(tzw["other_works"]) > 0:
+            #             for m in tzw["other_works"]:
+            #                 found = next((x for x in self.missions if x.getMid() == m["mid"]), None)
+            #                 if found:
+            #                     found.setStatus(m["status"])
+
+
     # all work done today, now
     # 1) send report to the network,
     # 2) save report to local logs,
@@ -3660,6 +3687,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 missionReports = [item for pr in allTodoReports for item in pr]
             else:
                 missionReports = []
+
+            self.updateMissionsStatsFromReports(allTodoReports)
 
             # if this is a commmander, then send report to cloud
             send_completion_status_to_cloud(self.session, missionReports, self.tokens['AuthenticationResult']['IdToken'])
