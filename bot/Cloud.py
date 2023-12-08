@@ -552,6 +552,37 @@ def gen_update_missions_string(missions):
     print(query_string)
     return query_string
 
+def gen_daily_update_string(missionsStats):
+    query_string = """
+            mutation MyUMMutation {
+          updateMissionsExStatus (input:[
+        """
+    rec_string = ""
+    for i in range(len(missionsStats)):
+        if isinstance(missionsStats[i], dict):
+            rec_string = rec_string + "{ mid:\"" + str(missionsStats[i]["mid"]) + "\", "
+            rec_string = rec_string + "bid:\"" + str(missionsStats[i]["bid"]) + "\", "
+            rec_string = rec_string + "status:\"" + missionsStats[i]["status"] + "\", "
+            rec_string = rec_string + "starttime:\"" + str(missionsStats[i]["starttime"]) + "\", "
+            rec_string = rec_string + "endtiem:\"" + str(missionsStats[i]["endtime"]) + "\"} "
+        else:
+            rec_string = rec_string + "{ mid:\"" + str(missionsStats[i].getMid()) + "\", "
+            rec_string = rec_string + "bid:\"" + str(missionsStats[i].getBid()) + "\", "
+            rec_string = rec_string + "status:\"" + missionsStats[i].getStatus() + "\", "
+            rec_string = rec_string + "starttime:\"" + missionsStats[i].getStartTime() + "\", "
+            rec_string = rec_string + "endtime:\"" + missionsStats[i].getEndTime() + "\"} "
+
+        if i != len(missionsStats) - 1:
+            rec_string = rec_string + ', '
+        else:
+            rec_string = rec_string + ']'
+
+    tail_string = """
+        ) 
+        } """
+    query_string = query_string + rec_string + tail_string
+    print(query_string)
+    return query_string
 
 def gen_remove_missions_string(removeOrders):
     query_string = """
@@ -786,7 +817,7 @@ def req_train_read_screen(session, request, token):
 # Use AWS4Auth to sign a requests session
 def send_completion_status_to_cloud(session, missionStats, token):
 
-    query = gen_train_request_string(missionStats)
+    query = gen_daily_update_string(missionStats)
 
     jresp = appsync_http_request(query, session, token)
 

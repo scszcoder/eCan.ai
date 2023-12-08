@@ -362,10 +362,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.missionImportAction = self._createMissionImportAction()
         self.missionNewFromFileAction = self._createMissionNewFromFileAction()
 
-        self.mtvViewAction = self._createMTVViewAction()
-        self.fieldMonitorAction = self._createFieldMonitorAction()
-        self.commandSendAction = self._createCommandSendAction()
-
         self.settingsAccountAction = self._createSettingsAccountAction()
         self.settingsEditAction = self._createSettingsEditAction()
 
@@ -423,6 +419,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.completed_missionListView = MissionListView()
         self.completedMissionModel = QtGui.QStandardItemModel(self.completed_missionListView)
 
+        self.mtvViewAction = self._createMTVViewAction()
+        # self.fieldMonitorAction = self._createFieldMonitorAction()
+        self.commandSendAction = self._createCommandSendAction()
 
         # Apply the model to the list view
         self.botListView.setModel(self.botModel)
@@ -661,7 +660,7 @@ class MainWindow(QtWidgets.QMainWindow):
         platoon_menu = QtWidgets.QMenu("&Platoons", self)
         platoon_menu.setFont(self.main_menu_font)
         platoon_menu.addAction(self.mtvViewAction)
-        platoon_menu.addAction(self.fieldMonitorAction)
+        # platoon_menu.addAction(self.fieldMonitorAction)
         platoon_menu.addAction(self.commandSendAction)
         menu_bar.addMenu(platoon_menu)
 
@@ -802,7 +801,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createCommandSendAction(self):
         new_action = QtGui.QAction(self)
         new_action.setText("&Send Command")
-        new_action.triggered.connect(self.sendToPlatoons)
+        # new_action.triggered.connect(lambda: self.sendToPlatoons("7000", None))
+        cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
+        new_action.triggered.connect(lambda: self.sendToPlatoons([], cmd))
 
         return new_action
 
@@ -1191,16 +1192,21 @@ class MainWindow(QtWidgets.QMainWindow):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        dailyRunReportFile = self.homepath + "/resource/logs/{}/runreport{}{}{}.txt".format(year, month, day, year)
+        dailyRunReportFile = self.homepath + "/runlogs/{}/runreport{}{}{}.txt".format(year, month, day, year)
 
         if os.path.isfile(dailyRunReportFile):
-            file1 = open(dailyRunReportFile, "a")  # append mode
-            file1.write(runStat + "\n")
-            file1.close()
+            with open(dailyRunReportFile, 'a') as f:
+
+                f.write(json.dumps(runStat) + "\n")
+
+                f.close()
         else:
-            file1 = open(dailyRunReportFile, "w")  # append mode
-            file1.write(runStat + "\n")
-            file1.close()
+            with open(dailyRunReportFile, 'w') as f:
+
+                f.write(json.dumps(runStat) + "\n")
+
+                f.close()
+
 
     def fill_mission(self, blank_m, m, tgs):
         blank_m.loadNetRespJson(m)
@@ -1366,9 +1372,18 @@ class MainWindow(QtWidgets.QMainWindow):
                     if self.hostrole == "CommanderOnly":
                         print("cmd only sending to platoon: ", i)
                         task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
+                        self.todays_work["tbd"].append(
+                            {"name": "automation", "works": task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                             "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                             "current oidx": 0, "competed": [], "aborted": []})
+
                     else:
                         print("cmd sending to platoon: ", i)
                         task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
+                        self.todays_work["tbd"].append(
+                            {"name": "automation", "works": task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                             "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                             "current oidx": 0, "competed": [], "aborted": []})
 
                     # now need to fetch this task associated bots, mission, skills
                     # get all bots IDs involved. get all mission IDs involved.
@@ -1376,6 +1391,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
                     schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
                     print("SCHEDULE:::", schedule)
+
                     fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
         # now that a new day starts, clear all reports data structure
@@ -1573,9 +1589,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def update1MStat(self, midx, result):
         print("1 mission run completed.")
         self.missions[midx].setStatus(result)
-        retry_count = self.self.missions[midx].getRetry()
+        retry_count = self.missions[midx].getRetry()
         if retry_count > 0:
-            self.self.missions[midx].setRetry(retry_count - 1)
+            self.missions[midx].setRetry(retry_count - 1)
 
     def updateRunStatus(self, worksTBD, midx):
 
@@ -1595,6 +1611,8 @@ class MainWindow(QtWidgets.QMainWindow):
             idx = widx
 
         this_stat = self.missions[midx].getStatus()
+
+        print("TZ:", tz, "GRP:", grp, "BIDX:", bidx, "WIDX:", widx, "OIDX:", oidx, "THIS STATUS:", this_stat)
 
         if "Completed" in this_stat:
             # check whether need to switch group?
@@ -1671,8 +1689,14 @@ class MainWindow(QtWidgets.QMainWindow):
                             # if bot is changed, oidx and widx restart from 0.
                             oidx = 0
                             widx = 0
-                            if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx][
-                                "start_time"]:
+                            print("SWITCHED BOT:", bidx)
+                            if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
+                                if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx][
+                                    "start_time"]:
+                                    worksTBD["current grp"] = "other_works"
+                                else:
+                                    worksTBD["current grp"] = "wb_works"
+                            elif len(works[tz][bidx]["other_works"]) > 0:
                                 worksTBD["current grp"] = "other_works"
                             else:
                                 worksTBD["current grp"] = "wb_works"
@@ -1692,6 +1716,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 if tzi < len(Tzs):
                     tz = Tzs[tzi]
+                    print("SWITCHED TZ:", tz)
                     if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
                         # see which one's start time is earlier
                         if works[tz][bidx]["other_works"][0]["start_time"] < works[tz][bidx]["bw_works"][0]["start_time"]:
@@ -1719,6 +1744,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # already reached the last region in this todo group, consider this group done.
                     # now check whether there is any failed missions, if there is, now it's time to set
                     # up to re-run it, simply by set the pointers to it.
+                    print("all workdsTBD exhausted...")
                     rt_tz, rt_bid, rt_grp, rt_mid = self.findNextMissonsToBeRetried(worksTBD)
                     if rt_tz == "":
                         # if nothing is found, we're done with this todo list...
@@ -2261,6 +2287,8 @@ class MainWindow(QtWidgets.QMainWindow):
             newVehicle.setVid(ip)
             self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
+            if self.platoonWin:
+                self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
         else:
             print("Reconnected:", vinfo.peername)
 
@@ -2317,6 +2345,9 @@ class MainWindow(QtWidgets.QMainWindow):
         print("tcp connections.....", fieldLinks)
         print("tcp server.....", self.tcpServer)
         print("commander server.....", commanderServer)
+
+        if len(idxs) == 0:
+            idxs = range(self.runningVehicleModel.rowCount())
 
         # if not self.tcpServer == None:
         if len(fieldLinks) > 0:
@@ -2576,8 +2607,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def newVehiclesView(self):
         if self.platoonWin == None:
-            self.platoonWin = PlatoonWindow(self)
-            self.platoonWin.setOwner(self.owner)
+            print("creating platoon monitor window....")
+            self.platoonWin = PlatoonWindow(self, "init")
+        else:
+            print("Shows existing windows...")
         self.platoonWin.show()
 
     def eventFilter(self, source, event):
@@ -3295,9 +3328,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    last_start = str(datetime.now().timestamp())
+                    last_start = int(datetime.now().timestamp()*1)
                     botTodos["status"] = self.fetchSchedule("", None)
-                    last_end = str(datetime.now().timestamp())
+                    last_end = int(datetime.now().timestamp()*1)
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
                     # if "Completed" in botTodos["status"]:
@@ -3309,9 +3342,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     print("running RPA..............")
                     if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
-                        last_start = str(datetime.now().timestamp())
+                        last_start = int(datetime.now().timestamp()*1)
                         await self.runRPA(botTodos)
-                        last_end = str(datetime.now().timestamp())
+                        last_end = int(datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
                         current_run_report = self.genRunReport(last_start, last_end)
@@ -3450,9 +3483,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
-            self.todaysReports.append(json.loads(msg))
+            print("msg type:", type(msg), msg)
+            self.todaysReports.append(msg)
+
+            # now using ip to find the item added to self.self.todays_work["tbd"]
+            task_idx = 0
+            found = False
+            for item in self.todays_work["tbd"]:
+                if "ip" in item:
+                    if item["ip"] == msg["ip"]:
+                        found = True
+                        break
+                task_idx = task_idx + 1
+
+            if found:
+                print("finising a task....", task_idx)
+                finished = self.todays_work["tbd"].pop(task_idx)
+                self.todays_completed.append(finished)
+
+            print("len todays's reports:", len(self.todaysReports), "len todays's completed:", len(self.todays_completed))
+            print("completd：", self.todays_completed)
+
             # keep statistics on all platoon runs.
-            if len(self.todaysReports) == (len(self.todays_completed)-1):
+            if len(self.todaysReports) == (len(self.todays_completed)):
                 # check = all(item in List1 for item in List2)
                 # this means all reports are collected, ready to send to cloud.
                 self.doneWithToday()
@@ -3569,9 +3622,10 @@ class MainWindow(QtWidgets.QMainWindow):
         #only generate report when all done.
         works = self.todays_work["tbd"][0]
 
+        print("GEN REPORT FOR WORKS:", works)
         if not self.hostrole == "CommanderOnly":
             # for platoon or commander does work itself, need to gather current todo's report , each mission's run result
-            while tzi in range(len(Tzs)):
+            while tzi in Tzs:
                 if len(works[tzi]) > 0:
                     for bi in range(len(works[tzi])):
                         if len(works[tzi][bi]["other_works"]) > 0:
@@ -3590,6 +3644,29 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.todaysReports.append(self.todaysReport)
 
         return self.todaysReport
+
+    def updateMissionsStatsFromReports(self, all_reports):
+        for rpt in all_reports:
+            found = next((x for x in self.missions if x.getMid() == rpt["mid"]), None)
+            if found:
+                found.setStatus(rpt["status"])
+                found.setActualStartTime(rpt["starttime"])
+                found.setActualEndTime(rpt["endtime"])
+
+            # for tz, tzw in rpt:
+            #     if len(tzw) > 0:
+            #         if len(tzw["bw_works"]) > 0:
+            #             for m in tzw["bw_works"]:
+            #                 found = next((x for x in self.missions if x.getMid() == m["mid"]), None)
+            #                 if found:
+            #                     found.setStatus(m["status"])
+            #
+            #         if len(tzw["other_works"]) > 0:
+            #             for m in tzw["other_works"]:
+            #                 found = next((x for x in self.missions if x.getMid() == m["mid"]), None)
+            #                 if found:
+            #                     found.setStatus(m["status"])
+
 
     # all work done today, now
     # 1) send report to the network,
@@ -3613,12 +3690,14 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 missionReports = []
 
+            self.updateMissionsStatsFromReports(allTodoReports)
+
             # if this is a commmander, then send report to cloud
             send_completion_status_to_cloud(self.session, missionReports, self.tokens['AuthenticationResult']['IdToken'])
         else:
             # if this is a platoon, send report to commander
             rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
-            commanderXport.write(str.encode(json.dumps(rpt)))
+            self.commanderXport.write(str.encode(json.dumps(rpt)))
 
         # 2) log reports on local drive.
         self.saveDailyRunReport(self.todaysReports)
