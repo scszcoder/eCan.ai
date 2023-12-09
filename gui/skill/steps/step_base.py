@@ -38,7 +38,8 @@ class StepBase(ABC):
 
         return json_str
 
-    def gen_step(self):
+    def gen_step(self, stepN):
+        self.stepN = stepN
         json_str = self.gen_json_str()
         json_step = ((self.stepN + STEP_GAP), ("\"step " + str(self.stepN) + "\":\n" + json_str + ",\n"))
 
@@ -66,13 +67,40 @@ class StepBase(ABC):
         print(f"set attrs key ({attr_key}) value ({value})")
         setattr(self, attr_key, value)
 
+    def to_dict(self):
+        attrs = self.get_dict_attrs()
+        for key, obj in attrs.items():
+            if isinstance(obj, Enum):
+                attrs[key] = obj.value
+        return attrs
+
+    def to_obj(self, obj_dict):
+        for key, value in dict(obj_dict).items():
+            setattr(self, key, value)
+
+    @classmethod
+    def from_dict(cls, obj_dict):
+        from gui.skill.steps.enum_step_type import EnumStepType
+        step = EnumStepType.gen_step_obj(obj_dict["type"])
+        step.to_obj(obj_dict)
+
+        return step
 
 
-# if __name__ == '__main__':
-    # step = StepBase()
-    # # step.remark = EnumAnchorType.Text
+if __name__ == '__main__':
+    from gui.skill.steps.step_stub import StepStub, EnumStubName
+    step = StepStub(5)
+    step.stub_name = EnumStubName.EndSkill
+    # step.remark = EnumAnchorType.Text
     # print(step.attr_type("remark"))
     # if isinstance(step.remark, EnumAnchorType):
     #     print("#####")
     # else:
     #     print("****")
+    obj = step.to_dict()
+    print(obj)
+
+    step = StepBase.from_dict(obj)
+    print(step)
+    print(step.type)
+    print(step.stub_name)

@@ -1,9 +1,9 @@
 import json
 
 from PySide6.QtCore import (QRectF, QSize, Qt)
-from PySide6.QtGui import (QAction, QFont, QBrush, QIcon, QPixmap, QPainter, QPen)
-from PySide6.QtWidgets import (QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QButtonGroup, QGridLayout,
-                               QLabel, QSizePolicy, QToolBox, QToolButton, QWidget, QGraphicsView, QSplitter)
+from PySide6.QtGui import (QAction, QFont,  QIcon)
+from PySide6.QtWidgets import (QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QWidget, QGraphicsView,
+                               QSplitter)
 from config.app_info import app_info
 from gui.skfc.skfc_scene import SkFCScene
 from gui.skfc.diagram_item_normal import DiagramNormalItem
@@ -28,6 +28,31 @@ class SkFCView(QGraphicsView):
     def showEvent(self, event):
         super().showEvent(event)
         # self.setCursor(Qt.ArrowCursor)
+
+    # def mousePressEvent(self, event):
+    #     item = self.itemAt(event.pos())  # 获取点击位置的元素
+    #     scene = self.scene()
+    #     if not item or (scene.focusItem() and item != scene.focusItem()):
+    #         scene.clearFocus()  # 清除焦点
+    #     super().mousePressEvent(event)
+
+    # def mouseDoubleClickEvent(self, event):
+    #     pos = event.pos()
+    #     items = self.items(pos.x(), pos.y())
+    #
+    #     for item in items:
+    #         if isinstance(item, QGraphicsPathItem) and item.hasFocus():
+    #             item.mouseDoubleClickEvent(event)
+    #             return
+    #
+    #     super().mouseDoubleClickEvent(event)
+    #
+    # def mousePressEvent(self, event):
+    #     # 当点击其他元素时，设置焦点到该元素
+    #     item = self.itemAt(event.pos())
+    #     if item and item != self.scene().focusItem():
+    #         item.setFocus()
+    #     super().mousePressEvent(event)
 
 
 class SkFCWidget(QWidget):
@@ -194,3 +219,5 @@ class SkFCWidget(QWidget):
     #
     #     self.aboutMenu = self.menuBar().addMenu("&Help")
     #     self.aboutMenu.addAction(self.aboutAction)
+
+

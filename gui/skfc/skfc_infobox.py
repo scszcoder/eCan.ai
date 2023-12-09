@@ -15,6 +15,7 @@ from skill.steps.step_fill_data import StepFillData
 from skill.steps.step_stub import StepStub
 
 PROPS_COLUMN_COUNT = 2
+STEP_ATTR_KEY = "step_attr_key"
 
 
 class SwitchButton(QWidget):
@@ -77,10 +78,15 @@ class SkFCInfoBox(QFrame):
         self.panel_title_widget.setLayout(self.panel_title_layout)
 
         self.basic_info_skname = QLineEdit()
-        self.basic_info_skname.setPlaceholderText("Skill Name")
-        self.basic_info_sklocation = QLineEdit()
-        self.basic_info_sklocation.setPlaceholderText("Location")
-        self.basic_info_table = QTableWidget(2, 2)
+        # self.basic_info_skname.setPlaceholderText("Skill Name")
+        # self.basic_info_sklocation = QLineEdit()
+        # self.basic_info_sklocation.setPlaceholderText("Location")
+        self.basic_info_skos = QLineEdit()
+        self.basic_info_skversion = QLineEdit()
+        self.basic_info_skauthor = QLineEdit()
+        self.basic_info_skid = QLineEdit()
+        self.basic_info_skdesp = QLineEdit()
+        self.basic_info_table = QTableWidget(6, 2)
         self.basic_info_table.horizontalHeader().setVisible(False)
         self.basic_info_table.verticalHeader().setVisible(False)
         self.basic_info_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -90,8 +96,16 @@ class SkFCInfoBox(QFrame):
 
         self.basic_info_table.setCellWidget(0, 0, QLabel("Skill Name"))
         self.basic_info_table.setCellWidget(0, 1, self.basic_info_skname)
-        self.basic_info_table.setCellWidget(1, 0, QLabel("Location"))
-        self.basic_info_table.setCellWidget(1, 1, self.basic_info_sklocation)
+        self.basic_info_table.setCellWidget(1, 0, QLabel("OS"))
+        self.basic_info_table.setCellWidget(1, 1, self.basic_info_skos)
+        self.basic_info_table.setCellWidget(2, 0, QLabel("Version"))
+        self.basic_info_table.setCellWidget(2, 1, self.basic_info_skversion)
+        self.basic_info_table.setCellWidget(3, 0, QLabel("Author"))
+        self.basic_info_table.setCellWidget(3, 1, self.basic_info_skauthor)
+        self.basic_info_table.setCellWidget(4, 0, QLabel("SkId"))
+        self.basic_info_table.setCellWidget(4, 1, self.basic_info_skid)
+        self.basic_info_table.setCellWidget(5, 0, QLabel("Description"))
+        self.basic_info_table.setCellWidget(5, 1, self.basic_info_skdesp)
 
         self.attrs_table = QTableWidget(0, PROPS_COLUMN_COUNT)
         self.attrs_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -111,6 +125,16 @@ class SkFCInfoBox(QFrame):
 
         # self.setSizePolicy(QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Ignored))
         # self.setMinimumWidth(self.panel_title_widget.sizeHint().width())
+
+    def get_skill_info(self):
+        skname = self.basic_info_skname.text()
+        os = self.basic_info_skos.text()
+        version = self.basic_info_skversion.text()
+        author = self.basic_info_skauthor.text()
+        skid = self.basic_info_skid.text()
+        desp = self.basic_info_skdesp.text()
+
+        return skname, os, version, author, skid, desp
 
     def convert_field_name(self, text):
         return ' '.join(w.capitalize() for w in text.split('_'))
@@ -168,7 +192,7 @@ class SkFCInfoBox(QFrame):
                 widget.setText(str(step_attrs_value))
                 widget.textChanged.connect(self.step_attrs_text_changed)
 
-        widget.setProperty("step_attr_key", step_attr_key)
+        widget.setProperty(STEP_ATTR_KEY, step_attr_key)
         print(f"create field: {step_attr_key}; cell widget {widget}")
         return widget
 
@@ -179,7 +203,8 @@ class SkFCInfoBox(QFrame):
                 if key == StepStub.TYPE_KEY:
                     types.append(key)
             elif diagram_type == DiagramNormalItem.Conditional:
-                types.append(key)
+                if key == StepCheckCondition.TYPE_KEY:
+                    types.append(key)
             elif diagram_type == DiagramNormalItem.Step:
                 types.append(key)
             elif diagram_type == DiagramNormalItem.Io:
@@ -194,15 +219,18 @@ class SkFCInfoBox(QFrame):
 
     def step_attrs_normal_cmb_changed(self, text):
         print("cmb changed ", text, self.sender())
-        pass
+        step: StepBase = self.current_diagram_item.step
+        step.set_attr_value(self.sender().property(STEP_ATTR_KEY), text)
 
     def step_attrs_toggle_state_changed(self, checked):
         print('SwitchButton state changed:', checked, self.sender())
         step: StepBase = self.current_diagram_item.step
-        step.set_attr_value(self.sender().property('step_attr_key'), checked)
+        step.set_attr_value(self.sender().property(STEP_ATTR_KEY), checked)
 
     def step_attrs_text_changed(self, text):
         print("text changed: ", text, self.sender())
+        step: StepBase = self.current_diagram_item.step
+        step.set_attr_value(self.sender().property(STEP_ATTR_KEY), text)
 
 
 

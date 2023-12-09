@@ -1,9 +1,10 @@
 from enum import Enum
 
-from PySide6.QtCore import QLineF, QPointF, QRectF, QSizeF, Qt
-from PySide6.QtGui import QPainter, QPen, QColor, QPolygonF, QPainterPath, QBrush, QFont, QPainterPathStroker
+from PySide6.QtCore import QLineF, QPointF, QRectF, QSizeF, Qt, QTimer
+from PySide6.QtGui import QPainter, QPen, QColor, QPolygonF, QPainterPath, QBrush, QFont, QPainterPathStroker, \
+    QTextOption
 from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsItem, QMenu, QGraphicsSceneMouseEvent,
-                               QGraphicsDropShadowEffect)
+                               QGraphicsDropShadowEffect, QGraphicsTextItem, QApplication)
 import math
 from datetime import datetime
 from typing import List
@@ -16,6 +17,58 @@ ARROW_SIZE = 10
 ARROW_ANGLE = 20
 ARROW_WIDTH = 1.5
 MANHANTAN_LENGTH = ARROW_SIZE/2
+
+
+class DiagramArrowConditionTextItem(QGraphicsTextItem):
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self.setPlainText(text)
+
+        self.setTextWidth(50)
+        self.previous_text = self.toPlainText()
+
+        option = QTextOption()
+        option.setAlignment(Qt.AlignHCenter)
+        self.document().setDefaultTextOption(option)
+
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
+
+    def set_text_interaction(self):
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+
+    def handle_double_click_event(self):
+        self.previous_text = self.toPlainText()
+        self.set_text_interaction()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+            self.clearFocus()
+        else:
+            super().keyPressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        self.previous_text = self.toPlainText()
+        self.set_text_interaction()
+        super().mouseDoubleClickEvent(event)
+
+    def focusOutEvent(self, event):
+        current_text = self.toPlainText()
+        if current_text.lower() not in ["true", "false", "  "]:
+            self.setPlainText(self.previous_text)
+            print("recover to old value")
+
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        # self.clearFocus()
+        # super().focusOutEvent(event)
+
+    def set_plain_text(self, text):
+        self.setPlainText(text)
+
+    def is_condition_true(self):
+        return self.toPlainText().lower() == "true"
 
 
 class DiagramArrowItem(QGraphicsPathItem):
@@ -44,6 +97,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.arrow_head: QPolygonF = None
         self.old_start_item: DiagramNormalItem = None
         self.old_end_item: DiagramNormalItem = None
+        self.condition_text_item: DiagramArrowConditionTextItem = DiagramArrowConditionTextItem("", self)
 
         self.pen = QPen(self.line_color, ARROW_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         self.setPen(self.pen)
@@ -66,6 +120,10 @@ class DiagramArrowItem(QGraphicsPathItem):
             self.render_arrow(self.path_points)
 
         print(f"init arrow item:{[self.start_point, self.end_point]}")
+
+        # self.click_timer = QTimer()
+        # self.click_timer.setSingleShot(True)
+        # self.click_timer.timeout.connect(self.handle_click_timeout)
 
     def add_start_item(self, start_item: DiagramNormalItem):
         if start_item is not None:
@@ -204,10 +262,29 @@ class DiagramArrowItem(QGraphicsPathItem):
 
         super().hoverMoveEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        print("diagram arrow double click event")
+        # self.click_timer.stop()
+        if self.start_item is not None and self.start_item.diagram_type == DiagramNormalItem.Conditional:
+            self.condition_text_item.handle_double_click_event()
+        self.condition_text_item.handle_double_click_event()
+        super().mouseDoubleClickEvent(event)
+
+    # def handle_click_timeout(self):
+    #     self.click_timer.stop()
+    #     self.clearFocus()
+
+    def get_middel_pos(self):
+        mid_point = self.path().pointAtPercent(0.5)
+        mid_pos = (mid_point.x() - self.condition_text_item.boundingRect().width() / 2,
+                   mid_point.y() - self.condition_text_item.boundingRect().height() / 2)  # 设置文本的位置
+
+        return mid_pos
+
     def mousePressEvent(self, event):
-        super().mousePressEvent(event)
         # if event.button() == Qt.LeftButton:
-        #     print("Left button pressed")
+        #     self.click_timer.start(QApplication.doubleClickInterval())
+        super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         # if event.button() == Qt.LeftButton:
@@ -245,7 +322,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         else:
             result = False
 
-        print(f"selected start or end position is {result}")
+        print(f"diagram arrow selected start or end position is {result}")
         return result
 
     def remove_item_target_arrow(self):
@@ -267,34 +344,40 @@ class DiagramArrowItem(QGraphicsPathItem):
 
     # normal item drag event handler
     def normal_item_move_redraw_path(self, target_item: DiagramNormalItem, event: QGraphicsSceneMouseEvent):
-        # print(f"normal_item_move_redraw_path: {target_item}; event:{event.scenePos()}")
-        update_path = True
+        # print(f"normal_item_move_redraw_path: {target_item}; {self.start_item_port_direction}")
+        update_path = False
         if target_item == self.start_item and self.start_item_port_direction is not None:
-            old_point = self.start_point
-            self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
-            if old_point == self.start_point:
-                update_path = False
-            else:
+            new_start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
+            if new_start_point != self.start_point:
+                self.start_point = new_start_point
                 # when start and end item is same
                 if self.end_item is not None and self.end_item_port_direction is not None:
-                    self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
-
-        elif target_item == self.end_item and self.end_item_port_direction is not None:
-            old_point = self.end_point
-            self.end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
-            if old_point == self.end_point:
-                update_path = False
+                    self.end_point = self.end_item.get_port_item_center_position_by_direction(
+                        self.end_item_port_direction)
+                update_path = True
             else:
+                print("same start point!!!")
+        elif target_item == self.end_item and self.end_item_port_direction is not None:
+            new_end_point = self.end_item.get_port_item_center_position_by_direction(self.end_item_port_direction)
+            if new_end_point != self.end_point:
+                self.end_point = new_end_point
                 # when start and end item is same
                 if self.start_item is not None and self.start_item_port_direction is not None:
-                    self.start_point = self.start_item.get_port_item_center_position_by_direction(self.start_item_port_direction)
+                    self.start_point = self.start_item.get_port_item_center_position_by_direction(
+                        self.start_item_port_direction)
+                update_path = True
+            else:
+                print("same end point!!!")
+        else:
+            print("### no target diagram item")
 
         if update_path is True:
             self.path_points = self.calculate_path_points()
             self.render_arrow(self.path_points)
         else:
-            print("save item point no need rerender arrow path!!!")
+            print("same item point no need rerender arrow path!!!")
 
+    # mouse move event handle
     def mouse_move_handler(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
         # print(f"update move point:{target_point}; arrow path:{target_item_group}")
         update_path = True
@@ -372,6 +455,8 @@ class DiagramArrowItem(QGraphicsPathItem):
         if self.old_end_item is not None and self.old_end_item != self.end_item:
             self.old_end_item.removeArrow(self)
 
+        self.setSelected(False)
+
     def render_arrow(self, points):
         self.prepareGeometryChange()
 
@@ -399,6 +484,10 @@ class DiagramArrowItem(QGraphicsPathItem):
                 path.addPolygon(self.arrow_head)
 
             self.setPath(path)
+
+        # render description text
+        mid_pos_x, mid_pos_y = self.get_middel_pos()
+        self.condition_text_item.setPos(mid_pos_x, mid_pos_y)
 
     def distance_too_short(self):
         distance = calculate_distance(self.start_point.x(), self.start_point.y(), self.end_point.x(), self.end_point.y())

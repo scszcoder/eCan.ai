@@ -1,3 +1,5 @@
+from typing import List
+
 from PySide6.QtCore import (QPointF, QRectF, Qt)
 from PySide6.QtGui import (QPainterPath, QColor, QFont, QPen, QPolygonF)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsEllipseItem, QMenu
@@ -90,7 +92,8 @@ class DiagramNormalItem(QGraphicsPolygonItem):
 
     def __init__(self, diagram_type, context_menu: QMenu, text_color: QColor,
                  item_color: QColor, font: QFont, position: QPointF, uuid=None,
-                 name_text_item: DiagramTextItem=None, tag_text_item: DiagramTextItem=None, parent=None):
+                 name_text_item: DiagramTextItem=None, tag_text_item: DiagramTextItem=None, step=None,
+                 parent=None):
         super(DiagramNormalItem, self).__init__(parent)
 
         self.uuid = uuid if uuid is not None else SkFCBase.build_uuid()
@@ -101,7 +104,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         self.item_color: QColor = item_color
         self.font: QFont = font
         self.arrows = []
-        self.step: StepBase = None
+        self.step: StepBase = step
 
         self.setBrush(item_color)
         self.setPos(position)
@@ -270,6 +273,19 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         self.set_ports_visible(False)
         super().hoverLeaveEvent(event)
 
+    def get_next_diagram_item(self, condition=False):
+        for arrow in self.arrows:
+            if arrow.start_item == self:
+                if self.diagram_type == DiagramNormalItem.Conditional:
+                    if condition is True and arrow.condition_text_item.is_condition_true():
+                        return arrow.end_item
+                    elif condition is False and not arrow.condition_text_item.is_condition_true():
+                        return arrow.end_item
+                else:
+                    return arrow.end_item
+
+        return None
+
     def to_dict(self):
         obj_dict = {
             "uuid": self.uuid,
@@ -280,7 +296,8 @@ class DiagramNormalItem(QGraphicsPolygonItem):
             "position": SkFCBase.position_encode(self.pos()),
             "font": SkFCBase.font_encode(self.font),
             "name_text_item": self.name_text_item.to_dict(),
-            "tag_text_item": self.tag_text_item.to_dict()
+            "tag_text_item": self.tag_text_item.to_dict(),
+            "step": self.step.to_dict() if self.step else None
         }
 
         return obj_dict
@@ -297,12 +314,14 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         name_text_item_dict = obj_dict["name_text_item"]
         tag_text_item_dict = obj_dict["tag_text_item"]
 
+        step = StepBase.from_dict(obj_dict["step"])
+
         name_text_item = DiagramTextItem.from_dict(name_text_item_dict, context_menu)
         tag_text_item = DiagramTextItem.from_dict(tag_text_item_dict, context_menu)
 
         diagram_normal_item = DiagramNormalItem(diagram_type=diagram_type, context_menu=context_menu, text_color=text_color,
                                                 item_color=item_color, font=font, uuid=uuid, name_text_item=name_text_item,
-                                                tag_text_item=tag_text_item, position=position)
+                                                tag_text_item=tag_text_item, position=position, step=step)
 
         return diagram_normal_item
 
