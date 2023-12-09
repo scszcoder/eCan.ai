@@ -1301,8 +1301,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skvtabs = QtWidgets.QTabWidget()
         self.skvtabs.addTab(self.skFCWidget, "Flow Chart")
         self.skvtabs.addTab(self.skCodeWidget, "Code")
-        self.hsplitter1 = QtWidgets.QSplitter(Qt.Vertical)
-        self.hsplitter1.addWidget(self.skvtabs)
 
         self.skconsolelabel = QtWidgets.QLabel("Console")
         self.skconsolelabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -1313,6 +1311,9 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         self.consoleWidget = QtWidgets.QWidget()
         self.consoleWidget.setLayout(self.consoleLayout)
+
+        self.hsplitter1 = QtWidgets.QSplitter(Qt.Vertical)
+        self.hsplitter1.addWidget(self.skvtabs)
         self.hsplitter1.addWidget(self.consoleWidget)
 
         self.sklayout = QtWidgets.QVBoxLayout()
@@ -2165,8 +2166,10 @@ class SkillGUI(QtWidgets.QMainWindow):
         pauseRun()
 
     def trial_run(self):
-        self.runStopped = False
-        runAllSteps(self.currentSkill.get_steps())
+        # self.runStopped = False
+        # runAllSteps(self.currentSkill.get_steps())
+        self.skFCWidget.skfc_scene.gen_psk_skill_file()
+
 
     def continue_run(self):
         continueRun(steps, last_step)

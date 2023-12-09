@@ -25,8 +25,8 @@ class StepFillData(StepBase):
         self.result: bool = result
 
     # TODO from is keyword, should replace other word
-    def gen_step(self):
-        json_step = super().gen_step()
+    def gen_step(self, stepN):
+        json_step = super().gen_step(stepN)
         json_step.replace("from_", "from")
 
         return json_step

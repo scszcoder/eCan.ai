@@ -84,11 +84,14 @@ class EnumStepType(Enum):
     def name(self):
         return self.value[0]
 
+    def type_key(self):
+        return self.value[0]
+
     @staticmethod
-    def gen_step_obj(step_key):
+    def gen_step_obj(type_key):
         for name, member in EnumStepType.__members__.items():
             key, cls = member.value
-            if key == step_key and cls is not None:
+            if key == type_key and cls is not None:
                 return cls()
 
         return None
@@ -101,6 +104,20 @@ class EnumStepType(Enum):
 
         return items
 
+    @staticmethod
+    def need_end_step_stub_type_keys():
+        return [EnumStepType.CheckCondition.type_key(),
+                EnumStepType.Repeat.type_key(),
+                EnumStepType.CallFunction.type_key(),
+                EnumStepType.Stub.type_key()]
+
+    @staticmethod
+    def belong_io_step_type_keys():
+        return [EnumStepType.TextInput,
+                EnumStepType.ExtractInfo,
+                EnumStepType.KeyInput,
+                EnumStepType.FillData]
+
 
 if __name__ == '__main__':
     print(EnumStepType.Wait.value)
@@ -110,7 +127,7 @@ if __name__ == '__main__':
     obj = EnumStepType.gen_step_obj("Wait")
     print(obj.time)
 
-    print(EnumStepType.Wait.name())
+    print(EnumStepType.Wait.type_key())
 
     print("########")
-    print(EnumStepType.items())
+    print(EnumStepType.need_end_step_stub_type_keys())
