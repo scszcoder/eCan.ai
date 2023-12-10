@@ -347,7 +347,7 @@ def genTestRunSimpleLoopSkill(stepN):
     this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepLoop("", "30", "", lcvarname, this_step)
+    this_step, step_words = genStepLoop("", "10", "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)

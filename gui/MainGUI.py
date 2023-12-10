@@ -1585,6 +1585,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update1MStat(worksettings["midx"], runResult)
         self.updateRunStatus(worksTBD, worksettings["midx"])
 
+        return worksettings["botid"], worksettings["midx"], runResult
+
 
     def update1MStat(self, midx, result):
         print("1 mission run completed.")
@@ -1627,7 +1629,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         if len(works[tz][bidx][grp])-1 > oidx:
                             oidx = oidx + 1
                         else:
-                            # all other_works are done. simply go to the next wb_works if there are more
+                            # all other_works are done. simply go to the next bw_works if there are more
                             # simply switch group
                             grp = "bw_works"
                             # but if no more work after switching grp, switch timezone.
@@ -1643,7 +1645,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                     switch_grp = True
                                     widx = widx + 1
                             else:
-                                # all other_works and wb_works of this region(timezone) are done, check to see whether to switch bot.
+                                # all other_works and bw_works of this region(timezone) are done, check to see whether to switch bot.
                                 if bidx < len(works[tz])-1:
                                     bidx = bidx + 1
                                     switch_bot = True
@@ -1682,7 +1684,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                 if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx]["start_time"]:
                                     worksTBD["current grp"] = "other_works"
                                 else:
-                                    worksTBD["current grp"] = "wb_works"
+                                    worksTBD["current grp"] = "bw_works"
                             else:
                                 worksTBD["current grp"] = grp
                         else:
@@ -1695,11 +1697,11 @@ class MainWindow(QtWidgets.QMainWindow):
                                     "start_time"]:
                                     worksTBD["current grp"] = "other_works"
                                 else:
-                                    worksTBD["current grp"] = "wb_works"
+                                    worksTBD["current grp"] = "bw_works"
                             elif len(works[tz][bidx]["other_works"]) > 0:
                                 worksTBD["current grp"] = "other_works"
                             else:
-                                worksTBD["current grp"] = "wb_works"
+                                worksTBD["current grp"] = "bw_works"
 
                         worksTBD["current bidx"] = bidx
                         worksTBD["current widx"] = widx
@@ -1725,7 +1727,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             worksTBD["current widx"] = -1
                             worksTBD["current oidx"] = 0
                         else:
-                            worksTBD["current grp"] = "wb_works"
+                            worksTBD["current grp"] = "bw_works"
                             worksTBD["current bidx"] = 0
                             worksTBD["current widx"] = 0
                             worksTBD["current oidx"] = -1
@@ -1735,7 +1737,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         worksTBD["current widx"] = -1
                         worksTBD["current oidx"] = 0
                     elif len(works[tz][bidx]["bw_works"]) > 0:
-                        worksTBD["current grp"] = "wb_works"
+                        worksTBD["current grp"] = "bw_works"
                         worksTBD["current bidx"] = 0
                         worksTBD["current widx"] = 0
                         worksTBD["current oidx"] = -1
@@ -1790,7 +1792,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         if len(works[tz][bidx][grp]) - 1 > oidx:
                             oidx = oidx + 1
                         else:
-                            # all other_works are done. simply go to the next wb_works if there are more
+                            # all other_works are done. simply go to the next bw_works if there are more
                             # simply switch group
                             grp = "bw_works"
                             # but if no more work after switching grp, switch timezone.
@@ -1806,7 +1808,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                     switch_grp = True
                                     widx = widx + 1
                             else:
-                                # all other_works and wb_works of this region(timezone) are done, check to see whether to switch bot.
+                                # all other_works and bw_works of this region(timezone) are done, check to see whether to switch bot.
                                 if bidx < len(works[tz]) - 1:
                                     bidx = bidx + 1
                                     switch_bot = True
@@ -1846,7 +1848,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                         works[tz][bidx]["bw_works"][widx]["start_time"]:
                                     workgroup["current grp"] = "other_works"
                                 else:
-                                    workgroup["current grp"] = "wb_works"
+                                    workgroup["current grp"] = "bw_works"
                             else:
                                 workgroup["current grp"] = grp
                         else:
@@ -1858,7 +1860,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                         "start_time"]:
                                 workgroup["current grp"] = "other_works"
                             else:
-                                workgroup["current grp"] = "wb_works"
+                                workgroup["current grp"] = "bw_works"
 
                         workgroup["current bidx"] = bidx
                         workgroup["current widx"] = widx
@@ -1884,7 +1886,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             workgroup["current widx"] = -1
                             workgroup["current oidx"] = 0
                         else:
-                            workgroup["current grp"] = "wb_works"
+                            workgroup["current grp"] = "bw_works"
                             workgroup["current bidx"] = 0
                             workgroup["current widx"] = 0
                             workgroup["current oidx"] = -1
@@ -1894,7 +1896,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         workgroup["current widx"] = -1
                         workgroup["current oidx"] = 0
                     elif len(works[tz][bidx]["bw_works"]) > 0:
-                        workgroup["current grp"] = "wb_works"
+                        workgroup["current grp"] = "bw_works"
                         workgroup["current bidx"] = 0
                         workgroup["current widx"] = 0
                         workgroup["current oidx"] = -1
@@ -1909,7 +1911,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         workgroup["current tz"] = tz
                         workgroup["current bidx"] = bid
                         workgroup["current grp"] = grp
-                        if grp == "wb_works":
+                        if grp == "bw_works":
                             workgroup["current widx"] = mid
                         else:
                             workgroup["current oidx"] = mid
@@ -3334,7 +3336,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
                     # if "Completed" in botTodos["status"]:
-                    current_run_report = self.genRunReport(last_start, last_end)
+                    current_run_report = self.genRunReport(last_start, last_end, 0, 0, botTodos["status"])
                     finished = self.todays_work["tbd"].pop(0)
                     self.todays_completed.append(finished)
                 elif botTodos["name"] == "automation":
@@ -3343,11 +3345,11 @@ class MainWindow(QtWidgets.QMainWindow):
                     if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
                         last_start = int(datetime.now().timestamp()*1)
-                        await self.runRPA(botTodos)
+                        current_bid, current_mid, run_result = await self.runRPA(botTodos)
                         last_end = int(datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
-                        current_run_report = self.genRunReport(last_start, last_end)
+                        current_run_report = self.genRunReport(last_start, last_end, current_bid, current_mid, run_result)
 
                         finished = self.todays_work["tbd"].pop(0)
                         self.todays_completed.append(finished)
@@ -3616,25 +3618,31 @@ class MainWindow(QtWidgets.QMainWindow):
     #     status: String!
     #     }
     # 1 report is for 1 TBD workgroup.
-    def genRunReport(self, last_start, last_end):
+    def genRunReport(self, last_start, last_end, current_mid, current_bid, run_status):
         statReport = None
         tzi = 0
         #only generate report when all done.
-        works = self.todays_work["tbd"][0]
+        works = self.todays_work["tbd"][0]["works"]
+
+        if current_bid < 0:
+            current_bid = 0
 
         print("GEN REPORT FOR WORKS:", works)
         if not self.hostrole == "CommanderOnly":
             # for platoon or commander does work itself, need to gather current todo's report , each mission's run result
-            while tzi in Tzs:
-                if len(works[tzi]) > 0:
-                    for bi in range(len(works[tzi])):
-                        if len(works[tzi][bi]["other_works"]) > 0:
-                            for oi in range(len(works[tzi][bi]["other_works"])):
-                                self.todaysReport.append({ "mid": works[tzi][bi]["other_works"][oi].mid, "bid": works[tzi][bi].bid, "starttime": last_start, "endtime": last_end, "status": works[tzi][bi]["other_works"][oi].stat})
-
-                        if len(works[tzi][bi]["wb_works"]) > 0:
-                            for wi in range(len(works[tzi][bi]["wb_works"])):
-                                self.todaysReport.append({ "mid": works[tzi][bi]["wb_works"][wi].mid, "bid": works[tzi][bi].bid, "starttime": last_start, "endtime": last_end, "status": works[tzi][bi]["wb_works"][wi].stat})
+            # for tzi in Tzs:
+            #     if len(works[tzi]) > 0:
+            #         for bi in range(len(works[tzi])):
+            #             if len(works[tzi][bi]["other_works"]) > 0:
+            #                 for oi in range(len(works[tzi][bi]["other_works"])):
+            #                     self.todaysReport.append({ "mid": works[tzi][bi]["bw_works"][wi]["mid"], "bid": works[tzi][bi]["bid"], "starttime": last_start, "endtime": last_end, "status": run_status})
+            #
+            #             if len(works[tzi][bi]["bw_works"]) > 0:
+            #                 for wi in range(len(works[tzi][bi]["bw_works"])):
+            #                     self.todaysReport.append({ "mid": works[tzi][bi]["bw_works"][wi]["mid"], "bid": works[tzi][bi]["bid"], "starttime": last_start, "endtime": last_end, "status": run_status})
+            #
+            # self.todaysReport.append({ "mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status})
+            mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
 
             if self.hostrole != "Platoon":
                 # add generated report to report list....
@@ -3699,6 +3707,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             # if this is a platoon, send report to commander today's report is just an list mission status....
             rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
+            print("Sending report to Commander::", rpt)
             self.commanderXport.write(str.encode(json.dumps(rpt)))
 
         # 2) log reports on local drive.
