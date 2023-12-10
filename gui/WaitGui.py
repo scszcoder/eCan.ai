@@ -23,19 +23,18 @@ class WaitWindow(QtWidgets.QMainWindow):
         self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
         # Create a QLabel to display the animated GIF
         self.setGeometry(300, 300, 16, 16)
-        self.setWindowTitle("QMovie to show animated gif")
+        self.setWindowTitle(QtWidgets.QApplication.translate("QtWidgets.QWidget", "QMovie to show animated gif"))
 
         self.label = QtWidgets.QLabel(self)
         self.label.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                                         QtWidgets.QSizePolicy.Expanding)
         self.label.setAlignment(QtCore.Qt.AlignCenter)
+        self.noteLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Waiting for Commander Connection....."), alignment=QtCore.Qt.AlignCenter)
 
-        self.noteLabel = QtWidgets.QLabel("Waiing for Commander Connection.....", alignment=QtCore.Qt.AlignCenter)
-
-        self.btn_start = QPushButton("Start Animation")
+        self.btn_start = QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Start Animation"))
         self.btn_start.clicked.connect(self.start)
 
-        self.btn_stop = QPushButton("Stop Animation")
+        self.btn_stop = QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Stop Animation"))
         self.btn_stop.clicked.connect(self.stop)
 
         # positin the widgets
