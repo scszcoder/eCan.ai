@@ -555,7 +555,7 @@ def gen_update_missions_string(missions):
 def gen_daily_update_string(missionsStats):
     query_string = """
             mutation MyUMMutation {
-          updateMissionsExStatus (input:[
+          reportStatus (input:[
         """
     rec_string = ""
     for i in range(len(missionsStats)):
@@ -563,8 +563,8 @@ def gen_daily_update_string(missionsStats):
             rec_string = rec_string + "{ mid:\"" + str(missionsStats[i]["mid"]) + "\", "
             rec_string = rec_string + "bid:\"" + str(missionsStats[i]["bid"]) + "\", "
             rec_string = rec_string + "status:\"" + missionsStats[i]["status"] + "\", "
-            rec_string = rec_string + "starttime:\"" + str(missionsStats[i]["starttime"]) + "\", "
-            rec_string = rec_string + "endtiem:\"" + str(missionsStats[i]["endtime"]) + "\"} "
+            rec_string = rec_string + "starttime:" + str(missionsStats[i]["starttime"]) + ", "
+            rec_string = rec_string + "endtime:" + str(missionsStats[i]["endtime"]) + "} "
         else:
             rec_string = rec_string + "{ mid:\"" + str(missionsStats[i].getMid()) + "\", "
             rec_string = rec_string + "bid:\"" + str(missionsStats[i].getBid()) + "\", "
@@ -826,7 +826,7 @@ def send_completion_status_to_cloud(session, missionStats, token):
         print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["updateBots"])
+        jresponse = json.loads(jresp["data"]["reportStatus"])
 
     return jresponse
 

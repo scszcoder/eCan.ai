@@ -14,12 +14,12 @@ class CommanderLogWin(QtWidgets.QMainWindow):
     # def __init__(self):
     #     super().__init__()
         self.parent = parent
-        self.setWindowTitle('Network Logs')
-        self.logconsolelabel = QtWidgets.QLabel("Log Console", alignment=QtCore.Qt.AlignLeft)
+        self.setWindowTitle(QtWidgets.QMainWindow.tr('Network Logs'))
+        self.logconsolelabel = QtWidgets.QLabel(QtWidgets.QLabel.tr("Log Console"), alignment=QtCore.Qt.AlignLeft)
         self.logconsole = QtWidgets.QTextEdit()
         self.logconsole.setReadOnly(True)
-        self.clearButton = QtWidgets.QPushButton("Clear")
-        self.closeButton = QtWidgets.QPushButton("Close")
+        self.clearButton = QtWidgets.QPushButton(QtWidgets.QPushButton.tr("Clear"))
+        self.closeButton = QtWidgets.QPushButton(QtWidgets.QPushButton.tr("Close"))
 
         self.clearButton.clicked.connect(self.clear)
         self.closeButton.clicked.connect(self.close)

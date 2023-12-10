@@ -926,6 +926,7 @@ class PyQDiagram(QWidget):
         self.txtBoldButton.setCheckable(True)
         self.txtBoldButton.setChecked(False)
         self.txtBoldButton.setIcon(QIcon(self.homepath + 'resource/images/bold.png'))
+        self.txtItalicButton = QToolButton()
         self.txtItalicButton.setCheckable(True)
         self.txtItalicButton.setChecked(False)
         self.txtItalicButton.setIcon(QIcon(self.homepath + 'resource/images/italic.png'))
