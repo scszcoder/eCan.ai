@@ -2312,8 +2312,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(effective_rows) > 0:
             self.sendToPlatoons(effective_rows, cmd)
 
-    def sendPlatoonCommnd(self, command, rows, mids):
-        if command == "fresh":
+    def sendPlatoonCommand(self, command, rows, mids):
+        print("hello???")
+        if command == "refresh":
             cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
         elif command == "halt":
             cmd = '{\"cmd\":\"reqHaltMissions\", \"missions\":\"all\"}'
@@ -2324,10 +2325,17 @@ class MainWindow(QtWidgets.QMainWindow):
             cmd = '{\"cmd\":\"reqCancelMissions\", \"missions\":\"'+mission_list_string+'\"}'
         elif command == "cancel all":
             cmd = '{\"cmd\":\"reqCancelAllMissions\", \"missions\":\"all\"}'
+        else:
+            cmd = '{\"cmd\":\"ping\", \"missions\":\"all\"}'
 
-        effective_rows = list(filter(lambda r: r >= 0, rows))
-        if len(effective_rows) > 0:
-            self.sendToPlatoons(effective_rows, cmd)
+        print("cmd is:", cmd)
+        if len(rows) > 0:
+            effective_rows = list(filter(lambda r: r >= 0, rows))
+        else:
+            effective_rows = []
+
+        print("effective_rows:", effective_rows)
+        self.sendToPlatoons(effective_rows, cmd)
 
 
     def cancelVehicleMission(self, rows):
@@ -2357,6 +2365,7 @@ class MainWindow(QtWidgets.QMainWindow):
             for i in range(len(fieldLinks)):
                 if i in idxs:
                     fieldLinks[i]["link"].transport.write(cmd.encode('utf8'))
+                    print("cmd sent on link:", i)
         else:
             print("Warning..... TCP server not up and running yet...")
 
@@ -3380,16 +3389,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     #update a vehicle's missions status
+    # rx_data is a list of mission status for each mission that belongs to the vehicle.
     def updateVMStats(self, rx_data):
         foundV = None
         for v in self.vehicles:
             if v.getIP() == rx_data["ip"]:
+                print("found vehicle by IP")
                 foundV = v
                 break
 
         if foundV:
             print("updating vehicle Mission status...")
-            foundV.setMStats(rx_data["stat"])
+            foundV.setMStats(rx_data)
 
     # create some test data just to test out the vehichle view GUI.
     def genGuiTestDat(self):
@@ -3476,6 +3487,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.showMsg(msg["content"])
             print("recevied a status update message")
             if self.platoonWin:
+                print("updating platoon WIN")
                 self.platoonWin.updatePlatoonStatAndShow(msg)
                 self.platoonWin.show()
             else:
