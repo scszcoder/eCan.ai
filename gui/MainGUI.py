@@ -1517,7 +1517,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
-    async def runRPA(self, worksTBD):
+    def runRPA(self, worksTBD):
         global rpaConfig
         global skill_code
 
@@ -3319,7 +3319,7 @@ class MainWindow(QtWidgets.QMainWindow):
     #  "completed": [],
     #  "aborted": []
     #  }
-    async def runbotworks(self):
+    def runbotworks(self):
         # run all the work
         botTodos = None
         if self.workingState == "Idle":
@@ -3345,7 +3345,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
                         last_start = int(datetime.now().timestamp()*1)
-                        current_bid, current_mid, run_result = await self.runRPA(botTodos)
+                        current_bid, current_mid, run_result = self.runRPA(botTodos)
                         last_end = int(datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
@@ -3530,17 +3530,25 @@ class MainWindow(QtWidgets.QMainWindow):
             results.append(result)
         else:
             for mid in mids:
-                result = {
-                    "mid": mid,
-                    "botid": self.missions[mid].getBid(),
-                    "sst": self.missions[mid].getEstimatedStartTime(),
-                    "sd": self.missions[mid].getEstimatedRunTime(),
-                    "ast": self.missions[mid].getActualStartTime(),
-                    "aet": self.missions[mid].getActualEndTime(),
-                    "status": self.missions[mid].getStatus().split(":")[0],
-                    "error": self.missions[mid].getStatus().split(":")[1],
-                }
-                results.append(result)
+                if mid > 0 and mid < len(self.missions):
+                    print("working on MID:", mid)
+                    m_stat_parts = self.missions[mid].getStatus().split(":")
+                    m_stat = m_stat_parts[0]
+                    if len(m_stat_parts) > 1:
+                        m_err = m_stat_parts[1]
+                    else:
+                        m_err = ""
+                    result = {
+                        "mid": mid,
+                        "botid": self.missions[mid].getBid(),
+                        "sst": self.missions[mid].getEstimatedStartTime(),
+                        "sd": self.missions[mid].getEstimatedRunTime(),
+                        "ast": self.missions[mid].getActualStartTime(),
+                        "aet": self.missions[mid].getActualEndTime(),
+                        "status": m_stat,
+                        "error": m_err
+                    }
+                    results.append(result)
 
 
         print("mission status result:", results)

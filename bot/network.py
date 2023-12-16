@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import socket
 import threading
 import selectors
@@ -207,10 +208,12 @@ async def commanderFinder(topgui, thisloop, waitwin):
 
 # top level work scheduler on the commander side.
 async def topScheduler(topgui):
+    executor = ThreadPoolExecutor(max_workers=1)
     running = True
     while running:
         if not topgui.mainwin == None:
-            await topgui.mainwin.runbotworks()
+            await asyncio.get_running_loop().run_in_executor(executor, topgui.mainwin.runbotworks)
+            # topgui.mainwin.runbotworks()
         await asyncio.sleep(TICK)
 
 
