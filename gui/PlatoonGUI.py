@@ -321,33 +321,48 @@ class PlatoonWindow(QtWidgets.QMainWindow):
 
             if selected_act:
                 self.selected_mission_row = source.rowAt(event.pos().y())
+                print("selected row:", self.selected_mission_row)
                 if self.selected_mission_row == -1:
                     self.selected_mission_row = source.model().rowCount() - 1
                 self.selected_mission_column = source.columnAt(event.pos().x())
                 if self.selected_mission_column == -1:
                     self.selected_mission_column = source.model().columnCount() - 1
 
-                self.selected_mission_item = self.botModel.item(self.selected_mission_row)
+                print("selected col :", self.selected_mission_column)
+                self.selected_mission_item = self.parent.runningVehicleModel.item(self.selected_mission_row)
+                print("selected item1 :", self.selected_mission_item)
 
                 platoon_idx = self.platoonTableViews.index(source)
+                print("selected platoon_idx :", platoon_idx)
+
+                if platoon_idx < 0 or platoon_idx >= self.parent.runningVehicleModel.rowCount():
+                    platoon_idxs = []
+                else:
+                    platoon_idxs = [platoon_idx]
+
 
                 self.selected_mission_item = source.model().item(self.selected_mission_row, 0)
+                print("selected item2 :", self.selected_mission_item)
+
                 if self.selected_mission_item:
                     mid = int(self.selected_mission_item.text())
                     mids = [mid]
                 else:
                     mids = []
 
+                print("selected mids :", mids)
+
                 if selected_act == self.platoonRefreshAction:
-                    self.sendPlatoonCommand("refresh", platoon_idx, mids)
+                    print("set to refresh status...", platoon_idxs, mids)
+                    self.parent.sendPlatoonCommand("refresh", platoon_idxs, mids)
                 elif selected_act == self.platoonHaltAction:
-                    self.sendPlatoonCommand("halt", platoon_idx)
+                    self.parent.sendPlatoonCommand("halt", platoon_idxs, mids)
                 elif selected_act == self.platoonResumeAction:
-                    self.sendPlatoonCommand("resume", platoon_idx)
+                    self.parent.sendPlatoonCommand("resume", platoon_idxs, mids)
                 elif selected_act == self.platoonCancelThisAction:
-                    self.sendPlatoonCommand("cancel this", platoon_idx, mids)
+                    self.parent.sendPlatoonCommand("cancel this", platoon_idxs, mids)
                 elif selected_act == self.platoonCancelAllAction:
-                    self.sendPlatoonCommand("cancel all", platoon_idx)
+                    self.parent.sendPlatoonCommand("cancel all", platoon_idxs, mids)
             return True
 
         return super().eventFilter(source, event)
@@ -382,8 +397,3 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         new_action = QtGui.QAction(self)
         new_action.setText("&Cancel All Missions")
         return new_action
-
-    def sendPlatoonCommand(self, action, vidx, mids):
-        # File actions
-        self.missionWin.setMission(self.selected_cus_mission_item)
-        print("edit bot" + str(self.selected_cus_mission_row))
