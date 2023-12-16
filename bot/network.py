@@ -210,6 +210,7 @@ async def commanderFinder(topgui, thisloop, waitwin):
 async def topScheduler(topgui):
     executor = ThreadPoolExecutor(max_workers=1)
     running = True
+
     while running:
         if not topgui.mainwin == None:
             await asyncio.get_running_loop().run_in_executor(executor, topgui.mainwin.runbotworks)
