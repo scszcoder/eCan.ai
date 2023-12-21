@@ -23,8 +23,9 @@ from network import *
 
 #ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
 ecbhomepath = getECBotHome()
-ACCT_FILE = ecbhomepath + "/resource/settings/uli.json"
-ROLE_FILE = ecbhomepath + "/resource/settings/role.json"
+ecb_data_homepath = getECBotDataHome()
+ACCT_FILE = ecb_data_homepath + "/uli.json"
+ROLE_FILE = ecb_data_homepath + "/role.json"
 
 
 class Login(QtWidgets.QDialog):
@@ -211,6 +212,7 @@ class Login(QtWidgets.QDialog):
 
     def set_ip(self, ip):
         self.ip = ip
+
     def read_role(self):
         self.machine_role = "Platoon"
 
