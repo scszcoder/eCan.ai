@@ -266,3 +266,63 @@ def test_get_account_info(session, token):
 
     print("RESULT:", result)
 
+def test_api(session, token):
+    qs = [{"mid": 1, "bid": 1, "status":"Completed:0", "starttime": 123, "endtime": 123}]
+    result = send_completion_status_to_cloud(session, qs, token)
+    print("send_completion_status_to_cloud RESULT:", result)
+
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_add_bots_request_to_cloud(session, qs, token)
+    # print("send_add_bots_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_update_bots_request_to_cloud(session, qs, token)
+    # print("send_update_bots_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_remove_bots_request_to_cloud(session, qs, token)
+    # print("send_remove_bots_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_get_bots_request_to_cloud(session, qs, token)
+    # print("send_get_bots_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_add_missions_request_to_cloud(session, qs, token)
+    # print("send_add_missions_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_update_missions_request_to_cloud(session, qs, token)
+    # print("send_update_missions_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_remove_missions_request_to_cloud(session, qs, token)
+    # print("send_remove_missions_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op": "", "options": ""}]
+    # result = send_add_skills_request_to_cloud(session, qs, token)
+    # print("send_add_skills_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op": "", "options": ""}]
+    # result = send_update_skills_request_to_cloud(session, qs, token)
+    # print("send_update_skills_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op": "", "options": ""}]
+    # result = send_remove_skills_request_to_cloud(session, qs, token)
+    # print("send_remove_skills_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_schedule_request_to_cloud(session, qs, token)
+    # print("send_schedule_request_to_cloud RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = req_train_read_screen(session, qs, token)
+    # print("req_train_read_screen RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = req_cloud_read_screen(session, qs, token)
+    # print("req_cloud_read_screen RESULT:", result)
+    #
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_account_info_request_to_cloud(session, qs, token)
+    # print("send_account_info_request_to_cloud RESULT:", result)

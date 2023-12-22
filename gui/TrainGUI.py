@@ -36,10 +36,10 @@ class TrainDialogWin(QtWidgets.QMainWindow):
         super(TrainDialogWin, self).__init__(parent)
 
         self.mainWidget = QtWidgets.QWidget()
-        self.reminder_label = QtWidgets.QLabel("press <Esc> key to end recording", alignment=QtCore.Qt.AlignLeft)
+        self.reminder_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "press <Esc> key to end recording"), alignment=QtCore.Qt.AlignLeft)
 
-        self.start_button = QtWidgets.QPushButton("Start Training")
-        self.cancel_button = QtWidgets.QPushButton("Cancel")
+        self.start_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Start Training"))
+        self.cancel_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Cancel"))
 
         self.rLayout = QtWidgets.QHBoxLayout(self)
         self.rLayout.addWidget(self.reminder_label)
@@ -52,7 +52,7 @@ class ReminderWin(QtWidgets.QMainWindow):
         super(ReminderWin, self).__init__(parent)
 
         self.mainWidget = QtWidgets.QWidget()
-        self.reminder_label = QtWidgets.QLabel("press <Esc> key to end recording", alignment=QtCore.Qt.AlignLeft)
+        self.reminder_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "press <Esc> key to end recording"), alignment=QtCore.Qt.AlignLeft)
         self.rLayout = QtWidgets.QHBoxLayout(self)
         self.rLayout.addWidget(self.reminder_label)
         self.mainWidget.setLayout(self.rLayout)
@@ -73,10 +73,10 @@ class TrainNewWin(QtWidgets.QMainWindow):
         self.session = None
         self.cog = None
 
-        self.start_tutor_button = QtWidgets.QPushButton("Tutorial")
-        self.start_demo_button = QtWidgets.QPushButton("Start Demo")
-        self.start_skill_button = QtWidgets.QPushButton("Define Skill")
-        self.cancel_button = QtWidgets.QPushButton("Cancel")
+        self.start_tutor_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Tutorial"))
+        self.start_demo_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Start Demo"))
+        self.start_skill_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Define Skill"))
+        self.cancel_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Cancel"))
 
         self.bLayout = QtWidgets.QHBoxLayout(self)
         self.rLayout = QtWidgets.QHBoxLayout(self)
@@ -180,15 +180,12 @@ class TrainNewWin(QtWidgets.QMainWindow):
 
     def on_press(self, key):
         try:
-            print('alphanumeric key {0} pressed'.format(
-                key.char))
+            print('alphanumeric key {0} pressed'.format(key.char))
         except AttributeError:
-            print('special key {0} pressed'.format(
-                key))
+            print('special key {0} pressed'.format(key))
 
     def on_release(self, key):
-        print('{0} released'.format(
-            key))
+        print('{0} released'.format(key))
         if key == keyboard.Key.esc:
             # Stop listener
             global record_over
@@ -196,7 +193,7 @@ class TrainNewWin(QtWidgets.QMainWindow):
             self.parent.reminderWin.hide()
 
             msgBox = QtWidgets.QMessageBox()
-            msgBox.setText("Are you done with showing the process to be automated?")
+            msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you done with showing the process to be automated?"))
             # msgBox.setInformativeText("Do you want to save your changes?")
             msgBox.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
             # msgBox.setDefaultButton(QMessageBox.Save)
@@ -220,16 +217,11 @@ class TrainNewWin(QtWidgets.QMainWindow):
         self.parent.reminderWin.show()
         self.parent.reminderWin.setGeometry(800, 0, 100, 50)
         #time.sleep(1)
-        self.mouse_listener = mouse.Listener(
-                on_move=self.on_move,
-                on_click=self.on_click,
-                on_scroll=self.on_scroll)
+        self.mouse_listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll)
         #time.sleep(1)
         self.mouse_listener.start()
         #
-        self.kb_listener = keyboard.Listener(
-                on_press=self.on_press,
-                on_release=self.on_release)
+        self.kb_listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
         self.kb_listener.start()
         #time.sleep(1)
         #self.mouse_listener.join()

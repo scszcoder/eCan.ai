@@ -555,7 +555,7 @@ def gen_update_missions_string(missions):
 def gen_daily_update_string(missionsStats):
     query_string = """
             mutation MyUMMutation {
-          updateMissionsExStatus (input:[
+          reportStatus (input:[
         """
     rec_string = ""
     for i in range(len(missionsStats)):
@@ -563,8 +563,8 @@ def gen_daily_update_string(missionsStats):
             rec_string = rec_string + "{ mid:\"" + str(missionsStats[i]["mid"]) + "\", "
             rec_string = rec_string + "bid:\"" + str(missionsStats[i]["bid"]) + "\", "
             rec_string = rec_string + "status:\"" + missionsStats[i]["status"] + "\", "
-            rec_string = rec_string + "starttime:\"" + str(missionsStats[i]["starttime"]) + "\", "
-            rec_string = rec_string + "endtiem:\"" + str(missionsStats[i]["endtime"]) + "\"} "
+            rec_string = rec_string + "starttime:" + str(missionsStats[i]["starttime"]) + ", "
+            rec_string = rec_string + "endtime:" + str(missionsStats[i]["endtime"]) + "} "
         else:
             rec_string = rec_string + "{ mid:\"" + str(missionsStats[i].getMid()) + "\", "
             rec_string = rec_string + "bid:\"" + str(missionsStats[i].getBid()) + "\", "
@@ -581,7 +581,7 @@ def gen_daily_update_string(missionsStats):
         ) 
         } """
     query_string = query_string + rec_string + tail_string
-    print(query_string)
+    print("DAILY REPORT QUERY STRING", query_string)
     return query_string
 
 def gen_remove_missions_string(removeOrders):
@@ -816,18 +816,20 @@ def req_train_read_screen(session, request, token):
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_completion_status_to_cloud(session, missionStats, token):
+    if len(missionStats) > 0:
+        query = gen_daily_update_string(missionStats)
 
-    query = gen_daily_update_string(missionStats)
+        jresp = appsync_http_request(query, session, token)
 
-    jresp = appsync_http_request(query, session, token)
-
-    if "errors" in jresp:
-        screen_error = True
-        print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
-        jresponse = jresp["errors"][0]
+        if "errors" in jresp:
+            screen_error = True
+            print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
+            jresponse = jresp["errors"][0]
+        else:
+            jresponse = json.loads(jresp["data"]["reportStatus"])
     else:
-        jresponse = json.loads(jresp["data"]["updateBots"])
-
+        print("ERROR Type: EMPTY DAILY REPORTS")
+        jresponse = "ERROR: EMPTY REPORTS"
     return jresponse
 
 

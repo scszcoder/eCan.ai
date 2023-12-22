@@ -5,6 +5,9 @@ from PySide6 import QtCore, QtWidgets, QtGui
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton
 from config.app_info import app_info
 
+
+ecbhomepath = app_info.app_home_path
+
 class KeyPressFilter(QtCore.QObject):
 
     def eventFilter(self, widget, event):
@@ -24,19 +27,18 @@ class WaitWindow(QtWidgets.QMainWindow):
         self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
         # Create a QLabel to display the animated GIF
         self.setGeometry(300, 300, 16, 16)
-        self.setWindowTitle("QMovie to show animated gif")
+        self.setWindowTitle(QtWidgets.QApplication.translate("QtWidgets.QWidget", "QMovie to show animated gif"))
 
         self.label = QtWidgets.QLabel(self)
         self.label.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                                         QtWidgets.QSizePolicy.Expanding)
         self.label.setAlignment(QtCore.Qt.AlignCenter)
+        self.noteLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Waiting for Commander Connection....."), alignment=QtCore.Qt.AlignCenter)
 
-        self.noteLabel = QtWidgets.QLabel("Waiing for Commander Connection.....", alignment=QtCore.Qt.AlignCenter)
-
-        self.btn_start = QPushButton("Start Animation")
+        self.btn_start = QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Start Animation"))
         self.btn_start.clicked.connect(self.start)
 
-        self.btn_stop = QPushButton("Stop Animation")
+        self.btn_stop = QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Stop Animation"))
         self.btn_stop.clicked.connect(self.stop)
 
         # positin the widgets
@@ -47,7 +49,8 @@ class WaitWindow(QtWidgets.QMainWindow):
         # main_layout.addWidget(self.btn_stop)
 
         # Load the animated GIF
-        gif_path = app_info.app_home_path + "/resource/images/icons/waiting3_spinner.gif"  # Replace with the path to your GIF file
+        gif_path = ecbhomepath + "/resource/images/icons/waiting3_spinner.gif"  # Replace with the path to your GIF file
+        print("GIF PATH:", gif_path)
         self.movie = QtGui.QMovie(gif_path, QtCore.QByteArray(), self)
         self.movie.setCacheMode(QtGui.QMovie.CacheAll)
         self.movie.setSpeed(120)
@@ -74,7 +77,7 @@ class WaitWindow(QtWidgets.QMainWindow):
 
 
     def start(self):
-        """sart animnation"""
+        """start animnation"""
         print("start animation")
         self.movie.start()
 

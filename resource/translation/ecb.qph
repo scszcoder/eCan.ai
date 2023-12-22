@@ -1,5 +1,5 @@
 <!DOCTYPE QPH>
-<QPH sourcelanguage="en_US" language="zh_CN">
+<QPH language="zh_CN" sourcelanguage="en_US">
 <phrase>
     <source>bot</source>
     <target>机器人</target>
@@ -9,11 +9,15 @@
     <target>任务</target>
 </phrase>
 <phrase>
-    <source>login</source>
-    <target>登陆</target>
+    <source>Missions</source>
+    <target>任务</target>
 </phrase>
 <phrase>
-    <source>logout</source>
+    <source>Login</source>
+    <target>登录</target>
+</phrase>
+<phrase>
+    <source>Logout</source>
     <target>登出</target>
 </phrase>
 <phrase>
@@ -37,11 +41,11 @@
     <target>平台</target>
 </phrase>
 <phrase>
-    <source>add</source>
+    <source>Add</source>
     <target>添加</target>
 </phrase>
 <phrase>
-    <source>delete</source>
+    <source>Delete</source>
     <target>删除</target>
 </phrase>
 <phrase>
@@ -53,8 +57,12 @@
     <target>注册新账号</target>
 </phrase>
 <phrase>
-    <source>forgot password?</source>
+    <source>Forgot Password?</source>
     <target>忘记密码？</target>
+</phrase>
+<phrase>
+    <source>memorize Password</source>
+    <target>记住密码？</target>
 </phrase>
 <phrase>
     <source>Language</source>
@@ -93,6 +101,10 @@
     <target>角色</target>
 </phrase>
 <phrase>
+    <source>Roles</source>
+    <target>角色</target>
+</phrase>
+<phrase>
     <source>day</source>
     <target>天</target>
 </phrase>
@@ -113,6 +125,10 @@
     <target>分类</target>
 </phrase>
 <phrase>
+    <source>User Name/Email</source>
+    <target>用户名(电子邮箱)</target>
+</phrase>
+<phrase>
     <source>email</source>
     <target>电子邮箱</target>
 </phrase>
@@ -129,7 +145,19 @@
     <target>验证码</target>
 </phrase>
 <phrase>
-    <source>(New Entry)</source>
-    <target></target>
+    <source>Bots</source>
+    <target>机器人</target>
+</phrase>
+<phrase>
+    <source>E-Commerce</source>
+    <target>电商</target>
+</phrase>
+<phrase>
+    <source>No account? Sign Up Here!</source>
+    <target>还没注册？点击这里！</target>
+</phrase>
+<phrase>
+    <source>Log Console</source>
+    <target>记录显示区</target>
 </phrase>
 </QPH>
