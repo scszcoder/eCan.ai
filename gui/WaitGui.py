@@ -3,6 +3,10 @@ import asyncio
 import os
 from PySide6 import QtCore, QtWidgets, QtGui
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+from config.app_info import app_info
+
+
+ecbhomepath = app_info.app_home_path
 
 class KeyPressFilter(QtCore.QObject):
 
@@ -45,7 +49,8 @@ class WaitWindow(QtWidgets.QMainWindow):
         # main_layout.addWidget(self.btn_stop)
 
         # Load the animated GIF
-        gif_path = os.environ.get("ECBOT_HOME") + "/resource/images/icons/waiting3_spinner.gif"  # Replace with the path to your GIF file
+        gif_path = ecbhomepath + "/resource/images/icons/waiting3_spinner.gif"  # Replace with the path to your GIF file
+        print("GIF PATH:", gif_path)
         self.movie = QtGui.QMovie(gif_path, QtCore.QByteArray(), self)
         self.movie.setCacheMode(QtGui.QMovie.CacheAll)
         self.movie.setSpeed(120)
@@ -72,7 +77,7 @@ class WaitWindow(QtWidgets.QMainWindow):
 
 
     def start(self):
-        """sart animnation"""
+        """start animnation"""
         print("start animation")
         self.movie.start()
 

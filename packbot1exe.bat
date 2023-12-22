@@ -6,6 +6,7 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --add-data "C:/Users/songc/PycharmProjects/ecbot/bot;bot/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/gui;gui/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/resource;resource/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/resource/images/icons;resource/images/icons" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/test;test/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv;venv/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/PySide6;PySide6/" ^
