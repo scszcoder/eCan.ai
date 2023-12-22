@@ -3,6 +3,7 @@ from MainGUI import *
 from WaitGui import *
 from network import *
 from unittests import *
+from config.app_settings import app_settings
 import asyncio
 from qasync import QApplication, QEventLoop
 
