@@ -47,3 +47,10 @@ class StepMouseClick(StepBase):
         self.move_pause = move_pause
         self.post_move = post_move
         self.post_wait = post_wait
+
+    def to_obj(self, obj_dict):
+        super().to_obj(obj_dict)
+
+        self.action = EnumMouseClickAction(self.action)
+        self.offset_from = EnumMouseClickOffsetFrom(self.offset_from)
+        self.offset_unit = EnumMouseClickOffsetUnit(self.offset_unit)

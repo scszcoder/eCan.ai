@@ -2168,8 +2168,21 @@ class SkillGUI(QtWidgets.QMainWindow):
     def trial_run(self):
         # self.runStopped = False
         # runAllSteps(self.currentSkill.get_steps())
-        self.skFCWidget.skfc_scene.gen_psk_skill_file()
+        psk_words = self.skFCWidget.skfc_scene.gen_psk_words()
 
+        file = app_info.appdata_temp_path + "/test_mouse_sroll.psk"
+        skf = open(file, "w")
+        skf.write("\n")
+
+        skf.write(psk_words)
+        skf.close()
+
+        print("done generating skill============================>")
+        skodes = [{"ns": "TestMouseScrollSK", "skfile": file}]
+        rpa_script = prepRunSkill(skodes)
+        print("done all address gen.................")
+
+        runAllSteps(rpa_script, None, None)
 
     def continue_run(self):
         continueRun(steps, last_step)

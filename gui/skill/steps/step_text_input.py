@@ -21,3 +21,8 @@ class StepTextInput(StepBase):
         self.speed: float = speed
         self.key_after = key_after
         self.wait_after = wait_after
+
+    def to_obj(self, obj_dict):
+        super().to_obj(obj_dict)
+
+        self.txt_type = EnumTextInputType(self.txt_type)

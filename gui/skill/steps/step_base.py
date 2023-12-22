@@ -34,7 +34,7 @@ class StepBase(ABC):
         return obj
 
     def gen_json_str(self):
-        json_str = json.dumps(self.get_dict_attrs(), indent=4)
+        json_str = json.dumps(self.to_dict(), indent=4)
 
         return json_str
 
@@ -78,6 +78,9 @@ class StepBase(ABC):
         for key, value in dict(obj_dict).items():
             setattr(self, key, value)
 
+    def attr_type(self, attr_name):
+        pass
+
     @classmethod
     def from_dict(cls, obj_dict):
         from gui.skill.steps.enum_step_type import EnumStepType
@@ -90,17 +93,22 @@ class StepBase(ABC):
 if __name__ == '__main__':
     from gui.skill.steps.step_stub import StepStub, EnumStubName
     step = StepStub(5)
-    step.stub_name = EnumStubName.EndSkill
-    # step.remark = EnumAnchorType.Text
-    # print(step.attr_type("remark"))
-    # if isinstance(step.remark, EnumAnchorType):
-    #     print("#####")
-    # else:
-    #     print("****")
-    obj = step.to_dict()
-    print(obj)
+    # step.stub_name = EnumStubName.EndSkill
+    # # step.remark = EnumAnchorType.Text
+    # # print(step.attr_type("remark"))
+    # # if isinstance(step.remark, EnumAnchorType):
+    # #     print("#####")
+    # # else:
+    # #     print("****")
+    # obj = step.to_dict()
+    # print(obj)
+    #
+    # step = StepBase.from_dict(obj)
+    # print(step)
+    # print(step.type)
+    # print(step.stub_name)
+    print(step.get_dict_attrs())
 
-    step = StepBase.from_dict(obj)
-    print(step)
-    print(step.type)
-    print(step.stub_name)
+
+
+

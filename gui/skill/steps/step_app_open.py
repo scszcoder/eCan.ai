@@ -44,3 +44,12 @@ class StepAppOpen(StepBase):
         self.cargs_type: EnumAppOpenCArgsType = cargs_type
         self.cargs = args
         self.wait: int = wait
+
+    def to_obj(self, obj_dict):
+        super().to_obj(obj_dict)
+
+        self.action = EnumAppOpenAction(self.action)
+        self.target_type = EnumAppOpenTargetType(self.target_type)
+        self.target_link = EnumAppOpenTargetLink(self.target_link)
+        self.anchor_type = EnumAnchorType(self.anchor_type)
+        self.cargs_type = EnumAppOpenCArgsType(self.cargs_type)
