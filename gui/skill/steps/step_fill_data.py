@@ -31,3 +31,8 @@ class StepFillData(StepBase):
 
         return json_step
 
+    def to_obj(self, obj_dict):
+        super().to_obj(obj_dict)
+
+        self.fill_type = EnumFillDataType(self.fill_type)
+

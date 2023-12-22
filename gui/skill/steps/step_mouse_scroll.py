@@ -29,3 +29,9 @@ class StepMouseScroll(StepBase):
         self.breakpoint = break_here
         self.postwait = postwait
         self.unit: EnumMouseScrollUnit = unit  # raw/screen
+
+    def to_obj(self, obj_dict):
+        super().to_obj(obj_dict)
+
+        self.action = EnumMouseScrollAction(self.action)
+        self.unit = EnumMouseScrollUnit(self.unit)

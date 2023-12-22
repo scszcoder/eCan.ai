@@ -309,8 +309,8 @@ class SkFCScene(QGraphicsScene):
         for item in self.items():
             if isinstance(item, DiagramNormalItem):
                 step = item.step
-                if step is not None and step.type == EnumStepType.Stub:
-                    if StepStub(step).stub_name == EnumStubName.StartSkill:
+                if step and step.type == EnumStepType.Stub.type_key():
+                    if step.stub_name == EnumStubName.StartSkill:
                         return item
 
         return None
@@ -330,6 +330,7 @@ class SkFCScene(QGraphicsScene):
         this_step, step_words = step.gen_step(this_step)
         sorted_steps_stack.append(step_words)
         self.diagram_item_map_stepN[this_step] = diagram_item
+        # print(f"gen step {step.type}; {this_step}")
 
         def get_next_item_steps(stepN, next_item):
             this_step = stepN
@@ -341,7 +342,7 @@ class SkFCScene(QGraphicsScene):
                 this_step, step_words = StepGoto(gotostep=next_stepN).gen_step(this_step)
                 temp_steps_stack.append(step_words)
             else:
-                this_step, steps_stack = self.gen_skill_steps(true_next_item, this_step)
+                this_step, steps_stack = self.gen_skill_steps(next_item, this_step)
                 temp_steps_stack.extend(steps_stack)
 
             return this_step, temp_steps_stack
@@ -351,6 +352,8 @@ class SkFCScene(QGraphicsScene):
             if true_next_item:
                 this_step, steps_stack = get_next_item_steps(this_step, true_next_item)
                 sorted_steps_stack.extend(steps_stack)
+            else:
+                print(f"{diagram_item} true next item is none")
 
             this_step, step_words = StepStub(sname=EnumStubName.Else).gen_step(this_step)
             sorted_steps_stack.append(step_words)
@@ -359,11 +362,15 @@ class SkFCScene(QGraphicsScene):
             if false_next_item:
                 this_step, steps_stack = get_next_item_steps(this_step, false_next_item)
                 sorted_steps_stack.extend(steps_stack)
+            else:
+                print(f"{diagram_item} false next item is none")
         else:
             next_item = diagram_item.get_next_diagram_item()
             if next_item:
                 this_step, steps_stack = get_next_item_steps(this_step, next_item)
                 sorted_steps_stack.extend(steps_stack)
+            else:
+                print(f"{diagram_item} next item is none")
 
         # need end stub steps
         if step.type in EnumStepType.need_end_step_stub_type_keys():
@@ -381,9 +388,10 @@ class SkFCScene(QGraphicsScene):
                     this_step, step_words = StepStub(sname=EnumStubName.EndSkill).gen_step(this_step)
                     sorted_steps_stack.append(step_words)
 
+        # print(this_step, sorted_steps_stack)
         return this_step, sorted_steps_stack
 
-    def gen_psk_skill_file(self):
+    def gen_psk_words(self):
         psk_words = "{"
         first_step = 0
 
@@ -395,7 +403,6 @@ class SkFCScene(QGraphicsScene):
         # body steps
         sorted_steps_stack = []
         start_diagram_item = self.get_start_skill_diagram_item()
-        print(f"start diagram item {start_diagram_item}")
         if start_diagram_item:
             this_step, steps_stack = self.gen_skill_steps(start_diagram_item, this_step)
             sorted_steps_stack.extend(steps_stack)

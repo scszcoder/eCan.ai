@@ -1,0 +1,255 @@
+{
+    "items": [
+        {
+            "uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
+            "item_type": "Normal",
+            "diagram_type": 2,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 158.0,
+                "y": 139.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "8a7697aa-7db3-4ef4-978a-1ead76336b5f",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "a08c9ad1-6c1e-4138-a606-16970a26ba23",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "Stub",
+                "description": null,
+                "stub_name": "start skill",
+                "func_name": null,
+                "fargs": null
+            }
+        },
+        {
+            "uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
+            "item_type": "Normal",
+            "diagram_type": 2,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 161.0,
+                "y": 417.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "7d29e12b-7071-4e00-af74-e20d22d2f0bd",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "290aac76-f988-45dd-af43-c1b49dd311cf",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "Stub",
+                "description": null,
+                "stub_name": "end skill",
+                "func_name": null,
+                "fargs": null
+            }
+        },
+        {
+            "uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
+            "item_type": "Normal",
+            "diagram_type": 0,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 168.0,
+                "y": 257.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "b836ce39-34b7-4baf-b469-249cc3d4587e",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "e8b6781b-0cde-4cb5-ae75-dbd5928f5459",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "App Open",
+                "description": null,
+                "action": "cmd",
+                "save_rb": true,
+                "target_type": "custom",
+                "target_link": "web site",
+                "anchor_type": "text",
+                "anchor_value": null,
+                "cargs_type": "custom",
+                "cargs": "www.baidu.com",
+                "wait": 0
+            }
+        },
+        {
+            "uuid": "b784fba7-f166-4b1b-95ae-dc068133835e",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 158.0,
+                    "y": 154.0
+                },
+                {
+                    "x": 158.0,
+                    "y": 169.0
+                },
+                {
+                    "x": 168.0,
+                    "y": 169.0
+                },
+                {
+                    "x": 168.0,
+                    "y": 227.0
+                },
+                {
+                    "x": 168.0,
+                    "y": 242.0
+                }
+            ],
+            "start_item_uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
+            "end_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "396f54bf-ec48-4f7e-93ff-45bdf8997d13",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 168.0,
+                    "y": 272.0
+                },
+                {
+                    "x": 168.0,
+                    "y": 287.0
+                },
+                {
+                    "x": 168.0,
+                    "y": 387.0
+                },
+                {
+                    "x": 161.0,
+                    "y": 387.0
+                },
+                {
+                    "x": 161.0,
+                    "y": 402.0
+                }
+            ],
+            "start_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
+            "end_item_uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        }
+    ]
+}
