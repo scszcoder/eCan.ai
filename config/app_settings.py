@@ -89,4 +89,3 @@ class AppSettings:
 
 
 app_settings = AppSettings()
-

@@ -148,13 +148,14 @@ class Expander(QtWidgets.QWidget):
 
 # class MainWindow(QtWidgets.QWidget):
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, inTokens, tcpserver, ip, user, homepath, machine_role):
+    def __init__(self, inTokens, tcpserver, ip, user, homepath, machine_role, lang):
         super(MainWindow, self).__init__()
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
         print("HOME PATH is::", self.homepath)
+        self.lang = lang
         self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_0.png'
         self.mission_icon_path = self.homepath + '/resource/images/icons/c_mission96_1.png'
         self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
@@ -209,11 +210,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.platoonWin = None
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
-        self.logConsoleBox = Expander(self, "Log Console:")
+
+        self.logConsoleBox = Expander(self, QtWidgets.QApplication.translate("QtWidgets.QWidget", "Log Console:"))
         self.commanderName = ""
         self.todaysReport = []
         self.todaysReports = []
-        self.todaysLocalReports = []
+        self.todaysPlatoonReports = []
         self.tester = TestAll.Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
@@ -271,8 +273,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.owner = "NA"
         self.botRank = "soldier"              # this should be read from a file which is written during installation phase, user will select this during installation phase
 
-        self.save_all_button = QtWidgets.QPushButton("Save All")
-        self.log_out_button = QtWidgets.QPushButton("Logout")
+        self.save_all_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Save All"))
+        self.log_out_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Logout"))
         self.south_layout = QtWidgets.QVBoxLayout(self)
         self.south_layout.addWidget(self.logConsoleBox)
         self.bottomButtonsLayout = QtWidgets.QHBoxLayout(self)
@@ -289,25 +291,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mainWidget = QtWidgets.QWidget()
         self.westScrollArea = QtWidgets.QWidget()
         self.westScrollLayout = QtWidgets.QVBoxLayout(self)
-        self.westScrollLabel = QtWidgets.QLabel("Missions:", alignment=QtCore.Qt.AlignLeft)
+        self.westScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Missions:"), alignment=QtCore.Qt.AlignLeft)
         self.westScrollLabel.setFont(self.menuFont)
 
         self.centralScrollArea = QtWidgets.QWidget()
         self.centralScrollLayout = QtWidgets.QVBoxLayout(self)
-        self.centralScrollLabel = QtWidgets.QLabel("Bots:", alignment=QtCore.Qt.AlignLeft)
+        self.centralScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Bots:"), alignment=QtCore.Qt.AlignLeft)
         self.centralScrollLabel.setFont(self.menuFont)
 
         self.east0ScrollArea = QtWidgets.QWidget()
         self.east0ScrollLayout = QtWidgets.QVBoxLayout(self)
         if (self.machine_role == "Platoon"):
-            self.east0ScrollLabel = QtWidgets.QLabel("Running Missions:", alignment=QtCore.Qt.AlignLeft)
+            self.east0ScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Running Missions:"), alignment=QtCore.Qt.AlignLeft)
         else:
-            self.east0ScrollLabel = QtWidgets.QLabel("Vehicles:", alignment=QtCore.Qt.AlignLeft)
+            self.east0ScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Vehicles:"), alignment=QtCore.Qt.AlignLeft)
         self.east0ScrollLabel.setFont(self.menuFont)
 
         self.east1ScrollArea = QtWidgets.QWidget()
         self.east1ScrollLayout = QtWidgets.QVBoxLayout(self)
-        self.east1ScrollLabel = QtWidgets.QLabel("Completed Missions:", alignment=QtCore.Qt.AlignLeft)
+
+        self.east1ScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Completed Missions:"), alignment=QtCore.Qt.AlignLeft)
         self.east1ScrollLabel.setFont(self.menuFont)
 
         self.westScroll = QtWidgets.QScrollArea()
@@ -392,10 +395,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pop_menu_font = QtGui.QFont("Helvetica", 10)
         self.popMenu.setFont(self.pop_menu_font)
 
-        self.popMenu.addAction(QtGui.QAction('Edit', self))
-        self.popMenu.addAction(QtGui.QAction('Clone', self))
+        self.popMenu.addAction(QtGui.QAction(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"), self))
+        self.popMenu.addAction(QtGui.QAction(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"), self))
         self.popMenu.addSeparator()
-        self.popMenu.addAction(QtGui.QAction('Delete', self))
+        self.popMenu.addAction(QtGui.QAction(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"), self))
 
         self.botListView = BotListView()
         self.botListView.installEventFilter(self)
@@ -625,7 +628,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tokens = intoken
 
     def createLabel(self, text):
-        label = QtWidgets.QLabel(text)
+        label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", text))
         label.setFrameStyle(QtWidgets.QFrame.Box | QtWidgets.QFrame.Raised)
         return label
 
@@ -637,7 +640,8 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_bar = QtWidgets.QMenuBar()
         menu_bar.setFont(self.main_menu_bar_font)
         # Creating menus using a QMenu object
-        bot_menu = QtWidgets.QMenu("&Bots", self)
+
+        bot_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Bots"), self)
         bot_menu.setFont(self.main_menu_font)
 
         bot_menu.addAction(self.botNewAction)
@@ -648,7 +652,7 @@ class MainWindow(QtWidgets.QMainWindow):
         bot_menu.addAction(self.botNewFromFileAction)
         menu_bar.addMenu(bot_menu)
 
-        mission_menu = QtWidgets.QMenu("&Missions", self)
+        mission_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Missions"), self)
         mission_menu.setFont(self.main_menu_font)
         mission_menu.addAction(self.missionNewAction)
         mission_menu.addAction(self.missionImportAction)
@@ -657,14 +661,14 @@ class MainWindow(QtWidgets.QMainWindow):
         mission_menu.addAction(self.missionNewFromFileAction)
         menu_bar.addMenu(mission_menu)
 
-        platoon_menu = QtWidgets.QMenu("&Platoons", self)
+        platoon_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Platoons"), self)
         platoon_menu.setFont(self.main_menu_font)
         platoon_menu.addAction(self.mtvViewAction)
         # platoon_menu.addAction(self.fieldMonitorAction)
         platoon_menu.addAction(self.commandSendAction)
         menu_bar.addMenu(platoon_menu)
 
-        settings_menu = QtWidgets.QMenu("&Settings", self)
+        settings_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Settings"), self)
         settings_menu.setFont(self.main_menu_font)
         # settings_menu.addAction(self.settingsAccountAction)
         #settings_menu.addAction(self.settingsImportAction)
@@ -672,20 +676,20 @@ class MainWindow(QtWidgets.QMainWindow):
         #settings_menu.addAction(self.settingsDelAction)
         menu_bar.addMenu(settings_menu)
 
-        reports_menu = QtWidgets.QMenu("&Reports", self)
+        reports_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Reports"), self)
         reports_menu.setFont(self.main_menu_font)
         reports_menu.addAction(self.reportsShowAction)
         reports_menu.addAction(self.reportsGenAction)
         reports_menu.addAction(self.reportsLogConsoleAction)
         menu_bar.addMenu(reports_menu)
 
-        run_menu = QtWidgets.QMenu("&Run", self)
+        run_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Run"), self)
         run_menu.setFont(self.main_menu_font)
         run_menu.addAction(self.runRunAllAction)
         run_menu.addAction(self.runTestAllAction)
         menu_bar.addMenu(run_menu)
 
-        schedule_menu = QtWidgets.QMenu("&Schedule", self)
+        schedule_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Schedule"), self)
         schedule_menu.setFont(self.main_menu_font)
         schedule_menu.addAction(self.fetchScheduleAction)
         schedule_menu.addAction(self.scheduleCalendarViewAction)
@@ -693,7 +697,7 @@ class MainWindow(QtWidgets.QMainWindow):
         schedule_menu.setFont(self.main_menu_font)
         menu_bar.addMenu(schedule_menu)
 
-        skill_menu = QtWidgets.QMenu("&Skills", self)
+        skill_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Skills"), self)
         skill_menu.setFont(self.main_menu_font)
         skill_menu.addAction(self.skillNewAction)
         skill_menu.addAction(self.skillEditAction)
@@ -702,7 +706,7 @@ class MainWindow(QtWidgets.QMainWindow):
         skill_menu.addAction(self.skillNewFromFileAction)
         menu_bar.addMenu(skill_menu)
 
-        help_menu = QtWidgets.QMenu("&Help", self)
+        help_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Help"), self)
         help_menu.setFont(self.main_menu_font)
         help_menu.addAction(self.helpUGAction)
         help_menu.addAction(self.helpCommunityAction)
@@ -716,7 +720,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createBotNewAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&New")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&New"))
         new_action.triggered.connect(self.newBotGui)
 
         return new_action
@@ -725,14 +729,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createBotNewFromFileAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&New From File")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&New From File"))
         new_action.triggered.connect(self.newBotFromFile)
         return new_action
 
     def _createGetBotsAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Load All Bots")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Load All Bots"))
         new_action.triggered.connect(self.getAllBotsFromCloud)
         # ew_action.connect(QtGui.QAction.)
 
@@ -746,45 +750,45 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createSaveAllAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Save All")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Save All"))
         new_action.triggered.connect(self.saveAll)
         return new_action
 
     def _createBotDelAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Remove")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Remove"))
         return new_action
 
     def _createBotEditAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Edit")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
         return new_action
 
     def _createBotCloneAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Clone")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
         return new_action
 
     def _createBotEnDisAbleAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Disable")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Disable"))
         return new_action
 
     def _createMissionNewAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Create")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Create"))
         new_action.triggered.connect(self.newMissionView)
 
         return new_action
 
     def _createMTVViewAction(self):
         new_action = QtGui.QAction(self)
-        new_action.setText("&Vehicles View")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Vehicles View"))
         new_action.triggered.connect(self.newVehiclesView)
 
         return new_action
@@ -792,7 +796,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _createFieldMonitorAction(self):
         new_action = QtGui.QAction(self)
-        new_action.setText("&Field Monitor")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Field Monitor"))
         #new_action.triggered.connect(self.newMissionView)
 
         return new_action
@@ -800,7 +804,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _createCommandSendAction(self):
         new_action = QtGui.QAction(self)
-        new_action.setText("&Send Command")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Send Command"))
         # new_action.triggered.connect(lambda: self.sendToPlatoons("7000", None))
         cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
         new_action.triggered.connect(lambda: self.sendToPlatoons([], cmd))
@@ -811,27 +815,27 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createMissionDelAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Delete M")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete M"))
         return new_action
 
 
     def _createMissionImportAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Import")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Import"))
         return new_action
 
 
     def _createMissionEditAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Edit")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
         return new_action
 
     def _createMissionNewFromFileAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&New From File")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&New From File"))
         new_action.triggered.connect(self.newMissionFromFile)
         return new_action
 
@@ -840,13 +844,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createSettingsAccountAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Account")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Account"))
         return new_action
 
     def _createSettingsEditAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Edit")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
         new_action.triggered.connect(self.editSettings)
         return new_action
 
@@ -854,14 +858,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createRunRunAllAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Run All")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Run All"))
         new_action.triggered.connect(self.manualRunAll)
         return new_action
 
     def _createRunTestAllAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Run All Tests")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Run All Tests"))
         new_action.triggered.connect(self.runAllTests)
         return new_action
 
@@ -869,7 +873,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createScheduleCalendarViewAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Calendar View")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Calendar View"))
         new_action.triggered.connect(self.scheduleCalendarView)
         return new_action
 
@@ -877,7 +881,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createFetchScheduleAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Fetch Schedules")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Fetch Schedules"))
         new_action.triggered.connect(lambda: self.fetchSchedule("7000", None))
         return new_action
 
@@ -885,33 +889,33 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createScheduleNewFromFileAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Test Schedules From File")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Test Schedules From File"))
         new_action.triggered.connect(self.fetchScheduleFromFile)
         return new_action
 
     def _createReportsShowAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&View")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&View"))
         return new_action
 
     def _createReportsGenAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Generate")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Generate"))
         return new_action
 
     def _createReportsLogConsoleAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Log Console")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Log Console"))
         new_action.triggered.connect(self.showLogs)
         return new_action
 
     def _createSettingsGenAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Generate")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Generate"))
         return new_action
 
     # after click, should pop up a windows to ask user to choose from 3 options
@@ -919,53 +923,53 @@ class MainWindow(QtWidgets.QMainWindow):
     def _createSkillNewAction(self):
             # File actions
             new_action = QtGui.QAction(self)
-            new_action.setText("&Create New")
+            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Create New"))
             new_action.triggered.connect(self.trainNewSkill)
             return new_action
 
     def _createSkillEditAction(self):
             # File actions
             new_action = QtGui.QAction(self)
-            new_action.setText("&Edit")
+            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
             return new_action
 
     def _createSkillDeleteAction(self):
             # File actions
             new_action = QtGui.QAction(self)
-            new_action.setText("&Delete")
+            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
             return new_action
 
     def _createSkillShowAction(self):
             # File actions
             new_action = QtGui.QAction(self)
-            new_action.setText("&Show All")
+            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Show All"))
             return new_action
 
     def _createSkillNewFromFileAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&New From File")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&New From File"))
         new_action.triggered.connect(self.newSkillFromFile)
         return new_action
 
     def _createHelpUGAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&User Guide")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&User Guide"))
         return new_action
 
 
     def _createHelpCommunityAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Community")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Community"))
         new_action.triggered.connect(self.gotoForum)
         return new_action
 
     def _createHelpAboutAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&About")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&About"))
         new_action.triggered.connect(self.showAbout)
         return new_action
 
@@ -1001,13 +1005,11 @@ class MainWindow(QtWidgets.QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        # test_get_account_info(self.session, self.tokens['AuthenticationResult']['IdToken'])
-
-
+        test_api(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         #the grand test,
         # 1) fetch today's schedule.
-        result = self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
+        # result = self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
         # result = self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
         # result = self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
 
@@ -1099,9 +1101,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         self.assignWork(bodyobj["task_groups"])
                         self.logDailySchedule(uncompressed)
                     else:
-                        self.warn("Warning: NO schedule generated.")
+                        self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO schedule generated."))
                 else:
-                    self.warn("Warning: Empty Network Response.")
+                    self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: Empty Network Response."))
 
             if len(self.todays_work["tbd"]) > 0:
                 self.todays_work["tbd"][0]["status"] = fetch_stat
@@ -1124,9 +1126,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.assignWork(bodyobj)
                 self.logDailySchedule(uncompressed)
             else:
-                self.warn("Warning: NO schedule generated.")
+                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO schedule generated."))
         else:
-            self.warn("Warning: Empty Network Response.")
+            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: Empty Network Response."))
 
     def warn(self, msg):
         warnText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\" >"
@@ -1517,7 +1519,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
-    async def runRPA(self, worksTBD):
+    def runRPA(self, worksTBD):
         global rpaConfig
         global skill_code
 
@@ -1585,6 +1587,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update1MStat(worksettings["midx"], runResult)
         self.updateRunStatus(worksTBD, worksettings["midx"])
 
+        return worksettings["botid"], worksettings["midx"], runResult
+
 
     def update1MStat(self, midx, result):
         print("1 mission run completed.")
@@ -1627,7 +1631,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         if len(works[tz][bidx][grp])-1 > oidx:
                             oidx = oidx + 1
                         else:
-                            # all other_works are done. simply go to the next wb_works if there are more
+                            # all other_works are done. simply go to the next bw_works if there are more
                             # simply switch group
                             grp = "bw_works"
                             # but if no more work after switching grp, switch timezone.
@@ -1643,7 +1647,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                     switch_grp = True
                                     widx = widx + 1
                             else:
-                                # all other_works and wb_works of this region(timezone) are done, check to see whether to switch bot.
+                                # all other_works and bw_works of this region(timezone) are done, check to see whether to switch bot.
                                 if bidx < len(works[tz])-1:
                                     bidx = bidx + 1
                                     switch_bot = True
@@ -1682,7 +1686,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                 if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx]["start_time"]:
                                     worksTBD["current grp"] = "other_works"
                                 else:
-                                    worksTBD["current grp"] = "wb_works"
+                                    worksTBD["current grp"] = "bw_works"
                             else:
                                 worksTBD["current grp"] = grp
                         else:
@@ -1695,11 +1699,11 @@ class MainWindow(QtWidgets.QMainWindow):
                                     "start_time"]:
                                     worksTBD["current grp"] = "other_works"
                                 else:
-                                    worksTBD["current grp"] = "wb_works"
+                                    worksTBD["current grp"] = "bw_works"
                             elif len(works[tz][bidx]["other_works"]) > 0:
                                 worksTBD["current grp"] = "other_works"
                             else:
-                                worksTBD["current grp"] = "wb_works"
+                                worksTBD["current grp"] = "bw_works"
 
                         worksTBD["current bidx"] = bidx
                         worksTBD["current widx"] = widx
@@ -1725,7 +1729,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             worksTBD["current widx"] = -1
                             worksTBD["current oidx"] = 0
                         else:
-                            worksTBD["current grp"] = "wb_works"
+                            worksTBD["current grp"] = "bw_works"
                             worksTBD["current bidx"] = 0
                             worksTBD["current widx"] = 0
                             worksTBD["current oidx"] = -1
@@ -1735,7 +1739,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         worksTBD["current widx"] = -1
                         worksTBD["current oidx"] = 0
                     elif len(works[tz][bidx]["bw_works"]) > 0:
-                        worksTBD["current grp"] = "wb_works"
+                        worksTBD["current grp"] = "bw_works"
                         worksTBD["current bidx"] = 0
                         worksTBD["current widx"] = 0
                         worksTBD["current oidx"] = -1
@@ -1790,7 +1794,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         if len(works[tz][bidx][grp]) - 1 > oidx:
                             oidx = oidx + 1
                         else:
-                            # all other_works are done. simply go to the next wb_works if there are more
+                            # all other_works are done. simply go to the next bw_works if there are more
                             # simply switch group
                             grp = "bw_works"
                             # but if no more work after switching grp, switch timezone.
@@ -1806,7 +1810,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                     switch_grp = True
                                     widx = widx + 1
                             else:
-                                # all other_works and wb_works of this region(timezone) are done, check to see whether to switch bot.
+                                # all other_works and bw_works of this region(timezone) are done, check to see whether to switch bot.
                                 if bidx < len(works[tz]) - 1:
                                     bidx = bidx + 1
                                     switch_bot = True
@@ -1846,7 +1850,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                         works[tz][bidx]["bw_works"][widx]["start_time"]:
                                     workgroup["current grp"] = "other_works"
                                 else:
-                                    workgroup["current grp"] = "wb_works"
+                                    workgroup["current grp"] = "bw_works"
                             else:
                                 workgroup["current grp"] = grp
                         else:
@@ -1858,7 +1862,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                         "start_time"]:
                                 workgroup["current grp"] = "other_works"
                             else:
-                                workgroup["current grp"] = "wb_works"
+                                workgroup["current grp"] = "bw_works"
 
                         workgroup["current bidx"] = bidx
                         workgroup["current widx"] = widx
@@ -1884,7 +1888,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             workgroup["current widx"] = -1
                             workgroup["current oidx"] = 0
                         else:
-                            workgroup["current grp"] = "wb_works"
+                            workgroup["current grp"] = "bw_works"
                             workgroup["current bidx"] = 0
                             workgroup["current widx"] = 0
                             workgroup["current oidx"] = -1
@@ -1894,7 +1898,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         workgroup["current widx"] = -1
                         workgroup["current oidx"] = 0
                     elif len(works[tz][bidx]["bw_works"]) > 0:
-                        workgroup["current grp"] = "wb_works"
+                        workgroup["current grp"] = "bw_works"
                         workgroup["current bidx"] = 0
                         workgroup["current widx"] = 0
                         workgroup["current oidx"] = -1
@@ -1909,7 +1913,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         workgroup["current tz"] = tz
                         workgroup["current bidx"] = bid
                         workgroup["current grp"] = grp
-                        if grp == "wb_works":
+                        if grp == "bw_works":
                             workgroup["current widx"] = mid
                         else:
                             workgroup["current oidx"] = mid
@@ -1996,7 +2000,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def showAbout(self):
         msgBox = QtWidgets.QMessageBox()
-        msgBox.setText("E-Commerce Bots. \n (V1.0 2022-05-12 AIPPS LLC) \n")
+        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "E-Commerce Bots. \n (V1.0 2024-01-12 AIPPS LLC) \n"))
         # msgBox.setInformativeText("Do you want to save your changes?")
         # msgBox.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
         # msgBox.setDefaultButton(QMessageBox.Save)
@@ -2310,8 +2314,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(effective_rows) > 0:
             self.sendToPlatoons(effective_rows, cmd)
 
-    def sendPlatoonCommnd(self, command, rows, mids):
-        if command == "fresh":
+    def sendPlatoonCommand(self, command, rows, mids):
+        print("hello???")
+        if command == "refresh":
             cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
         elif command == "halt":
             cmd = '{\"cmd\":\"reqHaltMissions\", \"missions\":\"all\"}'
@@ -2322,10 +2327,17 @@ class MainWindow(QtWidgets.QMainWindow):
             cmd = '{\"cmd\":\"reqCancelMissions\", \"missions\":\"'+mission_list_string+'\"}'
         elif command == "cancel all":
             cmd = '{\"cmd\":\"reqCancelAllMissions\", \"missions\":\"all\"}'
+        else:
+            cmd = '{\"cmd\":\"ping\", \"missions\":\"all\"}'
 
-        effective_rows = list(filter(lambda r: r >= 0, rows))
-        if len(effective_rows) > 0:
-            self.sendToPlatoons(effective_rows, cmd)
+        print("cmd is:", cmd)
+        if len(rows) > 0:
+            effective_rows = list(filter(lambda r: r >= 0, rows))
+        else:
+            effective_rows = []
+
+        print("effective_rows:", effective_rows)
+        self.sendToPlatoons(effective_rows, cmd)
 
 
     def cancelVehicleMission(self, rows):
@@ -2355,6 +2367,7 @@ class MainWindow(QtWidgets.QMainWindow):
             for i in range(len(fieldLinks)):
                 if i in idxs:
                     fieldLinks[i]["link"].transport.write(cmd.encode('utf8'))
+                    print("cmd sent on link:", i)
         else:
             print("Warning..... TCP server not up and running yet...")
 
@@ -2672,19 +2685,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _createCusMissionEditAction(self):
        new_action = QtGui.QAction(self)
-       new_action.setText("&Edit")
+       new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
        return new_action
 
     def _createCusMissionCloneAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Clone")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
         return new_action
 
     def _createCusMissionDeleteAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Delete")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
         return new_action
 
     def editCusMission(self):
@@ -2700,8 +2713,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def deleteCusMission(self):
         # File actions
         msgBox = QtWidgets.QMessageBox()
-        msgBox.setText("The mission will be removed and won't be able recover from it..")
-        msgBox.setInformativeText("Are you sure about deleting this mission?")
+        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "The mission will be removed and won't be able recover from it.."))
+        msgBox.setInformativeText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you sure about deleting this mission?"))
         msgBox.setStandardButtons(QtWidgets.QMessageBox.Cancel | QtWidgets.QMessageBox.Yes)
         msgBox.setDefaultButton(QtWidgets.QMessageBox.Yes)
         ret = msgBox.exec_()
@@ -2734,19 +2747,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _createBotRCEditAction(self):
        new_action = QtGui.QAction(self)
-       new_action.setText("&Edit")
+       new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
        return new_action
 
     def _createBotRCCloneAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Clone")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
         return new_action
 
     def _createBotRCDeleteAction(self):
         # File actions
         new_action = QtGui.QAction(self)
-        new_action.setText("&Delete")
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
         return new_action
 
     def editBot(self):
@@ -2762,8 +2775,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def deleteBot(self):
         # File actions
         msgBox = QtWidgets.QMessageBox()
-        msgBox.setText("The bot will be removed and won't be able recover from it..")
-        msgBox.setInformativeText("Are you sure about deleting this bot?")
+        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "The bot will be removed and won't be able recover from it.."))
+        msgBox.setInformativeText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you sure about deleting this bot?"))
         msgBox.setStandardButtons(QtWidgets.QMessageBox.Cancel | QtWidgets.QMessageBox.Yes)
         msgBox.setDefaultButton(QtWidgets.QMessageBox.Yes)
         ret = msgBox.exec_()
@@ -2884,9 +2897,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         #    print(column[0])
 
             else:
-                self.warn("Warning: NO bots found in file.")
+                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO bots found in file."))
         else:
-            self.warn("Warning: No file")
+            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: No file."))
 
         for b in self.bots:
             print("added BID:", b.getBid())
@@ -2995,9 +3008,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         #    print(column[0])
 
             else:
-                self.warn("Warning: NO missions found in file.")
+                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO missions found in file."))
         else:
-            self.warn("Warning: No test mission file")
+            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: No test mission file"))
 
 
     def fillNewSkill(self, nskjson, nsk):
@@ -3067,9 +3080,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         #    print(column[0])
 
             else:
-                self.warn("Warning: NO skills in the file.")
+                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO skills in the file."))
         else:
-            self.warn("Warning: no test skill file.")
+            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: no test skill file."))
 
     # load locally stored skills
     def loadLocalSkills(self):
@@ -3083,12 +3096,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     file_path = os.path.join(root, file)
                     skill_def_files.append(file_path)
 
-        print("local skill files: ", skill_def_files)
+        # print("local skill files: ", skill_def_files)
 
         for file_path in skill_def_files:
             with open(file_path) as json_file:
                 data = json.load(json_file)
-                print("loading skill f: ", data["skid"], file_path)
+                # print("loading skill f: ", data["skid"], file_path)
                 new_skill = WORKSKILL(self, data["name"])
                 new_skill.loadJson(data)
                 self.skills.append(new_skill)
@@ -3194,9 +3207,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         #    print(column[0])
 
             else:
-                self.warn("Warning: NO products found in file.")
+                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO products found in file."))
         else:
-            self.warn("Warning: No test products file")
+            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: No test products file"))
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
@@ -3317,7 +3330,7 @@ class MainWindow(QtWidgets.QMainWindow):
     #  "completed": [],
     #  "aborted": []
     #  }
-    async def runbotworks(self):
+    def runbotworks(self):
         # run all the work
         botTodos = None
         if self.workingState == "Idle":
@@ -3334,7 +3347,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
                     # if "Completed" in botTodos["status"]:
-                    current_run_report = self.genRunReport(last_start, last_end)
+                    current_run_report = self.genRunReport(last_start, last_end, 0, 0, botTodos["status"])
                     finished = self.todays_work["tbd"].pop(0)
                     self.todays_completed.append(finished)
                 elif botTodos["name"] == "automation":
@@ -3343,11 +3356,11 @@ class MainWindow(QtWidgets.QMainWindow):
                     if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
                         last_start = int(datetime.now().timestamp()*1)
-                        await self.runRPA(botTodos)
+                        current_bid, current_mid, run_result = self.runRPA(botTodos)
                         last_end = int(datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
-                        current_run_report = self.genRunReport(last_start, last_end)
+                        current_run_report = self.genRunReport(last_start, last_end, current_bid, current_mid, run_result)
 
                         finished = self.todays_work["tbd"].pop(0)
                         self.todays_completed.append(finished)
@@ -3360,7 +3373,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                 # check whether we have collected all reports so far, there is 1 count difference between,
                                 # at this point the local report on this machine has not been added to toddaysReports yet.
                                 # this will be done in doneWithToday....
-                                if len(self.todaysReports) == (len(self.todays_completed) - 2):
+                                if len(self.todaysPlatoonReports) == (len(self.todays_completed) - 2):
                                     print("Commander Done with today!!!!!!!!!")
                                     self.doneWithToday()
                 else:
@@ -3378,16 +3391,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     #update a vehicle's missions status
+    # rx_data is a list of mission status for each mission that belongs to the vehicle.
     def updateVMStats(self, rx_data):
         foundV = None
         for v in self.vehicles:
             if v.getIP() == rx_data["ip"]:
+                print("found vehicle by IP")
                 foundV = v
                 break
 
         if foundV:
             print("updating vehicle Mission status...")
-            foundV.setMStats(rx_data["stat"])
+            foundV.setMStats(rx_data)
 
     # create some test data just to test out the vehichle view GUI.
     def genGuiTestDat(self):
@@ -3474,6 +3489,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.showMsg(msg["content"])
             print("recevied a status update message")
             if self.platoonWin:
+                print("updating platoon WIN")
                 self.platoonWin.updatePlatoonStatAndShow(msg)
                 self.platoonWin.show()
             else:
@@ -3484,7 +3500,7 @@ class MainWindow(QtWidgets.QMainWindow):
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
             print("msg type:", type(msg), msg)
-            self.todaysReports.append(msg)
+            self.todaysPlatoonReports.append(msg)
 
             # now using ip to find the item added to self.self.todays_work["tbd"]
             task_idx = 0
@@ -3501,11 +3517,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 finished = self.todays_work["tbd"].pop(task_idx)
                 self.todays_completed.append(finished)
 
-            print("len todays's reports:", len(self.todaysReports), "len todays's completed:", len(self.todays_completed))
+            print("len todays's reports:", len(self.todaysPlatoonReports), "len todays's completed:", len(self.todays_completed))
             print("completd：", self.todays_completed)
 
             # keep statistics on all platoon runs.
-            if len(self.todaysReports) == (len(self.todays_completed)):
+            if len(self.todaysPlatoonReports) == (len(self.todays_completed)):
                 # check = all(item in List1 for item in List2)
                 # this means all reports are collected, ready to send to cloud.
                 self.doneWithToday()
@@ -3528,17 +3544,25 @@ class MainWindow(QtWidgets.QMainWindow):
             results.append(result)
         else:
             for mid in mids:
-                result = {
-                    "mid": mid,
-                    "botid": self.missions[mid].getBid(),
-                    "sst": self.missions[mid].getEstimatedStartTime(),
-                    "sd": self.missions[mid].getEstimatedRunTime(),
-                    "ast": self.missions[mid].getActualStartTime(),
-                    "aet": self.missions[mid].getActualEndTime(),
-                    "status": self.missions[mid].getStatus().split(":")[0],
-                    "error": self.missions[mid].getStatus().split(":")[1],
-                }
-                results.append(result)
+                if mid > 0 and mid < len(self.missions):
+                    print("working on MID:", mid)
+                    m_stat_parts = self.missions[mid].getStatus().split(":")
+                    m_stat = m_stat_parts[0]
+                    if len(m_stat_parts) > 1:
+                        m_err = m_stat_parts[1]
+                    else:
+                        m_err = ""
+                    result = {
+                        "mid": mid,
+                        "botid": self.missions[mid].getBid(),
+                        "sst": self.missions[mid].getEstimatedStartTime(),
+                        "sd": self.missions[mid].getEstimatedRunTime(),
+                        "ast": self.missions[mid].getActualStartTime(),
+                        "aet": self.missions[mid].getActualEndTime(),
+                        "status": m_stat,
+                        "error": m_err
+                    }
+                    results.append(result)
 
 
         print("mission status result:", results)
@@ -3616,32 +3640,38 @@ class MainWindow(QtWidgets.QMainWindow):
     #     status: String!
     #     }
     # 1 report is for 1 TBD workgroup.
-    def genRunReport(self, last_start, last_end):
+    def genRunReport(self, last_start, last_end, current_mid, current_bid, run_status):
         statReport = None
         tzi = 0
         #only generate report when all done.
-        works = self.todays_work["tbd"][0]
+        works = self.todays_work["tbd"][0]["works"]
+
+        if current_bid < 0:
+            current_bid = 0
 
         print("GEN REPORT FOR WORKS:", works)
         if not self.hostrole == "CommanderOnly":
             # for platoon or commander does work itself, need to gather current todo's report , each mission's run result
-            while tzi in Tzs:
-                if len(works[tzi]) > 0:
-                    for bi in range(len(works[tzi])):
-                        if len(works[tzi][bi]["other_works"]) > 0:
-                            for oi in range(len(works[tzi][bi]["other_works"])):
-                                self.todaysReport.append({ "mid": works[tzi][bi]["other_works"][oi].mid, "bid": works[tzi][bi].bid, "starttime": last_start, "endtime": last_end, "status": works[tzi][bi]["other_works"][oi].stat})
-
-                        if len(works[tzi][bi]["wb_works"]) > 0:
-                            for wi in range(len(works[tzi][bi]["wb_works"])):
-                                self.todaysReport.append({ "mid": works[tzi][bi]["wb_works"][wi].mid, "bid": works[tzi][bi].bid, "starttime": last_start, "endtime": last_end, "status": works[tzi][bi]["wb_works"][wi].stat})
+            # for tzi in Tzs:
+            #     if len(works[tzi]) > 0:
+            #         for bi in range(len(works[tzi])):
+            #             if len(works[tzi][bi]["other_works"]) > 0:
+            #                 for oi in range(len(works[tzi][bi]["other_works"])):
+            #                     self.todaysReport.append({ "mid": works[tzi][bi]["bw_works"][wi]["mid"], "bid": works[tzi][bi]["bid"], "starttime": last_start, "endtime": last_end, "status": run_status})
+            #
+            #             if len(works[tzi][bi]["bw_works"]) > 0:
+            #                 for wi in range(len(works[tzi][bi]["bw_works"])):
+            #                     self.todaysReport.append({ "mid": works[tzi][bi]["bw_works"][wi]["mid"], "bid": works[tzi][bi]["bid"], "starttime": last_start, "endtime": last_end, "status": run_status})
+            #
+            # self.todaysReport.append({ "mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status})
+            mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
 
             if self.hostrole != "Platoon":
                 # add generated report to report list....
-                self.todaysLocalReports.append(self.todaysReport)
+                self.todaysPlatoonReports.append(self.todaysReport)
             else:
-                # self.todaysReports.append(str.encode(json.dumps(rpt)))
-                self.todaysReports.append(self.todaysReport)
+                # self.todaysPlatoonReports.append(str.encode(json.dumps(rpt)))
+                self.todaysPlatoonReports.append(self.todaysReport)
 
         return self.todaysReport
 
@@ -3680,27 +3710,30 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if not self.hostrole == "Platoon":
             if self.hostrole == "Commander":
-                rpt = {"ip": self.ip, "type": "report", "content": self.todaysLocalReports}
-                self.todaysReports.append(rpt)
+                rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
+                self.todaysPlatoonReports.append(rpt)
 
-            if len(self.todaysReports) > 0:
+            if len(self.todaysPlatoonReports) > 0:
                 # flatten the report data structure...
-                allTodoReports = [item for pr in self.todaysReports for item in pr["content"]]
-                missionReports = [item for pr in allTodoReports for item in pr]
+                allTodoReports = [item for pr in self.todaysPlatoonReports for item in pr["content"]]
+                print("ALLTODOREPORTS:", allTodoReports)
+                # missionReports = [item for pr in allTodoReports for item in pr]
             else:
                 missionReports = []
 
             self.updateMissionsStatsFromReports(allTodoReports)
 
+            print("TO be sent to cloud side::", allTodoReports)
             # if this is a commmander, then send report to cloud
-            send_completion_status_to_cloud(self.session, missionReports, self.tokens['AuthenticationResult']['IdToken'])
+            send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'])
         else:
-            # if this is a platoon, send report to commander
+            # if this is a platoon, send report to commander today's report is just an list mission status....
             rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
+            print("Sending report to Commander::", rpt)
             self.commanderXport.write(str.encode(json.dumps(rpt)))
 
         # 2) log reports on local drive.
-        self.saveDailyRunReport(self.todaysReports)
+        self.saveDailyRunReport(self.todaysPlatoonReports)
 
         # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
         if not self.hostrole == "Platoon":
@@ -3708,4 +3741,4 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.todays_completed = []
         self.todaysReports = []
-        self.todaysLocalReports = []
+        self.todaysPlatoonReports = []

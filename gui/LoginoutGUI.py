@@ -25,8 +25,9 @@ from network import *
 #ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
 # ecbhomepath = getECBotHome()
 ecbhomepath = app_info.app_home_path
-ACCT_FILE = ecbhomepath + "/resource/settings/uli.json"
-ROLE_FILE = ecbhomepath + "/resource/settings/role.json"
+ecb_data_homepath = getECBotDataHome()
+ACCT_FILE = ecb_data_homepath + "/uli.json"
+ROLE_FILE = ecb_data_homepath + "/role.json"
 
 
 class Login(QtWidgets.QDialog):
@@ -36,6 +37,7 @@ class Login(QtWidgets.QDialog):
         self.xport = None
         self.ip = ""
         self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
+        self.lang = "en"
 
         self.aws_srp = None
 
@@ -76,19 +78,20 @@ class Login(QtWidgets.QDialog):
         self.logo0.setPixmap(pixmap)
         self.logo0.setAlignment(QtCore.Qt.AlignTop)
 
-        self.login_label = QtWidgets.QLabel(QtWidgets.QLabel.tr("Login"))
-        self.login_label.setFont(QtGui.QFont('Arial', 20, QtGui.QFont.Bold))
+        # self.login_label = QtWidgets.QLabel(QtWidgets.QLabel.tr("Login"))
+        self.login_label = QtWidgets.QLabel("Login")
 
-        self.user_label = QtWidgets.QLabel(QtWidgets.QLabel.tr("User Name/Email:"))
+        self.login_label.setFont(QtGui.QFont('Arial', 20, QtGui.QFont.Bold))
+        self.user_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "User Name/Email:"))
         self.user_label.setFont(QtGui.QFont('Arial', 10))
 
-        self.pw_label = QtWidgets.QLabel(QtWidgets.QLabel.tr("Password:"))
+        self.pw_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Password:"))
         self.pw_label.setFont(QtGui.QFont('Arial', 10))
 
-        self.confirm_pw_label = QtWidgets.QLabel(QtWidgets.QLabel.tr("Confirm Password:"))
+        self.confirm_pw_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Confirm Password:"))
         self.confirm_pw_label.setFont(QtGui.QFont('Arial', 10))
 
-        self.confirm_code_label = QtWidgets.QLabel(QtWidgets.QLabel.tr("Input Confirmation Code Retrieved From Your Email:"))
+        self.confirm_code_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Input Confirmation Code Retrieved From Your Email:"))
         self.confirm_code_label.setFont(QtGui.QFont('Arial', 6))
 
         self.textName = QtWidgets.QLineEdit(self)
@@ -119,16 +122,18 @@ class Login(QtWidgets.QDialog):
 
 
 
-        self.buttonLogin = QtWidgets.QPushButton(QtWidgets.QPushButton.tr('Login'), self)
+        # self.buttonLogin = QtWidgets.QPushButton(QtWidgets.QPushButton.tr('Login'), self)
+        self.buttonLogin = QtWidgets.QPushButton('Login', self)
+
         self.buttonLogin.clicked.connect(self.handleLogin)
 
-        self.forget_label = QtWidgets.QLabel(QtWidgets.QLabel.tr("Forgot Password?"))
+        self.forget_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Forgot Password?"))
         self.forget_label.setFont(self.linkFont)
         self.forget_label.setAlignment(QtCore.Qt.AlignRight)
         self.forget_label.setStyleSheet("color: blue;")
         self.forget_label.mouseReleaseEvent = self.on_forgot_password
 
-        self.signup_label = QtWidgets.QLabel(QtWidgets.QLabel.tr("No account? Sign Up Here!"))
+        self.signup_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "No account? Sign Up Here!"))
         self.signup_label.setFont(self.linkFont)
         self.signup_label.setAlignment(QtCore.Qt.AlignRight)
         self.signup_label.mouseReleaseEvent = self.on_sign_up
@@ -153,8 +158,7 @@ class Login(QtWidgets.QDialog):
             else:
                 self.lan = "ZH"
 
-
-        self.mempw_cb = QtWidgets.QCheckBox(QtWidgets.QCheckBox.tr("Memorize Password"))
+        self.mempw_cb = QtWidgets.QCheckBox(QtWidgets.QApplication.translate("QtWidgets.QCheckBox", "Memorize Password"))
         if self.show_visibility:
             self.mempw_cb.setCheckState(QtCore.Qt.Checked)
             # now try to load password
@@ -210,6 +214,7 @@ class Login(QtWidgets.QDialog):
 
     def set_ip(self, ip):
         self.ip = ip
+
     def read_role(self):
         self.machine_role = "Platoon"
 
@@ -244,12 +249,19 @@ class Login(QtWidgets.QDialog):
         print("Index changed", index)
 
         if index == 1:
-            self.__translator.load(QtCore.QLocale.Chinese, ecbhomepath + "/resource/translation/example_cn.qm")
+            self.lang = "zh"
+            print("loading chinese fonts....", ecbhomepath + "/ecbot_zh.qm")
+            locale = QtCore.QLocale(QtCore.QLocale.Chinese)
+            self.__translator.load(QtCore.QLocale.Chinese, ecbhomepath + "/ecbot_zh.qm")
+            # self.__translator.load(ecbhomepath + "/ecbot_zh.qm")
+
             #self.__app.installTranslator(self.__translator)
-            _app = QApplication.instance()
+            _app = QtCore.QCoreApplication.instance()
             _app.installTranslator(self.__translator)
             #QtCore.QCoreApplication.installTranslator(self.__translator)
+            print("chinese translator loaded")
         else:
+            self.lang = "en"
             _app = QApplication.instance()
             _app.removeTranslator(self.__translator)
 
@@ -264,6 +276,8 @@ class Login(QtWidgets.QDialog):
     def retranslateUi(self):
         self.buttonLogin.setText(QtWidgets.QApplication.translate('QtWidgets.QPushButton', 'Login'))
         self.login_label.setText(QtWidgets.QApplication.translate('QtWidgets.QLabel', 'Login'))
+        # self.buttonLogin.setText(QtWidgets.QPushButton.tr('Login'))
+        # self.login_label.setText(QtWidgets.QLabel.tr('Login'))
 
 
     def on_toggle_password_Action(self):
@@ -288,25 +302,25 @@ class Login(QtWidgets.QDialog):
 
 
     def on_sign_up(self, event):
-        self.buttonLogin.setText(QtWidgets.QPushButton.tr("Sign Up"))
+        self.buttonLogin.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Sign Up"))
         self.confirm_pw_label.setVisible(True)
         self.textPass2.setVisible(True)
-        self.login_label.setText(QtWidgets.QLabel.tr("Sign Up A New Account"))
+        self.login_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Sign Up A New Account"))
         self.buttonLogin.clicked.disconnect(self.handleLogin)
         self.buttonLogin.clicked.connect(self.handleSignUp)
 
 
     def on_forgot_password(self, event):
-        self.buttonLogin.setText(QtWidgets.QPushButton.tr("Recover Password"))
+        self.buttonLogin.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Recover Password"))
         self.textPass.setVisible(False)
         self.pw_label.setVisible(False)
         self.signup_label.setVisible(False)
         self.mempw_cb.setVisible(False)
         self.forget_label.setVisible(False)
-        self.login_label.setText(QtWidgets.QLabel.tr("Recover Password"))
+        self.login_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Recover Password"))
         self.login_label.setAlignment(QtCore.Qt.AlignTop)
 
-        self.user_label.setText("Input Email Address To Recover Password:")
+        self.user_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Input Email Address To Recover Password:"))
         self.user_label.resize(200, 100);
         self.user_label.setAlignment(QtCore.Qt.AlignTop)
 
@@ -359,7 +373,7 @@ class Login(QtWidgets.QDialog):
             if self.machine_role == "Commander":
                 global commanderServer
 
-                self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath, self.machine_role)
+                self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath, self.machine_role, self.lang)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.setCog(self.cog)
@@ -370,7 +384,7 @@ class Login(QtWidgets.QDialog):
                 global commanderXport
 
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.machine_role)
+                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.machine_role, self.lang)
                 print("Running as a platoon...")
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.setCog(self.cog)
@@ -382,11 +396,12 @@ class Login(QtWidgets.QDialog):
             print("Exception Error:", e)
             msgBox = QtWidgets.QMessageBox()
             if "UserNotConfirmedException" in str(e):
-                msgBox.setText("User email confirmed is needed.  Try go to your email box and confirm the email first!")
+                msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox",
+                                                 "User email confirmed is needed.  Try go to your email box and confirm the email first!"))
             elif "NotAuthorizedException" in str(e):
-                msgBox.setText("Password Incorrect!")
+                msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Password Incorrect!"))
             else:
-                msgBox.setText("Login Error.  Try again...")
+                msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Login Error.  Try again..."))
 
             ret = msgBox.exec()
 
@@ -405,7 +420,7 @@ class Login(QtWidgets.QDialog):
 
             print(self.tokens)
 
-            self.mainwin = MainWindow(self.tokens, "songc@yahoo.com")
+            self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.machine_role, self.lang)
             print("faker...")
             self.mainwin.setOwner("Nobody")
             self.mainwin.show()
@@ -425,16 +440,16 @@ class Login(QtWidgets.QDialog):
                 )
                 print(response)
                 msgBox = QtWidgets.QMessageBox()
-                msgBox.setText("Please confirm that you have received the verification email and verified it.")
+                msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Please confirm that you have received the verification email and verified it."))
 
             except botocore.errorfactory.ClientError as e:
             # except ClientError as e:
                 print("Exception Error:", type(e))
                 msgBox = QtWidgets.QMessageBox()
                 if "UsernameExistsException" in str(e):
-                    msgBox.setText("Oops! User already exists.  Try again...")
+                    msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Oops! User already exists.  Try again..."))
                 else:
-                    msgBox.setText("Sign up Error.  Try again...")
+                    msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Sign up Error.  Try again..."))
 
             #msgBox.setInformativeText("Do you want to save your changes?")
             #msgBox.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
@@ -445,8 +460,8 @@ class Login(QtWidgets.QDialog):
             self.cog.initiate_forgot_password()
             self.confirm_code_label.setVisible(False)
             self.textConfirmCode.setVisible(False)
-            self.pw_label.setText(QtWidgets.QLabel.tr("Password:"))
-            self.login_label.setText(QtWidgets.QLabel.tr("Login"))
+            self.pw_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Password:"))
+            self.login_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Login:"))
             self.signup_label.setVisible(True)
             self.mempw_cb.setVisible(True)
             self.forget_label.setVisible(True)
@@ -454,7 +469,7 @@ class Login(QtWidgets.QDialog):
             self.confirm_pw_label.setVisible(False)
             self.textPass2.setVisible(False)
 
-            self.buttonLogin.setText(QtWidgets.QPushButton.tr("Login"))
+            self.buttonLogin.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Login"))
             self.buttonLogin.clicked.disconnect(self.handleSignUp)
             self.buttonLogin.clicked.connect(self.handleLogin)
 
@@ -471,11 +486,12 @@ class Login(QtWidgets.QDialog):
 
             self.confirm_code_label.setVisible(True)
             self.textConfirmCode.setVisible(True)
-            self.pw_label.setText(QtWidgets.QLabel.tr("Set New Password:"))
+
+            self.pw_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Set New Password:"))
             self.pw_label.setVisible(True)
             self.textPass.setVisible(True)
-            self.user_label.setText(QtWidgets.QLabel.tr("Input Email Address:"))
-            self.buttonLogin.setText(QtWidgets.QPushButton.tr("Confirm New Password"))
+            self.user_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Input Email Address:"))
+            self.buttonLogin.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Confirm New Password"))
             self.buttonLogin.clicked.disconnect(self.handleForgotPassword)
             self.buttonLogin.clicked.connect(self.handleConfirmForgotPassword)
 
@@ -500,13 +516,13 @@ class Login(QtWidgets.QDialog):
 
         self.confirm_code_label.setVisible(False)
         self.textConfirmCode.setVisible(False)
-        self.pw_label.setText(QtWidgets.QLabel.tr("Password:"))
-        self.login_label.setText(QtWidgets.QLabel.tr("Login"))
+        self.pw_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Password:"))
+        self.login_label.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Login"))
         self.signup_label.setVisible(True)
         self.mempw_cb.setVisible(True)
         self.forget_label.setVisible(True)
 
-        self.buttonLogin.setText(QtWidgets.QPushButton.tr("Login"))
+        self.buttonLogin.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Login"))
         self.buttonLogin.clicked.disconnect(self.handleConfirmForgotPassword)
         self.buttonLogin.clicked.connect(self.handleLogin)
 

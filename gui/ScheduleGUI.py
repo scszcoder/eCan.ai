@@ -10,7 +10,7 @@ from ebbot import *
 class ScheduleWin(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
-        self.text = "Scheduler"
+        self.text = QtWidgets.QApplication.translate("QtWidgets.QWidget", "Scheduler")
         self.calendar = QtWidgets.QCalendarWidget()
         self.Layout = QtWidgets.QVBoxLayout(self)
         self.Layout.addWidget(self.calendar)
