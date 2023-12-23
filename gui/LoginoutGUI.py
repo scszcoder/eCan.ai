@@ -25,7 +25,7 @@ from network import *
 #ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
 # ecbhomepath = getECBotHome()
 ecbhomepath = app_info.app_home_path
-ecb_data_homepath = getECBotDataHome()
+ecb_data_homepath = app_info.appdata_path
 ACCT_FILE = ecb_data_homepath + "/uli.json"
 ROLE_FILE = ecb_data_homepath + "/role.json"
 
