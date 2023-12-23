@@ -14,7 +14,7 @@ from os.path import exists
 import locale
 from MainGUI import *
 from pycognito.aws_srp import AWSSRP
-# from envi import *
+from envi import *
 from Cloud import *
 from config.app_info import app_info
 
@@ -25,7 +25,9 @@ from network import *
 #ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
 # ecbhomepath = getECBotHome()
 ecbhomepath = app_info.app_home_path
-ecb_data_homepath = app_info.appdata_path
+ecb_data_homepath = getECBotDataHome()
+
+
 ACCT_FILE = ecb_data_homepath + "/uli.json"
 ROLE_FILE = ecb_data_homepath + "/role.json"
 
