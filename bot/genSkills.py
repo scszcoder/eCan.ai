@@ -8,8 +8,9 @@ from rarSkill import *
 from labelSkill import *
 from wifiSkill import *
 from printLabel import *
+from envi import *
 
-
+ecb_data_homepath = getECBotDataHome()
 # locate the correct mission to work on....
 def getWorkSettings(lieutenant, bot_works):
     works = bot_works["works"]
@@ -77,7 +78,7 @@ def getWorkSettings(lieutenant, bot_works):
     date_word = dtnow.strftime("%Y%m%d")
     print("date word:", date_word)
 
-    fdir = root_path + "/runlogs/" + date_word + "/"
+    fdir = ecb_data_homepath + "/runlogs/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     bot = lieutenant.bots[bot_idx]

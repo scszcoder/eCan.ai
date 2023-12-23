@@ -6,9 +6,10 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --add-data "C:/Users/songc/PycharmProjects/ecbot/bot;bot/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/gui;gui/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/resource;resource/" ^
---add-data "C:/Users/songc/PycharmProjects/ecbot/resource/images/icons;resource/images/icons" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/test;test/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv;venv/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/config;config/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/utils;utils/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/PySide6;PySide6/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/shiboken6;shiboken6/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/botocore;botocore/" ^
@@ -59,6 +60,8 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/win32comext;win32comext/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/win32ctypes;win32ctypes/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/pywin32_system32;pywin32_system32/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/colorlog;colorlog/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/colorama;colorama/" ^
 --add-data "C:/Python310/Lib/site-packages/pandas;pandas/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/six.py;." ^
 --hiddenimport "__future__" ^

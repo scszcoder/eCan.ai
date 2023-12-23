@@ -5,7 +5,12 @@ import logging
 from config.constants import *
 from config.app_info import app_info
 from utils.logger_helper import logger_helper
+from envi import *
 
+ecb_data_homepath = getECBotDataHome()
+runlogs_dir = ecb_data_homepath + "/runlogs"
+if not os.path.isdir(runlogs_dir):
+    os.mkdir(runlogs_dir)
 
 def copy_skills_file():
     """
@@ -78,7 +83,8 @@ class AppSettings:
     def __init__(self):
         print("init app settings")
         # init application some settings, include create some folder and copy some static files, etc. logs, skill files
-        logger_helper.setup(APP_NAME, app_info.app_home_path + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
+        # logger_helper.setup(APP_NAME, app_info.app_home_path + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
+        logger_helper.setup(APP_NAME, ecb_data_homepath + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
 
         if getattr(sys, 'frozen', False):
             create_appdata_dirs()

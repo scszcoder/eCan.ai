@@ -6,7 +6,7 @@ from unittests import *
 from config.app_settings import app_settings
 import asyncio
 from qasync import QApplication, QEventLoop
-
+from envi import *
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
@@ -85,6 +85,10 @@ def windowlauncher():
 
 
 if __name__ == '__main__':
+    ecb_data_homepath = getECBotDataHome()
+    runlogs_dir = ecb_data_homepath + "/runlogs"
+    if not os.path.isdir(runlogs_dir):
+        os.mkdir(runlogs_dir)
     # test_eb_orders_scraper()
     # test_etsy_label_gen()
     # test_use_func_instructions()
