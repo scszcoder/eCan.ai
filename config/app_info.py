@@ -1,10 +1,12 @@
 import sys
 import os, errno
-if sys.platform == 'win32':
-    import winreg
 import tempfile
 from pathlib import Path
 from config.constants import *
+if sys.platform == 'win32':
+    import winreg
+
+    proc_arch = os.environ['PROCESSOR_ARCHITECTURE'].lower()
 
 
 class AppInfo:
@@ -49,7 +51,6 @@ class AppInfo:
     def _prod_appdata_path(self):
         # 检查操作系统类型，并确定 APPDATA 路径
         if os.name == 'nt':  # Windows
-            proc_arch = os.environ['PROCESSOR_ARCHITECTURE'].lower()
             ecb_data_home = ""
             print(proc_arch)
             #    print(proc_arch64)
@@ -91,7 +92,10 @@ class AppInfo:
             return ecbot_appdata_path
 
     def _dev_appdata_path(self):
-        root_dir = os.path.join(self._dev_app_home_path(), 'resource/settings')
+        if os.name == 'nt':  # Windows
+            root_dir = self._prod_appdata_path()
+        else:
+            root_dir = os.path.join(self._dev_app_home_path(), 'resource/settings')
         # print(f"ecbot dev appdata root path:{root_dir}")
 
         return root_dir
