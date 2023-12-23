@@ -51,5 +51,4 @@ class LoggerHelper:
         self.logger.critical(message)
 
 
-<<<<<<< HEAD
 logger_helper = LoggerHelper()
