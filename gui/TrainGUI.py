@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton
 from locale import getdefaultlocale
 
 import ctypes as ct
-from ctypes import wintypes as wt
+# from ctypes import wintypes as wt
 import time
 import json
 
@@ -24,7 +24,7 @@ record_over = False
 class STEP:
     def __init__(self, parent):
         super(ReminderWin, self).__init__(parent)
-        self.temp_dir = parent.homepth + "/resource/skills/temp/"
+        self.temp_dir = parent.homepath + "/resource/skills/temp/"
         self.order = 0
         self.img = None
         self.location = (0, 0, 0, 0)

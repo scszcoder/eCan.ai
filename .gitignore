@@ -2,3 +2,6 @@
 /resource/data/myecb.db-journal
 /runlogs/
 /resource/testdata/
+/build
+/dist
+*.spec

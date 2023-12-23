@@ -80,13 +80,13 @@ class USER_INFO(QtGui.QStandardItem):
         new_ref = { "name" : ref_name,
                     "constraints" : {
                         "xdir": refx["dir"],
-                        "xtype": refx["dir"],
-                        "xval": refx["dir"],
-                        "xunit": refx["dir"],
+                        "xtype": refx["type"],
+                        "xval": refx["val"],
+                        "xunit": refx["unit"],
                         "ydir": refy["dir"],
-                        "ytype": refy["dir"],
-                        "xval": refy["dir"],
-                        "yunit": refy["dir"],
+                        "ytype": refy["type"],
+                        "xval": refy["val"],
+                        "yunit": refy["unit"],
                     }
                 }
         self.refs.append(new_ref)
@@ -159,7 +159,6 @@ class PROCEDURAL_SKILL(QtGui.QStandardItem):
         self.nameSpace = ""
         self.parent = parent
         self.path = "resource/skills/public/"
-        self.homepath = self.parent.homepath
 
 
     def getSteps(self):

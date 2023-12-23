@@ -1,0 +1,20 @@
+from skill.steps.step_base import StepBase
+
+
+class StepWait(StepBase):
+    TYPE_KEY = "Wait"
+
+    def __init__(self, stepN=0, wait=0, random_min=0, random_max=0):
+        super().__init__(stepN)
+
+        self.type = self.TYPE_KEY
+        self.random_min = random_min
+        self.random_max = random_max
+        self.time = wait
+
+
+if __name__ == '__main__':
+    step = StepWait(0, 5, 0, 0)
+
+    print(step.gen_step())
+    print(StepWait.TYPE_KEY)

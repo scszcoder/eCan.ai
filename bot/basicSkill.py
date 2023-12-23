@@ -13,8 +13,17 @@ import webbrowser
 import subprocess
 import random
 import socket
+import sys
 from ping3 import ping, verbose_ping
-import win32gui
+if sys.platform == 'win32':
+    import win32gui
+elif sys.platform == 'darwin':
+    from AppKit import NSWorkspace
+    from Quartz import (
+        CGWindowListCopyWindowInfo,
+        kCGWindowListOptionOnScreenOnly,
+        kCGNullWindowID
+    )
 from scraper import *
 from Cloud import *
 from pynput.mouse import Button, Controller
@@ -551,23 +560,60 @@ def genException():
     return this_step, psk_words
 
 
+def get_top_visible_window():
+    if sys.platform == 'win32':
+        names = []
+        def winEnumHandler(hwnd, ctx):
+            if win32gui.IsWindowVisible(hwnd):
+                n = win32gui.GetWindowText(hwnd)
+                # print("windows: ", n)
+                if n:
+                    names.append(n)
+
+        win32gui.EnumWindows(winEnumHandler, None)
+
+        # print(names)
+        window_handle = win32gui.FindWindow(None, names[0])
+        window_rect = win32gui.GetWindowRect(window_handle)
+        print("top window: ", names[0], " rect: ", window_rect)
+
+        return names[0], window_rect
+    elif sys.platform == 'darwin':
+        # 获取当前激活的应用
+        active_app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        active_app_name = active_app.localizedName()
+        window_rect = []
+
+        # 获取所有可见窗口的列表
+        window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+
+        # 查找最上层的窗口（即当前激活的应用的窗口）
+        for window in window_list:
+            window_owner_name = window.get('kCGWindowOwnerName', '')
+            if window_owner_name == active_app_name:
+                window_name = window.get('kCGWindowName', 'Unknown')
+                mac_window_rect = window.get('kCGWindowBounds', {'X': 0, 'Y': 0, 'Width': 0, 'Height': 0})
+                print(f"Window: {window_owner_name}-{window_name}, Rect: {mac_window_rect}")
+                # 转换为 (left, top, right, bottom) 格式
+                left = mac_window_rect['X']
+                top = mac_window_rect['Y']
+                right = left + mac_window_rect['Width']
+                bottom = top + mac_window_rect['Height']
+
+                window_rect.extend([round(left), round(top), round(right), round(bottom)])
+
+                print(f"Window Rect: ({window_rect[0], window_rect[1], window_rect[2], window_rect[3]})")
+
+                break
+
+        return active_app_name, window_rect
+
+
 def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile):
-    names = []
     settings = mission.parent_settings
     global screen_loc
-    def winEnumHandler(hwnd, ctx):
-        if win32gui.IsWindowVisible(hwnd):
-            n = win32gui.GetWindowText(hwnd)
-            # print("windows: ", n)
-            if n:
-                names.append(n)
 
-    win32gui.EnumWindows(winEnumHandler, None)
-
-    # print(names)
-    window_handle = win32gui.FindWindow(None, names[0])
-    window_rect = win32gui.GetWindowRect(window_handle)
-    print("window: ", names[0], " rect: ", window_rect)
+    window_name, window_rect = get_top_visible_window()
 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
@@ -1150,18 +1196,7 @@ def processMouseClick(step, i):
 
         print("calculated locations:", loc)
 
-        names = []
-        def winEnumHandler(hwnd, ctx):
-            if win32gui.IsWindowVisible(hwnd):
-                n = win32gui.GetWindowText(hwnd)
-                if n:
-                    names.append(n)
-
-        win32gui.EnumWindows(winEnumHandler, None)
-
-        # find the top window and get its size and location.
-        window_handle = win32gui.FindWindow(None, names[0])
-        window_rect = win32gui.GetWindowRect(window_handle)
+        window_name, window_rect = get_top_visible_window()
         print("top windows rect:", window_rect)
 
         # loc[0] = int(loc[0]) + window_rect[0]
@@ -1872,7 +1907,7 @@ def processListDir(step, i):
     ex_stat = "success:0"
     try:
         lof = os.listdir(step["dir"])
-        symTab[step["result"]] = [f for f in lof if x.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
+        symTab[step["result"]] = [f for f in lof if f.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
 
     except:
         ex_stat = "ErrorListDir:" + str(i)
@@ -2425,3 +2460,15 @@ def processSaveHtml(step, i, mission, skill):
 
     return ni, ex_stat
 
+
+if __name__ == '__main__':
+    window_name, window_rect = get_top_visible_window()
+
+    # path = os.path.join(os.path.dirname(__file__), '', 'screenshot.png')
+    # if not os.path.exists(os.path.dirname(path)):
+    #     os.makedirs(os.path.dirname(path))
+    #
+    # # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
+    # im0 = pyautogui.screenshot(imageFilename=path,
+    #                            region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    # screen_loc = (window_rect[0], window_rect[1])
