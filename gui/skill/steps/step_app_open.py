@@ -30,8 +30,8 @@ class StepAppOpen(StepBase):
     TYPE_KEY = "App Open"
 
     def __init__(self, stepN=0, action=EnumAppOpenAction.Cmd, saverb=True, target_type=EnumAppOpenTargetType.Custom,
-                 target_link=EnumAppOpenTargetLink.WebSite, anchor_type=EnumAnchorType.Text, anchor_value=None,
-                 cargs_type=EnumAppOpenCArgsType.Custom, args=None, wait=0):
+                 target_link=EnumAppOpenTargetLink.WebSite, anchor_type=EnumAnchorType.Text, anchor_value="None",
+                 cargs_type=EnumAppOpenCArgsType.Custom, args="", wait=0):
         super().__init__(stepN)
 
         self.type = self.TYPE_KEY
