@@ -1,27 +1,29 @@
 import sys
 import random
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
-from locale import getdefaultlocale
-
-import ctypes as ct
-from ctypes import wintypes as wt
-import time
-import json
-
-from pynput import mouse
-from pynput import keyboard
-import threading
-
-import pyautogui
-from Cloud import *
-import pyqtgraph
-from pyqtgraph import flowchart
-import BorderLayout
-from PyQDiagram import *
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout
+from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
+from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter
+# from locale import getdefaultlocale
+#
+# import ctypes as ct
+# # from ctypes import wintypes as wt
+# import time
+# import json
+#
+# from pynput import mouse
+# from pynput import keyboard
+# import threading
+#
+# import pyautogui
+# from Cloud import *
+# import pyqtgraph
+# from pyqtgraph import flowchart
+# import BorderLayout
 from WorkSkill import *
 from readSkill import *
-from codeeditor import *
+from gui.skfc.skfc_widget import SkFCWidget
+from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
+from config.app_info import app_info
 
 
 INSTALLED_PATH = ""
@@ -41,6 +43,7 @@ PAGE_DIR = ""
 # price_model	varchar(50)	YES		NULL
 # price	int(11)	YES		NULL
 
+
 class SkillListView(QtWidgets.QListView):
     def __init__(self, parent):
         super(SkillListView, self).__init__()
@@ -53,6 +56,7 @@ class SkillListView(QtWidgets.QListView):
                 print("row:", self.indexAt(e.pos()).row())
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.updateSelectedRole(self.selected_row)
+
 
 class AnchorListView(QtWidgets.QListView):
     def __init__(self):
@@ -179,7 +183,6 @@ class BSQGraphicsRectItem(QtWidgets.QGraphicsRectItem):
 
         self.parentView.set_mode(self.mode)
         print("rect pressed....", self.mousePressPos, " rect: ", self.rect())
-
 
     def mouseReleaseEvent(self, mouseEvent):
         """
@@ -393,6 +396,7 @@ class BSQGraphicsRectItem(QtWidgets.QGraphicsRectItem):
                 if self.handleSelected is None or handle == self.handleSelected:
                     painter.drawEllipse(rect)
 
+
 class BSQGraphicsScene(QGraphicsScene):
     def __init__(self, parent):
         super(BSQGraphicsScene, self).__init__()
@@ -467,6 +471,7 @@ class BSQGraphicsScene(QGraphicsScene):
     def mouseDoubleClickEvent(self, event):
         print("mouse double clicked.....")
 
+
 # BS stands for Bot Skill
 class BSQGraphicsView(QtWidgets.QGraphicsView):
     def __init__(self, inscene, parent):
@@ -525,16 +530,18 @@ class BSQGraphicsView(QtWidgets.QGraphicsView):
         #    ri.mousePressEvent(event)
 
 
+OFFSET_UNITS = ['Pixel', 'Letter Height', 'Image Height', 'Full Height', 'Letter Width', 'Image Width', 'Full Width']
+OFFSET_TYPES = ['Absolute', 'Signed', 'Absolute Percent', 'Signed Percent']
+ACTION_ITEMS = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keyboard Action', 'Load Data', 'Save Data',
+                'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine', 'Run Extern']
 
 
 class SkillGUI(QtWidgets.QMainWindow):
     def __init__(self, parent):
         super(SkillGUI, self).__init__(parent)
 
-    # def __init__(self):
-    #     super().__init__()
         self.newSkill = None
-        self.homepath = os.environ.get("ECBOT_HOME")
+        self.home_path = app_info.app_home_path
         self.skill_path = ""
         self.parent = parent
 
@@ -556,13 +563,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         # self.popMenu.addAction(QtGui.QAction('Clear Boundbox', self))
 
         self.skfsel = QtWidgets.QFileDialog()
-
-        self.mainWidget = QtWidgets.QWidget()
-
-        self.vsplitter1 = QtWidgets.QSplitter(Qt.Horizontal)
-        self.hsplitter1 = QtWidgets.QSplitter(Qt.Vertical)
-        self.vsplitter2 = QtWidgets.QSplitter(Qt.Horizontal)
-        self.hsplitter2 = QtWidgets.QSplitter(Qt.Vertical)
+        # self.vsplitter2 = QtWidgets.QSplitter(Qt.Horizontal)
 
         self.step_count = 0
         self.step_names = []
@@ -578,12 +579,17 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.playback_back_button.clicked.connect(self.train_prev_step)
         self.playback_reload_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Refresh"))
         self.playback_reload_button.clicked.connect(self.re_train_step)
-        self.pbmainwin = QtWidgets.QScrollArea()
-        self.pbmainwin.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbmainwin.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.pbmainwin = QtWidgets.QScrollArea()
+        # self.pbmainwin.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.pbmainwin.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbbuttonlayout = QtWidgets.QHBoxLayout()
+        self.pbbuttonlayout.addWidget(self.playback_start_button)
+        self.pbbuttonlayout.addWidget(self.playback_next_button)
+        self.pbbuttonlayout.addWidget(self.playback_back_button)
+        self.pbbuttonlayout.addWidget(self.playback_reload_button)
 
         self.pic = QtWidgets.QGraphicsPixmapItem()
-        file_name = self.homepath + "resource/skills/temp/step1.png"
+        file_name = self.home_path + "resource/skills/temp/step1.png"
         self.load_image_file(file_name)
 
         img_size = self.pic.pixmap().size()
@@ -600,6 +606,11 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbview.setContextMenuPolicy(Qt.DefaultContextMenu)
         self.pbview.installEventFilter(self)
 
+        self.pbrunlayout = QtWidgets.QVBoxLayout()
+        self.pbrunlayout.addLayout(self.pbbuttonlayout)
+        self.pbrunlayout.addWidget(self.pbview)
+        self.pbrunWidget = QtWidgets.QWidget()
+        self.pbrunWidget.setLayout(self.pbrunlayout)
 
         self.brush = QBrush()
 
@@ -615,7 +626,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.udBoxPenWidth = 2
         self.udBoxSelPenColor = Qt.yellow
         self.udBoxSelPenWidth = 3
-
 
         self.txtBoxPen = QPen()
         self.txtBoxPen.setStyle(Qt.DashLine)
@@ -682,12 +692,56 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.rects.append(rect)
 
         # self.pbmainwin.setWidget(self.pbview)
+        # ------ PbRun layout End ------ #
 
-        self.pbInfoWidget = QWidget()
-        self.pbInfoLayout = QtWidgets.QVBoxLayout(self)
-        self.pbInfoLayout.setAlignment(Qt.AlignTop)
+        # ------ pbsk header layout Start ----- #
+        self.pbskAppLabel = QtWidgets.QLabel("App: ")
+        self.pbskAppLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskAppEdit = QtWidgets.QLineEdit()
+        self.pbskAppEdit.setPlaceholderText("type in App name here")
+        self.pbskAppEdit.textChanged.connect(self.appDomainPage_changed)
+
+        self.pbskDomainLabel = QtWidgets.QLabel("Domain: ")
+        self.pbskDomainLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskDomainEdit = QtWidgets.QLineEdit()
+        self.pbskDomainEdit.setPlaceholderText("type in Domain name here")
+        self.pbskDomainEdit.textChanged.connect(self.appDomainPage_changed)
 
         self.pbInfoLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Info Type:"), alignment=QtCore.Qt.AlignLeft)
+        self.pbskPageLabel = QtWidgets.QLabel("Page: ")
+        self.pbskPageLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskPageEdit = QtWidgets.QLineEdit()
+        self.pbskPageEdit.setPlaceholderText("type in page name here")
+        self.pbskPageEdit.textChanged.connect(self.appDomainPage_changed)
+
+        self.pbskSkillLabel = QtWidgets.QLabel("Skill: ")
+        self.pbskSkillLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskSkillEdit = QtWidgets.QLineEdit()
+        self.pbskSkillEdit.setPlaceholderText("type in skill name here")
+        self.pbskSkillEdit.textChanged.connect(self.appDomainPage_changed)
+
+        self.pbActionLabel = QtWidgets.QLabel("Action: ")
+        self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbActionSel = QtWidgets.QComboBox()
+        self.add_items_of_combobox(self.pbActionSel, ACTION_ITEMS)
+        self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
+
+        pbsk_headers_widgets = [
+            (self.pbskAppLabel, self.pbskAppEdit),
+            (self.pbskDomainLabel, self.pbskDomainEdit),
+            (self.pbskPageLabel, self.pbskPageEdit),
+            (self.pbskSkillLabel, self.pbskSkillEdit),
+            (self.pbActionLabel, self.pbActionSel)
+        ]
+        self.pbsk_header_layout = QGridLayout()
+        self.add_widgets_of_gridlayout(self.pbsk_header_layout, pbsk_headers_widgets)
+        self.pbsk_header_widget = QWidget()
+        self.pbsk_header_widget.setLayout(self.pbsk_header_layout)
+        # ------ pbsk header layout End ----- #
+
+        # ------ pbsk PbInfo Part Start -------- #
+        self.pbInfoLabel = QtWidgets.QLabel("Info Type: ")
+        self.pbInfoLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbInfoSel = QtWidgets.QComboBox()
         self.pbInfoSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Anchor"))
         self.pbInfoSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Useful Data"))
@@ -702,11 +756,7 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         self.pbNRefLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "# of Refs:"), alignment=QtCore.Qt.AlignLeft)
         self.pbNRefSel = QtWidgets.QComboBox()
-        self.pbNRefSel.addItem('0')
-        self.pbNRefSel.addItem('1')
-        self.pbNRefSel.addItem('2')
-        self.pbNRefSel.addItem('3')
-        self.pbNRefSel.addItem('4')
+        self.add_items_of_combobox(self.pbNRefSel, ['0', '1', '2', '3', '4'])
         self.pbNRefSel.currentTextChanged.connect(self.pbNRefSel_changed)
 
         self.pbATLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Anchor Type:"), alignment=QtCore.Qt.AlignLeft)
@@ -1214,12 +1264,62 @@ class SkillGUI(QtWidgets.QMainWindow):
         # self.stepListModel.appendRow(newst)
 
 
+        pbinfo_widgets = [
+            (self.pbInfoNameLabel, self.pbInfoNameEdit),                # L0
+            (self.pbInfoLabel, self.pbInfoSel),                         # L1
+            (self.pbATLabel, self.pbATSel),                             # L2A
+            (self.pbRTLabel, self.pbRTSel),                             # L2
+            (self.pbNRefLabel, self.pbNRefSel),                         # L2B
+            (self.pbDTLabel, self.pbDTSel),                             # L3
+            (self.pbNLabel, self.pbNEdit),                              # L4
+            (self.pbRef1NameLabel, self.pbRef1NameEdit),                # ref1 L5
+            (self.pbRef1XOffsetDirLabel, self.pbRef1XOffsetDirSel),     # L6
+            (self.pbRef1XOffsetTypeLabel, self.pbRef1XOffsetTypeSel),   # L6A
+            (self.pbRef1XOffsetValLabel, self.pbRef1XOffsetValEdit),    # L6B
+            (self.pbRef1XOffsetUnitLabel, self.pbRef1XOffsetUnitSel),   # L6C
+            (self.pbRef1YOffsetDirLabel, self.pbRef1YOffsetDirSel),     # L7
+            (self.pbRef1YOffsetTypeLabel, self.pbRef1YOffsetTypeSel),   # L7A
+            (self.pbRef1YOffsetValLabel, self.pbRef1YOffsetValEdit),    # L7B
+            (self.pbRef1YOffsetUnitLabel, self.pbRef1YOffsetUnitSel),   # L7C
+            (self.pbRef2NameLabel, self.pbRef2NameEdit),                # ref2 L8
+            (self.pbRef2XOffsetDirLabel, self.pbRef2XOffsetDirSel),     # L9
+            (self.pbRef2XOffsetTypeLabel, self.pbRef2XOffsetTypeSel),   # L9A
+            (self.pbRef2XOffsetValLabel, self.pbRef2XOffsetValEdit),    # L9B
+            (self.pbRef2XOffsetUnitLabel, self.pbRef2XOffsetUnitSel),   # L9C
+            (self.pbRef2YOffsetDirLabel, self.pbRef2YOffsetDirSel),     # L10
+            (self.pbRef2YOffsetTypeLabel, self.pbRef2YOffsetTypeSel),   # L10A
+            (self.pbRef2YOffsetValLabel, self.pbRef2YOffsetValEdit),    # L10B
+            (self.pbRef2YOffsetUnitLabel, self.pbRef2YOffsetUnitSel),   # L10C
+            (self.pbRef3NameLabel, self.pbRef3NameEdit),                # ref3 L11
+            (self.pbRef3XOffsetDirLabel, self.pbRef3XOffsetDirSel),     # L12
+            (self.pbRef3XOffsetTypeLabel, self.pbRef3XOffsetTypeSel),   # L12A
+            (self.pbRef3XOffsetValLabel, self.pbRef3XOffsetValEdit),    # L12B
+            (self.pbRef3XOffsetUnitLabel, self.pbRef3XOffsetUnitSel),   # L12C
+            (self.pbRef3YOffsetDirLabel, self.pbRef3YOffsetDirSel),     # L13
+            (self.pbRef3YOffsetTypeLabel, self.pbRef3YOffsetTypeSel),   # L13A
+            (self.pbRef3YOffsetValLabel, self.pbRef3YOffsetValEdit),    # L13B
+            (self.pbRef3YOffsetUnitLabel, self.pbRef3YOffsetUnitSel),   # L13C
+            (self.pbRef4NameLabel, self.pbRef4NameEdit),                # ref4 L14
+            (self.pbRef4XOffsetDirLabel, self.pbRef4XOffsetDirSel),     # L15
+            (self.pbRef4XOffsetTypeLabel, self.pbRef4XOffsetTypeSel),   # L15A
+            (self.pbRef4XOffsetValLabel, self.pbRef4XOffsetValEdit),    # L15B
+            (self.pbRef4XOffsetUnitLabel, self.pbRef4XOffsetUnitSel),   # L15C
+            (self.pbRef4YOffsetDirLabel, self.pbRef4YOffsetDirSel),     # L16
+            (self.pbRef4YOffsetTypeLabel, self.pbRef4YOffsetTypeSel),   # L16A
+            (self.pbRef4YOffsetValLabel, self.pbRef4YOffsetValEdit),    # L16B
+            (self.pbRef4YOffsetUnitLabel, self.pbRef4YOffsetUnitSel)    # L16C
+            ]
+        self.pbInfoLayout = QtWidgets.QGridLayout()
+        self.add_widgets_of_gridlayout(self.pbInfoLayout, pbinfo_widgets)
+        self.pbInfoWidget = QWidget()
         self.pbInfoWidget.setLayout(self.pbInfoLayout)
 
         self.pbInfoArea = QtWidgets.QScrollArea()
-        self.pbInfoArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbInfoArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbInfoArea.setWidgetResizable(True)
         self.pbInfoArea.setWidget(self.pbInfoWidget)
+        # ------- pbsk PbInfo Part End ------- #
 
         self.pbStepNameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Step Name:"), alignment=QtCore.Qt.AlignLeft)
         self.pbStepNameEdit = QtWidgets.QLineEdit()
@@ -1380,41 +1480,44 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbActionL15Layout.addWidget(self.pbWaittimeLabel)
         self.pbActionL15Layout.addWidget(self.pbWaittimeEdit)
 
+        pbAction_widgets = [
+            (self.pbStepNameLabel, self.pbStepNameEdit),                    # L0
+            (self.pbStepNumberLabel, self.pbStepNumberEdit),                # L0A
+            (self.pbStepPrevNextLabel, self.pbStepPrevNextSel),             # L0B
+            (self.pbStepPrevNextNameLabel, self.pbStepPrevNextNameEdit),    # L0C
+            # (self.pbActionLabel, self.pbActionSel),                         # L1
+            (self.pbAppLinkLabel, self.pbAppLinkEdit),                      # L2
+            (self.pbPageURLLabel, self.pbPageURLEdit),                      # L3
+            (self.pbDataNameLabel, self.pbDataNameEdit),                    # L4
+            (self.pbMouseActionLabel, self.pbMouseActionSel),               # L5
+            (self.pbMouseActionAmountLabel, self.pbMouseActionAmountEdit),  # L6
+            (self.pbKeyboardActionLabel, self.pbKeyboardActionEdit),        # L7
+            (self.pbDataFileLabel, self.pbDataFileEdit),                    # L8
+            (self.pbConditionLabel, self.pbConditionEdit),                  # L9
+            (self.pbConditionTrueLabel, self.pbConditionTrueEdit),          # L10
+            (self.pbConditionFalseLabel, self.pbConditionFalseEdit),        # L11
+            (self.pbJumpLabel, self.pbJumpEdit),                            # L12
+            (self.pbRoutineLabel, self.pbRoutineEdit),                      # L13
+            (self.pbExternLabel, self.pbExternEdit),                        # L14
+            (self.pbWaittimeLabel, self.pbWaittimeEdit)                     # L15
+        ]
+
+        self.pbActionLayout = QtWidgets.QGridLayout()
+        self.add_widgets_of_gridlayout(self.pbActionLayout, pbAction_widgets)
         self.pbActionWidget = QtWidgets.QWidget()
-        self.pbActionLayout = QtWidgets.QVBoxLayout(self)
-        self.pbActionLayout.setAlignment(Qt.AlignTop)
-
-        self.pbActionLayout.addLayout(self.pbActionL0Layout)
-        self.pbActionLayout.addLayout(self.pbActionL0ALayout)
-        self.pbActionLayout.addLayout(self.pbActionL0BLayout)
-        self.pbActionLayout.addLayout(self.pbActionL0CLayout)
-
-        self.pbActionLayout.addLayout(self.pbActionL2Layout)
-        self.pbActionLayout.addLayout(self.pbActionL3Layout)
-        self.pbActionLayout.addLayout(self.pbActionL4Layout)
-        self.pbActionLayout.addLayout(self.pbActionL5Layout)
-        self.pbActionLayout.addLayout(self.pbActionL6Layout)
-        self.pbActionLayout.addLayout(self.pbActionL7Layout)
-        self.pbActionLayout.addLayout(self.pbActionL8Layout)
-        self.pbActionLayout.addLayout(self.pbActionL9Layout)
-        self.pbActionLayout.addLayout(self.pbActionL10Layout)
-        self.pbActionLayout.addLayout(self.pbActionL11Layout)
-        self.pbActionLayout.addLayout(self.pbActionL12Layout)
-        self.pbActionLayout.addLayout(self.pbActionL13Layout)
-        self.pbActionLayout.addLayout(self.pbActionL14Layout)
-        self.pbActionLayout.addLayout(self.pbActionL15Layout)
-
         self.pbActionWidget.setLayout(self.pbActionLayout)
 
         self.pbActionArea = QtWidgets.QScrollArea()
-        self.pbActionArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbActionArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbActionArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbActionArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbActionArea.setWidgetResizable(True)
         self.pbActionArea.setWidget(self.pbActionWidget)
 
         self.skvtabs = QtWidgets.QTabWidget()
         self.skconsolelabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Console"), alignment=QtCore.Qt.AlignLeft)
         self.skconsole = QtWidgets.QTextBrowser()
         self.skcodeeditor = SimpleCodeEditor()
+        # -------- pbsk PbAction Part End ------- #
 
         self.skill_load_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Load Skill"))
         self.skill_save_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Save Skill"))
@@ -1454,6 +1557,8 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbrunWidget = QtWidgets.QWidget()
         self.pbrunWidget.setLayout(self.pbrunlayout)
 
+        # -------- pbsk pbtabs Start ------ #
+        self.pbtabs = QtWidgets.QTabWidget()
         self.pbtabs.addTab(self.pbInfoArea, "Feature Info")
         self.pbtabs.addTab(self.pbActionArea, "Step")
 
@@ -1494,11 +1599,15 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskALLayout.addWidget(self.pbskALLabel)
 
         self.pbskAnchorListScroll = QtWidgets.QScrollArea()
-        self.pbskAnchorListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbskAnchorListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbskAnchorListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskAnchorListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskAnchorListScroll.setWidgetResizable(True)
         self.pbskAnchorListScroll.setWidget(self.pbskAnchorListView)
 
+        self.pbskALLayout = QtWidgets.QVBoxLayout()
+        self.pbskALLayout.addWidget(self.pbskALLabel)
         self.pbskALLayout.addWidget(self.pbskAnchorListScroll)
+        self.pbskALWidget = QtWidgets.QWidget()
         self.pbskALWidget.setLayout(self.pbskALLayout)
 
         self.pbskDLLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Useful Data List:"))
@@ -1506,104 +1615,96 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskDLLayout = QtWidgets.QVBoxLayout(self)
         self.pbskDLLayout.addWidget(self.pbskDLLabel)
 
+        self.pbskDLLabel = QtWidgets.QLabel("Useful Data List:")
+        self.pbskDataListView = QtWidgets.QListView()
+        self.pbskDataListView.installEventFilter(self)
+        self.dataListModel = QtGui.QStandardItemModel(self.pbskDataListView)
+        self.pbskDataListView.setModel(self.dataListModel)
+        self.pbskDataListView.setViewMode(QtWidgets.QListView.ListMode)
+        self.pbskDataListView.setMovement(QtWidgets.QListView.Snap)
+        # newui = USER_INFO("aaa")
+        # self.dataListModel.appendRow(newui)
 
         self.pbskDataListScroll = QtWidgets.QScrollArea()
-        self.pbskDataListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbskDataListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbskDataListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskDataListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskDataListScroll.setWidgetResizable(True)
         self.pbskDataListScroll.setWidget(self.pbskDataListView)
 
+        self.pbskDLLayout = QtWidgets.QVBoxLayout()
+        self.pbskDLLayout.addWidget(self.pbskDLLabel)
         self.pbskDLLayout.addWidget(self.pbskDataListScroll)
+        self.pbskDLWidget = QtWidgets.QWidget()
         self.pbskDLWidget.setLayout(self.pbskDLLayout)
 
         self.pbskSLLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Step List:"))
         self.pbskSLWidget = QtWidgets.QWidget()
         self.pbskSLLayout = QtWidgets.QVBoxLayout(self)
         self.pbskSLLayout.addWidget(self.pbskSLLabel)
+        self.pbskSLLabel = QtWidgets.QLabel("Step List:")
+        self.pbskStepListView = QtWidgets.QListView()
+        self.pbskStepListView.installEventFilter(self)
+        self.stepListModel = QtGui.QStandardItemModel(self.pbskStepListView)
+        self.pbskStepListView.setModel(self.stepListModel)
+        self.pbskStepListView.setViewMode(QtWidgets.QListView.ListMode)
+        self.pbskStepListView.setMovement(QtWidgets.QListView.Snap)
+        # newst = PROCEDURAL_STEP("bbb")
+        # self.stepListModel.appendRow(newst)
 
         self.pbskStepListScroll = QtWidgets.QScrollArea()
-        self.pbskStepListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.pbskStepListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.pbskStepListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskStepListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskStepListScroll.setWidgetResizable(True)
         self.pbskStepListScroll.setWidget(self.pbskStepListView)
 
+        self.pbskSLLayout = QtWidgets.QVBoxLayout()
+        self.pbskSLLayout.addWidget(self.pbskSLLabel)
         self.pbskSLLayout.addWidget(self.pbskStepListScroll)
+        self.pbskSLWidget = QtWidgets.QWidget()
         self.pbskSLWidget.setLayout(self.pbskSLLayout)
+        self.pbskSLWidget.setVisible(False)
+        # ------- pbsk List View End ------- #
+
+        # ------- pbsk buttons Start ------- #
+        self.IA_Remove_button = QtWidgets.QPushButton("Remove")
+        self.IA_Add_button = QtWidgets.QPushButton("Add")
+        self.IA_Save_button = QtWidgets.QPushButton("Save")
+
+        self.IA_Remove_button.clicked.connect(self.ia_remove)
+        self.IA_Add_button.clicked.connect(self.ia_add)
+        self.IA_Save_button.clicked.connect(self.ia_save)
+
+        self.pbskButtonsLayout = QtWidgets.QHBoxLayout()
+        self.pbskButtonsLayout.addWidget(self.IA_Remove_button)
+        self.pbskButtonsLayout.addWidget(self.IA_Add_button)
+        self.pbskButtonsLayout.addWidget(self.IA_Save_button)
 
         self.pbskButtonsWidget = QtWidgets.QWidget()
         self.pbskButtonsWidget.setLayout(self.pbskButtonsLayout)
+        # ------- pbsk buttons End ------- #
+
+        self.hsplitter2 = QtWidgets.QSplitter(Qt.Vertical)
         self.hsplitter2.addWidget(self.pbtabs)
         self.hsplitter2.addWidget(self.pbskALWidget)
         self.hsplitter2.addWidget(self.pbskDLWidget)
         self.hsplitter2.addWidget(self.pbskSLWidget)
-        self.pbskSLWidget.setVisible(False)
         self.hsplitter2.addWidget(self.pbskButtonsWidget)
 
-        self.pbsklayout.addLayout(self.pbskl1Layout)
-        self.pbsklayout.addLayout(self.pbskl1ALayout)
-        self.pbsklayout.addLayout(self.pbskl2Layout)
-        self.pbsklayout.addLayout(self.pbskl3Layout)
-        self.pbsklayout.addLayout(self.pbActionL1Layout)
+        self.pbsklayout = QtWidgets.QVBoxLayout()
+        self.pbsklayout.addWidget(self.pbsk_header_widget)
         self.pbsklayout.addWidget(self.hsplitter2)
-
-
 
         self.pbskWidget = QtWidgets.QWidget()
         self.pbskWidget.setLayout(self.pbsklayout)
 
-        self.skblayout.addWidget(self.skill_load_button)
-        self.skblayout.addWidget(self.skill_run_button)
-        self.skblayout.addWidget(self.skill_step_button)
-        self.skblayout.addWidget(self.skill_save_button)
-        self.skblayout.addWidget(self.skill_cancel_button)
-
-        self.skCodeWidget.setWidget(self.skcodeeditor)
-        self.skFCWidget.setWidget(self.skFCDiagram)
-
-        self.skvtabs.addTab(self.skFCDiagram.widget, "Flow Chart")
-        self.skvtabs.addTab(self.skCodeWidget, "Code")
-
-
-        self.hsplitter1.addWidget(self.skvtabs)
-        self.consoleWidget = QtWidgets.QWidget()
-        self.consoleLayout = QtWidgets.QVBoxLayout(self)
-        self.consoleLayout.addWidget(self.skconsolelabel)
-        self.consoleLayout.addWidget(self.skconsole)
-        self.consoleWidget.setLayout(self.consoleLayout)
-        self.hsplitter1.addWidget(self.consoleWidget)
-
-        self.sklayout.addWidget(self.hsplitter1)
-        self.sklayout.addLayout(self.skblayout)
-
-        self.layout = QtWidgets.QHBoxLayout(self)
-
-
-        self.skWidget = QtWidgets.QWidget()
-        self.skWidget.setLayout(self.sklayout)
-
-        self.vsplitter1.addWidget(self.pbrunWidget)
-        self.vsplitter1.addWidget(self.pbskWidget)
-        self.vsplitter1.addWidget(self.skWidget)
-        self.vsplitter1.setStretchFactor(1, 1)
-        self.vsplitter1.setChildrenCollapsible(0)
-        self.vsplitter1.setChildrenCollapsible(1)
-
-        self.pbtabs.currentChanged.connect(self.IndividualItemChanged)
-
-        #self.layout.addLayout(self.pblayout)
-        #self.layout.addLayout(self.sklayout)
-        self.layout.addWidget(self.vsplitter1)
-
-        self.mainWidget.setLayout(self.layout)
-        self.setCentralWidget(self.mainWidget)
-
-        app = QtWidgets.QApplication.instance()
-        screen = app.primaryScreen()
-        #print('Screen: %s' % screen.name())
-        size = screen.size()
-        print('Size: %d x %d' % (size.width(), size.height()))
-
-        self.IA_Add_button.clicked.connect(self.ia_add)
-        self.IA_Save_button.clicked.connect(self.ia_save)
-        self.IA_Remove_button.clicked.connect(self.ia_remove)
+        # ------ sk layout start ------- #
+        self.skill_load_button = QtWidgets.QPushButton("Load Skill")
+        self.skill_save_button = QtWidgets.QPushButton("Save Skill")
+        self.skill_cancel_button = QtWidgets.QPushButton("Cancel")
+        self.skill_run_button = QtWidgets.QPushButton("Trial Run")
+        self.skill_step_button = QtWidgets.QPushButton("Step")
+        self.skill_stop_button = QtWidgets.QPushButton("Stop")
+        self.skill_resume_button = QtWidgets.QPushButton("Continue")
 
         self.skill_load_button.clicked.connect(self.load_skill_file)
         self.skill_save_button.clicked.connect(self.save_skill_file)
@@ -1613,8 +1714,80 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skill_stop_button.clicked.connect(self.stop_run)
         self.skill_resume_button.clicked.connect(self.continue_run)
 
+        self.skblayout = QtWidgets.QHBoxLayout()
+        self.skblayout.addWidget(self.skill_load_button)
+        self.skblayout.addWidget(self.skill_run_button)
+        self.skblayout.addWidget(self.skill_step_button)
+        self.skblayout.addWidget(self.skill_save_button)
+        self.skblayout.addWidget(self.skill_cancel_button)
+
+        self.skFCWidget = SkFCWidget()
+        self.skCodeWidget = PMGPythonEditor()
+
+        self.skvtabs = QtWidgets.QTabWidget()
+        self.skvtabs.addTab(self.skFCWidget, "Flow Chart")
+        self.skvtabs.addTab(self.skCodeWidget, "Code")
+
+        self.skconsolelabel = QtWidgets.QLabel("Console")
+        self.skconsolelabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.skconsole = QtWidgets.QTextBrowser()
+        self.consoleLayout = QtWidgets.QVBoxLayout()
+        self.consoleLayout.addWidget(self.skconsolelabel)
+        self.consoleLayout.addWidget(self.skconsole)
+
+        self.consoleWidget = QtWidgets.QWidget()
+        self.consoleWidget.setLayout(self.consoleLayout)
+
+        self.hsplitter1 = QtWidgets.QSplitter(Qt.Vertical)
+        self.hsplitter1.addWidget(self.skvtabs)
+        self.hsplitter1.addWidget(self.consoleWidget)
+
+        self.sklayout = QtWidgets.QVBoxLayout()
+        self.sklayout.addWidget(self.hsplitter1)
+        self.sklayout.addLayout(self.skblayout)
+
+        self.skWidget = QtWidgets.QWidget()
+        self.skWidget.setLayout(self.sklayout)
+        # -------- sk layout end ------ #
+
+        # ------ main layout ------- #
+        self.vsplitter1 = QtWidgets.QSplitter(Qt.Horizontal)
+        self.vsplitter1.addWidget(self.pbrunWidget)
+        self.vsplitter1.addWidget(self.pbskWidget)
+        self.vsplitter1.addWidget(self.skWidget)
+        self.vsplitter1.setStretchFactor(0, 1)
+        self.vsplitter1.setStretchFactor(1, 1)
+        self.vsplitter1.setStretchFactor(2, 3)
+        # self.vsplitter1.setChildrenCollapsible(0)
+        # self.vsplitter1.setChildrenCollapsible(1)
+
+        self.layout = QtWidgets.QHBoxLayout()
+        self.layout.addWidget(self.vsplitter1)
+
+        self.mainWidget = QtWidgets.QWidget()
+        self.mainWidget.setLayout(self.layout)
+        self.setCentralWidget(self.mainWidget)
+
+        # app = QtWidgets.QApplication.instance()
+        # screen = app.primaryScreen()
+        # #print('Screen: %s' % screen.name())
+        # size = screen.size()
+        # print('Size: %d x %d' % (size.width(), size.height()))
+
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
+
+    def add_items_of_combobox(self, combobox: QComboBox, items: []):
+        for item in items:
+            combobox.addItem(item)
+
+    def add_widgets_of_gridlayout(self, gridlayout: QGridLayout, widgets: ()):
+        for i, (w1, w2) in enumerate(widgets):
+            gridlayout.addWidget(w1, i, 0)
+            gridlayout.addWidget(w2, i, 1)
+
+            gridlayout.setAlignment(w1, Qt.AlignmentFlag.AlignVCenter)
+            gridlayout.setAlignment(w2, Qt.AlignmentFlag.AlignVCenter)
 
     def set_pb_mode(self, inmode):
         self.pb_mode = inmode
@@ -1727,10 +1900,10 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbDataFileEdit.setVisible(True)
 
 
-
     # UI based on action type.
     def pbActionSel_changed(self):
-        if self.pbActionSel.currentText() == 'App Page Open':
+        pbActionSel_text = self.pbActionSel.currentText()
+        if pbActionSel_text == 'App Page Open':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1741,7 +1914,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.show_app_page()
-        elif self.pbActionSel.currentText() == 'Create Data':
+        elif pbActionSel_text == 'Create Data':
             self.hide_condition()
             self.hide_data_file()
             self.show_data_name()
@@ -1752,7 +1925,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Browse':
+        elif pbActionSel_text == 'Browse':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1763,7 +1936,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Mouse Action':
+        elif pbActionSel_text == 'Mouse Action':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1774,7 +1947,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Keyboard Action':
+        elif pbActionSel_text == 'Keyboard Action':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1785,7 +1958,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Load Data':
+        elif pbActionSel_text == 'Load Data':
             self.hide_condition()
             self.show_data_file()
             self.show_data_name()
@@ -1796,7 +1969,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Save Data':
+        elif pbActionSel_text == 'Save Data':
             self.hide_condition()
             self.show_data_file()
             self.show_data_name()
@@ -1807,7 +1980,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Conditional Step':
+        elif pbActionSel_text == 'Conditional Step':
             self.show_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1818,7 +1991,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Jump Step':
+        elif pbActionSel_text == 'Jump Step':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1829,7 +2002,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Set Wait':
+        elif pbActionSel_text == 'Set Wait':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1840,7 +2013,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.hide_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Run Routine':
+        elif pbActionSel_text == 'Run Routine':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1851,7 +2024,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.hide_extern()
             self.show_routine()
             self.hide_app_page()
-        elif self.pbActionSel.currentText() == 'Run External':
+        elif pbActionSel_text == 'Run External':
             self.hide_condition()
             self.hide_data_file()
             self.hide_data_name()
@@ -1895,24 +2068,24 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def start_train(self):
         print("start training...")
-        file_name = self.homepath + "resource/songc_yahoo/win/chrome_amz_main/temp/step1.png"
+        file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step1.png"
         self.req_train(file_name)
 
     def train_next_step(self):
         self.step_count = self.step_count + 1
-        file_name = self.homepath + "resource/songc_yahoo/win/chrome_amz_main/temp/step" + str(self.step_count) + ".png"
+        file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step" + str(self.step_count) + ".png"
         print("next step... ", self.step_count)
         self.req_train(file_name)
 
-
     def train_prev_step(self):
         self.step_count = self.step_count - 1
-        file_name = self.homepath + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
+        file_name = self.home_path + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
         print("prev step... ", self.step_count)
         self.req_train(file_name)
+
     def re_train_step(self):
         print("refresh... ", self.step_count)
-        file_name = self.homepath + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
+        file_name = self.home_path + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
         self.req_train(file_name)
 
     def remove_all_rects(self):
@@ -2073,7 +2246,6 @@ class SkillGUI(QtWidgets.QMainWindow):
        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clear Bound Box"))
        return new_action
 
-
     def formRectPos(self, start, end):
         x = start.x()
         y = start.y()
@@ -2086,6 +2258,54 @@ class SkillGUI(QtWidgets.QMainWindow):
             y = end.y()
 
         return x, y, w, h
+
+    def get_ref1xy(self):
+        refx = {"dir": self.pbRef1XOffsetDirSel.currentText(),
+                "type": self.pbRef1XOffsetTypeSel.currentText(),
+                "val": self.pbRef1XOffsetValEdit.text(),
+                "unit": self.pbRef1XOffsetUnitSel.currentText()}
+        refy = {"dir": self.pbRef1YOffsetDirSel.currentText(),
+                "type": self.pbRef1YOffsetTypeSel.currentText(),
+                "val": self.pbRef1YOffsetValEdit.text(),
+                "unit": self.pbRef1YOffsetUnitSel.currentText()}
+
+        return refx, refy
+
+    def get_ref2xy(self):
+        refx = {"dir": self.pbRef2XOffsetDirSel.currentText(),
+                "type": self.pbRef2XOffsetTypeSel.currentText(),
+                "val": self.pbRef2XOffsetValEdit.text(),
+                "unit": self.pbRef2XOffsetUnitSel.currentText()}
+        refy = {"dir": self.pbRef2YOffsetDirSel.currentText(),
+                "type": self.pbRef2YOffsetTypeSel.currentText(),
+                "val": self.pbRef2YOffsetValEdit.text(),
+                "unit": self.pbRef2YOffsetUnitSel.currentText()}
+
+        return refx, refy
+
+    def get_ref3xy(self):
+        refx = {"dir": self.pbRef3XOffsetDirSel.currentText(),
+                "type": self.pbRef3XOffsetTypeSel.currentText(),
+                "val": self.pbRef3XOffsetValEdit.text(),
+                "unit": self.pbRef3XOffsetUnitSel.currentText()}
+        refy = {"dir": self.pbRef3YOffsetDirSel.currentText(),
+                "type": self.pbRef3YOffsetTypeSel.currentText(),
+                "val": self.pbRef3YOffsetValEdit.text(),
+                "unit": self.pbRef3YOffsetUnitSel.currentText()}
+
+        return refx, refy
+
+    def get_ref4xy(self):
+        refx = {"dir": self.pbRef4XOffsetDirSel.currentText(),
+                "type": self.pbRef4XOffsetTypeSel.currentText(),
+                "val": self.pbRef4XOffsetValEdit.text(),
+                "unit": self.pbRef4XOffsetUnitSel.currentText()}
+        refy = {"dir": self.pbRef4YOffsetDirSel.currentText(),
+                "type": self.pbRef4YOffsetTypeSel.currentText(),
+                "val": self.pbRef4YOffsetValEdit.text(),
+                "unit": self.pbRef4YOffsetUnitSel.currentText()}
+
+        return refx, refy
 
     def ia_add(self):
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
@@ -2109,58 +2329,28 @@ class SkillGUI(QtWidgets.QMainWindow):
                 self.newAnchor.set_ref_method(self.pbRTSel.currentText())
 
                 if self.pbNRefSel.currentText == '1':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref1xy()
                     self.newAnchor.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                elif  self.pbNRefSel.currentText == '2':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                elif self.pbNRefSel.currentText == '2':
+                    refx, refy = self.get_ref1xy()
                     self.newAnchor.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newAnchor.add_ref(self.pbRef2NameEdit.text(), refx, refy)
                 elif self.pbNRefSel.currentText == '3':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref1xy()
                     self.newAnchor.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newAnchor.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef3XOffsetDirSel.currentText(), "type": self.pbRef3XOffsetTypeSel.currentText(),
-                            "val": self.pbRef3XOffsetValEdit.text(), "unit": self.pbRef3XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef3YOffsetDirSel.currentText(), "type": self.pbRef3YOffsetTypeSel.currentText(),
-                            "val": self.pbRef3YOffsetValEdit.text(), "unit": self.pbRef3YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref3xy()
                     self.newAnchor.add_ref(self.pbRef3NameEdit.text(), refx, refy)
                 elif self.pbNRefSel.currentText == '4':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref1xy()
                     self.newAnchor.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newAnchor.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef3XOffsetDirSel.currentText(), "type": self.pbRef3XOffsetTypeSel.currentText(),
-                            "val": self.pbRef3XOffsetValEdit.text(), "unit": self.pbRef3XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef3YOffsetDirSel.currentText(), "type": self.pbRef3YOffsetTypeSel.currentText(),
-                            "val": self.pbRef3YOffsetValEdit.text(), "unit": self.pbRef3YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref3xy()
                     self.newAnchor.add_ref(self.pbRef3NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef4XOffsetDirSel.currentText(), "type": self.pbRef4XOffsetTypeSel.currentText(),
-                            "val": self.pbRef4XOffsetValEdit.text(), "unit": self.pbRef4XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef4YOffsetDirSel.currentText(), "type": self.pbRef4YOffsetTypeSel.currentText(),
-                            "val": self.pbRef4YOffsetValEdit.text(), "unit": self.pbRef4YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref4xy()
                     self.newAnchor.add_ref(self.pbRef4NameEdit.text(), refx, refy)
                     print("ready to add....")
                 self.anchorListModel.appendRow(self.newAnchor)
@@ -2170,86 +2360,58 @@ class SkillGUI(QtWidgets.QMainWindow):
                 self.newUserInfo.set_type(self.pbDTSel.currentText())
                 self.newUserInfo.set_nlines(self.pbNEdit.text())
                 self.newUserInfo.set_ref_method(self.pbRTSel.currentText())
-                if self.pbNRefSel.currentText == '1':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                pbNRefSel_text = self.pbNRefSel.currentText
+                if pbNRefSel_text == '1':
+                    refx, refy = self.get_ref1xy()
                     self.newUserInfo.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                elif  self.pbNRefSel.currentText == '2':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                elif pbNRefSel_text == '2':
+                    refx, refy = self.get_ref1xy()
                     self.newUserInfo.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newUserInfo.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                elif self.pbNRefSel.currentText == '3':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                elif pbNRefSel_text == '3':
+                    refx, refy = self.get_ref1xy()
                     self.newUserInfo.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newUserInfo.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef3XOffsetDirSel.currentText(), "type": self.pbRef3XOffsetTypeSel.currentText(),
-                            "val": self.pbRef3XOffsetValEdit.text(), "unit": self.pbRef3XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef3YOffsetDirSel.currentText(), "type": self.pbRef3YOffsetTypeSel.currentText(),
-                            "val": self.pbRef3YOffsetValEdit.text(), "unit": self.pbRef3YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref3xy()
                     self.newUserInfo.add_ref(self.pbRef3NameEdit.text(), refx, refy)
-                elif self.pbNRefSel.currentText == '4':
-                    refx = {"dir": self.pbRef1XOffsetDirSel.currentText(), "type": self.pbRef1XOffsetTypeSel.currentText(),
-                            "val": self.pbRef1XOffsetValEdit.text(), "unit": self.pbRef1XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef1YOffsetDirSel.currentText(), "type": self.pbRef1YOffsetTypeSel.currentText(),
-                            "val": self.pbRef1YOffsetValEdit.text(), "unit": self.pbRef1YOffsetUnitSel.currentText()}
+                elif pbNRefSel_text == '4':
+                    refx, refy = self.get_ref1xy()
                     self.newUserInfo.add_ref(self.pbRef1NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef2XOffsetDirSel.currentText(), "type": self.pbRef2XOffsetTypeSel.currentText(),
-                            "val": self.pbRef2XOffsetValEdit.text(), "unit": self.pbRef2XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef2YOffsetDirSel.currentText(), "type": self.pbRef2YOffsetTypeSel.currentText(),
-                            "val": self.pbRef2YOffsetValEdit.text(), "unit": self.pbRef2YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref2xy()
                     self.newUserInfo.add_ref(self.pbRef2NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef3XOffsetDirSel.currentText(), "type": self.pbRef3XOffsetTypeSel.currentText(),
-                            "val": self.pbRef3XOffsetValEdit.text(), "unit": self.pbRef3XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef3YOffsetDirSel.currentText(), "type": self.pbRef3YOffsetTypeSel.currentText(),
-                            "val": self.pbRef3YOffsetValEdit.text(), "unit": self.pbRef3YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref3xy()
                     self.newUserInfo.add_ref(self.pbRef3NameEdit.text(), refx, refy)
-                    refx = {"dir": self.pbRef4XOffsetDirSel.currentText(), "type": self.pbRef4XOffsetTypeSel.currentText(),
-                            "val": self.pbRef4XOffsetValEdit.text(), "unit": self.pbRef4XOffsetUnitSel.currentText()}
-                    refy = {"dir": self.pbRef4YOffsetDirSel.currentText(), "type": self.pbRef4YOffsetTypeSel.currentText(),
-                            "val": self.pbRef4YOffsetValEdit.text(), "unit": self.pbRef4YOffsetUnitSel.currentText()}
+                    refx, refy = self.get_ref4xy()
                     self.newUserInfo.add_ref(self.pbRef4NameEdit.text(), refx, refy)
                 self.dataListModel.appendRow(self.newUserInfo)
 
         elif self.pbtabs.currentIndex() == 1:
             print("add a new step....")
-            new_step = PROCEDURAL_STEP(self.pbActionSel.currentText())
-            if self.pbActionSel.currentText() == 'App Page Open':
+            pbActionSel_text = self.pbActionSel.currentText()
+            new_step = PROCEDURAL_STEP(pbActionSel_text)
+            if pbActionSel_text == 'App Page Open':
                 new_step.set_app_page(self.pbAppLinkEdit.text(), self.pbPageURLEdit.text())
-            elif self.pbActionSel.currentText() == 'Create Data':
+            elif pbActionSel_text == 'Create Data':
                 new_step.set_data_name(self.pbDataNameEdit.text())
-            elif self.pbActionSel.currentText() == 'Mouse Action':
+            elif pbActionSel_text == 'Mouse Action':
                 new_step.set_mouse_action(self.pbMouseActionSel.currentText(), self.pbMouseActionAmountEdit.text())
-            elif self.pbActionSel.currentText() == 'Keyboard Action':
+            elif pbActionSel_text == 'Keyboard Action':
                 new_step.set_keyboard_action(self.pbKeyboardActionEdit.text())
-            elif self.pbActionSel.currentText() == 'Load Data':
+            elif pbActionSel_text == 'Load Data':
                 new_step.set_data_file(self.pbDataFileEdit.text())
-            elif self.pbActionSel.currentText() == 'Save Data':
+            elif pbActionSel_text == 'Save Data':
                 new_step.set_data_file(self.pbDataFileEdit.text())
-            elif self.pbActionSel.currentText() == 'Conditional Step':
+            elif pbActionSel_text == 'Conditional Step':
                 new_step.set_condition_jump(self.pbConditionEdit.text(), self.pbConditionTrueEdit.text(), self.pbConditionFalseEdit.text())
-            elif self.pbActionSel.currentText() == 'Jump Step':
+            elif pbActionSel_text == 'Jump Step':
                 new_step.set_jump(self.pbJumpEdit.text())
-            elif self.pbActionSel.currentText() == 'Set Wait':
+            elif pbActionSel_text == 'Set Wait':
                 new_step.set_wait(self.pbWaittimeEdit.text())
-            elif self.pbActionSel.currentText() == 'Run Routine':
+            elif pbActionSel_text == 'Run Routine':
                 new_step.set_routine(self.pbRoutineEdit.text())
-            elif self.pbActionSel.currentText() == 'Run External':
+            elif pbActionSel_text == 'Run External':
                 new_step.set_extern(self.pbExternEdit.text())
             self.stepListModel.appendRow(new_step)
 
@@ -2280,168 +2442,85 @@ class SkillGUI(QtWidgets.QMainWindow):
         elif self.pbtabs.currentIndex() == 1:
             print("hohoho")
 
-    def show_ref1(self):
-        self.pbRef1NameLabel.setVisible(True)
-        self.pbRef1NameEdit.setVisible(True)
-        self.pbRef1XOffsetDirLabel.setVisible(True)
-        self.pbRef1XOffsetDirSel.setVisible(True)
-        self.pbRef1XOffsetTypeLabel.setVisible(True)
-        self.pbRef1XOffsetTypeSel.setVisible(True)
-        self.pbRef1XOffsetValLabel.setVisible(True)
-        self.pbRef1XOffsetValEdit.setVisible(True)
-        self.pbRef1XOffsetUnitLabel.setVisible(True)
-        self.pbRef1XOffsetUnitSel.setVisible(True)
-        self.pbRef1YOffsetDirLabel.setVisible(True)
-        self.pbRef1YOffsetDirSel.setVisible(True)
-        self.pbRef1YOffsetTypeLabel.setVisible(True)
-        self.pbRef1YOffsetTypeSel.setVisible(True)
-        self.pbRef1YOffsetValLabel.setVisible(True)
-        self.pbRef1YOffsetValEdit.setVisible(True)
-        self.pbRef1YOffsetUnitLabel.setVisible(True)
-        self.pbRef1YOffsetUnitSel.setVisible(True)
+    def show_ref1(self, visible: bool):
+        self.pbRef1NameLabel.setVisible(visible)
+        self.pbRef1NameEdit.setVisible(visible)
+        self.pbRef1XOffsetDirLabel.setVisible(visible)
+        self.pbRef1XOffsetDirSel.setVisible(visible)
+        self.pbRef1XOffsetTypeLabel.setVisible(visible)
+        self.pbRef1XOffsetTypeSel.setVisible(visible)
+        self.pbRef1XOffsetValLabel.setVisible(visible)
+        self.pbRef1XOffsetValEdit.setVisible(visible)
+        self.pbRef1XOffsetUnitLabel.setVisible(visible)
+        self.pbRef1XOffsetUnitSel.setVisible(visible)
+        self.pbRef1YOffsetDirLabel.setVisible(visible)
+        self.pbRef1YOffsetDirSel.setVisible(visible)
+        self.pbRef1YOffsetTypeLabel.setVisible(visible)
+        self.pbRef1YOffsetTypeSel.setVisible(visible)
+        self.pbRef1YOffsetValLabel.setVisible(visible)
+        self.pbRef1YOffsetValEdit.setVisible(visible)
+        self.pbRef1YOffsetUnitLabel.setVisible(visible)
+        self.pbRef1YOffsetUnitSel.setVisible(visible)
 
-    def hide_ref1(self):
-        self.pbRef1NameLabel.setVisible(False)
-        self.pbRef1NameEdit.setVisible(False)
-        self.pbRef1XOffsetDirLabel.setVisible(False)
-        self.pbRef1XOffsetDirSel.setVisible(False)
-        self.pbRef1XOffsetTypeLabel.setVisible(False)
-        self.pbRef1XOffsetTypeSel.setVisible(False)
-        self.pbRef1XOffsetValLabel.setVisible(False)
-        self.pbRef1XOffsetValEdit.setVisible(False)
-        self.pbRef1XOffsetUnitLabel.setVisible(False)
-        self.pbRef1XOffsetUnitSel.setVisible(False)
-        self.pbRef1YOffsetDirLabel.setVisible(False)
-        self.pbRef1YOffsetDirSel.setVisible(False)
-        self.pbRef1YOffsetTypeLabel.setVisible(False)
-        self.pbRef1YOffsetTypeSel.setVisible(False)
-        self.pbRef1YOffsetValLabel.setVisible(False)
-        self.pbRef1YOffsetValEdit.setVisible(False)
-        self.pbRef1YOffsetUnitLabel.setVisible(False)
-        self.pbRef1YOffsetUnitSel.setVisible(False)
+    def show_ref2(self, visible: bool):
+        self.pbRef2NameLabel.setVisible(visible)
+        self.pbRef2NameEdit.setVisible(visible)
+        self.pbRef2XOffsetDirLabel.setVisible(visible)
+        self.pbRef2XOffsetDirSel.setVisible(visible)
+        self.pbRef2XOffsetTypeLabel.setVisible(visible)
+        self.pbRef2XOffsetTypeSel.setVisible(visible)
+        self.pbRef2XOffsetValLabel.setVisible(visible)
+        self.pbRef2XOffsetValEdit.setVisible(visible)
+        self.pbRef2XOffsetUnitLabel.setVisible(visible)
+        self.pbRef2XOffsetUnitSel.setVisible(visible)
+        self.pbRef2YOffsetDirLabel.setVisible(visible)
+        self.pbRef2YOffsetDirSel.setVisible(visible)
+        self.pbRef2YOffsetTypeLabel.setVisible(visible)
+        self.pbRef2YOffsetTypeSel.setVisible(visible)
+        self.pbRef2YOffsetValLabel.setVisible(visible)
+        self.pbRef2YOffsetValEdit.setVisible(visible)
+        self.pbRef2YOffsetUnitLabel.setVisible(visible)
+        self.pbRef2YOffsetUnitSel.setVisible(visible)
 
-    def show_ref2(self):
-        self.pbRef2NameLabel.setVisible(True)
-        self.pbRef2NameEdit.setVisible(True)
-        self.pbRef2XOffsetDirLabel.setVisible(True)
-        self.pbRef2XOffsetDirSel.setVisible(True)
-        self.pbRef2XOffsetTypeLabel.setVisible(True)
-        self.pbRef2XOffsetTypeSel.setVisible(True)
-        self.pbRef2XOffsetValLabel.setVisible(True)
-        self.pbRef2XOffsetValEdit.setVisible(True)
-        self.pbRef2XOffsetUnitLabel.setVisible(True)
-        self.pbRef2XOffsetUnitSel.setVisible(True)
-        self.pbRef2YOffsetDirLabel.setVisible(True)
-        self.pbRef2YOffsetDirSel.setVisible(True)
-        self.pbRef2YOffsetTypeLabel.setVisible(True)
-        self.pbRef2YOffsetTypeSel.setVisible(True)
-        self.pbRef2YOffsetValLabel.setVisible(True)
-        self.pbRef2YOffsetValEdit.setVisible(True)
-        self.pbRef2YOffsetUnitLabel.setVisible(True)
-        self.pbRef2YOffsetUnitSel.setVisible(True)
+    def show_ref3(self, visible: bool):
+        self.pbRef3NameLabel.setVisible(visible)
+        self.pbRef3NameEdit.setVisible(visible)
+        self.pbRef3XOffsetDirLabel.setVisible(visible)
+        self.pbRef3XOffsetDirSel.setVisible(visible)
+        self.pbRef3XOffsetTypeLabel.setVisible(visible)
+        self.pbRef3XOffsetTypeSel.setVisible(visible)
+        self.pbRef3XOffsetValLabel.setVisible(visible)
+        self.pbRef3XOffsetValEdit.setVisible(visible)
+        self.pbRef3XOffsetUnitLabel.setVisible(visible)
+        self.pbRef3XOffsetUnitSel.setVisible(visible)
+        self.pbRef3YOffsetDirLabel.setVisible(visible)
+        self.pbRef3YOffsetDirSel.setVisible(visible)
+        self.pbRef3YOffsetTypeLabel.setVisible(visible)
+        self.pbRef3YOffsetTypeSel.setVisible(visible)
+        self.pbRef3YOffsetValLabel.setVisible(visible)
+        self.pbRef3YOffsetValEdit.setVisible(visible)
+        self.pbRef3YOffsetUnitLabel.setVisible(visible)
+        self.pbRef3YOffsetUnitSel.setVisible(visible)
 
-    def hide_ref2(self):
-        self.pbRef2NameLabel.setVisible(False)
-        self.pbRef2NameEdit.setVisible(False)
-        self.pbRef2XOffsetDirLabel.setVisible(False)
-        self.pbRef2XOffsetDirSel.setVisible(False)
-        self.pbRef2XOffsetTypeLabel.setVisible(False)
-        self.pbRef2XOffsetTypeSel.setVisible(False)
-        self.pbRef2XOffsetValLabel.setVisible(False)
-        self.pbRef2XOffsetValEdit.setVisible(False)
-        self.pbRef2XOffsetUnitLabel.setVisible(False)
-        self.pbRef2XOffsetUnitSel.setVisible(False)
-        self.pbRef2YOffsetDirLabel.setVisible(False)
-        self.pbRef2YOffsetDirSel.setVisible(False)
-        self.pbRef2YOffsetTypeLabel.setVisible(False)
-        self.pbRef2YOffsetTypeSel.setVisible(False)
-        self.pbRef2YOffsetValLabel.setVisible(False)
-        self.pbRef2YOffsetValEdit.setVisible(False)
-        self.pbRef2YOffsetUnitLabel.setVisible(False)
-        self.pbRef2YOffsetUnitSel.setVisible(False)
-
-
-    def show_ref3(self):
-        self.pbRef3NameLabel.setVisible(True)
-        self.pbRef3NameEdit.setVisible(True)
-        self.pbRef3XOffsetDirLabel.setVisible(True)
-        self.pbRef3XOffsetDirSel.setVisible(True)
-        self.pbRef3XOffsetTypeLabel.setVisible(True)
-        self.pbRef3XOffsetTypeSel.setVisible(True)
-        self.pbRef3XOffsetValLabel.setVisible(True)
-        self.pbRef3XOffsetValEdit.setVisible(True)
-        self.pbRef3XOffsetUnitLabel.setVisible(True)
-        self.pbRef3XOffsetUnitSel.setVisible(True)
-        self.pbRef3YOffsetDirLabel.setVisible(True)
-        self.pbRef3YOffsetDirSel.setVisible(True)
-        self.pbRef3YOffsetTypeLabel.setVisible(True)
-        self.pbRef3YOffsetTypeSel.setVisible(True)
-        self.pbRef3YOffsetValLabel.setVisible(True)
-        self.pbRef3YOffsetValEdit.setVisible(True)
-        self.pbRef3YOffsetUnitLabel.setVisible(True)
-        self.pbRef3YOffsetUnitSel.setVisible(True)
-
-    def hide_ref3(self):
-        self.pbRef3NameLabel.setVisible(False)
-        self.pbRef3NameEdit.setVisible(False)
-        self.pbRef3XOffsetDirLabel.setVisible(False)
-        self.pbRef3XOffsetDirSel.setVisible(False)
-        self.pbRef3XOffsetTypeLabel.setVisible(False)
-        self.pbRef3XOffsetTypeSel.setVisible(False)
-        self.pbRef3XOffsetValLabel.setVisible(False)
-        self.pbRef3XOffsetValEdit.setVisible(False)
-        self.pbRef3XOffsetUnitLabel.setVisible(False)
-        self.pbRef3XOffsetUnitSel.setVisible(False)
-        self.pbRef3YOffsetDirLabel.setVisible(False)
-        self.pbRef3YOffsetDirSel.setVisible(False)
-        self.pbRef3YOffsetTypeLabel.setVisible(False)
-        self.pbRef3YOffsetTypeSel.setVisible(False)
-        self.pbRef3YOffsetValLabel.setVisible(False)
-        self.pbRef3YOffsetValEdit.setVisible(False)
-        self.pbRef3YOffsetUnitLabel.setVisible(False)
-        self.pbRef3YOffsetUnitSel.setVisible(False)
-
-
-    def show_ref4(self):
-        self.pbRef4NameLabel.setVisible(True)
-        self.pbRef4NameEdit.setVisible(True)
-        self.pbRef4XOffsetDirLabel.setVisible(True)
-        self.pbRef4XOffsetDirSel.setVisible(True)
-        self.pbRef4XOffsetTypeLabel.setVisible(True)
-        self.pbRef4XOffsetTypeSel.setVisible(True)
-        self.pbRef4XOffsetValLabel.setVisible(True)
-        self.pbRef4XOffsetValEdit.setVisible(True)
-        self.pbRef4XOffsetUnitLabel.setVisible(True)
-        self.pbRef4XOffsetUnitSel.setVisible(True)
-        self.pbRef4YOffsetDirLabel.setVisible(True)
-        self.pbRef4YOffsetDirSel.setVisible(True)
-        self.pbRef4YOffsetTypeLabel.setVisible(True)
-        self.pbRef4YOffsetTypeSel.setVisible(True)
-        self.pbRef4YOffsetValLabel.setVisible(True)
-        self.pbRef4YOffsetValEdit.setVisible(True)
-        self.pbRef4YOffsetUnitLabel.setVisible(True)
-        self.pbRef4YOffsetUnitSel.setVisible(True)
-
-    def hide_ref4(self):
-        self.pbRef4NameLabel.setVisible(False)
-        self.pbRef4NameEdit.setVisible(False)
-        self.pbRef4XOffsetDirLabel.setVisible(False)
-        self.pbRef4XOffsetDirSel.setVisible(False)
-        self.pbRef4XOffsetTypeLabel.setVisible(False)
-        self.pbRef4XOffsetTypeSel.setVisible(False)
-        self.pbRef4XOffsetValLabel.setVisible(False)
-        self.pbRef4XOffsetValEdit.setVisible(False)
-        self.pbRef4XOffsetUnitLabel.setVisible(False)
-        self.pbRef4XOffsetUnitSel.setVisible(False)
-        self.pbRef4YOffsetDirLabel.setVisible(False)
-        self.pbRef4YOffsetDirSel.setVisible(False)
-        self.pbRef4YOffsetTypeLabel.setVisible(False)
-        self.pbRef4YOffsetTypeSel.setVisible(False)
-        self.pbRef4YOffsetValLabel.setVisible(False)
-        self.pbRef4YOffsetValEdit.setVisible(False)
-        self.pbRef4YOffsetUnitLabel.setVisible(False)
-        self.pbRef4YOffsetUnitSel.setVisible(False)
-
+    def show_ref4(self, visible: bool):
+        self.pbRef4NameLabel.setVisible(visible)
+        self.pbRef4NameEdit.setVisible(visible)
+        self.pbRef4XOffsetDirLabel.setVisible(visible)
+        self.pbRef4XOffsetDirSel.setVisible(visible)
+        self.pbRef4XOffsetTypeLabel.setVisible(visible)
+        self.pbRef4XOffsetTypeSel.setVisible(visible)
+        self.pbRef4XOffsetValLabel.setVisible(visible)
+        self.pbRef4XOffsetValEdit.setVisible(visible)
+        self.pbRef4XOffsetUnitLabel.setVisible(visible)
+        self.pbRef4XOffsetUnitSel.setVisible(visible)
+        self.pbRef4YOffsetDirLabel.setVisible(visible)
+        self.pbRef4YOffsetDirSel.setVisible(visible)
+        self.pbRef4YOffsetTypeLabel.setVisible(visible)
+        self.pbRef4YOffsetTypeSel.setVisible(visible)
+        self.pbRef4YOffsetValLabel.setVisible(visible)
+        self.pbRef4YOffsetValEdit.setVisible(visible)
+        self.pbRef4YOffsetUnitLabel.setVisible(visible)
+        self.pbRef4YOffsetUnitSel.setVisible(visible)
 
     def pbStepPrevNextSel_changed(self):
         if self.pbStepPrevNextSel.currentIndex() == 0:
@@ -2449,34 +2528,33 @@ class SkillGUI(QtWidgets.QMainWindow):
         else:
             self.pbStepPrevNextNameLabel.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Next Step Name:"))
 
-
     def pbNRefSel_changed(self):
-        if self.pbNRefSel.currentIndex() == 0:
-            self.hide_ref1()
-            self.hide_ref2()
-            self.hide_ref3()
-            self.hide_ref4()
-        elif self.pbNRefSel.currentIndex() == 1:
-            self.show_ref1()
-            self.hide_ref2()
-            self.hide_ref3()
-            self.hide_ref4()
-        elif self.pbNRefSel.currentIndex() == 2:
-            self.show_ref1()
-            self.show_ref2()
-            self.hide_ref3()
-            self.hide_ref4()
-        elif self.pbNRefSel.currentIndex() == 3:
-            self.show_ref1()
-            self.show_ref2()
-            self.show_ref3()
-            self.hide_ref4()
-        elif self.pbNRefSel.currentIndex() == 4:
-            self.show_ref1()
-            self.show_ref2()
-            self.show_ref3()
-            self.show_ref4()
-
+        pbNRefSel_index = self.pbNRefSel.currentIndex()
+        if pbNRefSel_index == 0:
+            self.show_ref1(False)
+            self.show_ref2(False)
+            self.show_ref3(False)
+            self.show_ref4(False)
+        elif pbNRefSel_index == 1:
+            self.show_ref1(True)
+            self.show_ref2(False)
+            self.show_ref3(False)
+            self.show_ref4(False)
+        elif pbNRefSel_index == 2:
+            self.show_ref1(True)
+            self.show_ref2(True)
+            self.show_ref3(False)
+            self.show_ref4(False)
+        elif pbNRefSel_index == 3:
+            self.show_ref1(True)
+            self.show_ref2(True)
+            self.show_ref3(True)
+            self.show_ref4(False)
+        elif pbNRefSel_index == 4:
+            self.show_ref1(True)
+            self.show_ref2(True)
+            self.show_ref3(True)
+            self.show_ref4(True)
 
     def IndividualItemChanged(self):
         if self.pbtabs.currentIndex() == 0:
@@ -2514,8 +2592,10 @@ class SkillGUI(QtWidgets.QMainWindow):
         pauseRun()
 
     def trial_run(self):
-        self.runStopped = False
-        runAllSteps(self.currentSkill.get_steps())
+        # self.runStopped = False
+        # runAllSteps(self.currentSkill.get_steps())
+        self.skFCWidget.skfc_scene.gen_psk_skill_file()
+
 
     def continue_run(self):
         continueRun(steps, last_step)
@@ -2599,7 +2679,6 @@ class SkillGUI(QtWidgets.QMainWindow):
         #self.botModel.removeRow(self.selected_bot_row)
         #print("delete bot" + str(self.selected_bot_row))
 
-
     def editUserData(self):
         print("edit user data")
 
@@ -2629,7 +2708,6 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         #self.botModel.removeRow(self.selected_bot_row)
         #print("delete bot" + str(self.selected_bot_row))
-
 
     def editStep(self):
         print("edit step")
