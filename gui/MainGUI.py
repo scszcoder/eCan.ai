@@ -34,7 +34,7 @@ import sys
 import copy
 
 from vehicles import *
-
+from envi import *
 from unittests import *
 
 
@@ -64,6 +64,7 @@ FETCH_ROUTINE = {
 Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
 
 rpaConfig = None
+ecb_data_homepath = getECBotDataHome()
 
 # adopted from web: https://stackoverflow.com/questions/32476006/how-to-make-an-expandable-collapsable-section-widget-in-qt
 class Expander(QtWidgets.QWidget):
@@ -1152,8 +1153,8 @@ class MainWindow(QtWidgets.QMainWindow):
         month = now.strftime("%m")
         day = now.strftime("%d")
         print("homepath:::", self.homepath)
-        dailyLogDir = self.homepath + "/runlogs/{}".format(year)
-        dailyLogFile = self.homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
+        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
         print("daily log file:::", dailyLogFile)
 
         if os.path.isfile(dailyLogFile):
@@ -1176,7 +1177,7 @@ class MainWindow(QtWidgets.QMainWindow):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        dailyScheduleLogFile = self.homepath + "/runlogs/{}/schedule{}{}{}.txt".format(year, month, day, year)
+        dailyScheduleLogFile = ecb_data_homepath + "/runlogs/{}/schedule{}{}{}.txt".format(year, month, day, year)
         print("netSched:: ", netSched)
         if os.path.isfile(dailyScheduleLogFile):
             file1 = open(dailyScheduleLogFile, "a")  # append mode
@@ -1192,7 +1193,7 @@ class MainWindow(QtWidgets.QMainWindow):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        dailyRunReportFile = self.homepath + "/runlogs/{}/runreport{}{}{}.txt".format(year, month, day, year)
+        dailyRunReportFile = ecb_data_homepath + "/runlogs/{}/runreport{}{}{}.txt".format(year, month, day, year)
 
         if os.path.isfile(dailyRunReportFile):
             with open(dailyRunReportFile, 'a') as f:
