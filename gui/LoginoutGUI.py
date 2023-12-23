@@ -26,6 +26,8 @@ from network import *
 # ecbhomepath = getECBotHome()
 ecbhomepath = app_info.app_home_path
 ecb_data_homepath = getECBotDataHome()
+
+
 ACCT_FILE = ecb_data_homepath + "/uli.json"
 ROLE_FILE = ecb_data_homepath + "/role.json"
 
