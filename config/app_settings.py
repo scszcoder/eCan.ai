@@ -11,6 +11,7 @@ ecb_data_homepath = getECBotDataHome()
 runlogs_dir = ecb_data_homepath + "/runlogs"
 if not os.path.isdir(runlogs_dir):
     os.mkdir(runlogs_dir)
+
 def copy_skills_file():
     """
         if release version should copy some resource skills files from running unzip temp file to appdata files,
