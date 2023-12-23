@@ -383,10 +383,10 @@ class SkFCScene(QGraphicsScene):
             elif step.type == EnumStepType.CallFunction.type_key():
                 this_step, step_words = StepStub(sname=EnumStubName.EndFunction).gen_step(this_step)
                 sorted_steps_stack.append(step_words)
-            elif step.type == EnumStepType.Stub.type_key():
-                if step.stub_name == EnumStubName.StartSkill:
-                    this_step, step_words = StepStub(sname=EnumStubName.EndSkill).gen_step(this_step)
-                    sorted_steps_stack.append(step_words)
+            # elif step.type == EnumStepType.Stub.type_key():
+            #     if step.stub_name == EnumStubName.StartSkill:
+            #         this_step, step_words = StepStub(sname=EnumStubName.EndSkill).gen_step(this_step)
+            #         sorted_steps_stack.append(step_words)
 
         # print(this_step, sorted_steps_stack)
         return this_step, sorted_steps_stack
