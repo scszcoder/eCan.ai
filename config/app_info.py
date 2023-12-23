@@ -92,10 +92,7 @@ class AppInfo:
             return ecbot_appdata_path
 
     def _dev_appdata_path(self):
-        if os.name == 'nt':  # Windows
-            root_dir = self._prod_appdata_path()
-        else:
-            root_dir = os.path.join(self._dev_app_home_path(), 'resource/settings')
+        root_dir = self._dev_app_home_path()
         # print(f"ecbot dev appdata root path:{root_dir}")
 
         return root_dir
