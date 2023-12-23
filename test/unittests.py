@@ -196,7 +196,7 @@ def test_processSearchWordline():
 def test_process7z():
     symTab["exe_link"] = 'C:/"Program Files"/7-Zip/7z.exe'
     symTab["in_file"] = "C:/Users/"+ os.environ.get("USERNAME") + "/Downloads/etsyOrdersPriority09122023.xls_0918221925.zip"
-    symTab["opath"] = os.getenv('ECBOT_HOME') + "runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/etsyOrdersPriority09122023.xls_0918221925"
+    symTab["opath"] = os.getenv('ECBOT_DATA_HOME') + "/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders/etsyOrdersPriority09122023.xls_0918221925"
     symTab["ovar"] = 'nothing'
     step = {
         "type": "Seven Zip",

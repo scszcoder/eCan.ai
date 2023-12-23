@@ -27,7 +27,8 @@ elif sys.platform == 'darwin':
 from scraper import *
 from Cloud import *
 from pynput.mouse import Button, Controller
-
+from readSkill import *
+from envi import *
 
 STEP_GAP = 5
 symTab = globals()
@@ -40,6 +41,8 @@ page_stack = []
 current_context = None
 
 screen_loc = (0, 0)
+
+ecb_data_homepath = getECBotDataHome()
 #####################################################################################
 #  some useful utility functions
 #####################################################################################
@@ -799,7 +802,7 @@ def processExtractInfo(step, i, mission, skill):
         if step_settings["root_path"][len(step_settings["root_path"])-1]=="/":
             step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"])-1]
 
-        fdir = step_settings["root_path"] + "/runlogs/"
+        fdir = ecb_data_homepath + "/runlogs/"
         fdir = fdir + date_word + "/"
 
         fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
@@ -2376,7 +2379,7 @@ def processSaveHtml(step, i, mission, skill):
         date_word = dtnow.strftime("%Y%m%d")
         print("date word:", date_word)
 
-        fdir = step["settings"]["root_path"] + "/runlogs/"
+        fdir = ecb_data_homepath + "/runlogs/"
         fdir = fdir + date_word + "/"
 
         platform = mission.getPlatform()
