@@ -32,3 +32,7 @@ pypdf2==3.0.1
 ping3==4.0.4
 esprima==4.0.1
 colorlog==6.8.0
+requests-aws4auth~=1.2.3
+rarfile~=4.0
+qtpy~=2.4.1
+jedi~=0.19.1
