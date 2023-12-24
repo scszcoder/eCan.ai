@@ -18,7 +18,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "8a7697aa-7db3-4ef4-978a-1ead76336b5f",
+                "uuid": "f6f208ab-d65d-46d8-b3b0-4dbd42073e42",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -36,7 +36,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "a08c9ad1-6c1e-4138-a606-16970a26ba23",
+                "uuid": "51eb3d99-53b4-48ed-af96-fa71bf488ebe",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -79,7 +79,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "7d29e12b-7071-4e00-af74-e20d22d2f0bd",
+                "uuid": "facac7bb-91b8-48ff-b363-c46f16258e91",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -97,7 +97,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "290aac76-f988-45dd-af43-c1b49dd311cf",
+                "uuid": "2cae2d9a-7e25-4977-ba81-62a43dc6a948",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -140,7 +140,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "b836ce39-34b7-4baf-b469-249cc3d4587e",
+                "uuid": "2141aba9-a3cd-4d25-a4cc-d3e167440ce4",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -158,7 +158,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "e8b6781b-0cde-4cb5-ae75-dbd5928f5459",
+                "uuid": "129ab21c-1e9b-4caf-8b0c-04e66b38c538",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -180,13 +180,13 @@
                 "description": null,
                 "action": "cmd",
                 "save_rb": true,
-                "target_type": "custom",
-                "target_link": "web site",
+                "target_type": "browser",
+                "target_link": "www.baidu.com",
                 "anchor_type": "text",
                 "anchor_value": null,
-                "cargs_type": "custom",
-                "cargs": "www.baidu.com",
-                "wait": 0
+                "cargs_type": "direct",
+                "cargs": "",
+                "wait": "5"
             }
         },
         {
