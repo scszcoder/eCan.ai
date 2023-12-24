@@ -82,7 +82,7 @@ class SkFCScene(QGraphicsScene):
     #         item.deleteLater()
 
     def mousePressEvent(self, mouseEvent):
-        # super(SkFCScene, self).mousePressEvent(mouseEvent)
+        super(SkFCScene, self).mousePressEvent(mouseEvent)
         if mouseEvent.button() != Qt.LeftButton:
             return
 
@@ -131,12 +131,14 @@ class SkFCScene(QGraphicsScene):
             else:
                 if len(self.selectedItems()) > 0:
                     self.selected_item = self.selectedItems()[0]
+                else:
+                    print("when move item mode mouse press selected item is none!!!")
 
         if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramNormalItem):
                 self.parent.skfc_infobox.show_diagram_item_step_attrs(self.selected_item)
 
-        super(SkFCScene, self).mousePressEvent(mouseEvent)
+        # super(SkFCScene, self).mousePressEvent(mouseEvent)
 
     def mouseMoveEvent(self, mouseEvent):
         # super().mouseMoveEvent(mouseEvent)
@@ -155,7 +157,7 @@ class SkFCScene(QGraphicsScene):
         # super().mouseMoveEvent(mouseEvent)
 
     def mouseReleaseEvent(self, mouseEvent):
-        # super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
+        super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
         if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramArrowItem):
                 line: DiagramArrowItem = self.selected_item
@@ -174,7 +176,7 @@ class SkFCScene(QGraphicsScene):
             print("mouse release handle but selected item is none")
 
         self.selected_item = None
-        super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
+        # super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
 
     def query_target_event_items(self, point: QPointF):
         target_item_group: DiagramItemGroup = None
