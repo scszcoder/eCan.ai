@@ -24,6 +24,7 @@ from LoggerGUI import *
 from ui_settings import *
 import schedule
 from datetime import datetime, timedelta
+import time
 import pytz
 import tzlocal
 import TestAll
@@ -41,27 +42,6 @@ from unittests import *
 
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
-FETCH_ROUTINE = {
-    "eastern": [{
-        "bid": 0,
-        "tz": "eastern",
-        "bw_works": [],
-        "other_works": [{
-            "mid": 0,
-            "name": "fetch schedules",
-            "cuspas": "",
-            "todos": None,
-            "start_time": START_TIME,
-            "end_time": "",
-            "stat": "nys"
-        }],
-    }],
-    "central": [],
-    "moutain": [],
-    "pacific": [],
-    "alaska": [],
-    "hawaii": []
-}
 
 Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
 
@@ -157,6 +137,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.homepath = homepath
         print("HOME PATH is::", self.homepath)
         self.lang = lang
+        self.tz = self.obtainTZ()
         self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_0.png'
         self.mission_icon_path = self.homepath + '/resource/images/icons/c_mission96_1.png'
         self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
@@ -192,7 +173,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.botJsonData = None
         self.inventories = []
 
-        self.readBotJsonFile()
+        # self.readBotJsonFile()
         self.readSellerInventoryJsonFile("")
         self.vehicles = []                      # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
@@ -585,7 +566,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.todays_completed = []
         if not self.hostrole == "Platoon":
             # For commander creates
-            self.todays_work["tbd"].append({"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
+            self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
             # point to the 1st task to run for the day.
             self.updateRunStatus(self.todays_work["tbd"][0], 0)
 
@@ -883,7 +864,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # File actions
         new_action = QtGui.QAction(self)
         new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Fetch Schedules"))
-        new_action.triggered.connect(lambda: self.fetchSchedule("7000", None))
+        new_action.triggered.connect(lambda: self.fetchSchedule("", None))
         return new_action
 
 
@@ -1113,6 +1094,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # ni is already incremented by processExtract(), so simply return it.
         except:
+            print("ERROR EXCEPTION:")
             fetch_stat = "ErrorFetchSchedule:" + jresp["errorType"]
 
         return fetch_stat
@@ -1150,7 +1132,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def appendDailyLogs(self, msgs):
         #check if daily log file exists, if exists simply append to it, if not create and write to the file.
-        now = datetime.now()  # current date and time
+        now = datetime.datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1175,7 +1157,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def logDailySchedule(self, netSched):
-        now = datetime.now()  # current date and time
+        now = datetime.datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1191,7 +1173,7 @@ class MainWindow(QtWidgets.QMainWindow):
             file1.close()
 
     def saveDailyRunReport(self, runStat):
-        now = datetime.now()  # current date and time
+        now = datetime.datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1413,7 +1395,7 @@ class MainWindow(QtWidgets.QMainWindow):
         print("checking todos......", self.todays_work["tbd"])
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
-        pt = datetime.now()
+        pt = datetime.datetime.now()
         if len(self.todays_work["tbd"]) > 0:
             if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
@@ -1983,11 +1965,10 @@ class MainWindow(QtWidgets.QMainWindow):
     # cover hawaii, which is 5 timezone away from eastern, so total time zone slots are
     # 72+15=87 or index 0~86.
     def ts2time(self, ts):
-        thistime = datetime.now()
-        zerotime = datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
+        thistime = datetime.datetime.now()
+        zerotime = datetime.datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
         time_change = timedelta(minutes=20*ts)
         runtime = zerotime + time_change
-        tzinfo = datetime.now().astimezone().tzinfo
         return runtime
 
 
@@ -3296,41 +3277,6 @@ class MainWindow(QtWidgets.QMainWindow):
         for m in self.missions:
             status = m.run()
 
-
-    # FETCH_ROUTINE = {
-    #     "eastern": [{
-    #         "bid": 0,
-    #         "tz": "eastern",
-    #         "bw_works": [],
-    #         "other_works": [{
-    #             "mid": 0,
-    #             "name": "fetch schedules",
-    #             "cuspas": "",
-    #             "todos": None,
-    #             "start_time": START_TIME,
-    #             "end_time": "",
-    #             "stat": "nys"
-    #         }],
-    #     }],
-    #     "central": [],
-    #     "moutain": [],
-    #     "pacific": [],
-    #     "alaska": [],
-    #     "hawaii": []
-    # }
-    #
-    # todos data structure: {
-    #  "name": ***,
-    #  "works": FETCH_ROUTINE,
-    #  "status": ***,
-    #  "current tz": "eastern",
-    #  "current grp": "other_works",
-    #  "current bidx": 0,
-    #  "current widx": 0,
-    #  "current oidx": 0,
-    #  "completed": [],
-    #  "aborted": []
-    #  }
     def runbotworks(self):
         # run all the work
         botTodos = None
@@ -3342,9 +3288,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    last_start = int(datetime.now().timestamp()*1)
+                    last_start = int(datetime.datetime.now().timestamp()*1)
                     botTodos["status"] = self.fetchSchedule("", None)
-                    last_end = int(datetime.now().timestamp()*1)
+                    last_end = int(datetime.datetime.now().timestamp()*1)
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
                     # if "Completed" in botTodos["status"]:
@@ -3356,9 +3302,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     print("running RPA..............")
                     if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
-                        last_start = int(datetime.now().timestamp()*1)
+                        last_start = int(datetime.datetime.now().timestamp()*1)
                         current_bid, current_mid, run_result = self.runRPA(botTodos)
-                        last_end = int(datetime.now().timestamp()*1)
+                        last_end = int(datetime.datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
                         current_run_report = self.genRunReport(last_start, last_end, current_bid, current_mid, run_result)
@@ -3738,8 +3684,67 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
         if not self.hostrole == "Platoon":
-            self.todays_work = {"tbd": [{"name": "fetch schedule", "works": FETCH_ROUTINE, "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}
+            self.todays_work = {"tbd": [{"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}
 
         self.todays_completed = []
         self.todaysReports = []
         self.todaysPlatoonReports = []
+
+    def obtainTZ(self):
+        local_time = time.localtime()  # returns a `time.struct_time`
+        tzname_local = local_time.tm_zone
+        if "East" in tzname_local or "EST" in tzname_local:
+            tz = "eastern"
+        elif "Pacific" in tzname_local or "PST" in tzname_local:
+            tz = "pacific"
+        elif "Central" in tzname_local or "CST" in tzname_local:
+            tz = "central"
+        elif "Mountain" in tzname_local or "MST" in tzname_local:
+            tz = "mountain"
+        elif "Alaska" in tzname_local or "AST" in tzname_local:
+            tz = "alaska"
+        elif "Hawaii" in tzname_local or "HST" in tzname_local:
+            tz = "hawaii"
+        else:
+            tz = "eastern"
+
+        return tz
+
+    def getTZ(self):
+        return self.tz
+
+    def gen_default_fetch(self):
+        FETCH_ROUTINE = {
+            "eastern": [{
+                "bid": 0,
+                "tz": self.tz,
+                "bw_works": [],
+                "other_works": [{
+                    "mid": 0,
+                    "name": "fetch schedules",
+                    "cuspas": "",
+                    "todos": None,
+                    "start_time": START_TIME,
+                    "end_time": "",
+                    "stat": "nys"
+                }],
+            }],
+            "central": [],
+            "moutain": [],
+            "pacific": [],
+            "alaska": [],
+            "hawaii": []
+        }
+
+        return FETCH_ROUTINE
+
+
+    def closeEvent(self):
+        #Your desired functionality here
+        print('Program quitting....')
+
+        if self.dbcon:
+            self.dbconn.close()
+
+        sys.exit(0)
+

@@ -7,6 +7,9 @@ from rarSkill import *
 from genSkills import *
 from readSkill import *
 import re
+import datetime
+import time
+import pytz
 
 global symTab
 
@@ -219,6 +222,15 @@ def test_rar():
         print("waiting.......")
         time.sleep(2)
 
+def test_get_tz():
+    local_timezone = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
+    print("time zone info:", local_timezone)
+    for tz in pytz.all_timezones:
+        print(tz)
+
+    local_time = time.localtime()  # returns a `time.struct_time`
+    tzname_local = local_time.tm_zone
+    print("local time zone info:", local_timezone)
 
 def test_basic():
     # order = "$340.049"
@@ -267,9 +279,9 @@ def test_get_account_info(session, token):
     print("RESULT:", result)
 
 def test_api(session, token):
-    qs = [{"mid": 1, "bid": 1, "status":"Completed:0", "starttime": 123, "endtime": 123}]
-    result = send_completion_status_to_cloud(session, qs, token)
-    print("send_completion_status_to_cloud RESULT:", result)
+    # qs = [{"mid": 1, "bid": 1, "status":"Completed:0", "starttime": 123, "endtime": 123}]
+    # result = send_completion_status_to_cloud(session, qs, token)
+    # print("send_completion_status_to_cloud RESULT:", result)
 
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = send_add_bots_request_to_cloud(session, qs, token)
@@ -311,9 +323,9 @@ def test_api(session, token):
     # result = send_remove_skills_request_to_cloud(session, qs, token)
     # print("send_remove_skills_request_to_cloud RESULT:", result)
     #
-    # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_schedule_request_to_cloud(session, qs, token)
-    # print("send_schedule_request_to_cloud RESULT:", result)
+
+    jresp = send_schedule_request_to_cloud(session, token, "", None)
+    print("send_schedule_request_to_cloud RESULT:", jresp)
     #
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = req_train_read_screen(session, qs, token)

@@ -835,7 +835,7 @@ def genAMZBrowseProductLists(pageCfgsName, pageCfgs, ith, lastone, flows, stepN,
     # before browsing, first obtain the html code of the page, at the moment, result is not being used...
     # html_file_name, template, root, sink, page, sect, stepN, page_data, option=""
     # ("", lieutenant.homepath, "screen_info", "amazon_home", "top", this_step, None)
-    dtnow = datetime.now()
+    dtnow = datetime.datetime.now()
     dt_string = str(int(dtnow.timestamp()))
     hfname = hfname + dt_string + ".html"
 
