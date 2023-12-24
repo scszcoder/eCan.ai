@@ -216,7 +216,6 @@ class Login(QtWidgets.QDialog):
 
     def set_ip(self, ip):
         self.ip = ip
-
     def read_role(self):
         self.machine_role = "Platoon"
 
@@ -278,8 +277,6 @@ class Login(QtWidgets.QDialog):
     def retranslateUi(self):
         self.buttonLogin.setText(QtWidgets.QApplication.translate('QtWidgets.QPushButton', 'Login'))
         self.login_label.setText(QtWidgets.QApplication.translate('QtWidgets.QLabel', 'Login'))
-        # self.buttonLogin.setText(QtWidgets.QPushButton.tr('Login'))
-        # self.login_label.setText(QtWidgets.QLabel.tr('Login'))
 
 
     def on_toggle_password_Action(self):

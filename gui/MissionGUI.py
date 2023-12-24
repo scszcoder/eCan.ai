@@ -196,8 +196,6 @@ class MissionNewWin(QtWidgets.QMainWindow):
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.bLayout = QtWidgets.QHBoxLayout(self)
-        # self.actionFrame.setLayout(self.bLayout)
-        self.layout.addWidget(self.tabs)
         self.bLayout.addWidget(self.cancel_button)
         self.bLayout.addWidget(self.save_button)
 
