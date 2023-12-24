@@ -758,7 +758,7 @@ def processExtractInfo(step, i, mission, skill):
     ex_stat = "success:0"
     try:
         screen_error = False
-        dtnow = datetime.now()
+        dtnow = datetime.datetime.now()
 
         if step["page_data_info"]:
             page_layout = symTab[step["page_data_info"]]["products"]["layout"]

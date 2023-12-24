@@ -168,16 +168,14 @@ class BotNewWin(QtWidgets.QMainWindow):
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.bLayout = QtWidgets.QHBoxLayout(self)
-        # self.actionFrame.setLayout(self.bLayout)
-        self.layout.addWidget(self.tabs)
         self.bLayout.addWidget(self.cancel_button)
         self.bLayout.addWidget(self.save_button)
 
 
-        self.pubpflWidget.layout = QtWidgets.QVBoxLayout(self)
-        self.prvpflWidget.layout = QtWidgets.QVBoxLayout(self)
-        self.setngsWidget.layout = QtWidgets.QVBoxLayout(self)
-        self.statWidget.layout = QtWidgets.QVBoxLayout(self)
+        self.pubpflWidget_layout = QtWidgets.QVBoxLayout(self)
+        self.prvpflWidget_layout = QtWidgets.QVBoxLayout(self)
+        self.setngsWidget_layout = QtWidgets.QVBoxLayout(self)
+        self.statWidget_layout = QtWidgets.QVBoxLayout(self)
 
         self.tag_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Tag:"), alignment=QtCore.Qt.AlignLeft)
         self.tag_edit = QtWidgets.QLineEdit("")
@@ -321,48 +319,48 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.pubpflLine1Layout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine1Layout.addWidget(self.tag_label)
         self.pubpflLine1Layout.addWidget(self.tag_edit)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine1Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine1Layout)
 
         self.pubpflLine2Layout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine2Layout.addWidget(self.icon_label)
         self.pubpflLine2Layout.addWidget(self.icon_path_edit)
         self.pubpflLine2Layout.addWidget(self.icon_fs_button)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine2Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine2Layout)
 
         self.pubpflLine3Layout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine3Layout.addWidget(self.pfn_label)
         self.pubpflLine3Layout.addWidget(self.pfn_edit)
         self.pubpflLine3Layout.addWidget(self.pln_label)
         self.pubpflLine3Layout.addWidget(self.pln_edit)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine3Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine3Layout)
 
         self.pubpflLine4Layout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine4Layout.addWidget(self.pnn_label)
         self.pubpflLine4Layout.addWidget(self.pnn_edit)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine4Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine4Layout)
 
         self.pubpflLine5Layout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine5Layout.addWidget(self.loccity_label)
         self.pubpflLine5Layout.addWidget(self.loccity_edit)
         self.pubpflLine5Layout.addWidget(self.locstate_label)
         self.pubpflLine5Layout.addWidget(self.locstate_edit)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine5Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine5Layout)
 
         self.pubpflLine6Layout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine6Layout.addWidget(self.age_label)
         self.pubpflLine6Layout.addWidget(self.age_edit)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine6Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine6Layout)
 
         self.pubpflLine7Layout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine7Layout.addWidget(self.mf_label)
         self.pubpflLine7Layout.addWidget(self.m_rb)
         self.pubpflLine7Layout.addWidget(self.f_rb)
         self.pubpflLine7Layout.addWidget(self.gna_rb)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine7Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine7Layout)
 
         self.pubpflLine7AALayout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine7AALayout.addWidget(self.interest_area_label)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine7AALayout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine7AALayout)
 
         self.pubpflLine7ALayout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine7ALayout.addWidget(self.interest_platform_label)
@@ -371,7 +369,7 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.pubpflLine7ALayout.addWidget(self.interest_main_category_sel)
         self.pubpflLine7ALayout.addWidget(self.interest_sub_category1_label)
         self.pubpflLine7ALayout.addWidget(self.interest_sub_category1_sel)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine7ALayout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine7ALayout)
 
         self.pubpflLine7BLayout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine7BLayout.addWidget(self.interest_sub_category2_label)
@@ -382,7 +380,7 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.pubpflLine7BLayout.addWidget(self.interest_sub_category4_sel)
         self.pubpflLine7BLayout.addWidget(self.interest_sub_category5_label)
         self.pubpflLine7BLayout.addWidget(self.interest_sub_category5_sel)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine7BLayout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine7BLayout)
 
         self.pubpflLine7DLayout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine7DLayout.addWidget(self.interest_custom_platform_label)
@@ -391,7 +389,7 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.pubpflLine7DLayout.addWidget(self.interest_custom_main_category_edit)
         self.pubpflLine7DLayout.addWidget(self.interest_custom_sub_category1_label)
         self.pubpflLine7DLayout.addWidget(self.interest_custom_sub_category1_edit)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine7DLayout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine7DLayout)
 
         self.pubpflLine7ELayout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category2_label)
@@ -402,7 +400,7 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category4_edit)
         self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category5_label)
         self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category5_edit)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine7ELayout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine7ELayout)
 
         self.hide_interest_custom_platform()
         self.hide_interest_custom_main_category()
@@ -411,8 +409,8 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.hide_interest_custom_sub_category3()
         self.hide_interest_custom_sub_category4()
         self.hide_interest_custom_sub_category5()
-        self.pubpflWidget.layout.addWidget(self.interest_save_button)
-        self.pubpflWidget.layout.addWidget(self.interestScrollArea)
+        self.pubpflWidget_layout.addWidget(self.interest_save_button)
+        self.pubpflWidget_layout.addWidget(self.interestScrollArea)
 
 
         self.pubpflLine8Layout = QtWidgets.QHBoxLayout(self)
@@ -423,23 +421,23 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.pubpflLine8Layout.addWidget(self.role_name_label)
         self.pubpflLine8Layout.addWidget(self.role_name_sel)
         self.pubpflLine8Layout.addWidget(self.role_save_button)
-        self.pubpflWidget.layout.addLayout(self.pubpflLine8Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine8Layout)
 
         self.pubpflLine9Layout = QtWidgets.QHBoxLayout(self)
         self.pubpflLine9Layout.addWidget(self.role_custom_platform_label)
         self.pubpflLine9Layout.addWidget(self.role_custom_platform_edit)
 
-        self.pubpflWidget.layout.addLayout(self.pubpflLine9Layout)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine9Layout)
         self.hide_role_custom_platform()
 
-        self.pubpflWidget.layout.addWidget(self.roleScrollArea)
+        self.pubpflWidget_layout.addWidget(self.roleScrollArea)
 
         # self.pubpflLine8Layout = QtWidgets.QHBoxLayout(self)
         # self.pubpflLine8Layout.addWidget(self.pnn_label)
         # self.pubpflLine8Layout.addWidget(self.pnn_edit)
         # self.pubpflWidget.layout.addLayout(self.pubpflLine8Layout)
 
-        self.pubpflWidget.setLayout(self.pubpflWidget.layout)
+        self.pubpflWidget.setLayout(self.pubpflWidget_layout)
 
 
         self.fn_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "First Name:"), alignment=QtCore.Qt.AlignLeft)
@@ -507,26 +505,26 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.prvpflLine1Layout.addWidget(self.fn_edit)
         self.prvpflLine1Layout.addWidget(self.ln_label)
         self.prvpflLine1Layout.addWidget(self.ln_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1Layout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1Layout)
 
         self.prvpflLine1ALayout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1ALayout.addWidget(self.bd_label)
         self.prvpflLine1ALayout.addWidget(self.bd_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1ALayout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1ALayout)
 
         self.prvpflLine1A1Layout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1A1Layout.addWidget(self.addr_label)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1A1Layout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1A1Layout)
 
         self.prvpflLine1BLayout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1BLayout.addWidget(self.addr_l1_label)
         self.prvpflLine1BLayout.addWidget(self.addr_l1_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1BLayout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1BLayout)
 
         self.prvpflLine1CLayout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1CLayout.addWidget(self.addr_l2_label)
         self.prvpflLine1CLayout.addWidget(self.addr_l2_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1CLayout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1CLayout)
 
         self.prvpflLine1DLayout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1DLayout.addWidget(self.addr_city_label)
@@ -535,26 +533,26 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.prvpflLine1DLayout.addWidget(self.addr_state_edit)
         self.prvpflLine1DLayout.addWidget(self.addr_zip_label)
         self.prvpflLine1DLayout.addWidget(self.addr_zip_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1DLayout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1DLayout)
 
         self.prvpflLine1E1Layout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1E1Layout.addWidget(self.shipaddr_label)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1E1Layout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1E1Layout)
 
         self.prvpflLine1ELayout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1ELayout.addWidget(self.shipaddr_same_label)
         self.prvpflLine1ELayout.addWidget(self.shipaddr_same_checkbox)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1ELayout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1ELayout)
 
         self.prvpflLine1FLayout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1FLayout.addWidget(self.shipaddr_l1_label)
         self.prvpflLine1FLayout.addWidget(self.shipaddr_l1_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1FLayout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1FLayout)
 
         self.prvpflLine1GLayout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1GLayout.addWidget(self.shipaddr_l2_label)
         self.prvpflLine1GLayout.addWidget(self.shipaddr_l2_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1GLayout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1GLayout)
 
         self.prvpflLine1HLayout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine1HLayout.addWidget(self.shipaddr_city_label)
@@ -563,32 +561,32 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.prvpflLine1HLayout.addWidget(self.shipaddr_state_edit)
         self.prvpflLine1HLayout.addWidget(self.shipaddr_zip_label)
         self.prvpflLine1HLayout.addWidget(self.shipaddr_zip_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine1HLayout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine1HLayout)
 
 
         self.prvpflLine2Layout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine2Layout.addWidget(self.phone_label)
         self.prvpflLine2Layout.addWidget(self.phone_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine2Layout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine2Layout)
 
         self.prvpflLine3Layout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine3Layout.addWidget(self.em_label)
         self.prvpflLine3Layout.addWidget(self.em_edit)
         self.prvpflLine3Layout.addWidget(self.empw_label)
         self.prvpflLine3Layout.addWidget(self.empw_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine3Layout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine3Layout)
 
         self.prvpflLine4Layout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine4Layout.addWidget(self.backem_label)
         self.prvpflLine4Layout.addWidget(self.backem_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine4Layout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine4Layout)
 
         self.prvpflLine5Layout = QtWidgets.QHBoxLayout(self)
         self.prvpflLine5Layout.addWidget(self.acctpw_label)
         self.prvpflLine5Layout.addWidget(self.acctpw_edit)
-        self.prvpflWidget.layout.addLayout(self.prvpflLine5Layout)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine5Layout)
 
-        self.prvpflWidget.setLayout(self.prvpflWidget.layout)
+        self.prvpflWidget.setLayout(self.prvpflWidget_layout)
         QtWidgets.QApplication.translate("QtWidgets.QLabel", "App Name:")
         self.browser_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "App Name:"), alignment=QtCore.Qt.AlignLeft)
         self.browser_sel = QtWidgets.QComboBox()
@@ -616,20 +614,20 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.setngsLine1Layout = QtWidgets.QHBoxLayout(self)
         self.setngsLine1Layout.addWidget(self.machine_label)
         self.setngsLine1Layout.addWidget(self.machine_sel)
-        self.setngsWidget.layout.addLayout(self.setngsLine1Layout)
+        self.setngsWidget_layout.addLayout(self.setngsLine1Layout)
 
         self.setngsLine2Layout = QtWidgets.QHBoxLayout(self)
         self.setngsLine2Layout.addWidget(self.os_label)
         self.setngsLine2Layout.addWidget(self.os_sel)
-        self.setngsWidget.layout.addLayout(self.setngsLine2Layout)
+        self.setngsWidget_layout.addLayout(self.setngsLine2Layout)
 
         self.setngsLine3Layout = QtWidgets.QHBoxLayout(self)
         self.setngsLine3Layout.addWidget(self.browser_label)
         self.setngsLine3Layout.addWidget(self.browser_sel)
-        self.setngsWidget.layout.addLayout(self.setngsLine3Layout)
+        self.setngsWidget_layout.addLayout(self.setngsLine3Layout)
 
 
-        self.setngsWidget.setLayout(self.setngsWidget.layout)
+        self.setngsWidget.setLayout(self.setngsWidget_layout)
 
         self.state_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Enabled:"), alignment=QtCore.Qt.AlignLeft)
         self.state_en = QtWidgets.QCheckBox()
@@ -639,10 +637,10 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.statLine1Layout = QtWidgets.QHBoxLayout(self)
         self.statLine1Layout.addWidget(self.state_label)
         self.statLine1Layout.addWidget(self.state_en)
-        self.statWidget.layout.addLayout(self.statLine1Layout)
+        self.statWidget_layout.addLayout(self.statLine1Layout)
 
 
-        self.statWidget.setLayout(self.statWidget.layout)
+        self.statWidget.setLayout(self.statWidget_layout)
 
         self.tabs.addTab(self.pubpflWidget, QtWidgets.QApplication.translate("QtWidgets.QTabWidget", "Pub Profile"))
         self.tabs.addTab(self.prvpflWidget, QtWidgets.QApplication.translate("QtWidgets.QTabWidget", "Private Profile"))
