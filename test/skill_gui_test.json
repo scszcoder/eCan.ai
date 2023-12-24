@@ -18,7 +18,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "f6f208ab-d65d-46d8-b3b0-4dbd42073e42",
+                "uuid": "c5b6e0e6-d3a1-40ed-b43d-80b151ad129d",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -36,7 +36,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "51eb3d99-53b4-48ed-af96-fa71bf488ebe",
+                "uuid": "ae47fac6-8f44-4d46-b0f7-675323ba6608",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -68,8 +68,8 @@
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 161.0,
-                "y": 417.0
+                "x": 163.0,
+                "y": 573.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -79,7 +79,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "facac7bb-91b8-48ff-b363-c46f16258e91",
+                "uuid": "ad27987d-9cd2-4a79-aeb2-33f2c5c0abce",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -97,7 +97,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "2cae2d9a-7e25-4977-ba81-62a43dc6a948",
+                "uuid": "58b2718f-8be7-4603-8958-9cee810742a0",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -129,8 +129,8 @@
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 168.0,
-                "y": 257.0
+                "x": 127.0,
+                "y": 240.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -140,7 +140,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "2141aba9-a3cd-4d25-a4cc-d3e167440ce4",
+                "uuid": "621e87b5-2a38-49fe-839b-6c0a783ef57b",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -158,7 +158,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "129ab21c-1e9b-4caf-8b0c-04e66b38c538",
+                "uuid": "a56f1ea7-93e4-4633-abfa-1391c04394f0",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -181,12 +181,12 @@
                 "action": "cmd",
                 "save_rb": true,
                 "target_type": "browser",
-                "target_link": "www.baidu.com",
+                "target_link": "https://www.baidu.com",
                 "anchor_type": "text",
                 "anchor_value": null,
                 "cargs_type": "direct",
                 "cargs": "",
-                "wait": "5"
+                "wait": "2"
             }
         },
         {
@@ -203,16 +203,16 @@
                     "y": 169.0
                 },
                 {
-                    "x": 168.0,
-                    "y": 169.0
+                    "x": 158.0,
+                    "y": 210.0
                 },
                 {
-                    "x": 168.0,
-                    "y": 227.0
+                    "x": 127.0,
+                    "y": 210.0
                 },
                 {
-                    "x": 168.0,
-                    "y": 242.0
+                    "x": 127.0,
+                    "y": 225.0
                 }
             ],
             "start_item_uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
@@ -226,28 +226,224 @@
             "line_color": "#000000",
             "path_points": [
                 {
-                    "x": 168.0,
-                    "y": 272.0
+                    "x": 318.0,
+                    "y": 408.0
                 },
                 {
-                    "x": 168.0,
-                    "y": 287.0
+                    "x": 318.0,
+                    "y": 423.0
                 },
                 {
-                    "x": 168.0,
-                    "y": 387.0
+                    "x": 318.0,
+                    "y": 543.0
                 },
                 {
-                    "x": 161.0,
-                    "y": 387.0
+                    "x": 163.0,
+                    "y": 543.0
                 },
                 {
-                    "x": 161.0,
-                    "y": 402.0
+                    "x": 163.0,
+                    "y": 558.0
+                }
+            ],
+            "start_item_uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
+            "end_item_uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
+            "item_type": "Normal",
+            "diagram_type": 0,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 259.0,
+                "y": 306.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "4b232096-4aed-44a8-b9b0-8859bed7086c",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "5cf6811f-1396-4696-a3e2-c7433a9dc627",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "Mouse Scroll",
+                "description": null,
+                "action": "scroll down",
+                "screen": "screen_info",
+                "amount": "50",
+                "resolution": "scroll_resolution",
+                "random_min": 0,
+                "random_max": 0,
+                "breakpoint": false,
+                "postwait": 5,
+                "unit": "screen"
+            }
+        },
+        {
+            "uuid": "f169b2c8-ec47-4e3e-9a00-0d3346271dac",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 127.0,
+                    "y": 255.0
+                },
+                {
+                    "x": 127.0,
+                    "y": 270.0
+                },
+                {
+                    "x": 259.0,
+                    "y": 270.0
+                },
+                {
+                    "x": 259.0,
+                    "y": 276.0
+                },
+                {
+                    "x": 259.0,
+                    "y": 291.0
                 }
             ],
             "start_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
-            "end_item_uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
+            "end_item_uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
+            "item_type": "Normal",
+            "diagram_type": 0,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 318.0,
+                "y": 393.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "f3de2103-1c86-45ff-b79f-87a37e28f047",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "5561f7e3-43a9-43dd-929b-eec968e59480",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "Mouse Scroll",
+                "description": null,
+                "action": "scroll down",
+                "screen": "screen_info",
+                "amount": "100",
+                "resolution": "scroll_resolution",
+                "random_min": 0,
+                "random_max": 0,
+                "breakpoint": false,
+                "postwait": 5,
+                "unit": "screen"
+            }
+        },
+        {
+            "uuid": "2a92a314-2bac-4a19-bc09-eb4310d317fc",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 259.0,
+                    "y": 321.0
+                },
+                {
+                    "x": 259.0,
+                    "y": 336.0
+                },
+                {
+                    "x": 318.0,
+                    "y": 336.0
+                },
+                {
+                    "x": 318.0,
+                    "y": 363.0
+                },
+                {
+                    "x": 318.0,
+                    "y": 378.0
+                }
+            ],
+            "start_item_uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
+            "end_item_uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
             "start_item_port_direction": "BOTTOM",
             "end_item_port_direction": "TOP"
         }
