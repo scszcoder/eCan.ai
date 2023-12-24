@@ -2153,6 +2153,14 @@ class SkillGUI(QtWidgets.QMainWindow):
         # bring out the load file dialog
         pskFile = self.skfsel.getOpenFileName()
 
+        # file_path = app_info.app_home_path + '/test/skill_gui_test.json'
+        # with open(file_path, 'r') as f:
+        #     data = json.load(f)
+        #
+        #     print(f'JSON data loaded from {file_path}: {data}')
+        #
+        #     self.skFCWidget.decode_json(json.dumps(data))
+
     def save_skill_file(self):
         # bring out the load file dialog
         pskFile = self.skfsel.getSaveFileName()
@@ -2170,19 +2178,19 @@ class SkillGUI(QtWidgets.QMainWindow):
         # runAllSteps(self.currentSkill.get_steps())
         psk_words = self.skFCWidget.skfc_scene.gen_psk_words()
 
-        # file = app_info.appdata_temp_path + "/test_mouse_sroll.psk"
-        # skf = open(file, "w")
-        # skf.write("\n")
-        #
-        # skf.write(psk_words)
-        # skf.close()
-        #
-        # print("done generating skill============================>")
-        # skodes = [{"ns": "TestMouseScrollSK", "skfile": file}]
-        # rpa_script = prepRunSkill(skodes)
-        # print("done all address gen.................")
-        #
-        # runAllSteps(rpa_script, None, None)
+        file = app_info.appdata_temp_path + "/test_mouse_sroll.psk"
+        skf = open(file, "w")
+        skf.write("\n")
+
+        skf.write(psk_words)
+        skf.close()
+
+        print("done generating skill============================>")
+        skodes = [{"ns": "TestMouseScrollSK", "skfile": file}]
+        rpa_script = prepRunSkill(skodes)
+        print("done all address gen.................")
+
+        runAllSteps(rpa_script, None, None)
 
     def continue_run(self):
         continueRun(steps, last_step)
