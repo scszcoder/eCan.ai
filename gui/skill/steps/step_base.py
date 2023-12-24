@@ -38,6 +38,7 @@ class StepBase(ABC):
 
         return json_str
 
+    # 生成step json 格式接口
     def gen_step(self, stepN):
         self.stepN = stepN
         json_str = self.gen_json_str()
@@ -45,6 +46,7 @@ class StepBase(ABC):
 
         return json_step
 
+    # 自定义字段顺序
     def custom_sort(self, key_value):
         key, value = key_value
         if key == 'type':
@@ -72,14 +74,13 @@ class StepBase(ABC):
         for key, obj in attrs.items():
             if isinstance(obj, Enum):
                 attrs[key] = obj.value
+            # print(f"{key}, {type(obj)}")
         return attrs
 
+    # json 格式转为step 对象接口
     def to_obj(self, obj_dict):
         for key, value in dict(obj_dict).items():
             setattr(self, key, value)
-
-    def attr_type(self, attr_name):
-        pass
 
     @classmethod
     def from_dict(cls, obj_dict):

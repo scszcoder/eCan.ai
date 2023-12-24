@@ -31,8 +31,8 @@ class StepAppOpen(StepBase):
     TYPE_KEY = "App Open"
 
     def __init__(self, stepN=0, action=EnumAppOpenAction.Cmd, saverb=True, target_type=EnumAppOpenTargetType.Browser,
-                 target_link="", anchor_type=EnumAnchorType.Text, anchor_value="None",
-                 cargs_type=EnumAppOpenCArgsType.Direct, args="", wait=0):
+                 target_link="", anchor_type=EnumAnchorType.Text, anchor_value="",
+                 cargs_type=EnumAppOpenCArgsType.Direct, args="", wait=0.0):
         super().__init__(stepN)
 
         self.type = self.TYPE_KEY
@@ -44,12 +44,13 @@ class StepAppOpen(StepBase):
         self.anchor_value = anchor_value
         self.cargs_type: EnumAppOpenCArgsType = cargs_type
         self.cargs = args
-        self.wait: int = wait
+        self.wait: float = wait
 
     def gen_step(self, stepN):
         if self.target_type == EnumAppOpenTargetType.Browser:
             if not self.target_link.startswith('http://') and not self.target_link.startswith('https://'):
                 self.target_link = 'https://' + self.target_link
+        self.wait = float(self.wait)
         json_step = super().gen_step(stepN)
 
         return json_step
