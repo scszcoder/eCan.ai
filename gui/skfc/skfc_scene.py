@@ -406,6 +406,7 @@ class SkFCScene(QGraphicsScene):
         sorted_steps_stack = []
         start_diagram_item = self.get_start_skill_diagram_item()
         if start_diagram_item:
+            self.diagram_item_map_stepN = {}
             this_step, steps_stack = self.gen_skill_steps(start_diagram_item, this_step)
             sorted_steps_stack.extend(steps_stack)
 
