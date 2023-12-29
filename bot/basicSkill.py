@@ -24,6 +24,15 @@ elif sys.platform == 'darwin':
         kCGWindowListOptionOnScreenOnly,
         kCGNullWindowID
     )
+
+    # fix bug of macos TypeError: '<' not supported between instances of 'str' and 'int' in _screenshot_osx
+    # https://github.com/asweigart/pyautogui/issues/790
+    import pyscreeze
+    import PIL
+
+    __PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
+    pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
+
 from scraper import *
 from Cloud import *
 from pynput.mouse import Button, Controller
@@ -2463,6 +2472,10 @@ def processSaveHtml(step, i, mission, skill):
 
 if __name__ == '__main__':
     window_name, window_rect = get_top_visible_window()
+    im0 = pyautogui.screenshot(imageFilename='test.png',
+                               region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+
+    # screen_loc = (window_rect[0], window_rect[1])
 
     # path = os.path.join(os.path.dirname(__file__), '', 'screenshot.png')
     # if not os.path.exists(os.path.dirname(path)):

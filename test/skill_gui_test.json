@@ -1,14 +1,45 @@
 {
     "items": [
         {
-            "uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
+            "uuid": "3e7c96d9-f80c-441a-99cc-67d87e87c5e4",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 240.0,
+                    "y": 225.0
+                },
+                {
+                    "x": 240.0,
+                    "y": 240.0
+                },
+                {
+                    "x": 240.0,
+                    "y": 338.0
+                },
+                {
+                    "x": 143.0,
+                    "y": 338.0
+                },
+                {
+                    "x": 143.0,
+                    "y": 353.0
+                }
+            ],
+            "start_item_uuid": "63b899c6-1410-4799-b699-65726e9b39da",
+            "end_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "63b899c6-1410-4799-b699-65726e9b39da",
             "item_type": "Normal",
-            "diagram_type": 2,
+            "diagram_type": 0,
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 158.0,
-                "y": 139.0
+                "x": 240.0,
+                "y": 210.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -18,7 +49,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "c5b6e0e6-d3a1-40ed-b43d-80b151ad129d",
+                "uuid": "ad412774-4e52-4a43-9bf4-5ef61ae71f6e",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -36,7 +67,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "ae47fac6-8f44-4d46-b0f7-675323ba6608",
+                "uuid": "d97fbb3b-f45a-4e90-abde-bf950fe934c3",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -54,22 +85,58 @@
                 "color": "#000000"
             },
             "step": {
-                "type": "Stub",
+                "type": "Extract Info",
                 "description": null,
-                "stub_name": "start skill",
-                "func_name": null,
-                "fargs": null
+                "settings": null,
+                "template": "",
+                "option": "",
+                "data_sink": "screen_info",
+                "page": null,
+                "page_data_info": null,
+                "theme": null,
+                "section": "top"
             }
         },
         {
-            "uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
+            "uuid": "2a92a314-2bac-4a19-bc09-eb4310d317fc",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 254.0,
+                    "y": 441.0
+                },
+                {
+                    "x": 254.0,
+                    "y": 456.0
+                },
+                {
+                    "x": 319.0,
+                    "y": 456.0
+                },
+                {
+                    "x": 319.0,
+                    "y": 464.0
+                },
+                {
+                    "x": 319.0,
+                    "y": 479.0
+                }
+            ],
+            "start_item_uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
+            "end_item_uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
             "item_type": "Normal",
-            "diagram_type": 2,
+            "diagram_type": 0,
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 163.0,
-                "y": 573.0
+                "x": 319.0,
+                "y": 494.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -79,7 +146,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "ad27987d-9cd2-4a79-aeb2-33f2c5c0abce",
+                "uuid": "5e80b880-3b81-4aeb-bd7e-15b97a8bbb60",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -97,7 +164,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "58b2718f-8be7-4603-8958-9cee810742a0",
+                "uuid": "24f0fb7d-0069-4dbc-a242-38fd56f36308",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -115,12 +182,178 @@
                 "color": "#000000"
             },
             "step": {
-                "type": "Stub",
+                "type": "Mouse Scroll",
                 "description": null,
-                "stub_name": "end skill",
-                "func_name": null,
-                "fargs": null
+                "action": "scroll down",
+                "screen": "screen_info",
+                "amount": 100,
+                "resolution": "scroll_resolution",
+                "random_min": 0,
+                "random_max": 0,
+                "breakpoint": false,
+                "postwait": 5.0,
+                "unit": "screen"
             }
+        },
+        {
+            "uuid": "f169b2c8-ec47-4e3e-9a00-0d3346271dac",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 143.0,
+                    "y": 383.0
+                },
+                {
+                    "x": 143.0,
+                    "y": 398.0
+                },
+                {
+                    "x": 254.0,
+                    "y": 398.0
+                },
+                {
+                    "x": 254.0,
+                    "y": 396.0
+                },
+                {
+                    "x": 254.0,
+                    "y": 411.0
+                }
+            ],
+            "start_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
+            "end_item_uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
+            "item_type": "Normal",
+            "diagram_type": 0,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 254.0,
+                "y": 426.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "uuid": "1bf5ff6e-8905-4d53-b1ee-faa4d14c8d3d",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "uuid": "d5f06bd9-6975-4b81-b427-b96f705826fd",
+                "item_type": "Text",
+                "sub_item": true,
+                "plain_text": "tag here",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "Mouse Scroll",
+                "description": null,
+                "action": "scroll down",
+                "screen": "screen_info",
+                "amount": 50,
+                "resolution": "scroll_resolution",
+                "random_min": 0,
+                "random_max": 0,
+                "breakpoint": false,
+                "postwait": 5.0,
+                "unit": "screen"
+            }
+        },
+        {
+            "uuid": "396f54bf-ec48-4f7e-93ff-45bdf8997d13",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 319.0,
+                    "y": 509.0
+                },
+                {
+                    "x": 319.0,
+                    "y": 524.0
+                },
+                {
+                    "x": 319.0,
+                    "y": 543.0
+                },
+                {
+                    "x": 163.0,
+                    "y": 543.0
+                },
+                {
+                    "x": 163.0,
+                    "y": 558.0
+                }
+            ],
+            "start_item_uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
+            "end_item_uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
+        },
+        {
+            "uuid": "b784fba7-f166-4b1b-95ae-dc068133835e",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 158.0,
+                    "y": 154.0
+                },
+                {
+                    "x": 158.0,
+                    "y": 169.0
+                },
+                {
+                    "x": 240.0,
+                    "y": 169.0
+                },
+                {
+                    "x": 240.0,
+                    "y": 180.0
+                },
+                {
+                    "x": 240.0,
+                    "y": 195.0
+                }
+            ],
+            "start_item_uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
+            "end_item_uuid": "63b899c6-1410-4799-b699-65726e9b39da",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP"
         },
         {
             "uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
@@ -129,8 +362,8 @@
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 127.0,
-                "y": 240.0
+                "x": 143.0,
+                "y": 368.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -140,7 +373,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "621e87b5-2a38-49fe-839b-6c0a783ef57b",
+                "uuid": "1759a79d-6e62-46da-ab3b-5aa9581972c0",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -158,7 +391,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "a56f1ea7-93e4-4633-abfa-1391c04394f0",
+                "uuid": "a3735504-614f-4e85-b18b-f67b9e584762",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -186,80 +419,18 @@
                 "anchor_value": null,
                 "cargs_type": "direct",
                 "cargs": "",
-                "wait": "2"
+                "wait": 2.0
             }
         },
         {
-            "uuid": "b784fba7-f166-4b1b-95ae-dc068133835e",
-            "item_type": "Arrow",
-            "line_color": "#000000",
-            "path_points": [
-                {
-                    "x": 158.0,
-                    "y": 154.0
-                },
-                {
-                    "x": 158.0,
-                    "y": 169.0
-                },
-                {
-                    "x": 158.0,
-                    "y": 210.0
-                },
-                {
-                    "x": 127.0,
-                    "y": 210.0
-                },
-                {
-                    "x": 127.0,
-                    "y": 225.0
-                }
-            ],
-            "start_item_uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
-            "end_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
-            "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
-        },
-        {
-            "uuid": "396f54bf-ec48-4f7e-93ff-45bdf8997d13",
-            "item_type": "Arrow",
-            "line_color": "#000000",
-            "path_points": [
-                {
-                    "x": 318.0,
-                    "y": 408.0
-                },
-                {
-                    "x": 318.0,
-                    "y": 423.0
-                },
-                {
-                    "x": 318.0,
-                    "y": 543.0
-                },
-                {
-                    "x": 163.0,
-                    "y": 543.0
-                },
-                {
-                    "x": 163.0,
-                    "y": 558.0
-                }
-            ],
-            "start_item_uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
-            "end_item_uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
-            "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
-        },
-        {
-            "uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
+            "uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
             "item_type": "Normal",
-            "diagram_type": 0,
+            "diagram_type": 2,
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 259.0,
-                "y": 306.0
+                "x": 163.0,
+                "y": 573.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -269,7 +440,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "4b232096-4aed-44a8-b9b0-8859bed7086c",
+                "uuid": "70c0de82-5414-480e-9e1c-a323b642d0cb",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -287,7 +458,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "5cf6811f-1396-4696-a3e2-c7433a9dc627",
+                "uuid": "09dd3e22-0de5-4281-b99e-751b6bd650ff",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -305,59 +476,22 @@
                 "color": "#000000"
             },
             "step": {
-                "type": "Mouse Scroll",
+                "type": "Stub",
                 "description": null,
-                "action": "scroll down",
-                "screen": "screen_info",
-                "amount": "50",
-                "resolution": "scroll_resolution",
-                "random_min": 0,
-                "random_max": 0,
-                "breakpoint": false,
-                "postwait": 5,
-                "unit": "screen"
+                "stub_name": "end skill",
+                "func_name": null,
+                "fargs": null
             }
         },
         {
-            "uuid": "f169b2c8-ec47-4e3e-9a00-0d3346271dac",
-            "item_type": "Arrow",
-            "line_color": "#000000",
-            "path_points": [
-                {
-                    "x": 127.0,
-                    "y": 255.0
-                },
-                {
-                    "x": 127.0,
-                    "y": 270.0
-                },
-                {
-                    "x": 259.0,
-                    "y": 270.0
-                },
-                {
-                    "x": 259.0,
-                    "y": 276.0
-                },
-                {
-                    "x": 259.0,
-                    "y": 291.0
-                }
-            ],
-            "start_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
-            "end_item_uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
-            "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
-        },
-        {
-            "uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
+            "uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
             "item_type": "Normal",
-            "diagram_type": 0,
+            "diagram_type": 2,
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 318.0,
-                "y": 393.0
+                "x": 158.0,
+                "y": 139.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -367,7 +501,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "f3de2103-1c86-45ff-b79f-87a37e28f047",
+                "uuid": "b8cda069-e000-4060-b710-6701dc3e5f05",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -385,7 +519,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "5561f7e3-43a9-43dd-929b-eec968e59480",
+                "uuid": "81cf1ef9-252b-470a-a8e6-067d7bee1b49",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -403,49 +537,12 @@
                 "color": "#000000"
             },
             "step": {
-                "type": "Mouse Scroll",
+                "type": "Stub",
                 "description": null,
-                "action": "scroll down",
-                "screen": "screen_info",
-                "amount": "100",
-                "resolution": "scroll_resolution",
-                "random_min": 0,
-                "random_max": 0,
-                "breakpoint": false,
-                "postwait": 5,
-                "unit": "screen"
+                "stub_name": "start skill",
+                "func_name": null,
+                "fargs": null
             }
-        },
-        {
-            "uuid": "2a92a314-2bac-4a19-bc09-eb4310d317fc",
-            "item_type": "Arrow",
-            "line_color": "#000000",
-            "path_points": [
-                {
-                    "x": 259.0,
-                    "y": 321.0
-                },
-                {
-                    "x": 259.0,
-                    "y": 336.0
-                },
-                {
-                    "x": 318.0,
-                    "y": 336.0
-                },
-                {
-                    "x": 318.0,
-                    "y": 363.0
-                },
-                {
-                    "x": 318.0,
-                    "y": 378.0
-                }
-            ],
-            "start_item_uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
-            "end_item_uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
-            "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
         }
     ]
 }
