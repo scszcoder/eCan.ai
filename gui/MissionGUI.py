@@ -25,7 +25,7 @@ class SkillListView(QtWidgets.QListView):
 
 
 
-class WORKSKILL(QtGui.QStandardItem):
+class MWORKSKILL(QtGui.QStandardItem):
     def __init__(self, homepath, platform, app, applink, site, sitelink, action):
         super().__init__()
         self.platform = platform
@@ -216,6 +216,18 @@ class MissionNewWin(QtWidgets.QMainWindow):
         self.sell_rb = QtWidgets.QRadioButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Sell Side"))
         self.buy_rb.isChecked()
 
+        self.mission_auto_assign_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Assignment Type:"), alignment=QtCore.Qt.AlignLeft)
+        self.manual_rb = QtWidgets.QRadioButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Manual Assign(Bot and Schedule)"))
+        self.auto_rb = QtWidgets.QRadioButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Auto Assign(Bot and Schedule)"))
+        self.auto_rb.isChecked()
+
+        self.bid_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Assigned Bot ID:"), alignment=QtCore.Qt.AlignLeft)
+        self.bid_edit = QtWidgets.QLineEdit()
+        self.ert_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Estimated Duration Time(Sec):"), alignment=QtCore.Qt.AlignLeft)
+        self.ert_edit = QtWidgets.QLineEdit()
+        self.est_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Estimated Start Time(hh:mm:ss):"), alignment=QtCore.Qt.AlignLeft)
+        self.est_edit = QtWidgets.QLineEdit()
+
         self.buy_mission_type_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Buy Mission Type:"), alignment=QtCore.Qt.AlignLeft)
         self.buy_mission_type_sel = QtWidgets.QComboBox()
 
@@ -235,9 +247,19 @@ class MissionNewWin(QtWidgets.QMainWindow):
         self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom Work"))
         self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Other"))
 
-        self.repeat_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "# of time to be executed:"), alignment=QtCore.Qt.AlignLeft)
+        self.repeat_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Repeat every:"), alignment=QtCore.Qt.AlignLeft)
         self.repeat_edit = QtWidgets.QLineEdit()
         self.repeat_edit.setPlaceholderText("1")
+
+        self.repeat_interval_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", " "), alignment=QtCore.Qt.AlignLeft)
+        self.repeat_interval_sel = QtWidgets.QComboBox()
+
+        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Day(s)"))
+        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Week(s)"))
+        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Month(s)"))
+        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Year(s)"))
+        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Hour(s)"))
+        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Minute(s)"))
 
         self.search_kw_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Search Phrase:"), alignment=QtCore.Qt.AlignLeft)
         self.search_kw_edit = QtWidgets.QLineEdit()
@@ -274,9 +296,27 @@ class MissionNewWin(QtWidgets.QMainWindow):
         self.pubAttrLine2Layout.addWidget(self.sell_rb)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2Layout)
 
+        self.pubAttrLine2ALayout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine2ALayout.addWidget(self.mission_auto_assign_label)
+        self.pubAttrLine2ALayout.addWidget(self.manual_rb)
+        self.pubAttrLine2ALayout.addWidget(self.auto_rb)
+        self.pubAttrWidget.layout.addLayout(self.pubAttrLine2ALayout)
+
+        self.pubAttrLine2BLayout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine2BLayout.addWidget(self.bid_label)
+        self.pubAttrLine2BLayout.addWidget(self.bid_edit)
+        self.pubAttrLine2BLayout.addWidget(self.ert_label)
+        self.pubAttrLine2BLayout.addWidget(self.ert_edit)
+        self.pubAttrLine2BLayout.addWidget(self.est_label)
+        self.pubAttrLine2BLayout.addWidget(self.est_edit)
+        self.pubAttrWidget.layout.addLayout(self.pubAttrLine2BLayout)
+
+
         self.pubAttrLine3Layout = QtWidgets.QHBoxLayout(self)
         self.pubAttrLine3Layout.addWidget(self.repeat_label)
         self.pubAttrLine3Layout.addWidget(self.repeat_edit)
+        self.pubAttrLine3Layout.addWidget(self.repeat_interval_label)
+        self.pubAttrLine3Layout.addWidget(self.repeat_interval_sel)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine3Layout)
 
         self.pubAttrLine4Layout = QtWidgets.QHBoxLayout(self)
@@ -524,7 +564,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
     def saveMission(self):
         print("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
-        self.newMission = EBMISSION()
+        self.newMission = EBMISSION(self.parent)
 
 
         if self.repeat_edit.text().isnumeric():
@@ -646,7 +686,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
         if self.skill_action_sel.currentText() == 'Custom':
             self.selected_skill_action = self.skillCustomActionEdit.text()
 
-        self.newSKILL = WORKSKILL(self.selected_skill_platform, self.selected_skill_app, self.selected_skill_app_link, self.selected_skill_site, self.selected_skill_site_link, self.selected_skill_action)
+        self.newSKILL = MWORKSKILL(self.homepath, self.selected_skill_platform, self.selected_skill_app, self.selected_skill_app_link, self.selected_skill_site, self.selected_skill_site_link, self.selected_skill_action)
         self.skillModel.appendRow(self.newSKILL)
 
     def removeSkill(self):
