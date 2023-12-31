@@ -806,11 +806,9 @@ class BotNewWin(QtWidgets.QMainWindow):
             self.f_rb.setChecked(True)
         else:
             self.gna_rb.setChecked(True)
-        self.ebtype_sel.setCurrentText(bot.getPlatform())
         self.os_sel.setCurrentText(bot.getOS())
         self.browser_sel.setCurrentText(bot.getBrowser())
         self.machine_sel.setCurrentText(bot.getMachine())
-        self.level_sel.setCurrentText(bot.getLevel())
 
     def setOwner(self, owner):
         self.owner = owner
@@ -838,7 +836,7 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.newBot.privateProfile.setBirthday(self.bd_edit.text())
         self.newBot.pubProfile.setAgeFromBirthday(self.newBot.privateProfile.getBirthday())
 
-        self.newBot.settings.setComputer(self.ebtype_sel.currentText(), self.os_sel.currentText(), self.machine_sel.currentText(), self.browser_sel.currentText())
+        self.newBot.settings.setComputer(self.os_sel.currentText(), self.machine_sel.currentText(), self.browser_sel.currentText())
         if self.mode == "new":
             print("adding new bot....")
             self.parent.addNewBot(self.newBot)

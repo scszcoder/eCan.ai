@@ -22,6 +22,7 @@ class ANCHOR(QtGui.QStandardItem):
         self.refs = []
         self.setText('aname')
         self.homepath = homepath
+        self.imgPath = ""
         self.icon = QtGui.QIcon(homepath+'/resource/anchor2-64.png')
         self.setIcon(self.icon)
 
@@ -48,6 +49,9 @@ class ANCHOR(QtGui.QStandardItem):
 
     def get_type(self):
         return self.type
+
+    def get_name(self):
+        return self.name
 
 # valid refMethod: "None", "Anchor Offset", "Anchor Bound", "Contains Anchor"
 class USER_INFO(QtGui.QStandardItem):
@@ -183,7 +187,8 @@ class CLOUD_SKILL(QtGui.QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
-        self.path = "resource/skills/public/"
+        self.file = "resource/skills/public/"
+        self.anchors = []
 
     def set_path(self, path):
         self.path = path
@@ -191,15 +196,22 @@ class CLOUD_SKILL(QtGui.QStandardItem):
     def get_local_path(self):
         return self.path
 
+    def get_anchors(self):
+        return self.anchors
+
+    def get_csk_file(self):
+        return self.file
+
     def loadJson(self, jd):
         self.path = jd["path"]
 
 
 class WORKSKILL(QtGui.QStandardItem):
-    def __init__(self, parent, skname="default skill"):
+    def __init__(self, parent, skname):
         super().__init__()
+        self.parent = parent
         self.name = skname
-        self.setText(self.name)
+        self.setText(skname)
         self.setFont(parent.std_item_font)
         self.skid = 0
         self.owner = 0
@@ -347,4 +359,10 @@ class WORKSKILL(QtGui.QStandardItem):
         self.path = jd["path"]
         self.private_skill.loadJson(jd["private_skill"])
         self.cloud_skill.loadJson(jd["cloud_skill"])
+
+    def send_csk_to_cloud(self, session, token, csk):
+        for ankf in self.cloud_skill.get_anchors():
+            upload_file(session, ankf, token, "anchor")
+
+        upload_file(session, self.cloud_skill.get_csk_file(), token, "csk")
 
