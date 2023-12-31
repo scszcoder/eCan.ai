@@ -64,8 +64,7 @@ class BOT_SETTINGS():
         if "machine" in dj:
             self.machine = dj["machine"]
 
-    def setComputer(self, platform, os, machine, browser):
-        self.platform = platform
+    def setComputer(self, os, machine, browser):
         self.os = os
         self.machine = machine
         self.browser = browser
@@ -386,7 +385,12 @@ class EBBOT(QtGui.QStandardItem):
         return self.pubProfile.roles
 
     def getAge(self):
-        return self.pubProfile.age
+        birthday = datetime.strptime(self.pubProfile.pubbirthday, "%m/%d/%Y")
+        # Get the current date
+        today = datetime.today()
+        # Calculate the age
+        age = today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
+        return age
 
     def getInventories(self):
         return self.seller_inventories

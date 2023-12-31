@@ -166,7 +166,7 @@ class MainWindow(QtWidgets.QMainWindow):
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
-        self.platform = platform.system().lower()[0:3]
+        self.platform = platform.system().lower()[0:2]
         self.std_item_font = QFont('Arial', 10)
 
         self.sellerInventoryJsonData = None
@@ -178,6 +178,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.vehicles = []                      # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
         self.missions = []              # mission 0 will always default to be the fetch schedule mission
+        self.trMission = self.createTrialRunMission()
         self.skills = []
         self.missionsToday = []
         self.platoons = []
@@ -365,6 +366,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.skillEditAction = self._createSkillEditAction()
         self.skillDeleteAction = self._createSkillDeleteAction()
         self.skillShowAction = self._createSkillShowAction()
+        self.skillUploadAction = self._createSkillUploadAction()
+
         self.skillNewFromFileAction = self._createSkillNewFromFileAction()
 
 
@@ -457,6 +460,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.skillEditAction.setDisabled(True)
             self.skillDeleteAction.setDisabled(True)
             self.skillShowAction.setDisabled(True)
+            self.skillUploadAction.setDisabled(True)
+
             self.skillNewFromFileAction.setDisabled(True)
 
 
@@ -685,6 +690,8 @@ class MainWindow(QtWidgets.QMainWindow):
         skill_menu.addAction(self.skillEditAction)
         skill_menu.addAction(self.skillDeleteAction)
         skill_menu.addAction(self.skillShowAction)
+        skill_menu.addAction(self.skillUploadAction)
+
         skill_menu.addAction(self.skillNewFromFileAction)
         menu_bar.addMenu(skill_menu)
 
@@ -925,6 +932,13 @@ class MainWindow(QtWidgets.QMainWindow):
             # File actions
             new_action = QtGui.QAction(self)
             new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Show All"))
+            return new_action
+
+    def _createSkillUploadAction(self):
+            # File actions
+            new_action = QtGui.QAction(self)
+            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Upload Skill"))
+            new_action.triggered.connect(self.uploadSkill)
             return new_action
 
     def _createSkillNewFromFileAction(self):
@@ -2002,7 +2016,6 @@ class MainWindow(QtWidgets.QMainWindow):
         #self.centralWidget.setText("<b>File > New</b> clicked")
         if self.BotNewWin == None:
             self.BotNewWin = BotNewWin(self)
-        #self.BotNewWin.resize(400, 200)
         self.BotNewWin.show()
 
 
@@ -2643,11 +2656,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.cusMissionEditAction = self._createCusMissionEditAction()
             self.cusMissionCloneAction = self._createCusMissionCloneAction()
             self.cusMissionDeleteAction = self._createCusMissionDeleteAction()
+            self.cusMissionUpdateAction = self._createCusMissionUpdateAction()
 
             self.popMenu.addAction(self.cusMissionEditAction)
             self.popMenu.addAction(self.cusMissionCloneAction)
             self.popMenu.addSeparator()
             self.popMenu.addAction(self.cusMissionDeleteAction)
+            self.popMenu.addSeparator()
+            self.popMenu.addAction(self.cusMissionUpdateAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
@@ -2659,6 +2675,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.cloneCusMission()
                 elif selected_act == self.cusMissionDeleteAction:
                     self.deleteCusMission()
+                elif selected_act == self.cusMissionUpdateAction:
+                    self.updateCusMissionStatus(self.selected_cus_mission_item)
             return True
         # else:
         #     print("unknwn.... RC menu....", source, " EVENT: ", event)
@@ -2682,9 +2700,19 @@ class MainWindow(QtWidgets.QMainWindow):
         new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
         return new_action
 
+    def _createCusMissionUpdateAction(self):
+        # File actions
+        new_action = QtGui.QAction(self)
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Update Status"))
+        return new_action
+
     def editCusMission(self):
         # File actions
-        self.missionWin.setMission(self.selected_cus_mission_item)
+        if self.missionWin:
+            self.missionWin.setMission(self.selected_cus_mission_item)
+        else:
+            self.missionWin = MissionNewWin(self)
+            self.missionWin.setOwner(self.owner)
         self.missionWin.show()
         print("edit bot" + str(self.selected_cus_mission_row))
 
@@ -2727,6 +2755,18 @@ class MainWindow(QtWidgets.QMainWindow):
         #self.botModel.removeRow(self.selected_bot_row)
         #print("delete bot" + str(self.selected_bot_row))
 
+    def updateCusMissionStatus(self, amission):
+        # send this mission's status to Cloud
+        api_missions = [amission]
+        jresp = send_update_missions_request_to_cloud(self.session, api_missions, self.tokens['AuthenticationResult']['IdToken'])
+        if "errorType" in jresp:
+            screen_error = True
+            print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+        else:
+            jbody = json.loads(jresp["body"])
+            # now that delete is successfull, update local file as well.
+            self.writeMissionJsonFile()
+
     def _createBotRCEditAction(self):
        new_action = QtGui.QAction(self)
        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
@@ -2746,7 +2786,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def editBot(self):
         # File actions
-        self.BotNewWin.setBot(self.selected_bot_item)
+        if self.BotNewWin:
+            self.BotNewWin.setBot(self.selected_bot_item)
+        else:
+            self.BotNewWin = BotNewWin(self)
         self.BotNewWin.show()
         print("edit bot" + str(self.selected_bot_row))
 
@@ -2999,72 +3042,97 @@ class MainWindow(QtWidgets.QMainWindow):
         print("filling mission data")
         nsk.setNetRespJsonData(nskjson)
 
+    def uploadSkill(self):
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            QtWidgets.QApplication.translate("QtWidgets.QFileDialog", "Upload Skill File"),
+            '',
+            QtWidgets.QApplication.translate("QtWidgets.QFileDialog", "Skill Json Files (*.json)")
+        )
+        if filename != "":
+            # print("body string:", uncompressed, "!", len(uncompressed), "::")
+            sk_dir == os.path.abspath(filename)
+            anchor_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/images"
+            scripts_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/scripts"
+            anchor_files = os.listdir(anchor_dir)
+            for af in anchor_files:
+                full_af_name = anchor_dir + "/" + af
+                jresp = upload_file(self.session, full_af_name, self.tokens['AuthenticationResult']['IdToken'], "anchor")
+
+            csk_file = scripts_dir + "/" + os.path.basename(filename).split(".")[0] + ".csk"
+            jresp = upload_file(self.session, csk_file, self.tokens['AuthenticationResult']['IdToken'], "csk")
+
 
     def newSkillFromFile(self):
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            QtWidgets.QApplication.translate("QtWidgets.QFileDialog", "Open Skill File"),
+            '',
+            QtWidgets.QApplication.translate("QtWidgets.QFileDialog", "Skill Json Files (*.json)")
+        )
+        print("loading skill from a file...", filename)
+        if filename != "":
+            api_skills = []
+            new_skill_file = open(filename)
+            if new_skill_file != None:
+                # print("body string:", uncompressed, "!", len(uncompressed), "::")
+                filebskill = json.load(new_skill_file)
+                if len(filebskill) > 0:
+                    #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
-        print("loading bots from a file...")
-        api_skills = []
-        uncompressed = open(self.homepath + "/resource/testdata/newskills.json")
-        if uncompressed != None:
-            # print("body string:", uncompressed, "!", len(uncompressed), "::")
-            filebskills = json.load(uncompressed)
-            if len(filebskills) > 0:
-                #add bots to the relavant data structure and add these bots to the cloud and local DB.
+                    jresp = send_add_skills_to_cloud(self.session, filebskill, self.tokens['AuthenticationResult']['IdToken'])
 
-                jresp = send_add_bots_request_to_cloud(self.session, filebskills,
-                                                       self.tokens['AuthenticationResult']['IdToken'])
+                    if "errorType" in jresp:
+                        screen_error = True
+                        print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+                    else:
+                        print("jresp type: ", type(jresp), len(jresp["body"]))
+                        jbody = jresp["body"]
+                        # now that add is successfull, update local file as well.
 
-                if "errorType" in jresp:
-                    screen_error = True
-                    print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+                        # now add bot to local DB.
+
+                        for i in range(len(jbody)):
+                            print(i)
+                            new_skill = WORKSKILL()
+                            self.fillNewSkill(jbody[i], new_skill)
+                            self.skills.append(new_skill)
+                            self.skillModel.appendRow(new_skill)
+                            api_skills.append({
+                                "skid": new_skill.getBid(),
+                                "owner": self.owner,
+                                "platform": new_skill.getRoles(),
+                                "app": new_skill.getPubBirthday(),
+                                "site": new_skill.getGender(),
+                                "name": new_skill.getName(),
+                                "path": new_skill.getLevels(),
+                                "runtime": new_skill.getBirthdayTxt(),
+                                "price_model": new_skill.getInterests(),
+                                "price": new_skill.getStatus(),
+                                "privacy": new_skill.getInterests(),
+                            })
+
+                            sql = ''' INSERT INTO skills(skid, owner, platform, app, site, name, path, runtime, price_model, price, privacy)
+                                           VALUES(?,?,?,?,?,?,?,?,?,?,?); '''
+                            data_tuple = (
+                            api_skills[i]["skid"], api_skills[i]["owner"], api_skills[i]["platform"], \
+                            api_skills[i]["app"], api_skills[i]["site"], api_skills[i]["name"], \
+                            api_skills[i]["path"], api_skills[i]["runtime"], api_skills[i]["price_model"], \
+                            api_skills[i]["price"], api_skills[i]["privacy"])
+
+                            self.dbCursor.execute(sql, data_tuple)
+
+                            sql = 'SELECT * FROM skills'
+                            res = self.dbCursor.execute(sql)
+                            print("fetchall", res.fetchall())
+                            # important about format: returned here is a list of tuples (,,,,)
+                            #for column in res.description:
+                            #    print(column[0])
+
                 else:
-                    print("jresp type: ", type(jresp), len(jresp["body"]))
-                    jbody = jresp["body"]
-                    # now that add is successfull, update local file as well.
-
-                    # now add bot to local DB.
-
-                    for i in range(len(jbody)):
-                        print(i)
-                        new_skill = WORKSKILL()
-                        self.fillNewSkill(jbody[i], new_skill)
-                        self.skills.append(new_skill)
-                        self.skillModel.appendRow(new_skill)
-                        api_skills.append({
-                            "skid": new_skill.getBid(),
-                            "owner": self.owner,
-                            "platform": new_skill.getRoles(),
-                            "app": new_skill.getPubBirthday(),
-                            "site": new_skill.getGender(),
-                            "name": new_skill.getName(),
-                            "path": new_skill.getLevels(),
-                            "runtime": new_skill.getBirthdayTxt(),
-                            "price_model": new_skill.getInterests(),
-                            "price": new_skill.getStatus(),
-                            "privacy": new_skill.getInterests(),
-                        })
-
-                        sql = ''' INSERT INTO skills(skid, owner, platform, app, site, name, path, runtime, price_model, price, privacy)
-                                       VALUES(?,?,?,?,?,?,?,?,?,?,?); '''
-                        data_tuple = (
-                        api_skills[i]["skid"], api_skills[i]["owner"], api_skills[i]["platform"], \
-                        api_skills[i]["app"], api_skills[i]["site"], api_skills[i]["name"], \
-                        api_skills[i]["path"], api_skills[i]["runtime"], api_skills[i]["price_model"], \
-                        api_skills[i]["price"], api_skills[i]["privacy"])
-
-                        self.dbCursor.execute(sql, data_tuple)
-
-                        sql = 'SELECT * FROM skills'
-                        res = self.dbCursor.execute(sql)
-                        print("fetchall", res.fetchall())
-                        # important about format: returned here is a list of tuples (,,,,)
-                        #for column in res.description:
-                        #    print(column[0])
-
+                    self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO skills in the file."))
             else:
-                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO skills in the file."))
-        else:
-            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: no test skill file."))
+                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: no test skill file."))
 
     # load locally stored skills
     def loadLocalSkills(self):
@@ -3748,3 +3816,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         sys.exit(0)
 
+    def createTrialRunMission(self):
+        self.trMission = EBMISSION(self)
+        self.trMission.pubAttributes.setType(1225, "user", "Sell")
+        self.trMission.pubAttributes.setBot(0)
+        self.trMission.setCusPAS("win,chrome,amz")
+
+    def addSkillToTrialRunMission(self, skid):
+        self.trMission.setSkills([skid])
+
+    def getTrialRunMission(self):
+        return self.trMission

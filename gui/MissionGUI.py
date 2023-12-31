@@ -25,7 +25,7 @@ class SkillListView(QtWidgets.QListView):
 
 
 
-class WORKSKILL(QtGui.QStandardItem):
+class MWORKSKILL(QtGui.QStandardItem):
     def __init__(self, homepath, platform, app, applink, site, sitelink, action):
         super().__init__()
         self.platform = platform
@@ -524,7 +524,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
     def saveMission(self):
         print("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
-        self.newMission = EBMISSION()
+        self.newMission = EBMISSION(self.parent)
 
 
         if self.repeat_edit.text().isnumeric():
@@ -646,7 +646,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
         if self.skill_action_sel.currentText() == 'Custom':
             self.selected_skill_action = self.skillCustomActionEdit.text()
 
-        self.newSKILL = WORKSKILL(self.selected_skill_platform, self.selected_skill_app, self.selected_skill_app_link, self.selected_skill_site, self.selected_skill_site_link, self.selected_skill_action)
+        self.newSKILL = MWORKSKILL(self.homepath, self.selected_skill_platform, self.selected_skill_app, self.selected_skill_app_link, self.selected_skill_site, self.selected_skill_site_link, self.selected_skill_action)
         self.skillModel.appendRow(self.newSKILL)
 
     def removeSkill(self):
