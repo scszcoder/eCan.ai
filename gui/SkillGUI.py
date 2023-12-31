@@ -3,6 +3,8 @@ import random
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout
 from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
 from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter
+from PIL import Image as pimg
+
 # from locale import getdefaultlocale
 #
 # import ctypes as ct
@@ -701,11 +703,24 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbskAppEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in App name here"))
         self.pbskAppEdit.textChanged.connect(self.appDomainPage_changed)
 
-        self.pbskDomainLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Domain: "))
+        self.pbskAppExeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "App Exe Path: "))
+        self.pbskAppExeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskAppExeEdit = QtWidgets.QLineEdit()
+        self.pbskAppExeEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in App Exe Full Path here"))
+        self.pbskAppExeEdit.textChanged.connect(self.appDomainPage_changed)
+
+        self.pbskDomainLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Site: "))
         self.pbskDomainLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbskDomainEdit = QtWidgets.QLineEdit()
-        self.pbskDomainEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in Domain name here"))
+        self.pbskDomainEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in Domain Site here"))
         self.pbskDomainEdit.textChanged.connect(self.appDomainPage_changed)
+
+        self.pbskDomainURLLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Site URL: "))
+        self.pbskDomainURLLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pbskDomainURLEdit = QtWidgets.QLineEdit()
+        self.pbskDomainURLEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in Site URL here"))
+        self.pbskDomainURLEdit.textChanged.connect(self.appDomainPage_changed)
+
 
         self.pbskPageLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Page: "))
         self.pbskPageLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -727,7 +742,9 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         pbsk_headers_widgets = [
             (self.pbskAppLabel, self.pbskAppEdit),
+            (self.pbskAppExeLabel, self.pbskAppExeEdit),
             (self.pbskDomainLabel, self.pbskDomainEdit),
+            (self.pbskDomainURLLabel, self.pbskDomainURLEdit),
             (self.pbskPageLabel, self.pbskPageEdit),
             (self.pbskSkillLabel, self.pbskSkillEdit),
             (self.pbActionLabel, self.pbActionSel)
@@ -1990,15 +2007,101 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.stepListModel.appendRow(new_step)
 
     def ia_save(self):
-        print("save a new information....")
-        # if this bot already exists, then, this is an update case, else this is a new bot creation case.
-        if self.pbtabs.currentIndex() == 0:
-            if self.pbInfoSel.currentText() == "Anchor":
-                self.newAnchor = ANCHOR(self.pbInfoNameEdit.text())
-            elif self.pbInfoSel.currentText() == "Useful Data":
-                self.newUserInfo = USER_INFO(self.pbInfoNameEdit.text())
-        elif self.pbtabs.currentIndex() == 1:
-            print("hohoho")
+        print("save anchors to files....")
+        # save the json
+        privacy = "public"
+        if privacy == "public":
+            pdir = "public"
+            owner = "public"
+        else:
+            pdir = "my"
+            owner = self.parent.user
+
+        sk_prefix = self.parent.platform + "_" + self.pbskAppEdit.text() + "_" + self.pbskDomainEdit.text() + "_" + self.pbskPageEdit.text()
+
+        sk_json = {
+            "name": self.pbActionSel.currentText(),
+            "skid": 0,
+            "owner": owner,
+            "price": 0,
+            "price_model": "free",
+            "privacy": privacy,
+            "path": "resource/skills/" + pdir + "/",
+            "platform": self.parent.platform,
+            "app": self.pbskAppEdit.text(),
+            "app_link": self.pbskAppExeEdit.text(),
+            "app_args": "",
+            "site_name": self.pbskDomainEdit.text(),
+            "site": self.pbskDomainURLEdit.text(),
+            "page": self.pbskPageEdit.text(),
+            "private_skill": {
+                "nameSpace": "",
+                "runStepsFile": "",
+                "runConfig": {}
+            },
+            "cloud_skill": {
+                "path": pdir + "/" + sk_prefix + "/" + self.pbActionSel.currentText()
+            }
+        }
+
+        skj_path = self.home_path + "/resource/skills/" + pdir + "/" + sk_prefix + "/" + self.pbActionSel.currentText() + ".json"
+        try:
+            with open(skj_path, 'w') as f:
+                json.dump(sk_json, f)
+            # self.rebuildHTML()
+        except IOError:
+            QtGui.QMessageBox.information(
+                self,
+                "Unable to open file: %s" % skj_path
+            )
+
+
+        # save image anchor to file.
+        model = self.pbskAnchorListView.model()
+        for index in range(model.rowCount()):
+            anchor_item = model.item(index)
+            aj = self.gen_anchor_json(anchor_item)
+            if aj["anchor_type"] == "icon":
+                #save image to a file.
+                aname = anchor_item.get_name() + ".png"
+
+                # assume only 1 rect will be selected.
+                selected_rect = self.pbview.scene().selectedItems()[0].rect()
+                left = selected_rect.left()  # Replace 'l' with the x-coordinate of the upper left corner
+                top = selected_rect.top()  # Replace 't' with the y-coordinate of the upper left corner
+                right = selected_rect.right()  # Replace 'x' with the width of the subimage
+                bottom = selected_rect.bottom()  # Replace 'y' with the height of the subimage
+
+                # get the 1st image on image queue.
+                imq = self.parent.trainNewSkillWin.imq
+                original_image = imq[len(imq)-1]
+                # Crop the image
+                anchor_image = original_image.crop((left, top, right, bottom))
+                anchor_image.save(aname, "PNG")
+
+
+        # save info and anchors to csk file.
+        model = self.pbskDataListView.model()
+        for index in range(model.rowCount()):
+            info_item = model.item(index)
+            ij = self.gen_info_json(info_item)
+
+
+    def gen_anchor_json(self, aitem):
+        ajson = {
+            "anchor_name": aitem.get_name(),
+            "anchor_type": "text",
+            "template": "Password",
+            "ref_method": "0",
+            "ref_constraints": []
+        }
+        return ajson
+
+    def gen_info_json(self, iitem):
+        ijson = {
+
+        }
+        return ijson
 
     def ia_remove(self):
         print("remove a piece of information....")
@@ -2134,8 +2237,8 @@ class SkillGUI(QtWidgets.QMainWindow):
         if self.pbtabs.currentIndex() == 0:
             # user click on Info Tab
             self.IA_Add_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Add Feature"))
-            self.IA_Remove_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Remove Feature"))
-            self.IA_Save_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Save Feature"))
+            self.IA_Remove_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Remove CSK"))
+            self.IA_Save_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Save CSK"))
             self.pbskALWidget.setVisible(True)
             self.pbskDLWidget.setVisible(True)
             self.pbskSLWidget.setVisible(False)
@@ -2175,7 +2278,13 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def trial_run(self):
         # self.runStopped = False
+        all_skill_codes = [{"ns": "B0M1225!!", "skfile": "trial run skill psk file name full path here"}]
+        rpa_script = prepRunSkill(all_skill_codes)
+
+        self.parent.addSkillToTrialRunMission(0)          # replace 0 with the trial run skill ID
+        trMission = self.parent.getTrialRunMission()
         # runAllSteps(self.currentSkill.get_steps())
+        runResult = runAllSteps(rpa_script, trMission, thisTrialRUNSkill)   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
         psk_words = self.skFCWidget.skfc_scene.gen_psk_words()
 
         file = app_info.appdata_temp_path + "/test_mouse_sroll.psk"
@@ -2337,3 +2446,6 @@ class SkillGUI(QtWidgets.QMainWindow):
     def appDomainPage_changed(self):
         # when app, domain, page changed, that means, we need a different .csk file.
         print("app, domain, page changed....")
+
+
+
