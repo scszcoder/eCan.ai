@@ -461,6 +461,9 @@ class EBBOT(QtGui.QStandardItem):
     def getLevels(self):
         return self.pubProfile.levels
 
+    def setLevels(self, levels):
+        self.pubProfile.levels = levels
+
     def getLn(self):
         return self.privateProfile.last_name
 

@@ -27,7 +27,6 @@ class ROLE(QtGui.QStandardItem):
     def __init__(self, platform, level, role, homepath):
         super().__init__()
         self.platform = platform
-        self.homepath = homepath
         self.level = level
         self.role = role
         self.name = platform+"_"+level+"_"+role
@@ -39,6 +38,14 @@ class ROLE(QtGui.QStandardItem):
     def getData(self):
         return self.platform, self.level, self.role
 
+    def setPlatform(self, platform):
+        self.platform = platform
+
+    def setLevel(self, level):
+        self.level = level
+
+    def setRole(self, role):
+        self.role = role
 
 class InterestsListView(QtWidgets.QListView):
     def __init__(self, parent):
@@ -122,6 +129,15 @@ class BotNewWin(QtWidgets.QMainWindow):
 
         self.fsel = QtWidgets.QFileDialog()
         self.mode = "new"
+
+        self.popMenu = QtWidgets.QMenu(self)
+        self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+        self.popMenu.setFont(self.pop_menu_font)
+
+        self.popMenu.addAction(QtGui.QAction(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"), self))
+        self.popMenu.addSeparator()
+        self.popMenu.addAction(QtGui.QAction(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"), self))
+
 
         self.roleListView = RoleListView(self)
         self.roleListView.installEventFilter(self)
@@ -732,7 +748,7 @@ class BotNewWin(QtWidgets.QMainWindow):
         if self.role_platform_sel.currentText() == 'Custom':
             self.selected_role_platform = self.role_custom_platform_edit.text()
 
-        self.newRole = ROLE(self.selected_role_platform, self.selected_role_level, self.selected_role_role)
+        self.newRole = ROLE(self.selected_role_platform, self.selected_role_level, self.selected_role_role, self.homepath)
         self.roleModel.appendRow(self.newRole)
 
         rw = ""
@@ -742,7 +758,7 @@ class BotNewWin(QtWidgets.QMainWindow):
             r = self.roleModel.item(ri)
             rw = rw + r.platform + ":" + r.role
             lvl = lvl + r.platform + ":" + r.role + ":" + r.level
-            if ri != self.roleModel.rowCount():
+            if ri != self.roleModel.rowCount()-1:
                 rw = rw + ","
                 lvl = lvl + ","
         self.newBot.setRoles(rw)
@@ -1033,3 +1049,109 @@ class BotNewWin(QtWidgets.QMainWindow):
             self.shipaddr_city_edit.setText(self.addr_city_edit.text())
             self.shipaddr_state_edit.setText(self.addr_state_edit.text())
             self.shipaddr_zip_edit.setText(self.addr_zip_edit.text())
+
+    def eventFilter(self, source, event):
+        if event.type() == QtCore.QEvent.ContextMenu and source is self.roleListView:
+            print("role menu....", source)
+            self.popMenu = QtWidgets.QMenu(self)
+            self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+            self.popMenu.setFont(self.pop_menu_font)
+
+            self.roleEditAction = self._createRoleEditAction()
+            self.roleDeleteAction = self._createRoleDeleteAction()
+
+            self.popMenu.addAction(self.roleEditAction)
+            self.popMenu.addSeparator()
+            self.popMenu.addAction(self.roleDeleteAction)
+
+            selected_act = self.popMenu.exec_(event.globalPos())
+            if selected_act:
+                self.selected_role_row = source.indexAt(event.pos()).row()
+                self.selected_role_item = self.roleModel.item(self.selected_role_row)
+                if selected_act == self.roleEditAction:
+                    self.editRole()
+                elif selected_act == self.roleDeleteAction:
+                    self.deleteRole()
+            return True
+        elif event.type() == QtCore.QEvent.ContextMenu and source is self.interestListView:
+            print("interest menu....")
+            self.popMenu = QtWidgets.QMenu(self)
+            self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+            self.popMenu.setFont(self.pop_menu_font)
+            self.interestEditAction = self._createInterestEditAction()
+            self.interestDeleteAction = self._createInterestDeleteAction()
+
+            self.popMenu.addAction(self.interestEditAction)
+            self.popMenu.addSeparator()
+            self.popMenu.addAction(self.interestDeleteAction)
+
+            selected_act = self.popMenu.exec_(event.globalPos())
+            if selected_act:
+                self.selected_interest_row = source.indexAt(event.pos()).row()
+                self.selected_interest_item = self.interestModel.item(self.selected_interest_row)
+                if selected_act == self.interestEditAction:
+                    self.editInterest()
+                elif selected_act == self.interestDeleteAction:
+                    self.deleteInterest()
+            return True
+        # else:
+        #     print("unknwn.... RC menu....", source, " EVENT: ", event)
+        return super().eventFilter(source, event)
+
+
+    def _createRoleEditAction(self):
+       new_action = QtGui.QAction(self)
+       new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+       return new_action
+
+    def _createRoleDeleteAction(self):
+        # File actions
+        new_action = QtGui.QAction(self)
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+        return new_action
+
+    def _createInterestEditAction(self):
+       new_action = QtGui.QAction(self)
+       new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+       return new_action
+
+    def _createInterestDeleteAction(self):
+        # File actions
+        new_action = QtGui.QAction(self)
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+        return new_action
+
+    def editRole(self):
+        if self.role_platform_sel.currentText() == "Custom":
+            self.selected_role_item.setPlatform(self.role_platform_edit.text())
+        else:
+            self.selected_role_item.setPlatform(self.role_platform_sel.currentText())
+
+        self.selected_role_item.setRole(self.role_level_sel.currentText())
+        self.selected_role_item.setLevel(self.role_level_sel.currentText())
+
+
+    def deleteRole(self):
+        items = [self.selected_role_item]
+        if len(items):
+            for item in items:
+                # remove file first, then the item in the model.
+                # shutil.rmtree(temp_page_dir)
+                # os.remove(full_temp_page)
+
+                # remove the local data and GUI.
+                self.roleModel.removeRow(item.row())
+
+    def editInterest(self):
+        print("")
+
+    def deleteInterest(self):
+        items = [self.selected_interest_item]
+        if len(items):
+            for item in items:
+                # remove file first, then the item in the model.
+                # shutil.rmtree(temp_page_dir)
+                # os.remove(full_temp_page)
+
+                # remove the local data and GUI.
+                self.interestModel.removeRow(item.row())
