@@ -767,7 +767,7 @@ def processExtractInfo(step, i, mission, skill):
     ex_stat = "success:0"
     try:
         screen_error = False
-        dtnow = datetime.datetime.now()
+        dtnow = datetime.now()
 
         if step["page_data_info"]:
             page_layout = symTab[step["page_data_info"]]["products"]["layout"]
@@ -829,7 +829,8 @@ def processExtractInfo(step, i, mission, skill):
         symTab[step["data_sink"]] = result
         print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-    except:
+    except Exception as e:
+        print(f"Exception info:{e}")
         ex_stat = "ErrorExtractInf:" + str(i)
 
     return (i+1), ex_stat
