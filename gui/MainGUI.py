@@ -3817,10 +3817,12 @@ class MainWindow(QtWidgets.QMainWindow):
         sys.exit(0)
 
     def createTrialRunMission(self):
-        self.trMission = EBMISSION(self)
-        self.trMission.pubAttributes.setType(1225, "user", "Sell")
-        self.trMission.pubAttributes.setBot(0)
-        self.trMission.setCusPAS("win,chrome,amz")
+        trMission = EBMISSION(self)
+        trMission.pubAttributes.setType(1225, "user", "Sell")
+        trMission.pubAttributes.setBot(0)
+        trMission.setCusPAS("win,chrome,amz")
+
+        return trMission
 
     def addSkillToTrialRunMission(self, skid):
         self.trMission.setSkills([skid])
