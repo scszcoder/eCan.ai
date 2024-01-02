@@ -23,6 +23,7 @@ from PIL import Image as pimg
 # import BorderLayout
 from WorkSkill import *
 from readSkill import *
+from genSkills import *
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
@@ -2270,11 +2271,51 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def trial_run(self):
         # self.runStopped = False
-        all_skill_codes = [{"ns": "B0M1225!!", "skfile": "trial run skill psk file name full path here"}]
+        all_skill_codes = [{"ns": "B0M20231225!!", "skfile": "trial run skill psk file name full path here"}]
+
         rpa_script = prepRunSkill(all_skill_codes)
 
         self.parent.addSkillToTrialRunMission(0)          # replace 0 with the trial run skill ID
         trMission = self.parent.getTrialRunMission()
+
+        TRIAL_RUN_WORKS = {
+            "eastern": [],
+            "central": [],
+            "moutain": [],
+            "pacific": [{
+                "bid": 0,
+                "tz": "pacific",
+                "bw_works": [],
+                "other_works": [{
+                    "mid": 20231225,
+                    "name": "automation",
+                    "cuspas": "",
+                    "todos": None,
+                    "start_time": 0,
+                    "end_time": "",
+                    "stat": "nys"
+                }],
+            }],
+            "alaska": [],
+            "hawaii": []
+        }
+
+        workTBD = {
+            "name": "automation",
+            "works": TRIAL_RUN_WORKS,
+            "ip": "127.0.0.1",
+            "status": "yet to start",
+            "current tz": "pacific",
+            "current grp": "other_works",
+            "current bidx": 0,
+            "current widx": 0,
+            "current oidx": 0,
+            "competed": [],
+            "aborted": []
+        }
+
+        worksettings = getWorkSettings(self, worksTBD)
+
         # runAllSteps(self.currentSkill.get_steps())
         runResult = runAllSteps(rpa_script, trMission, thisTrialRUNSkill)   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
         psk_words = self.skFCWidget.skfc_scene.gen_psk_words()

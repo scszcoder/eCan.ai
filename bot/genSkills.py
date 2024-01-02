@@ -82,6 +82,8 @@ def getWorkSettings(lieutenant, bot_works):
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     bot = lieutenant.bots[bot_idx]
+
+    #create seller information json for seller related work in case
     sij = {
         "No": "1",
         "FromName": bot.getName(),
