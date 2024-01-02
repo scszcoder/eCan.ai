@@ -699,17 +699,22 @@ class MissionNewWin(QtWidgets.QMainWindow):
         new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
         return new_action
 
+    def _createSkillUpdateAction(self):
+        # File actions
+        new_action = QtGui.QAction(self)
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Update"))
+        return new_action
+
 
     def eventFilter(self, source, event):
         if event.type() == QtCore.QEvent.ContextMenu and source is self.skillListView:
             #print("bot RC menu....")
             self.popMenu = QtWidgets.QMenu(self)
-            #self.rcbotCloneAction = self._createBotRCCloneAction()
+            self.skillUpdateAction = self._createSkillUpdateAction()
             self.skillDeleteAction = self._createSkillDeleteAction()
 
-            #self.popMenu.addAction(self.rcbotEditAction)
-            #self.popMenu.addAction(self.rcbotCloneAction)
-            #self.popMenu.addSeparator()
+            self.popMenu.addAction(self.skillUpdateAction)
+            self.popMenu.addSeparator()
             self.popMenu.addAction(self.skillDeleteAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
@@ -718,6 +723,8 @@ class MissionNewWin(QtWidgets.QMainWindow):
                 self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
                 if selected_act == self.skillDeleteAction:
                     self.removeSkill()
+                elif selected_act == self.skillUpdateAction:
+                    self.updateSelectedSkill(self.selected_skill_row)
             return True
 
             ##print(event.)
