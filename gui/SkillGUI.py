@@ -23,6 +23,7 @@ from PIL import Image as pimg
 # import BorderLayout
 from WorkSkill import *
 from readSkill import *
+from genSkills import *
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
@@ -2277,22 +2278,69 @@ class SkillGUI(QtWidgets.QMainWindow):
         pauseRun()
 
     def trial_run(self):
-        psk_words = self.skFCWidget.skfc_scene.gen_psk_words()
-        file_name = app_info.appdata_temp_path + "/test_mouse_sroll.psk"
-        skf = open(file_name, "w")
-        skf.write("\n")
-
-        skf.write(psk_words)
-        skf.close()
-
         # self.runStopped = False
-        all_skill_codes = [{"ns": "B0M1225!!", "skfile": file_name}]
+        all_skill_codes = [{"ns": "B0M20231225!!", "skfile": "trial run skill psk file name full path here"}]
+
         rpa_script = prepRunSkill(all_skill_codes)
 
-        self.parent.parent.addSkillToTrialRunMission(0)          # replace 0 with the trial run skill ID
-        trMission = self.parent.parent.getTrialRunMission()
+        self.parent.addSkillToTrialRunMission(0)          # replace 0 with the trial run skill ID
+        trMission = self.parent.getTrialRunMission()
+
+        TRIAL_RUN_WORKS = {
+            "eastern": [],
+            "central": [],
+            "moutain": [],
+            "pacific": [{
+                "bid": 0,
+                "tz": "pacific",
+                "bw_works": [],
+                "other_works": [{
+                    "mid": 20231225,
+                    "name": "automation",
+                    "cuspas": "",
+                    "todos": None,
+                    "start_time": 0,
+                    "end_time": "",
+                    "stat": "nys"
+                }],
+            }],
+            "alaska": [],
+            "hawaii": []
+        }
+
+        workTBD = {
+            "name": "automation",
+            "works": TRIAL_RUN_WORKS,
+            "ip": "127.0.0.1",
+            "status": "yet to start",
+            "current tz": "pacific",
+            "current grp": "other_works",
+            "current bidx": 0,
+            "current widx": 0,
+            "current oidx": 0,
+            "competed": [],
+            "aborted": []
+        }
+
+        worksettings = getWorkSettings(self, worksTBD)
+
         # runAllSteps(self.currentSkill.get_steps())
-        runResult = runAllSteps(rpa_script, trMission, WORKSKILL(self.parent.parent, "test_mouse_sroll"))   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
+        runResult = runAllSteps(rpa_script, trMission, thisTrialRUNSkill)   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
+        psk_words = self.skFCWidget.skfc_scene.gen_psk_words()
+
+        # file = app_info.appdata_temp_path + "/test_mouse_sroll.psk"
+        # skf = open(file, "w")
+        # skf.write("\n")
+        #
+        # skf.write(psk_words)
+        # skf.close()
+        #
+        # print("done generating skill============================>")
+        # skodes = [{"ns": "TestMouseScrollSK", "skfile": file}]
+        # rpa_script = prepRunSkill(skodes)
+        # print("done all address gen.................")
+        #
+        # runAllSteps(rpa_script, None, None)
 
     def continue_run(self):
         continueRun(steps, last_step)

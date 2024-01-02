@@ -3817,15 +3817,28 @@ class MainWindow(QtWidgets.QMainWindow):
         sys.exit(0)
 
     def createTrialRunMission(self):
-        trMission = EBMISSION(self)
-        trMission.pubAttributes.setType(1225, "user", "Sell")
-        trMission.pubAttributes.setBot(0)
-        trMission.setCusPAS("win,chrome,amz")
-
-        return trMission
+        self.trMission = EBMISSION(self)
+        self.trMission.pubAttributes.setType(20231225, "user", "Sell")
+        self.trMission.pubAttributes.setBot(0)
+        self.trMission.setCusPAS("win,chrome,amz")
+        self.missions.append(self.trMission)
 
     def addSkillToTrialRunMission(self, skid):
-        self.trMission.setSkills([skid])
+        found = False
+        for m in self.missions:
+            if m.getMid == 20231225:
+                found = True
+                break
+        if found:
+            m.setSkills([skid])
 
     def getTrialRunMission(self):
-        return self.trMission
+        found = False
+        for m in self.missions:
+            if m.getMid == 20231225:
+                found = True
+                break
+        if found:
+            return m
+        else:
+            return None
