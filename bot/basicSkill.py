@@ -644,6 +644,10 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     # request an analysis of the uploaded screen
+    # some example options usage:
+    # "options": "{\"info\": [{\"info_name\": \"label_row\", \"info_type\": \"lines 1\", \"template\": \"2\", \"ref_method\": \"1\", \"refs\": [{\"dir\": \"right inline\", \"ref\": \"entries\", \"offset\": 0, \"offset_unit\": \"box\"}]}]}",
+    # basically let a user to modify csk file by appending some user defined way to extract certain information element.
+
     request = [{
         "id": mission.getMid(),
         "bid": mission.getBid(),
