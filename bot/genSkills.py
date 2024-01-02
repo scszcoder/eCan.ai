@@ -204,7 +204,8 @@ def genSkillCode(worksettings, start_step, theme):
     if worksettings["platform"] == "win":
         genWinSkillCode(worksettings, start_step, theme)
     elif worksettings["platform"] == "mac":
-        genMacSkillCode(worksettings, start_step, theme)
+        # genMacSkillCode(worksettings, start_step, theme)
+        genWinSkillCode(worksettings, start_step, theme)
 
 
 
