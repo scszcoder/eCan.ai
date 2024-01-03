@@ -2266,6 +2266,7 @@ class SkillGUI(QtWidgets.QMainWindow):
                 data = json.load(f)
 
                 print(f'JSON data loaded from {file_name}: {data}')
+                self.skFCWidget.decode_json(json.dumps(data))
 
     def save_skill_file(self):
         # bring out the load file dialog
