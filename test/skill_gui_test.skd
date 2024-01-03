@@ -1,6 +1,6 @@
 {
     "sk_info": {
-        "skname": "",
+        "skname": "win_test_skill",
         "os": "win",
         "version": "1.0",
         "author": "AIPPS LLC",
@@ -26,7 +26,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "768bd4a1-5916-4a83-bdc0-838cbbadcad4",
+                "uuid": "aa15fe03-ce08-4607-b9df-6047b237bd8a",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -44,7 +44,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "78c2d7d4-44dd-45eb-be8f-8edc4957967d",
+                "uuid": "f2708ad7-1e41-4dff-9b39-a57c320baaad",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -87,7 +87,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "8fdacf44-7352-48cb-b988-c4e191246142",
+                "uuid": "5b3f66a0-5b99-4545-985e-7c6131f33d23",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -105,7 +105,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "07edc36b-d330-454e-87bc-6b094617040c",
+                "uuid": "08f0b7f6-4ead-4ead-b10a-a22f12e51c3d",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -148,7 +148,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "b6b02136-0a21-48b8-a530-a41901857494",
+                "uuid": "9b62a363-13c7-4364-bcaf-311070b27862",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -166,7 +166,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "030f7191-7c4d-4ac2-b6c8-57343a00e96e",
+                "uuid": "c5171d6e-bafe-4627-9216-f02b81d6d1b2",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -277,7 +277,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "9992fe33-4623-4497-a207-26f6a50dadd7",
+                "uuid": "34923d2b-1292-459e-82f8-7dccefdcaa59",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -295,7 +295,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "01178ef4-260c-43f8-9ff8-c9b1d8bb830d",
+                "uuid": "9b013768-6c8a-4468-838f-eaf6369569e1",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -375,7 +375,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "d960225d-86c8-4d16-90a1-c880e9d0113c",
+                "uuid": "76c67748-5fc8-4b0f-bbb8-6e55371b98d2",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -393,7 +393,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "59680f37-bc66-433c-b9d4-286b20ca25f4",
+                "uuid": "df1d1181-a5b0-4bec-8472-2f4e1439009a",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
@@ -473,7 +473,7 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "a27ce347-a7c6-4e69-8e2b-dd3c745852be",
+                "uuid": "036658bb-be12-4976-8259-27655157eafb",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "hello",
@@ -491,7 +491,7 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "4d7af76a-e5a0-4cd8-aabf-1939602bab41",
+                "uuid": "01220b7c-9ef5-4b7c-b4d8-c5db75f4be10",
                 "item_type": "Text",
                 "sub_item": true,
                 "plain_text": "tag here",
