@@ -18,6 +18,23 @@ PROPS_COLUMN_COUNT = 2
 STEP_ATTR_KEY = "step_attr_key"
 
 
+class SKInfo:
+    def __init__(self, skname="", os="win", version="1.0", author="AIPPS LLC", skid="", description=""):
+        self.skname = skname
+        self.os = os
+        self.version = version
+        self.author = author
+        self.skid = skid
+        self.description = description
+
+    @classmethod
+    def from_dict(cls, obj_dict):
+        sk_info = SKInfo()
+        for key, value in dict(obj_dict).items():
+            setattr(sk_info, key, value)
+
+        return sk_info
+
 class SwitchButton(QWidget):
     stateChanged = Signal(bool)
 
@@ -125,8 +142,26 @@ class SkFCInfoBox(QFrame):
 
         # self.setSizePolicy(QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Ignored))
         # self.setMinimumWidth(self.panel_title_widget.sizeHint().width())
+        self.init_qline_edit(SKInfo())
 
-    def get_skill_info(self):
+    def to_dict(self):
+        sk_info = self.get_skill_info()
+
+        return sk_info.__dict__
+
+    def from_json(self, sk_info_dict: dict):
+        if sk_info_dict is not None:
+            self.init_qline_edit(SKInfo.from_dict(sk_info_dict))
+
+    def init_qline_edit(self, sk_info: SKInfo):
+        self.basic_info_skname.setText(sk_info.skname)
+        self.basic_info_skos.setText(sk_info.os)
+        self.basic_info_skversion.setText(sk_info.version)
+        self.basic_info_skauthor.setText(sk_info.author)
+        self.basic_info_skid.setText(sk_info.skid)
+        self.basic_info_skdesp.setText(sk_info.description)
+
+    def get_skill_info(self) -> SKInfo:
         skname = self.basic_info_skname.text()
         os = self.basic_info_skos.text()
         version = self.basic_info_skversion.text()
@@ -134,7 +169,9 @@ class SkFCInfoBox(QFrame):
         skid = self.basic_info_skid.text()
         desp = self.basic_info_skdesp.text()
 
-        return skname, os, version, author, skid, desp
+        sk_info = SKInfo(skname, os, version, author, skid, desp)
+
+        return sk_info
 
     def convert_field_name(self, text):
         return ' '.join(w.capitalize() for w in text.split('_'))

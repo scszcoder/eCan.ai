@@ -258,7 +258,7 @@ class SkFCScene(QGraphicsScene):
 
         return None
 
-    def to_json(self) -> dict:
+    def to_dict(self) -> []:
         items = []
 
         for item in self.items():
@@ -272,15 +272,11 @@ class SkFCScene(QGraphicsScene):
             else:
                 print(f"filter diagram item to dict error type {item}")
 
-        obj_dict = {
-            "items": items
-        }
+        return items
 
-        return obj_dict
-
-    def from_json(self, items_dict, context_menu: QMenu):
+    def from_json(self, items, context_menu: QMenu):
         arrow_items = []
-        for item in items_dict["items"]:
+        for item in items:
             diagram_item = None
             str_item_type = item["item_type"]
             enum_item_type = EnumItemType[str_item_type]
@@ -398,8 +394,9 @@ class SkFCScene(QGraphicsScene):
         first_step = 0
 
         # header
-        skname, os, version, author, skid, desp = self.parent.skfc_infobox.get_skill_info()
-        this_step, step_words = StepHeader(first_step, skname, os, version, author, skid, desp).gen_step(first_step)
+        sk_info = self.parent.skfc_infobox.get_skill_info()
+        this_step, step_words = StepHeader(first_step, sk_info.skname, sk_info.os, sk_info.version, sk_info.author,
+                                           sk_info.skid, sk_info.description).gen_step(first_step)
         psk_words = psk_words + step_words
 
         # body steps

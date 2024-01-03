@@ -1,6 +1,6 @@
 import sys
 import random
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog
 from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
 from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter
 from PIL import Image as pimg
@@ -2255,15 +2255,17 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def load_skill_file(self):
         # bring out the load file dialog
-        # pskFile = self.skfsel.getOpenFileName()
+        my_skill_dir_path = app_info.app_home_path + "/resource/skills/my"
+        print(my_skill_dir_path)
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open File", my_skill_dir_path, "All Files (*);;SKD Files (*.skd)",
+                                                   options=options)
+        if file_name:
+            print("Selected file:", file_name)
+            with open(file_name, 'r') as f:
+                data = json.load(f)
 
-        file_path = app_info.app_home_path + '/test/skill_gui_test.json'
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-
-            print(f'JSON data loaded from {file_path}: {data}')
-
-            self.skFCWidget.decode_json(json.dumps(data))
+                print(f'JSON data loaded from {file_name}: {data}')
 
     def save_skill_file(self):
         # bring out the load file dialog
@@ -2278,13 +2280,34 @@ class SkillGUI(QtWidgets.QMainWindow):
         pauseRun()
 
     def trial_run(self):
+        skname = self.skFCWidget.skfc_infobox.get_skill_info().skname
+        my_skill_dir_path = app_info.app_home_path + "/resource/skills/my/" + skname + "/scripts/"
+        if not os.path.exists(my_skill_dir_path):
+            os.makedirs(my_skill_dir_path)
+            print("Folder created:", my_skill_dir_path)
+
+        skd_file_path = my_skill_dir_path + skname + ".sdk"
+
+        skd_data = self.skFCWidget.encode_json(indent=4)
+        if skd_file_path:
+            with open(skd_file_path, 'w') as file:
+                file.write(skd_data)
+                print(f'SKD data saved to {skd_file_path}')
+
+        psk_words = self.skFCWidget.skfc_scene.gen_psk_words()
+        psk_file_path = my_skill_dir_path + skname + ".psk"
+        if psk_file_path:
+            with open(psk_file_path, 'w') as file:
+                file.write(psk_words)
+                print(f'psk file saved to {psk_file_path}')
+
         # self.runStopped = False
-        all_skill_codes = [{"ns": "B0M20231225!!", "skfile": "trial run skill psk file name full path here"}]
+        all_skill_codes = [{"ns": "B0M20231225!!", "skfile": psk_file_path}]
 
         rpa_script = prepRunSkill(all_skill_codes)
 
-        self.parent.addSkillToTrialRunMission(0)          # replace 0 with the trial run skill ID
-        trMission = self.parent.getTrialRunMission()
+        self.parent.parent.addSkillToTrialRunMission(0)          # replace 0 with the trial run skill ID
+        trMission = self.parent.parent.getTrialRunMission()
 
         TRIAL_RUN_WORKS = {
             "eastern": [],
@@ -2322,25 +2345,10 @@ class SkillGUI(QtWidgets.QMainWindow):
             "aborted": []
         }
 
-        worksettings = getWorkSettings(self, worksTBD)
+        worksettings = getWorkSettings(self, workTBD)
 
         # runAllSteps(self.currentSkill.get_steps())
-        runResult = runAllSteps(rpa_script, trMission, thisTrialRUNSkill)   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
-        psk_words = self.skFCWidget.skfc_scene.gen_psk_words()
-
-        # file = app_info.appdata_temp_path + "/test_mouse_sroll.psk"
-        # skf = open(file, "w")
-        # skf.write("\n")
-        #
-        # skf.write(psk_words)
-        # skf.close()
-        #
-        # print("done generating skill============================>")
-        # skodes = [{"ns": "TestMouseScrollSK", "skfile": file}]
-        # rpa_script = prepRunSkill(skodes)
-        # print("done all address gen.................")
-        #
-        # runAllSteps(rpa_script, None, None)
+        runResult = runAllSteps(rpa_script, trMission, WORKSKILL(self.parent.parent, skname))   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
 
     def continue_run(self):
         continueRun(steps, last_step)
