@@ -3807,7 +3807,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return FETCH_ROUTINE
 
 
-    def closeEvent(self):
+    def closeEvent(self, event):
         #Your desired functionality here
         print('Program quitting....')
 
