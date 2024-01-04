@@ -2325,7 +2325,8 @@ class SkillGUI(QtWidgets.QMainWindow):
                     "todos": None,
                     "start_time": 0,
                     "end_time": "",
-                    "stat": "nys"
+                    "stat": "nys",
+                    "config": None
                 }],
             }],
             "alaska": [],
@@ -2346,7 +2347,7 @@ class SkillGUI(QtWidgets.QMainWindow):
             "aborted": []
         }
 
-        worksettings = getWorkSettings(self, workTBD)
+        worksettings = getWorkSettings(self.parent.parent, workTBD)
 
         # runAllSteps(self.currentSkill.get_steps())
         runResult = runAllSteps(rpa_script, trMission, WORKSKILL(self.parent.parent, skname))   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
