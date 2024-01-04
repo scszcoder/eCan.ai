@@ -29,7 +29,7 @@ def getWorkSettings(lieutenant, bot_works):
 
     print("bot_works: ", bot_works)
     mission_id = works[tz][bidx][grp][idx]["mid"]
-    midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == mission_id), -1)
+    midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(mission_id)), -1)
     for m in lieutenant.missions:
         print("MissionIDs:", m.getMid())
     if midx < 0 or midx >= len(lieutenant.missions):
