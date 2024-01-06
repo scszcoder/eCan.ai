@@ -163,7 +163,6 @@ class PROCEDURAL_SKILL(QtGui.QStandardItem):
         self.nameSpace = ""
         self.parent = parent
         self.path = "resource/skills/public/"
-        self.homepath = self.parent.homepath
 
 
     def getSteps(self):
