@@ -22,7 +22,7 @@ class StepTextInput(StepBase):
         self.key_after = key_after
         self.wait_after: float = wait_after
 
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         self.speed = float(self.speed)
         self.wait_after = float(self.wait_after)
         json_step = super().gen_step(stepN)

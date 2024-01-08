@@ -17,7 +17,7 @@ class StepHeader(StepBase):
         self.skid = skid
         self.description = description
 
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         self.stepN = stepN
         json_str = self.gen_json_str()
         json_step = ((self.stepN + STEP_GAP), ("\"header\":\n" + json_str + ",\n"))

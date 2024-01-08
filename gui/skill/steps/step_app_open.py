@@ -46,7 +46,7 @@ class StepAppOpen(StepBase):
         self.cargs = args
         self.wait: float = wait
 
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         if self.target_type == EnumAppOpenTargetType.Browser:
             if not self.target_link.startswith('http://') and not self.target_link.startswith('https://'):
                 self.target_link = 'https://' + self.target_link

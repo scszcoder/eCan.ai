@@ -18,3 +18,9 @@ class StepExtractInfo(StepBase):
         self.page_data_info = page_data
         self.theme = theme
         self.section = sect
+
+    def gen_step(self, stepN, **kwargs):
+        self.settings = kwargs.get('settings')
+        json_step = super().gen_step(stepN)
+
+        return json_step
