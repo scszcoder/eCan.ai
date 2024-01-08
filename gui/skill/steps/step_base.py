@@ -39,7 +39,7 @@ class StepBase(ABC):
         return json_str
 
     # 生成step json 格式接口
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         self.stepN = stepN
         json_str = self.gen_json_str()
         json_step = ((self.stepN + STEP_GAP), ("\"step " + str(self.stepN) + "\":\n" + json_str + ",\n"))

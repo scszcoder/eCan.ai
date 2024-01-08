@@ -20,7 +20,7 @@ class StepSearchScroll(StepBase):
         self.site = site
         self.flag = flag
 
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         self.postwait = float(self.postwait)
         json_step = super().gen_step(stepN)
 

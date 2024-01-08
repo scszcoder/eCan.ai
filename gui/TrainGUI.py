@@ -53,7 +53,7 @@ class ReminderWin(QtWidgets.QMainWindow):
 
         self.mainWidget = QtWidgets.QWidget()
         self.reminder_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "press <Esc> key to end recording"), alignment=QtCore.Qt.AlignLeft)
-        self.rLayout = QtWidgets.QHBoxLayout(self)
+        self.rLayout = QtWidgets.QHBoxLayout()
         self.rLayout.addWidget(self.reminder_label)
         self.mainWidget.setLayout(self.rLayout)
         self.setCentralWidget(self.mainWidget)

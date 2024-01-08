@@ -12,11 +12,12 @@ class StepWait(StepBase):
         self.random_max = random_max
         self.time: float = wait
 
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         self.time = float(self.time)
         json_step = super().gen_step(stepN)
 
         return json_step
+
 
 if __name__ == '__main__':
     step = StepWait(0, 5, 0, 0)

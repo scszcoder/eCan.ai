@@ -15,7 +15,7 @@ class StepKeyInput(StepBase):
         self.location = loc
         self.wait_after: float = wait_after
 
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         self.wait_after = float(self.wait_after)
         json_step = super().gen_step(stepN)
 

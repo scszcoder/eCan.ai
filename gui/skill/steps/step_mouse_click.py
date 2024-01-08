@@ -48,7 +48,7 @@ class StepMouseClick(StepBase):
         self.post_move = post_move
         self.post_wait: float = post_wait
 
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         self.post_wait = float(self.post_wait)
         self.offset = float(self.offset)
         json_step = super().gen_step(stepN)

@@ -30,7 +30,7 @@ class StepMouseScroll(StepBase):
         self.postwait: float = postwait
         self.unit: EnumMouseScrollUnit = unit  # raw/screen
 
-    def gen_step(self, stepN):
+    def gen_step(self, stepN, **kwargs):
         self.postwait = float(self.postwait)
         self.amount = int(self.amount)
         self.random_min = int(self.random_min)
