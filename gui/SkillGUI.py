@@ -2293,7 +2293,8 @@ class SkillGUI(QtWidgets.QMainWindow):
                     "todos": None,
                     "start_time": 0,
                     "end_time": "",
-                    "stat": "nys"
+                    "stat": "nys",
+                    "config": None
                 }],
             }],
             "alaska": [],
