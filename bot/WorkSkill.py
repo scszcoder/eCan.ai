@@ -234,6 +234,11 @@ class WORKSKILL(QtGui.QStandardItem):
         self.setText('Skill'+str(self.getSkid()))
         self.icon = QtGui.QIcon(parent.skill_icon_path)
         self.setIcon(self.icon)
+        self.createOn = ""
+
+        self.setText(self.name)
+        self.icon = QtGui.QIcon(self.homepath + '/resource/images/icons/skills_78.png')
+        self.setIcon(self.icon)
 
     def add_private_skill(self, procedural_skill):
         self.private_skill = procedural_skill
@@ -307,6 +312,15 @@ class WORKSKILL(QtGui.QStandardItem):
 
     def getName(self):
         return self.name
+
+    def getUsers(self):
+        return self.users
+
+    def getCreatedOn(self):
+        return self.createdOn
+
+    def getDescription(self):
+        return self.description
 
     def getPath(self):
         return self.path

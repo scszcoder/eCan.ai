@@ -745,7 +745,7 @@ class BotNewWin(QtWidgets.QMainWindow):
         self.interest_custom_sub_category5_edit.setVisible(True)
 
     def saveRole(self):
-        if self.role_platform_sel.currentText() == 'Custom':
+        if self.role_platform_sel.currentText() == QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.selected_role_platform = self.role_custom_platform_edit.text()
 
         self.newRole = ROLE(self.selected_role_platform, self.selected_role_level, self.selected_role_role, self.homepath)
@@ -766,25 +766,25 @@ class BotNewWin(QtWidgets.QMainWindow):
 
 
     def addInterest(self):
-        if self.interest_platform_sel.currentText() == 'Custom':
+        if self.interest_platform_sel.currentText() == QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.selected_interest_platform = self.interest_custom_platform_edit.text()
 
-        if self.interest_main_category_sel.currentText() == 'Custom':
+        if self.interest_main_category_sel.currentText() == QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.selected_interest_main_category = self.interest_custom_main_category_edit.text()
 
-        if self.interest_sub_category1_sel.currentText() == 'Custom':
+        if self.interest_sub_category1_sel.currentText() == QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.selected_interest_sub_category1 = self.interest_custom_sub_category1_edit.text()
 
-        if self.interest_sub_category2_sel.currentText() == 'Custom':
+        if self.interest_sub_category2_sel.currentText() == QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.selected_interest_sub_category2 = self.interest_custom_sub_category2_edit.text()
 
-        if self.interest_sub_category3_sel.currentText() == 'Custom':
+        if self.interest_sub_category3_sel.currentText() == QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.selected_interest_sub_category3 = self.interest_custom_sub_category3_edit.text()
 
-        if self.interest_sub_category4_sel.currentText() == 'Custom':
+        if self.interest_sub_category4_sel.currentText() == QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.selected_interest_sub_category4 = self.interest_custom_sub_category4_edit.text()
 
-        if self.interest_sub_category5_sel.currentText() == 'Custom':
+        if self.interest_sub_category5_sel.currentText() == QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.selected_interest_sub_category5 = self.interest_custom_sub_category5_edit.text()
 
         self.newInterest = INTEREST(self.selected_interest_platform, self.selected_interest_main_category, self.selected_interest_sub_category1, self.selected_interest_sub_category2, self.selected_interest_sub_category3, self.selected_interest_sub_category4, self.selected_interest_sub_category5)
@@ -880,7 +880,7 @@ class BotNewWin(QtWidgets.QMainWindow):
             self.setWindowTitle('Updating a new bot')
 
     def rolePlatformSel_changed(self):
-        if self.role_platform_sel.currentText() != 'Custom':
+        if self.role_platform_sel.currentText() != QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"):
             self.hide_role_custom_platform()
             self.selected_role_platform = self.role_platform_sel.currentText()
         else:
