@@ -628,7 +628,8 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         os.makedirs(os.path.dirname(sfile))
 
     #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-    im0 = pyautogui.screenshot(imageFilename=sfile, region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    im0.save(sfile)
     screen_loc = (window_rect[0], window_rect[1])
 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
@@ -821,7 +822,7 @@ def processExtractInfo(step, i, mission, skill):
         fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
         # fdir = fdir + ppword + "/"
         fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
-        fdir = fdir + step_settings["skname"] + "/images/"
+        fdir = fdir + step_settings["skname"] + "images/"
         sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
         print("sfile: ", sfile)
 
@@ -2476,9 +2477,21 @@ def processSaveHtml(step, i, mission, skill):
 
 
 if __name__ == '__main__':
+    file = '/Users/liuqiang/MyDocuments/Workspace/scszcoder/ecbot/runlogs/20240109/b1m20231225/win_chrome_amz_home/skills/images/scrn249511118_qq_1704766171.png'
     window_name, window_rect = get_top_visible_window()
-    im0 = pyautogui.screenshot(imageFilename='test.png',
-                               region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    # im0 = pyautogui.screenshot(imageFilename=file,
+    #                            region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+
+    from PIL import Image
+
+    # file = '../screenshot.png'
+    # 截取屏幕并保存图像
+    image = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    image.save(file)
+
+    # 打开图像文件
+    im = Image.open(file)
+    im.show()
 
     # screen_loc = (window_rect[0], window_rect[1])
 

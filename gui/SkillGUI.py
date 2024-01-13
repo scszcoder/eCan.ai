@@ -540,7 +540,6 @@ ACTION_ITEMS = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keybo
 
 
 class SkillGUI(QtWidgets.QMainWindow):
-    Debug = False
 
     def __init__(self, parent):
         super(SkillGUI, self).__init__(parent)
@@ -2272,7 +2271,7 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def save_skill_file(self):
         # bring out the load file dialog
-        sk_prefix = "win_chrome_baidu_home"
+        sk_prefix = "win_chrome_amz_home"
         skname = self.skFCWidget.skfc_infobox.get_skill_info().skname
         my_skill_dir_path = app_info.app_home_path + "/resource/skills/my/" + sk_prefix + "/" + skname + "/scripts/"
         if not os.path.exists(my_skill_dir_path):
@@ -2287,7 +2286,8 @@ class SkillGUI(QtWidgets.QMainWindow):
                 file.write(skd_data)
                 print(f'save skd file to {skd_file_path}')
 
-        psk_words = self.skFCWidget.skfc_scene.gen_psk_words()
+        worksettings = self.get_work_settings()
+        psk_words = self.skFCWidget.skfc_scene.gen_psk_words(worksettings)
         psk_file_path = my_skill_dir_path + skname + ".psk"
         if psk_file_path:
             with open(psk_file_path, 'w') as file:
@@ -2302,53 +2302,55 @@ class SkillGUI(QtWidgets.QMainWindow):
         #will add later a sure? dialog
         pauseRun()
 
-    def trial_run(self):
-        if SkillGUI.Debug is False:
-            self.parent.parent.addSkillToTrialRunMission(0)          # replace 0 with the trial run skill ID
-            trMission = self.parent.parent.getTrialRunMission()
+    def get_work_settings(self):
+        self.parent.parent.addSkillToTrialRunMission(0)  # replace 0 with the trial run skill ID
 
-            TRIAL_RUN_WORKS = {
-                "eastern": [],
-                "central": [],
-                "moutain": [],
-                "pacific": [{
-                    "bid": 0,
-                    "tz": "pacific",
-                    "bw_works": [],
-                    "other_works": [{
-                        "mid": 20231225,
-                        "name": "automation",
-                        "cuspas": "",
-                        "todos": None,
-                        "start_time": 0,
-                        "end_time": "",
-                        "stat": "nys",
-                        "config": None
-                    }],
+        TRIAL_RUN_WORKS = {
+            "eastern": [],
+            "central": [],
+            "moutain": [],
+            "pacific": [{
+                "bid": 1,
+                "tz": "pacific",
+                "bw_works": [],
+                "other_works": [{
+                    "mid": 20231225,
+                    "name": "automation",
+                    "cuspas": "",
+                    "todos": None,
+                    "start_time": 0,
+                    "end_time": "",
+                    "stat": "nys",
+                    "config": None
                 }],
-                "alaska": [],
-                "hawaii": []
-            }
+            }],
+            "alaska": [],
+            "hawaii": []
+        }
 
-            workTBD = {
-                "name": "automation",
-                "works": TRIAL_RUN_WORKS,
-                "ip": "127.0.0.1",
-                "status": "yet to start",
-                "current tz": "pacific",
-                "current grp": "other_works",
-                "current bidx": 0,
-                "current widx": 0,
-                "current oidx": 0,
-                "competed": [],
-                "aborted": []
-            }
+        workTBD = {
+            "name": "automation",
+            "works": TRIAL_RUN_WORKS,
+            "ip": "127.0.0.1",
+            "status": "yet to start",
+            "current tz": "pacific",
+            "current grp": "other_works",
+            "current bidx": 0,
+            "current widx": 0,
+            "current oidx": 0,
+            "competed": [],
+            "aborted": []
+        }
 
-            worksettings = getWorkSettings(self.parent.parent, workTBD)
-        else:
-            worksettings = self.debug_worksettings()
+        worksettings = getWorkSettings(self.parent.parent, workTBD)
 
         print(f"work settings {worksettings}")
+
+        return worksettings
+
+    def trial_run(self):
+        trMission = self.parent.parent.getTrialRunMission()
+        worksettings = self.get_work_settings()
 
         skname = self.skFCWidget.skfc_infobox.get_skill_info().skname
         psk_words = self.skFCWidget.skfc_scene.gen_psk_words(worksettings)
@@ -2369,40 +2371,6 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def run_step(self):
         continueRun(steps, last_step)
-
-    def debug_worksettings(self):
-        print("Debug Mode!!!")
-        return {
-                'skname': '',
-                'skfname': '',
-                'cargs': '',
-                'botid': 0,
-                'seller': {
-                    'No': '1',
-                    'FromName': 'Sam Chen',
-                    'PhoneFrom': '925-601-1002',
-                    'Address1From': '2610 Laramie Gate Cir',
-                    'CompanyFrom': '',
-                    'Address2From': '',
-                    'CityFrom': 'Pleasanton',
-                    'StateFrom': 'CA',
-                    'ZipCodeFrom': '94566'},
-                'mid': 20231225,
-                'midx': 0,
-                'run_config': None,
-                'root_path': '/Users/liuqiang/MyDocuments/Workspace/scszcoder/ecbot',
-                'log_path_prefix': '/Users/liuqiang/MyDocuments/Workspace/scszcoder/ecbot/runlogs/20240106/b0m20231225/',
-                'log_path': '',
-                'platform': 'win',
-                'site': 'amz',
-                'app': 'chrome',
-                'app_exe': '',
-                'page': '',
-                'products': [],
-                'rpaName': 'automation',
-                'wifis': [],
-                'options': '{}',
-                'name_space': 'B0M20231225!!'}
 
     def _createAnchorEditAction(self):
         new_action = QtGui.QAction(self)

@@ -1,6 +1,6 @@
 {
     "sk_info": {
-        "skname": "win_test_skill",
+        "skname": "test",
         "os": "win",
         "version": "1.0",
         "author": "AIPPS LLC",
@@ -510,14 +510,14 @@
             },
             "step": {
                 "type": "Extract Info",
-                "description": null,
-                "settings": null,
+                "description": "",
+                "settings": "",
                 "template": "",
                 "option": "",
                 "data_sink": "screen_info",
-                "page": null,
-                "page_data_info": null,
-                "theme": null,
+                "page": "home",
+                "page_data_info": "",
+                "theme": "",
                 "section": "top"
             }
         },
