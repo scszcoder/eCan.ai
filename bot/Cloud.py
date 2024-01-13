@@ -268,6 +268,18 @@ def gen_screen_read_icon_request_string(query):
     return query_string
 
 
+def gen_query_skills_string(q_setting):
+    if q_setting["byowneruser"]:
+        query_string = "query MySkQuery { querySkills(qs: \"{ \\\"byowneruser\\\": true}\") } "
+    else:
+        query_string = "query MySkQuery { querySkills(qs: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\""+q_setting["phrase"]+"\\\"}\") } "
+
+    rec_string = ""
+    tail_string = ""
+    query_string = query_string + rec_string + tail_string
+    print(query_string)
+    return query_string
+
 
 def gen_schedule_request_string(test_name, schedule_settings):
     if test_name != "":
@@ -1065,6 +1077,23 @@ def send_get_bots_request_to_cloud(session, token):
 
 
     return jresponse
+
+def send_query_skills_request_to_cloud(session, token, q_setting):
+
+    queryInfo = gen_query_skills_string(q_setting)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["querySkills"])
+
+
+    return jresponse
+
 
 
 # interface appsync, directly use HTTP request.

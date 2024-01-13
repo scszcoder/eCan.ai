@@ -39,7 +39,7 @@ import copy
 from vehicles import *
 from envi import *
 from unittests import *
-
+from SkillManagerGUI import *
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -191,6 +191,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.trainNewSkillWin = None
         self.reminderWin = None
         self.platoonWin = None
+        self.SkillManagerWin = None
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
 
@@ -363,7 +364,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.reportsLogConsoleAction = self._createReportsLogConsoleAction()
 
         self.skillNewAction = self._createSkillNewAction()
-        self.skillEditAction = self._createSkillEditAction()
+        self.skillManagerAction = self._createSkillManagerAction()
         self.skillDeleteAction = self._createSkillDeleteAction()
         self.skillShowAction = self._createSkillShowAction()
         self.skillUploadAction = self._createSkillUploadAction()
@@ -373,8 +374,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
+        self.helpMyAccountAction = self._createHelpMyAccountAction()
         self.helpAboutAction = self._createHelpAboutAction()
-
 
         self.popMenu = QtWidgets.QMenu(self)
         self.pop_menu_font = QtGui.QFont("Helvetica", 10)
@@ -687,10 +688,10 @@ class MainWindow(QtWidgets.QMainWindow):
         skill_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Skills"), self)
         skill_menu.setFont(self.main_menu_font)
         skill_menu.addAction(self.skillNewAction)
-        skill_menu.addAction(self.skillEditAction)
-        skill_menu.addAction(self.skillDeleteAction)
-        skill_menu.addAction(self.skillShowAction)
-        skill_menu.addAction(self.skillUploadAction)
+        skill_menu.addAction(self.skillManagerAction)
+        # skill_menu.addAction(self.skillDeleteAction)
+        # skill_menu.addAction(self.skillShowAction)
+        # skill_menu.addAction(self.skillUploadAction)
 
         skill_menu.addAction(self.skillNewFromFileAction)
         menu_bar.addMenu(skill_menu)
@@ -699,6 +700,8 @@ class MainWindow(QtWidgets.QMainWindow):
         help_menu.setFont(self.main_menu_font)
         help_menu.addAction(self.helpUGAction)
         help_menu.addAction(self.helpCommunityAction)
+        help_menu.addAction(self.helpMyAccountAction)
+
         help_menu.addAction(self.helpAboutAction)
         menu_bar.addMenu(help_menu)
         # Creating menus using a title
@@ -916,10 +919,11 @@ class MainWindow(QtWidgets.QMainWindow):
             new_action.triggered.connect(self.trainNewSkill)
             return new_action
 
-    def _createSkillEditAction(self):
+    def _createSkillManagerAction(self):
             # File actions
             new_action = QtGui.QAction(self)
-            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Manager"))
+            new_action.triggered.connect(self.showSkillManager)
             return new_action
 
     def _createSkillDeleteAction(self):
@@ -960,6 +964,13 @@ class MainWindow(QtWidgets.QMainWindow):
         new_action = QtGui.QAction(self)
         new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Community"))
         new_action.triggered.connect(self.gotoForum)
+        return new_action
+
+    def _createHelpMyAccountAction(self):
+        # File actions
+        new_action = QtGui.QAction(self)
+        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&My Account"))
+        new_action.triggered.connect(self.gotoMyAccount)
         return new_action
 
     def _createHelpAboutAction(self):
@@ -2004,7 +2015,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def gotoForum(self):
-        url="https://www.fastprecisiontech.com"
+        url="https://www.maipps.com/forum.html"
+        webbrowser.open(url, new=0, autoraise=True)
+
+    def gotoMyAccount(self):
+        url="https://www.maipps.com/my.html"
         webbrowser.open(url, new=0, autoraise=True)
 
     def newBotGui(self):
@@ -3041,6 +3056,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def fillNewSkill(self, nskjson, nsk):
         print("filling mission data")
         nsk.setNetRespJsonData(nskjson)
+
+    def showSkillManager(self):
+        if self.SkillManagerWin == None:
+            self.SkillManagerWin = SkillManagerWindow(self)
+        self.SkillManagerWin.show()
 
     def uploadSkill(self):
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(

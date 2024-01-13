@@ -287,16 +287,6 @@ class PlatoonWindow(QtWidgets.QMainWindow):
         # Logic for removing a bot, remove the data and remove the file.
         print("runn all")
 
-
-
-
-        self.popMenu = QtWidgets.QMenu(self)
-        self.popMenu.addAction(QtGui.QAction('Refresh Stat', self))
-        self.popMenu.addAction(QtGui.QAction('Halt', self))
-        self.popMenu.addAction(QtGui.QAction('Resume', self))
-        self.popMenu.addSeparator()
-        self.popMenu.addAction(QtGui.QAction('Cancel', self))
-
     def eventFilter(self, source, event):
         print("Source:", source)
         if event.type() == QtCore.QEvent.ContextMenu and source in self.platoonTableViews:
