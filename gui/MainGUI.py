@@ -3828,7 +3828,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def addSkillToTrialRunMission(self, skid):
         found = False
         for m in self.missions:
-            if m.getMid == 20231225:
+            if m.getMid() == 20231225:
                 found = True
                 break
         if found:
@@ -3837,7 +3837,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def getTrialRunMission(self):
         found = False
         for m in self.missions:
-            if m.getMid == 20231225:
+            if m.getMid() == 20231225:
                 found = True
                 break
         if found:
