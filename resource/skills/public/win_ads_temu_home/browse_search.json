@@ -1,18 +1,18 @@
 {
     "name": "browse_search",
     "skid": 0,
-    "owner": "public",
     "createdOn": "2023-05-05",
+    "owner": "public",
     "price": 0,
     "price_model": "free",
     "path": "resource/skills/public/",
     "privacy": "public",
     "platform": "win",
-    "app": "chrome",
-    "app_link": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    "app": "ads",
+    "app_link": "C:/Program Files/AdsPower Global/AdsPower Global.exe",
     "app_args": "",
-    "site_name": "amz",
-    "site": "https://www.amazon.com",
+    "site_name": "temu",
+    "site": "https://www.temu.com",
     "page": "home",
     "private_skill": {
         "nameSpace": "",
@@ -22,9 +22,9 @@
             "searches" : [
                 {
                     "type": "walk",
-                    "site": "amz",
+                    "site": "temu",
                     "os": "win",
-                    "app": "chrome",
+                    "app": "ads",
                     "entry_paths": { 
                         "type":  "Search",
                         "words": ["yoga ball"]
@@ -108,7 +108,7 @@
         }
     },
     "cloud_skill": {
-        "path": "pubilc/win_chrmoe_amz_home/browse_search"
+        "path": "pubilc/win_ads_temu_home/browse_search"
     },
-    "description": "a skill automatically searches and browses amazon web site."
+    "description": "this skills browse on Temu site."
 }

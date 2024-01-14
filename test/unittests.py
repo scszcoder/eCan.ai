@@ -278,7 +278,7 @@ def test_get_account_info(session, token):
 
     print("RESULT:", result)
 
-def test_api(session, token):
+def test_api(parent, session, token):
     # qs = [{"mid": 1, "bid": 1, "status":"Completed:0", "starttime": 123, "endtime": 123}]
     # result = send_completion_status_to_cloud(session, qs, token)
     # print("send_completion_status_to_cloud RESULT:", result)
@@ -311,21 +311,35 @@ def test_api(session, token):
     # result = send_remove_missions_request_to_cloud(session, qs, token)
     # print("send_remove_missions_request_to_cloud RESULT:", result)
     #
-    # qs = [{"actid": 5, "op": "", "options": ""}]
+    # test passed.
+    # ts_skill = WORKSKILL(parent, "test_skill")
+    # qs = [ts_skill]
     # result = send_add_skills_request_to_cloud(session, qs, token)
     # print("send_add_skills_request_to_cloud RESULT:", result)
-    #
-    # qs = [{"actid": 5, "op": "", "options": ""}]
+    # successfull result sample: {'statusCode': 200, 'body': [{'skid': 2, 'owner': 'songc@yahoo.com', 'createdOn': '2024-01-13', 'platform': 'win', 'app': 'chrome', 'site': 'amz', 'name': 'test_skill', 'path': '/resource/skills/public/', 'description': 'This skill does great automation.', 'runtime': 1, 'price_model': '', 'price': 0, 'privacy': 'PRV'}]}
+
+    # test passed.
+    # ts_skill.setName("test_skill0")
+    # ts_skill.setSkid(1)
     # result = send_update_skills_request_to_cloud(session, qs, token)
     # print("send_update_skills_request_to_cloud RESULT:", result)
-    #
-    # qs = [{"actid": 5, "op": "", "options": ""}]
+    # sample successful result: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '906f94f0-d998-48aa-aca9-6faf60f1964e', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
+
+    # test passed.
+    # qs = [{"skid": 1, "owner": "", "reason": ""}]
     # result = send_remove_skills_request_to_cloud(session, qs, token)
     # print("send_remove_skills_request_to_cloud RESULT:", result)
-    #
+    # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
-    jresp = send_schedule_request_to_cloud(session, token, "", None)
-    print("send_schedule_request_to_cloud RESULT:", jresp)
+    # qs = {"byowneruser": True}
+    qs = {"byowneruser": False, "qphrase": "great automation"}
+    result = send_query_skills_request_to_cloud(session, token, qs)
+    print("send_remove_skills_request_to_cloud RESULT:", result)
+    # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
+
+
+    # jresp = send_schedule_request_to_cloud(session, token, "", None)
+    # print("send_schedule_request_to_cloud RESULT:", jresp)
     #
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = req_train_read_screen(session, qs, token)

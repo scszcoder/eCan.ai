@@ -1,6 +1,7 @@
 {
     "name": "reconnect_lan",
     "skid": 40,
+    "createdOn": "2023-05-05",
     "owner": "public",
     "price": 0,
     "price_model": "free",
@@ -22,5 +23,6 @@
     },
     "cloud_skill": {
         "path": "pubilc/win_wifi_local_list/reconnect_lan"
-    }
+    },
+    "description": "this skill automatically reconnects wifi."
 }
