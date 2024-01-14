@@ -1,43 +1,15 @@
-import json
+import sqlite3
 
 from PySide6.QtGui import QFont
 
-from BotGUI import *
-from MissionGUI import *
-from ScheduleGUI import *
-from PlatoonGUI import *
-from SkillGUI import *
-
-from ebbot import *
 from inventories import *
-from csv import reader
-from signio import *
-import platform
-from os.path import exists
-import webbrowser
-from Cloud import *
-from TrainGUI import *
-from BorderLayout import *
-import lzstring
 from network import *
 from LoggerGUI import *
 from ui_settings import *
-import schedule
-from datetime import datetime, timedelta
-import time
-import pytz
-import tzlocal
 import TestAll
-import sqlite3
-from scraper import *
-from pynput.mouse import Button, Controller
-from genSkills import *
 import importlib
-import sys
-import copy
 
 from vehicles import *
-from envi import *
 from unittests import *
 from SkillManagerGUI import *
 
@@ -1157,7 +1129,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def appendDailyLogs(self, msgs):
         #check if daily log file exists, if exists simply append to it, if not create and write to the file.
-        now = datetime.datetime.now()  # current date and time
+        now = datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1182,7 +1154,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def logDailySchedule(self, netSched):
-        now = datetime.datetime.now()  # current date and time
+        now = datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1198,7 +1170,7 @@ class MainWindow(QtWidgets.QMainWindow):
             file1.close()
 
     def saveDailyRunReport(self, runStat):
-        now = datetime.datetime.now()  # current date and time
+        now = datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1990,8 +1962,8 @@ class MainWindow(QtWidgets.QMainWindow):
     # cover hawaii, which is 5 timezone away from eastern, so total time zone slots are
     # 72+15=87 or index 0~86.
     def ts2time(self, ts):
-        thistime = datetime.datetime.now()
-        zerotime = datetime.datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
+        thistime = datetime.now()
+        zerotime = datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
         time_change = timedelta(minutes=20*ts)
         runtime = zerotime + time_change
         return runtime
@@ -3071,7 +3043,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if filename != "":
             # print("body string:", uncompressed, "!", len(uncompressed), "::")
-            sk_dir == os.path.abspath(filename)
+            sk_dir = os.path.abspath(filename)
             anchor_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/images"
             scripts_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/scripts"
             anchor_files = os.listdir(anchor_dir)
@@ -3376,9 +3348,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    last_start = int(datetime.datetime.now().timestamp()*1)
+                    last_start = int(datetime.now().timestamp()*1)
                     botTodos["status"] = self.fetchSchedule("", None)
-                    last_end = int(datetime.datetime.now().timestamp()*1)
+                    last_end = int(datetime.now().timestamp()*1)
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
                     # if "Completed" in botTodos["status"]:
@@ -3390,9 +3362,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     print("running RPA..............")
                     if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
-                        last_start = int(datetime.datetime.now().timestamp()*1)
+                        last_start = int(datetime.now().timestamp()*1)
                         current_bid, current_mid, run_result = self.runRPA(botTodos)
-                        last_end = int(datetime.datetime.now().timestamp()*1)
+                        last_end = int(datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
                         current_run_report = self.genRunReport(last_start, last_end, current_bid, current_mid, run_result)

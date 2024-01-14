@@ -1,5 +1,3 @@
-import copy
-import os
 from basicSkill import *
 from scraperEtsy import *
 import pandas as pd
@@ -72,7 +70,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
     # from collected etsy orders, generate gs label purchase order files.
-    dtnow = datetime.datetime.now()
+    dtnow = datetime.now()
     date_word = dtnow.strftime("%Y%m%d")
     fdir = ecb_data_homepath + "/runlogs/"
     fdir = fdir + date_word + "/"
@@ -154,7 +152,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "fileStatus", "NA", "None", this_step)
     psk_words = psk_words + step_words
 
-    dtnow = datetime.datetime.now()
+    dtnow = datetime.now()
     dt_string = str(int(dtnow.timestamp()))
     # hfname = worksettings["log_path"] + "etsyOrders" + dt_string + ".html"
     hfname = "etsyOrders" + dt_string + ".html"
@@ -763,7 +761,7 @@ def processPrepGSOrder(step, i):
         regular_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
 
         # ofname is the order file name, should be etsy_orders+Date.xls
-        dt_string = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+        dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
 
         if len(light_orders) > 0:
             ofname1 = step["file_path"]+"/etsyOrdersGround"+dt_string+".xls"

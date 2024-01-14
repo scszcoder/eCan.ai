@@ -1,17 +1,12 @@
-import http.client
 import json
 import requests
 import boto3
-from boto3 import Session as AWSSession
 from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 import logging
 from requests_aws4auth import AWS4Auth
 from datetime import datetime
-from datetime import timedelta
-from Logger import *
 import os
-import shutil
 
 # Constants Copied from AppSync API 'Settings'
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
