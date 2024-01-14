@@ -1,48 +1,50 @@
 import sys
 import asyncio
 import os
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+
+from PySide6.QtCore import QObject, QEvent, Signal, Qt, QByteArray
+from PySide6.QtGui import QMovie, QShortcut, QKeySequence
+from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QLabel, QSizePolicy, QVBoxLayout
 from config.app_info import app_info
 
 
 ecbhomepath = app_info.app_home_path
 
-class KeyPressFilter(QtCore.QObject):
+class KeyPressFilter(QObject):
 
     def eventFilter(self, widget, event):
-        if event.type() == QtCore.QEvent.KeyPress:
+        if event.type() == QEvent.KeyPress:
             text = event.text()
             if event.modifiers():
                 text = event.keyCombination().key().name.decode(encoding="utf-8")
             widget.label1.setText(text)
         return False
 
-class WaitWindow(QtWidgets.QMainWindow):
-    udp_message_received = QtCore.Signal()
+class WaitWindow(QMainWindow):
+    udp_message_received = Signal()
 
     def __init__(self):
         super().__init__()
-        self.mainWidget = QtWidgets.QWidget()
-        self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
+        self.mainWidget = QWidget()
+        self.setWindowFlags(Qt.FramelessWindowHint)
         # Create a QLabel to display the animated GIF
         self.setGeometry(300, 300, 16, 16)
-        self.setWindowTitle(QtWidgets.QApplication.translate("QtWidgets.QWidget", "QMovie to show animated gif"))
+        self.setWindowTitle(QApplication.translate("QWidget", "QMovie to show animated gif"))
 
-        self.label = QtWidgets.QLabel(self)
-        self.label.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
-                                        QtWidgets.QSizePolicy.Expanding)
-        self.label.setAlignment(QtCore.Qt.AlignCenter)
-        self.noteLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Waiting for Commander Connection....."), alignment=QtCore.Qt.AlignCenter)
+        self.label = QLabel(self)
+        self.label.setSizePolicy(QSizePolicy.Expanding,
+                                        QSizePolicy.Expanding)
+        self.label.setAlignment(Qt.AlignCenter)
+        self.noteLabel = QLabel(QApplication.translate("QLabel", "Waiting for Commander Connection....."), alignment=Qt.AlignCenter)
 
-        self.btn_start = QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Start Animation"))
+        self.btn_start = QPushButton(QApplication.translate("QPushButton", "Start Animation"))
         self.btn_start.clicked.connect(self.start)
 
-        self.btn_stop = QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Stop Animation"))
+        self.btn_stop = QPushButton(QApplication.translate("QPushButton", "Stop Animation"))
         self.btn_stop.clicked.connect(self.stop)
 
         # positin the widgets
-        main_layout = QtWidgets.QVBoxLayout()
+        main_layout = QVBoxLayout()
         main_layout.addWidget(self.label)
         main_layout.addWidget(self.noteLabel)
         # main_layout.addWidget(self.btn_start)
@@ -51,8 +53,8 @@ class WaitWindow(QtWidgets.QMainWindow):
         # Load the animated GIF
         gif_path = ecbhomepath + "/resource/images/icons/waiting3_spinner.gif"  # Replace with the path to your GIF file
         print("GIF PATH:", gif_path)
-        self.movie = QtGui.QMovie(gif_path, QtCore.QByteArray(), self)
-        self.movie.setCacheMode(QtGui.QMovie.CacheAll)
+        self.movie = QMovie(gif_path, QByteArray(), self)
+        self.movie.setCacheMode(QMovie.CacheAll)
         self.movie.setSpeed(120)
         self.label.setMovie(self.movie)
         self.movie.start()
@@ -60,13 +62,13 @@ class WaitWindow(QtWidgets.QMainWindow):
         # self.eventFilter = KeyPressFilter(parent=self)
         # self.installEventFilter(self.eventFilter)
 
-        self.moveStopSc = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+e'), self)
+        self.moveStopSc = QShortcut(QKeySequence('Ctrl+e'), self)
         self.moveStopSc.activated.connect(lambda: self.movie.stop())
 
-        self.moveStartSc = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+s'), self)
+        self.moveStartSc = QShortcut(QKeySequence('Ctrl+s'), self)
         self.moveStartSc.activated.connect(lambda: self.movie.start())
 
-        self.hideSc = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+h'), self)
+        self.hideSc = QShortcut(QKeySequence('Ctrl+h'), self)
         self.hideSc.activated.connect(lambda: self.hide())
 
         # Start the animation
@@ -88,7 +90,7 @@ class WaitWindow(QtWidgets.QMainWindow):
 
 
         # Create a QTimer to periodically check for UDP messages
-    #     self.timer = QtCore.QTimer(self)
+    #     self.timer = QTimer(self)
     #     self.timer.timeout.connect(self.check_udp_message)
     #     self.timer.start(1000)  # Adjust the interval as needed
     #

@@ -1,11 +1,7 @@
-import platform
-import sys
-import random
-import boto3
-import datetime
-from crontab import CronTab
-from PySide6 import QtCore, QtGui, QtWidgets
-import json
+from datetime import datetime
+
+from PySide6.QtGui import QStandardItem, QIcon
+
 from readSkill import *
 
 # valid refMethod: "Absolute", "Anchor Offset"
@@ -13,7 +9,7 @@ from readSkill import *
 #  described in json format, [{ "name" : anchor_name, "constraints" : {}...]
 #    special anchor_name: ulc, urc, llc, lrc, lb, rb, tb, bb which represent "upper left corner" "left bound" etc.
 #  constraints : { "xdir" : "within/beyond", "xtype" : "absolute/signed/abs percent/signed percent", "xval" : "10", "xunit":"pix/char height/char width/img size/win size/" .. y***
-class ANCHOR(QtGui.QStandardItem):
+class ANCHOR(QStandardItem):
     def __init__(self, aname, atype, homepath):
         super().__init__()
         self.name = aname
@@ -24,7 +20,7 @@ class ANCHOR(QtGui.QStandardItem):
         self.setText('aname')
         self.homepath = homepath
         self.imgPath = ""
-        self.icon = QtGui.QIcon(homepath+'/resource/anchor2-64.png')
+        self.icon = QIcon(homepath+'/resource/anchor2-64.png')
         self.setIcon(self.icon)
 
     def set_img(self, img_path):
@@ -55,7 +51,7 @@ class ANCHOR(QtGui.QStandardItem):
         return self.name
 
 # valid refMethod: "None", "Anchor Offset", "Anchor Bound", "Contains Anchor"
-class USER_INFO(QtGui.QStandardItem):
+class USER_INFO(QStandardItem):
     def __init__(self, aname, homepath):
         super().__init__()
         self.name = aname
@@ -63,7 +59,7 @@ class USER_INFO(QtGui.QStandardItem):
         self.type = "Phrase"     # or "nlines", "paragraph", "text" , BTW, phase ideally shall not exceed 3 words.
         self.n = 1
         self.setText(aname)
-        self.icon = QtGui.QIcon(homepath+'/resource/focus0-64.png')
+        self.icon = QIcon(homepath+'/resource/focus0-64.png')
         self.setIcon(self.icon)
         self.content_text = ""
         self.contentbb = (0.0, 0.0, 0.0, 0.0)
@@ -99,14 +95,14 @@ class USER_INFO(QtGui.QStandardItem):
     def set_bb(self, tl, tr, bl, br):
         self.bb = (tl, tr, bl, br)
 
-class PROCEDURAL_STEP(QtGui.QStandardItem):
+class PROCEDURAL_STEP(QStandardItem):
     def __init__(self, homepath, sname="browse"):
         super().__init__()
         self.Name = sname
         self.homepath = homepath
         self.number = 0
         self.setText(self.Name)
-        self.icon = QtGui.QIcon(homepath+'/resource/step0-50.png')
+        self.icon = QIcon(homepath+'/resource/step0-50.png')
         self.setIcon(self.icon)
 
         self.dataName = ""
@@ -150,14 +146,14 @@ class PROCEDURAL_STEP(QtGui.QStandardItem):
         self.extern = inext
 
 
-class PROCEDURAL_SKILL(QtGui.QStandardItem):
+class PROCEDURAL_SKILL(QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.pageName = "AMZ"
         self.homepath = parent.homepath
         self.steps = None
         self.setText(self.pageName)
-        self.icon = QtGui.QIcon(self.homepath+'/resource/skills-78.png')
+        self.icon = QIcon(self.homepath+'/resource/skills-78.png')
         self.runStepsFile= ""
         self.setIcon(self.icon)
         self.runConfig = None
@@ -184,7 +180,7 @@ class PROCEDURAL_SKILL(QtGui.QStandardItem):
         self.runStepsFile = jd["runStepsFile"]
 
 
-class CLOUD_SKILL(QtGui.QStandardItem):
+class CLOUD_SKILL(QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
@@ -207,7 +203,7 @@ class CLOUD_SKILL(QtGui.QStandardItem):
         self.path = jd["path"]
 
 
-class WORKSKILL(QtGui.QStandardItem):
+class WORKSKILL(QStandardItem):
     def __init__(self, parent, skname):
         super().__init__()
         self.parent = parent
@@ -233,13 +229,13 @@ class WORKSKILL(QtGui.QStandardItem):
         self.private_skill = PROCEDURAL_SKILL(parent)
         self.cloud_skill = CLOUD_SKILL(parent)
         self.setText('Skill'+str(self.getSkid()))
-        self.icon = QtGui.QIcon(parent.skill_icon_path)
+        self.icon = QIcon(parent.skill_icon_path)
         self.setIcon(self.icon)
         self.createdOn = datetime.today().strftime('%Y-%m-%d')
         self.description = "This skill does great automation."
 
         self.setText(self.name)
-        self.icon = QtGui.QIcon(self.homepath + '/resource/images/icons/skills_78.png')
+        self.icon = QIcon(self.homepath + '/resource/images/icons/skills_78.png')
         self.setIcon(self.icon)
 
     def add_private_skill(self, procedural_skill):

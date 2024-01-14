@@ -1,11 +1,8 @@
 import platform
-import sys
-import random
-import boto3
-from crontab import CronTab
-from datetime import datetime, date
-from PySide6 import QtCore, QtGui, QtWidgets
 import json
+from datetime import datetime, date
+
+from PySide6.QtGui import QStandardItem, QIcon
 
 
 # Every bot has a run schedule which is specified in the following parameters
@@ -362,7 +359,7 @@ class BOT_PUB_PROFILE():
 # help --
 
 
-class EBBOT(QtGui.QStandardItem):
+class EBBOT(QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.pubProfile = BOT_PUB_PROFILE()
@@ -372,7 +369,7 @@ class EBBOT(QtGui.QStandardItem):
         self.ebType = "AMZ"
         self.setText('bot'+str(self.getBid()))
         self.setFont(parent.std_item_font)
-        self.icon = QtGui.QIcon(parent.bot_icon_path)
+        self.icon = QIcon(parent.bot_icon_path)
         self.setIcon(self.icon)
 
         self.seller_inventories = []

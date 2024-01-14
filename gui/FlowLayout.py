@@ -1,17 +1,20 @@
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtCore import QSize, QRect, QPoint, Qt
+from PySide6.QtGui import QStandardItem, QIcon, QAction, QCursor
+from PySide6.QtWidgets import QListView, QMenu, QFrame, QLayout, QLabel, QSizePolicy
 
-class BotListView(QtWidgets.QListView):
+
+class BotListView(QListView):
     def __init__(self):
         super(BotListView, self).__init__()
-        # self.popMenu = QtWidgets.QMenu(self)
+        # self.popMenu = QMenu(self)
         # self.popMenu.addAction(self._createBotRCEditAction())
         # self.popMenu.addAction(self._createBotRCCloneAction())
         # self.popMenu.addSeparator()
         # self.popMenu.addAction(self._createBotRCDeleteAction())
 
     # def eventFilter(self, source, event):
-    #     if event.type() == QtCore.QEvent.ContextMenu and source is self:
-    #         self.popMenu = QtWidgets.QMenu(self)
+    #     if event.type() == QEvent.ContextMenu and source is self:
+    #         self.popMenu = QMenu(self)
     #         self.popMenu.addAction(self._createBotRCEditAction())
     #         self.popMenu.addAction(self._createBotRCCloneAction())
     #         self.popMenu.addSeparator()
@@ -25,25 +28,25 @@ class BotListView(QtWidgets.QListView):
 
     # def contextMenuEvent(self, event):
     #     # add other required actions
-    #     self.popMenu.popup(QtGui.QCursor.pos())
+    #     self.popMenu.popup(QCursor.pos())
 
     # def _createBotRCEditAction(self):
     #     # File actions
-    #     new_action = QtGui.QAction(self)
+    #     new_action = QAction(self)
     #     new_action.setText("&Edit")
     #     new_action.triggered.connect(self.editBot)
     #     return new_action
     #
     # def _createBotRCCloneAction(self):
     #     # File actions
-    #     new_action = QtGui.QAction(self)
+    #     new_action = QAction(self)
     #     new_action.setText("&Clone")
     #     new_action.triggered.connect(self.cloneBot)
     #     return new_action
     #
     # def _createBotRCDeleteAction(self):
     #     # File actions
-    #     new_action = QtGui.QAction(self)
+    #     new_action = QAction(self)
     #     new_action.setText("&Delete")
     #     new_action.triggered.connect(self.deleteBot)
     #     return new_action
@@ -60,50 +63,50 @@ class BotListView(QtWidgets.QListView):
     #     # File actions
     #     print("delete bot")
 
-class MissionListView(QtWidgets.QListView):
+class MissionListView(QListView):
     def __init__(self):
         super(MissionListView, self).__init__()
-    #     self.popMenu = QtWidgets.QMenu(self)
-    #     self.popMenu.addAction(QtGui.QAction('Edit', self))
-    #     self.popMenu.addAction(QtGui.QAction('Clone', self))
+    #     self.popMenu = QMenu(self)
+    #     self.popMenu.addAction(QAction('Edit', self))
+    #     self.popMenu.addAction(QAction('Clone', self))
     #     self.popMenu.addSeparator()
-    #     self.popMenu.addAction(QtGui.QAction('Delete', self))
+    #     self.popMenu.addAction(QAction('Delete', self))
     #
     # def contextMenuEvent(self, event):
     #     # add other required actions
-    #     self.popMenu.popup(QtGui.QCursor.pos())
+    #     self.popMenu.popup(QCursor.pos())
 
 
-class VehicleListView(QtWidgets.QListView):
+class VehicleListView(QListView):
     def __init__(self):
         super(VehicleListView, self).__init__()
 
-class BotView(QtGui.QStandardItem):
+class BotView(QStandardItem):
     def __init__(self, homepath):
         super(BotView, self).__init__()
         self.setText('bot0')
         self.homepath = homepath
-        self.bot0Icon = QtGui.QIcon(homepath+'/resource/images/icons/c_robot64_0.png')
+        self.bot0Icon = QIcon(homepath+'/resource/images/icons/c_robot64_0.png')
         self.bot0.setIcon(self.bot0Icon)
-        self.popMenu = QtWidgets.QMenu(self)
-        self.popMenu.addAction(QtGui.QAction('Edit', self))
-        self.popMenu.addAction(QtGui.QAction('Clone', self))
+        self.popMenu = QMenu(self)
+        self.popMenu.addAction(QAction('Edit', self))
+        self.popMenu.addAction(QAction('Clone', self))
         self.popMenu.addSeparator()
-        self.popMenu.addAction(QtGui.QAction('Delete', self))
+        self.popMenu.addAction(QAction('Delete', self))
 
     def contextMenuEvent(self, event):
         # add other required actions
-        self.popMenu.popup(QtGui.QCursor.pos())
+        self.popMenu.popup(QCursor.pos())
 
-class DragIcon(QtWidgets.QLabel):
+class DragIcon(QLabel):
 
     def install_rc_menu(self):
         # create context menu
-        self.popMenu = QtWidgets.QMenu(self)
-        self.popMenu.addAction(QtGui.QAction('Edit', self))
-        self.popMenu.addAction(QtGui.QAction('Clone', self))
+        self.popMenu = QMenu(self)
+        self.popMenu.addAction(QAction('Edit', self))
+        self.popMenu.addAction(QAction('Clone', self))
         self.popMenu.addSeparator()
-        self.popMenu.addAction(QtGui.QAction('Delete', self))
+        self.popMenu.addAction(QAction('Delete', self))
 
     def on_context_menu(self, point):
         # show context menu
@@ -112,14 +115,14 @@ class DragIcon(QtWidgets.QLabel):
     def mousePressEvent(self, event):
         self.__mousePressPos = None
         self.__mouseMovePos = None
-        if event.button() == QtCore.Qt.LeftButton:
+        if event.button() == Qt.LeftButton:
             self.__mousePressPos = event.globalPos()
             self.__mouseMovePos = event.globalPos()
 
         super(DragIcon, self).mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == QtCore.Qt.LeftButton:
+        if event.buttons() == Qt.LeftButton:
             # adjust offset from clicked point to origin of widget
             currPos = self.mapToGlobal(self.pos())
             globalPos = event.globalPos()
@@ -145,22 +148,22 @@ class DragIcon(QtWidgets.QLabel):
 
     def contextMenuEvent(self, event):
         # add other required actions
-        self.popMenu.popup(QtGui.QCursor.pos())
+        self.popMenu.popup(QCursor.pos())
 
 
-class DragPanel(QtWidgets.QFrame):
+class DragPanel(QFrame):
     def __init__(self):
         super(DragPanel, self).__init__()
 
         self.flowLayout = FlowLayout()
-        #flowLayout.addWidget(QtWidgets.QLabel("Short"))
+        #flowLayout.addWidget(QLabel("Short"))
         self.setLayout(self.flowLayout)
 
     def addBot(self, bot):
         self.flowLayout.addWidget(bot)
 
 
-class FlowLayout(QtWidgets.QLayout):
+class FlowLayout(QLayout):
     def __init__(self, parent=None, margin=0, spacing=-1):
         super(FlowLayout, self).__init__(parent)
 
@@ -195,13 +198,13 @@ class FlowLayout(QtWidgets.QLayout):
         return None
 
     def expandingDirections(self):
-        return QtCore.Qt.Orientations(QtCore.Qt.Orientation(0))
+        return Qt.Orientations(Qt.Orientation(0))
 
     def hasHeightForWidth(self):
         return True
 
     def heightForWidth(self, width):
-        height = self.doLayout(QtCore.QRect(0, 0, width, 0), True)
+        height = self.doLayout(QRect(0, 0, width, 0), True)
         return height
 
     def setGeometry(self, rect):
@@ -212,12 +215,12 @@ class FlowLayout(QtWidgets.QLayout):
         return self.minimumSize()
 
     def minimumSize(self):
-        size = QtCore.QSize()
+        size = QSize()
 
         for item in self.itemList:
             size = size.expandedTo(item.minimumSize())
 
-        size += QtCore.QSize(2 * self.contentsMargins().top(), 2 * self.contentsMargins().top())
+        size += QSize(2 * self.contentsMargins().top(), 2 * self.contentsMargins().top())
         return size
 
     def doLayout(self, rect, testOnly):
@@ -227,11 +230,11 @@ class FlowLayout(QtWidgets.QLayout):
 
         for item in self.itemList:
             # wid = item.widget()
-            # spaceX = self.spacing() + wid.QStyle().layoutSpacing(QtWidgets.QSizePolicy.Label, QtWidgets.QSizePolicy.Label, QtCore.Qt.Horizontal)
-            # spaceY = self.spacing() + wid.QStyle().layoutSpacing(QtWidgets.QSizePolicy.Label, QtWidgets.QSizePolicy.Label, QtCore.Qt.Vertical)
+            # spaceX = self.spacing() + wid.QStyle().layoutSpacing(QSizePolicy.Label, QSizePolicy.Label, Qt.Horizontal)
+            # spaceY = self.spacing() + wid.QStyle().layoutSpacing(QSizePolicy.Label, QSizePolicy.Label, Qt.Vertical)
 
-            spaceX = self.spacing() + item.wid.style().layoutSpacing(QtWidgets.QSizePolicy.Label, QtWidgets.QSizePolicy.Label, QtCore.Qt.Horizontal)
-            spaceY = self.spacing() + item.wid.style().layoutSpacing(QtWidgets.QSizePolicy.Label, QtWidgets.QSizePolicy.Label, QtCore.Qt.Vertical)
+            spaceX = self.spacing() + item.wid.style().layoutSpacing(QSizePolicy.Label, QSizePolicy.Label, Qt.Horizontal)
+            spaceY = self.spacing() + item.wid.style().layoutSpacing(QSizePolicy.Label, QSizePolicy.Label, Qt.Vertical)
             nextX = x + item.sizeHint().width() + spaceX
             if nextX - spaceX > rect.right() and lineHeight > 0:
                 x = rect.x()
@@ -240,7 +243,7 @@ class FlowLayout(QtWidgets.QLayout):
                 lineHeight = 0
 
             if not testOnly:
-                item.setGeometry(QtCore.QRect(QtCore.QPoint(x, y), item.sizeHint()))
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
 
             x = nextX
             lineHeight = max(lineHeight, item.sizeHint().height())
