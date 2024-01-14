@@ -1,6 +1,7 @@
 {
     "name": "update_tracking",
     "skid": 70,
+    "createdOn": "2023-05-05",
     "owner": "public",
     "price": 0,
     "price_model": "free",
@@ -22,5 +23,6 @@
     },
     "cloud_skill": {
         "path": "pubilc/win_chrome_etsy_orders/update_tracking"
-    }
+    },
+    "description": "this skill updates tracking info on fullfilled orders on Etsy."
 }

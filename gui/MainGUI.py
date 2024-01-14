@@ -1012,7 +1012,7 @@ class MainWindow(QtWidgets.QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        test_api(self.session, self.tokens['AuthenticationResult']['IdToken'])
+        test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         #the grand test,
         # 1) fetch today's schedule.
@@ -1420,7 +1420,7 @@ class MainWindow(QtWidgets.QMainWindow):
         print("checking todos......", self.todays_work["tbd"])
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
-        pt = datetime.datetime.now()
+        pt = datetime.now()
         if len(self.todays_work["tbd"]) > 0:
             if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule

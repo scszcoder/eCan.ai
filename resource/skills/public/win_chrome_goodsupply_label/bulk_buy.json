@@ -1,6 +1,7 @@
 {
     "name": "bulk_buy",
     "skid": 30,
+    "createdOn": "2023-05-05",
     "owner": "public",
     "price": 0,
     "price_model": "free",
@@ -22,5 +23,6 @@
     },
     "cloud_skill": {
         "path": "pubilc/win_chrome_goodsupply_label/bulk_buy"
-    }
+    },
+    "description": "this skills handles bulk shipping label purchase on goodsupply site."
 }

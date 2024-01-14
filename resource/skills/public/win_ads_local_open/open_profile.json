@@ -1,6 +1,7 @@
 {
     "name": "open_profile",
     "skid": 50,
+    "createdOn": "2023-05-05",
     "owner": "public",
     "price": 0,
     "price_model": "free",
@@ -22,5 +23,6 @@
     },
     "cloud_skill": {
         "path": "pubilc/win_ads_local_open/open_profile"
-    }
+    },
+    "description": "This skill opens the ADS Power app."
 }
