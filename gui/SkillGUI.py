@@ -1,9 +1,9 @@
-import sys
-import random
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog, QListView, \
+    QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QHBoxLayout, \
+    QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, QMenu
 from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
-from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter
-from PIL import Image as pimg
+from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter, QTransform, QStandardItemModel, QImage, \
+    QAction
 
 # from locale import getdefaultlocale
 #
@@ -47,26 +47,26 @@ PAGE_DIR = ""
 # price	int(11)	YES		NULL
 
 
-class SkillListView(QtWidgets.QListView):
+class SkillListView(QListView):
     def __init__(self, parent):
         super(SkillListView, self).__init__()
         self.selected_row = None
         self.parent = parent
 
     def mousePressEvent(self, e):
-        if e.type() == QtCore.QEvent.MouseButtonPress:
-            if e.button() == QtCore.Qt.LeftButton:
+        if e.type() == QEvent.MouseButtonPress:
+            if e.button() == Qt.LeftButton:
                 print("row:", self.indexAt(e.pos()).row())
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.updateSelectedRole(self.selected_row)
 
 
-class AnchorListView(QtWidgets.QListView):
+class AnchorListView(QListView):
     def __init__(self):
         super(AnchorListView, self).__init__()
 
 
-class BSQGraphicsRectItem(QtWidgets.QGraphicsRectItem):
+class BSQGraphicsRectItem(QGraphicsRectItem):
 
     handleTopLeft = 1
     handleTopMiddle = 2
@@ -129,7 +129,7 @@ class BSQGraphicsRectItem(QtWidgets.QGraphicsRectItem):
             #print("hover selected....", handle)
             cursor = Qt.ArrowCursor if handle is None else self.handleCursors[handle]
             self.setCursor(cursor)
-            #self.setCursor(QtCore.Qt.ClosedHandCursor)
+            #self.setCursor(Qt.ClosedHandCursor)
         super(BSQGraphicsRectItem, self).hoverMoveEvent(moveEvent)
 
     def hoverLeaveEvent(self, moveEvent):
@@ -416,7 +416,7 @@ class BSQGraphicsScene(QGraphicsScene):
         selected = self.selectedItems()
         if len(selected) == 0:
             print("scene press nothing selected....")
-            # rect = BSQGraphicsRectItem(QtCore.QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]))
+            # rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]))
             # rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
             # rect.setPen(self.parentWin.udBoxPen)
             # self.parentWin.pbscene.addItem(rect)
@@ -430,7 +430,7 @@ class BSQGraphicsScene(QGraphicsScene):
                 #ri.mousePressEvent(event.pos())
                 ri.mousePressEvent(event)
 
-        if event.buttons() == QtCore.Qt.RightButton:
+        if event.buttons() == Qt.RightButton:
             pos = self.parent().pbview.mapToScene(event.pos())
             self.current_items = self.find_rect_by_pos(pos)
 
@@ -438,7 +438,7 @@ class BSQGraphicsScene(QGraphicsScene):
         selected = self.selectedItems()
         if len(selected) == 0:
             print("scene release nothing selected....")
-            # rect = BSQGraphicsRectItem(QtCore.QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]))
+            # rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]))
             # rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
             # rect.setPen(self.parentWin.udBoxPen)
             # self.parentWin.pbscene.addItem(rect)
@@ -455,7 +455,7 @@ class BSQGraphicsScene(QGraphicsScene):
         selected = self.selectedItems()
         if len(selected) > 0:
             # redraw selected item with selected pen.
-            if event.buttons() == QtCore.Qt.LeftButton:
+            if event.buttons() == Qt.LeftButton:
                 for ri in selected:
                     #print("resizing.....", event.scenePos(), "   ", self.parent().pbview.mapToScene(event.scenePos().toPoint()))
                     #ri.interactiveResize(self.parent().pbview.mapToScene(event.pos().toPoint()))
@@ -466,7 +466,7 @@ class BSQGraphicsScene(QGraphicsScene):
 
     def find_rect_by_pos(self, pos):
         result = []
-        item = self.itemAt(pos, QtGui.QTransform())
+        item = self.itemAt(pos, QTransform())
 
         result.append(item)
         return result
@@ -476,7 +476,7 @@ class BSQGraphicsScene(QGraphicsScene):
 
 
 # BS stands for Bot Skill
-class BSQGraphicsView(QtWidgets.QGraphicsView):
+class BSQGraphicsView(QGraphicsView):
     def __init__(self, inscene, parent):
         super(BSQGraphicsView, self).__init__(inscene, parent)
         self.parentWin = parent
@@ -487,7 +487,7 @@ class BSQGraphicsView(QtWidgets.QGraphicsView):
         self.mode = inmode
 
     def mouseReleaseEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
+        if event.button() == Qt.LeftButton:
             print("rubber band: ", self.rubberBandRect())
             self.drawEndPos = self.mapToScene(event.pos())
             print("mouse released at: ", self.drawEndPos, "in mode: ", self.mode)
@@ -497,13 +497,13 @@ class BSQGraphicsView(QtWidgets.QGraphicsView):
             # selpath.addRect(self.rubberBandRect())
             if self.mode == "quiet":
                 selpath.addRect(rectPos[0], rectPos[1], rectPos[2], rectPos[3])
-                self.scene().setSelectionArea(selpath, Qt.ReplaceSelection, Qt.ContainsItemShape, QtGui.QTransform(1, 0, 0, 0, 1, 0, 0, 0, 1))
+                self.scene().setSelectionArea(selpath, Qt.ReplaceSelection, Qt.ContainsItemShape, QTransform(1, 0, 0, 0, 1, 0, 0, 0, 1))
 
             selected = self.scene().selectedItems()
             print("# selected: ", selected)
             if len(selected) == 0:
                 print("at release, nothing selected....")
-                rect = BSQGraphicsRectItem(QtCore.QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]), self)
+                rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]), self)
                 rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
                 rect.setPen(self.parentWin.udBoxPen)
                 self.parentWin.pbscene.addItem(rect)
@@ -516,14 +516,14 @@ class BSQGraphicsView(QtWidgets.QGraphicsView):
                 self.scene().mouseReleaseEvent(event)
 
     def mousePressEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
+        if event.button() == Qt.LeftButton:
             print("view press event", event.pos(), "::", event.screenPos(), ":::", event.scenePosition())
             self.drawStartPos = self.mapToScene(event.pos())
             self.drawStartScenePos = self.mapToScene(event.scenePosition().toPoint())
             #self.drawStartPos = self.mapToScene(event.scenePosition().toPoint())
             selected = self.scene().selectedItems()
             print("# selected: ", selected)
-        elif event.button() == QtCore.Qt.RightButton:
+        elif event.button() == Qt.RightButton:
             self.rightClickPos = self.mapToScene(event.pos())
 
         selected = self.scene().selectedItems()
@@ -539,7 +539,7 @@ ACTION_ITEMS = ['App Page Open', 'Browse', 'Create Data', 'Mouse Action', 'Keybo
                 'Conditional Step', 'Jump Step', 'Run Routine', 'Set Wait', 'Halt', 'Run Routine', 'Run Extern']
 
 
-class SkillGUI(QtWidgets.QMainWindow):
+class SkillGUI(QMainWindow):
 
     def __init__(self, parent):
         super(SkillGUI, self).__init__(parent)
@@ -560,25 +560,25 @@ class SkillGUI(QtWidgets.QMainWindow):
 
         self.pb_mode = "quiet"
         # ------- widgets ------------
-        # self.popMenu = QtWidgets.QMenu(self)
-        # self.popMenu.addAction(QtGui.QAction('Set Anchor', self))
-        # self.popMenu.addAction(QtGui.QAction('Set Info', self))
+        # self.popMenu = QMenu(self)
+        # self.popMenu.addAction(QAction('Set Anchor', self))
+        # self.popMenu.addAction(QAction('Set Info', self))
         # self.popMenu.addSeparator()
-        # self.popMenu.addAction(QtGui.QAction('Clear Boundbox', self))
+        # self.popMenu.addAction(QAction('Clear Boundbox', self))
 
-        self.skfsel = QtWidgets.QFileDialog()
-        # self.vsplitter2 = QtWidgets.QSplitter(Qt.Horizontal)
+        self.skfsel = QFileDialog()
+        # self.vsplitter2 = QSplitter(Qt.Horizontal)
 
         self.step_count = 0
         self.step_names = []
 
         # ------ PbRun layout Start ------ #
-        self.playback_start_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Start Playback"))
-        self.playback_next_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Next"))
-        self.playback_back_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Back"))
-        self.playback_reload_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Refresh"))
+        self.playback_start_button = QPushButton(QApplication.translate("QPushButton", "Start Playback"))
+        self.playback_next_button = QPushButton(QApplication.translate("QPushButton", "Next"))
+        self.playback_back_button = QPushButton(QApplication.translate("QPushButton", "Back"))
+        self.playback_reload_button = QPushButton(QApplication.translate("QPushButton", "Refresh"))
 
-        self.pbbuttonlayout = QtWidgets.QHBoxLayout()
+        self.pbbuttonlayout = QHBoxLayout()
         self.pbbuttonlayout.addWidget(self.playback_start_button)
         self.pbbuttonlayout.addWidget(self.playback_next_button)
         self.pbbuttonlayout.addWidget(self.playback_back_button)
@@ -588,11 +588,11 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.playback_next_button.clicked.connect(self.train_next_step)
         self.playback_back_button.clicked.connect(self.train_prev_step)
         self.playback_reload_button.clicked.connect(self.re_train_step)
-        # self.pbmainwin = QtWidgets.QScrollArea()
-        # self.pbmainwin.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        # self.pbmainwin.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.pbmainwin = QScrollArea()
+        # self.pbmainwin.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        # self.pbmainwin.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
-        self.pic = QtWidgets.QGraphicsPixmapItem()
+        self.pic = QGraphicsPixmapItem()
         file_name = self.home_path + "resource/skills/temp/step1.png"
         self.load_image_file(file_name)
 
@@ -610,10 +610,10 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbview.setContextMenuPolicy(Qt.DefaultContextMenu)
         self.pbview.installEventFilter(self)
 
-        self.pbrunlayout = QtWidgets.QVBoxLayout()
+        self.pbrunlayout = QVBoxLayout()
         self.pbrunlayout.addLayout(self.pbbuttonlayout)
         self.pbrunlayout.addWidget(self.pbview)
-        self.pbrunWidget = QtWidgets.QWidget()
+        self.pbrunWidget = QWidget()
         self.pbrunWidget.setLayout(self.pbrunlayout)
 
         self.brush = QBrush()
@@ -681,15 +681,15 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.udBoxSelPen.setJoinStyle(Qt.RoundJoin)
 
 
-        #rect = QtWidgets.QGraphicsRectItem(QtCore.QRectF(10, 10, 25, 25))
-        rect = BSQGraphicsRectItem(QtCore.QRectF(10, 10, 25, 25), self.pbview, "txtbb")
+        #rect = QGraphicsRectItem(QRectF(10, 10, 25, 25))
+        rect = BSQGraphicsRectItem(QRectF(10, 10, 25, 25), self.pbview, "txtbb")
         rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
         rect.setPen(self.txtBoxPen)
         self.pbscene.addItem(rect)
         self.rects.append(rect)
 
-        # rect = QtWidgets.QGraphicsRectItem(QtCore.QRectF(50, 50, 25, 25))
-        rect = BSQGraphicsRectItem(QtCore.QRectF(50, 50, 25, 25), self.pbview, "imgbb")
+        # rect = QGraphicsRectItem(QRectF(50, 50, 25, 25))
+        rect = BSQGraphicsRectItem(QRectF(50, 50, 25, 25), self.pbview, "imgbb")
         rect.setPen(self.txtBoxPen)
         rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
         self.pbscene.addItem(rect)
@@ -699,46 +699,46 @@ class SkillGUI(QtWidgets.QMainWindow):
         # ------ PbRun layout End ------ #
 
         # ------ pbsk header layout Start ----- #
-        self.pbskAppLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "App: "))
+        self.pbskAppLabel = QLabel(QApplication.translate("QLabel", "App: "))
         self.pbskAppLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbskAppEdit = QtWidgets.QLineEdit()
-        self.pbskAppEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in App name here"))
+        self.pbskAppEdit = QLineEdit()
+        self.pbskAppEdit.setPlaceholderText(QApplication.translate("QLineEdit", "type in App name here"))
         self.pbskAppEdit.textChanged.connect(self.appDomainPage_changed)
 
-        self.pbskAppExeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "App Exe Path: "))
+        self.pbskAppExeLabel = QLabel(QApplication.translate("QLabel", "App Exe Path: "))
         self.pbskAppExeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbskAppExeEdit = QtWidgets.QLineEdit()
-        self.pbskAppExeEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in App Exe Full Path here"))
+        self.pbskAppExeEdit = QLineEdit()
+        self.pbskAppExeEdit.setPlaceholderText(QApplication.translate("QLineEdit", "type in App Exe Full Path here"))
         self.pbskAppExeEdit.textChanged.connect(self.appDomainPage_changed)
 
-        self.pbskDomainLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Site: "))
+        self.pbskDomainLabel = QLabel(QApplication.translate("QLabel", "Site: "))
         self.pbskDomainLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbskDomainEdit = QtWidgets.QLineEdit()
-        self.pbskDomainEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in Domain Site here"))
+        self.pbskDomainEdit = QLineEdit()
+        self.pbskDomainEdit.setPlaceholderText(QApplication.translate("QLineEdit", "type in Domain Site here"))
         self.pbskDomainEdit.textChanged.connect(self.appDomainPage_changed)
 
-        self.pbskDomainURLLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Site URL: "))
+        self.pbskDomainURLLabel = QLabel(QApplication.translate("QLabel", "Site URL: "))
         self.pbskDomainURLLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbskDomainURLEdit = QtWidgets.QLineEdit()
-        self.pbskDomainURLEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in Site URL here"))
+        self.pbskDomainURLEdit = QLineEdit()
+        self.pbskDomainURLEdit.setPlaceholderText(QApplication.translate("QLineEdit", "type in Site URL here"))
         self.pbskDomainURLEdit.textChanged.connect(self.appDomainPage_changed)
 
 
-        self.pbskPageLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Page: "))
+        self.pbskPageLabel = QLabel(QApplication.translate("QLabel", "Page: "))
         self.pbskPageLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbskPageEdit = QtWidgets.QLineEdit()
-        self.pbskPageEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in page name here"))
+        self.pbskPageEdit = QLineEdit()
+        self.pbskPageEdit.setPlaceholderText(QApplication.translate("QLineEdit", "type in page name here"))
         self.pbskPageEdit.textChanged.connect(self.appDomainPage_changed)
 
-        self.pbskSkillLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Skill: "))
+        self.pbskSkillLabel = QLabel(QApplication.translate("QLabel", "Skill: "))
         self.pbskSkillLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbskSkillEdit = QtWidgets.QLineEdit()
-        self.pbskSkillEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type in skill name here"))
+        self.pbskSkillEdit = QLineEdit()
+        self.pbskSkillEdit.setPlaceholderText(QApplication.translate("QLineEdit", "type in skill name here"))
         self.pbskSkillEdit.textChanged.connect(self.appDomainPage_changed)
 
-        self.pbActionLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Action: "))
+        self.pbActionLabel = QLabel(QApplication.translate("QLabel", "Action: "))
         self.pbActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbActionSel = QtWidgets.QComboBox()
+        self.pbActionSel = QComboBox()
         self.add_items_of_combobox(self.pbActionSel, ACTION_ITEMS)
         self.pbActionSel.currentTextChanged.connect(self.pbActionSel_changed)
 
@@ -758,240 +758,240 @@ class SkillGUI(QtWidgets.QMainWindow):
         # ------ pbsk header layout End ----- #
 
         # ------ pbsk PbInfo Part Start -------- #
-        self.pbInfoLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Info Type:"))
+        self.pbInfoLabel = QLabel(QApplication.translate("QLabel", "Info Type:"))
         self.pbInfoLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbInfoSel = QtWidgets.QComboBox()
-        self.pbInfoSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Anchor"))
-        self.pbInfoSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Useful Data"))
+        self.pbInfoSel = QComboBox()
+        self.pbInfoSel.addItem(QApplication.translate("QComboBox", "Anchor"))
+        self.pbInfoSel.addItem(QApplication.translate("QComboBox", "Useful Data"))
         self.pbInfoSel.currentTextChanged.connect(self.pbInfoSel_changed)
 
-        self.pbRTLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref. Type: "))
+        self.pbRTLabel = QLabel(QApplication.translate("QLabel", "Ref. Type: "))
         self.pbRTLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRTSel = QtWidgets.QComboBox()
-        self.pbRTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "No Ref"))
-        self.pbRTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "By Offset"))
-        self.pbRTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "By Bound Box"))
+        self.pbRTSel = QComboBox()
+        self.pbRTSel.addItem(QApplication.translate("QComboBox", "No Ref"))
+        self.pbRTSel.addItem(QApplication.translate("QComboBox", "By Offset"))
+        self.pbRTSel.addItem(QApplication.translate("QComboBox", "By Bound Box"))
         self.pbRTSel.currentTextChanged.connect(self.pbRTSel_changed)
 
-        self.pbNRefLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "# of Refs:"))
+        self.pbNRefLabel = QLabel(QApplication.translate("QLabel", "# of Refs:"))
         self.pbNRefLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbNRefSel = QtWidgets.QComboBox()
+        self.pbNRefSel = QComboBox()
         self.add_items_of_combobox(self.pbNRefSel, ['0', '1', '2', '3', '4'])
         self.pbNRefSel.currentTextChanged.connect(self.pbNRefSel_changed)
 
-        self.pbATLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Anchor Type:"))
+        self.pbATLabel = QLabel(QApplication.translate("QLabel", "Anchor Type:"))
         self.pbATLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbATSel = QtWidgets.QComboBox()
-        self.pbATSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Text"))
-        self.pbATSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Image"))
+        self.pbATSel = QComboBox()
+        self.pbATSel.addItem(QApplication.translate("QComboBox", "Text"))
+        self.pbATSel.addItem(QApplication.translate("QComboBox", "Image"))
 
-        self.pbDTLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Data Type:"))
+        self.pbDTLabel =QLabel(QApplication.translate("QLabel", "Data Type:"))
         self.pbDTLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbDTSel = QtWidgets.QComboBox()
-        self.pbDTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Paragraph"))
-        self.pbDTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Lines"))
-        self.pbDTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Words"))
+        self.pbDTSel = QComboBox()
+        self.pbDTSel.addItem(QApplication.translate("QComboBox", "Paragraph"))
+        self.pbDTSel.addItem(QApplication.translate("QComboBox", "Lines"))
+        self.pbDTSel.addItem(QApplication.translate("QComboBox", "Words"))
 
-        self.pbNLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "# of Lines:"))
+        self.pbNLabel = QLabel(QApplication.translate("QLabel", "# of Lines:"))
         self.pbNLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbNEdit = QtWidgets.QLineEdit()
-        self.pbNEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "type number of lines here"))
+        self.pbNEdit = QLineEdit()
+        self.pbNEdit.setPlaceholderText(QApplication.translate("QLineEdit", "type number of lines here"))
 
-        self.pbInfoNameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Name:"))
+        self.pbInfoNameLabel = QLabel(QApplication.translate("QLabel", "Name:"))
         self.pbInfoNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbInfoNameEdit = QtWidgets.QLineEdit()
-        self.pbInfoNameEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: abc"))
+        self.pbInfoNameEdit = QLineEdit()
+        self.pbInfoNameEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: abc"))
 
         # ----------  reference 1 widgets ----------------------------
-        self.pbRef1NameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 Name:"))
+        self.pbRef1NameLabel = QLabel(QApplication.translate("QLabel", "Ref1 Name:"))
         self.pbRef1NameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1NameEdit = QtWidgets.QLineEdit()
-        self.pbRef1NameEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: abc"))
+        self.pbRef1NameEdit = QLineEdit()
+        self.pbRef1NameEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: abc"))
 
-        self.pbRef1XOffsetDirLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 X Offset Dir:"))
+        self.pbRef1XOffsetDirLabel = QLabel(QApplication.translate("QLabel", "Ref1 X Offset Dir:"))
         self.pbRef1XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1XOffsetDirSel = QtWidgets.QComboBox()
-        self.pbRef1XOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Within"))
-        self.pbRef1XOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Beyond"))
+        self.pbRef1XOffsetDirSel = QComboBox()
+        self.pbRef1XOffsetDirSel.addItem(QApplication.translate("QComboBox", "Within"))
+        self.pbRef1XOffsetDirSel.addItem(QApplication.translate("QComboBox", "Beyond"))
 
-        self.pbRef1XOffsetTypeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 X Offset Type:"))
+        self.pbRef1XOffsetTypeLabel = QLabel(QApplication.translate("QLabel", "Ref1 X Offset Type:"))
         self.pbRef1XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1XOffsetTypeSel = QtWidgets.QComboBox()
+        self.pbRef1XOffsetTypeSel = QComboBox()
         self.add_items_of_combobox(self.pbRef1XOffsetTypeSel, OFFSET_TYPES)
 
-        self.pbRef1XOffsetValLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 X Offset Value: "))
+        self.pbRef1XOffsetValLabel = QLabel(QApplication.translate("QLabel", "Ref1 X Offset Value: "))
         self.pbRef1XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1XOffsetValEdit = QtWidgets.QLineEdit()
-        self.pbRef1XOffsetValEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbRef1XOffsetValEdit = QLineEdit()
+        self.pbRef1XOffsetValEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbRef1XOffsetUnitLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 X Offset Unit: "))
+        self.pbRef1XOffsetUnitLabel = QLabel(QApplication.translate("QLabel", "Ref1 X Offset Unit: "))
         self.pbRef1XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1XOffsetUnitSel = QtWidgets.QComboBox()
+        self.pbRef1XOffsetUnitSel = QComboBox()
         self.add_items_of_combobox(self.pbRef1XOffsetUnitSel, OFFSET_UNITS)
 
-        self.pbRef1YOffsetDirLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 Y Dir: "))
+        self.pbRef1YOffsetDirLabel = QLabel(QApplication.translate("QLabel", "Ref1 Y Dir: "))
         self.pbRef1YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1YOffsetDirSel = QtWidgets.QComboBox()
-        self.pbRef1YOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Within"))
-        self.pbRef1YOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Beyond"))
+        self.pbRef1YOffsetDirSel = QComboBox()
+        self.pbRef1YOffsetDirSel.addItem(QApplication.translate("QComboBox", "Within"))
+        self.pbRef1YOffsetDirSel.addItem(QApplication.translate("QComboBox", "Beyond"))
 
-        self.pbRef1YOffsetTypeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 Y Offset Type: "))
+        self.pbRef1YOffsetTypeLabel = QLabel(QApplication.translate("QLabel", "Ref1 Y Offset Type: "))
         self.pbRef1YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1YOffsetTypeSel = QtWidgets.QComboBox()
+        self.pbRef1YOffsetTypeSel = QComboBox()
         self.add_items_of_combobox(self.pbRef1YOffsetTypeSel, OFFSET_TYPES)
 
-        self.pbRef1YOffsetValLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 Y Offset Value: "))
+        self.pbRef1YOffsetValLabel = QLabel(QApplication.translate("QLabel", "Ref1 Y Offset Value: "))
         self.pbRef1YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1YOffsetValEdit = QtWidgets.QLineEdit()
-        self.pbRef1YOffsetValEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbRef1YOffsetValEdit = QLineEdit()
+        self.pbRef1YOffsetValEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbRef1YOffsetUnitLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref1 Y Offset Unit: "))
+        self.pbRef1YOffsetUnitLabel = QLabel(QApplication.translate("QLabel", "Ref1 Y Offset Unit: "))
         self.pbRef1YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef1YOffsetUnitSel = QtWidgets.QComboBox()
+        self.pbRef1YOffsetUnitSel = QComboBox()
         self.add_items_of_combobox(self.pbRef1YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 2 widgets ----------------------------
-        self.pbRef2NameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 Name: "))
+        self.pbRef2NameLabel = QLabel(QApplication.translate("QLabel", "Ref2 Name: "))
         self.pbRef2NameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2NameEdit = QtWidgets.QLineEdit()
-        self.pbRef2NameEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: abc"))
+        self.pbRef2NameEdit = QLineEdit()
+        self.pbRef2NameEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: abc"))
 
-        self.pbRef2XOffsetDirLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 X Offset Dir: "))
+        self.pbRef2XOffsetDirLabel = QLabel(QApplication.translate("QLabel", "Ref2 X Offset Dir: "))
         self.pbRef2XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2XOffsetDirSel = QtWidgets.QComboBox()
-        self.pbRef2XOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Within"))
-        self.pbRef2XOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Beyond"))
+        self.pbRef2XOffsetDirSel = QComboBox()
+        self.pbRef2XOffsetDirSel.addItem(QApplication.translate("QComboBox", "Within"))
+        self.pbRef2XOffsetDirSel.addItem(QApplication.translate("QComboBox", "Beyond"))
 
-        self.pbRef2XOffsetTypeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 X Offset Type: "))
+        self.pbRef2XOffsetTypeLabel = QLabel(QApplication.translate("QLabel", "Ref2 X Offset Type: "))
         self.pbRef2XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2XOffsetTypeSel = QtWidgets.QComboBox()
+        self.pbRef2XOffsetTypeSel = QComboBox()
         self.add_items_of_combobox(self.pbRef2XOffsetTypeSel, OFFSET_TYPES)
 
-        self.pbRef2XOffsetValLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 X Offset Value: "))
+        self.pbRef2XOffsetValLabel = QLabel(QApplication.translate("QLabel", "Ref2 X Offset Value: "))
         self.pbRef2XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2XOffsetValEdit = QtWidgets.QLineEdit()
-        self.pbRef2XOffsetValEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbRef2XOffsetValEdit = QLineEdit()
+        self.pbRef2XOffsetValEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbRef2XOffsetUnitLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 X Offset Unit: "))
+        self.pbRef2XOffsetUnitLabel = QLabel(QApplication.translate("QLabel", "Ref2 X Offset Unit: "))
         self.pbRef2XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2XOffsetUnitSel = QtWidgets.QComboBox()
+        self.pbRef2XOffsetUnitSel = QComboBox()
         self.add_items_of_combobox(self.pbRef2XOffsetUnitSel, OFFSET_UNITS)
 
-        self.pbRef2YOffsetDirLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 Y Dir: "))
+        self.pbRef2YOffsetDirLabel = QLabel(QApplication.translate("QLabel", "Ref2 Y Dir: "))
         self.pbRef2YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2YOffsetDirSel = QtWidgets.QComboBox()
-        self.pbRef2YOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Within"))
-        self.pbRef2YOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Beyond"))
+        self.pbRef2YOffsetDirSel = QComboBox()
+        self.pbRef2YOffsetDirSel.addItem(QApplication.translate("QComboBox", "Within"))
+        self.pbRef2YOffsetDirSel.addItem(QApplication.translate("QComboBox", "Beyond"))
 
-        self.pbRef2YOffsetTypeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 Y Offset Type: "))
+        self.pbRef2YOffsetTypeLabel = QLabel(QApplication.translate("QLabel", "Ref2 Y Offset Type: "))
         self.pbRef2YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2YOffsetTypeSel = QtWidgets.QComboBox()
+        self.pbRef2YOffsetTypeSel = QComboBox()
         self.add_items_of_combobox(self.pbRef2YOffsetTypeSel, OFFSET_TYPES)
 
-        self.pbRef2YOffsetValLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 Y Offset Value: "))
+        self.pbRef2YOffsetValLabel = QLabel(QApplication.translate("QLabel", "Ref2 Y Offset Value: "))
         self.pbRef2YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2YOffsetValEdit = QtWidgets.QLineEdit()
-        self.pbRef2YOffsetValEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbRef2YOffsetValEdit = QLineEdit()
+        self.pbRef2YOffsetValEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbRef2YOffsetUnitLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref2 Y Offset Unit: "))
+        self.pbRef2YOffsetUnitLabel = QLabel(QApplication.translate("QLabel", "Ref2 Y Offset Unit: "))
         self.pbRef2YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef2YOffsetUnitSel = QtWidgets.QComboBox()
+        self.pbRef2YOffsetUnitSel = QComboBox()
         self.add_items_of_combobox(self.pbRef2YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 3 widgets ----------------------------
-        self.pbRef3NameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 Name: "))
+        self.pbRef3NameLabel = QLabel(QApplication.translate("QLabel", "Ref3 Name: "))
         self.pbRef3NameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3NameEdit = QtWidgets.QLineEdit()
-        self.pbRef3NameEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: abc"))
+        self.pbRef3NameEdit = QLineEdit()
+        self.pbRef3NameEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: abc"))
 
-        self.pbRef3XOffsetDirLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 X Offset Dir: "))
+        self.pbRef3XOffsetDirLabel = QLabel(QApplication.translate("QLabel", "Ref3 X Offset Dir: "))
         self.pbRef3XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3XOffsetDirSel = QtWidgets.QComboBox()
-        self.pbRef3XOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Within"))
-        self.pbRef3XOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Beyond"))
+        self.pbRef3XOffsetDirSel = QComboBox()
+        self.pbRef3XOffsetDirSel.addItem(QApplication.translate("QComboBox", "Within"))
+        self.pbRef3XOffsetDirSel.addItem(QApplication.translate("QComboBox", "Beyond"))
 
-        self.pbRef3XOffsetTypeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 X Offset Type: "))
+        self.pbRef3XOffsetTypeLabel = QLabel(QApplication.translate("QLabel", "Ref3 X Offset Type: "))
         self.pbRef3XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3XOffsetTypeSel = QtWidgets.QComboBox()
+        self.pbRef3XOffsetTypeSel = QComboBox()
         self.add_items_of_combobox(self.pbRef3XOffsetTypeSel, OFFSET_TYPES)
 
-        self.pbRef3XOffsetValLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 X Offset Value: "))
+        self.pbRef3XOffsetValLabel = QLabel(QApplication.translate("QLabel", "Ref3 X Offset Value: "))
         self.pbRef3XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3XOffsetValEdit = QtWidgets.QLineEdit()
-        self.pbRef3XOffsetValEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbRef3XOffsetValEdit = QLineEdit()
+        self.pbRef3XOffsetValEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbRef3XOffsetUnitLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 X Offset Unit: "))
+        self.pbRef3XOffsetUnitLabel = QLabel(QApplication.translate("QLabel", "Ref3 X Offset Unit: "))
         self.pbRef3XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3XOffsetUnitSel = QtWidgets.QComboBox()
+        self.pbRef3XOffsetUnitSel = QComboBox()
         self.add_items_of_combobox(self.pbRef3XOffsetUnitSel, OFFSET_UNITS)
 
-        self.pbRef3YOffsetDirLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 Y Dir: "))
+        self.pbRef3YOffsetDirLabel = QLabel(QApplication.translate("QLabel", "Ref3 Y Dir: "))
         self.pbRef3YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3YOffsetDirSel = QtWidgets.QComboBox()
-        self.pbRef3YOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Within"))
-        self.pbRef3YOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Beyond"))
+        self.pbRef3YOffsetDirSel = QComboBox()
+        self.pbRef3YOffsetDirSel.addItem(QApplication.translate("QComboBox", "Within"))
+        self.pbRef3YOffsetDirSel.addItem(QApplication.translate("QComboBox", "Beyond"))
 
-        self.pbRef3YOffsetTypeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 Y Offset Type: "))
+        self.pbRef3YOffsetTypeLabel = QLabel(QApplication.translate("QLabel", "Ref3 Y Offset Type: "))
         self.pbRef3YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3YOffsetTypeSel = QtWidgets.QComboBox()
+        self.pbRef3YOffsetTypeSel = QComboBox()
         self.add_items_of_combobox(self.pbRef3YOffsetTypeSel, OFFSET_TYPES)
 
-        self.pbRef3YOffsetValLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 Y Offset Value: "))
+        self.pbRef3YOffsetValLabel = QLabel(QApplication.translate("QLabel", "Ref3 Y Offset Value: "))
         self.pbRef3YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3YOffsetValEdit = QtWidgets.QLineEdit()
-        self.pbRef3YOffsetValEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbRef3YOffsetValEdit = QLineEdit()
+        self.pbRef3YOffsetValEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbRef3YOffsetUnitLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref3 Y Offset Unit: "))
+        self.pbRef3YOffsetUnitLabel = QLabel(QApplication.translate("QLabel", "Ref3 Y Offset Unit: "))
         self.pbRef3YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef3YOffsetUnitSel = QtWidgets.QComboBox()
+        self.pbRef3YOffsetUnitSel = QComboBox()
         self.add_items_of_combobox(self.pbRef3YOffsetUnitSel, OFFSET_UNITS)
 
         #  ----------  reference 4 widgets ----------------------------
-        self.pbRef4NameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 Name: "))
+        self.pbRef4NameLabel = QLabel(QApplication.translate("QLabel", "Ref4 Name: "))
         self.pbRef4NameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4NameEdit = QtWidgets.QLineEdit()
-        self.pbRef4NameEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: abc"))
+        self.pbRef4NameEdit = QLineEdit()
+        self.pbRef4NameEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: abc"))
 
-        self.pbRef4XOffsetDirLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 X Offset Dir: "))
+        self.pbRef4XOffsetDirLabel = QLabel(QApplication.translate("QLabel", "Ref4 X Offset Dir: "))
         self.pbRef4XOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4XOffsetDirSel = QtWidgets.QComboBox()
-        self.pbRef4XOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Within"))
-        self.pbRef4XOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Beyond"))
+        self.pbRef4XOffsetDirSel = QComboBox()
+        self.pbRef4XOffsetDirSel.addItem(QApplication.translate("QComboBox", "Within"))
+        self.pbRef4XOffsetDirSel.addItem(QApplication.translate("QComboBox", "Beyond"))
 
-        self.pbRef4XOffsetTypeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 X Offset Type: "))
+        self.pbRef4XOffsetTypeLabel = QLabel(QApplication.translate("QLabel", "Ref4 X Offset Type: "))
         self.pbRef4XOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4XOffsetTypeSel = QtWidgets.QComboBox()
+        self.pbRef4XOffsetTypeSel = QComboBox()
         self.add_items_of_combobox(self.pbRef4XOffsetTypeSel, OFFSET_TYPES)
 
-        self.pbRef4XOffsetValLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 X Offset Value: "))
+        self.pbRef4XOffsetValLabel = QLabel(QApplication.translate("QLabel", "Ref4 X Offset Value: "))
         self.pbRef4XOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4XOffsetValEdit = QtWidgets.QLineEdit()
-        self.pbRef4XOffsetValEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbRef4XOffsetValEdit = QLineEdit()
+        self.pbRef4XOffsetValEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbRef4XOffsetUnitLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 X Offset Unit: "))
+        self.pbRef4XOffsetUnitLabel = QLabel(QApplication.translate("QLabel", "Ref4 X Offset Unit: "))
         self.pbRef4XOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4XOffsetUnitSel = QtWidgets.QComboBox()
+        self.pbRef4XOffsetUnitSel = QComboBox()
         self.add_items_of_combobox(self.pbRef4XOffsetUnitSel, OFFSET_UNITS)
 
-        self.pbRef4YOffsetDirLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 Y Dir: "))
+        self.pbRef4YOffsetDirLabel = QLabel(QApplication.translate("QLabel", "Ref4 Y Dir: "))
         self.pbRef4YOffsetDirLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4YOffsetDirSel = QtWidgets.QComboBox()
-        self.pbRef4YOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Within"))
-        self.pbRef4YOffsetDirSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Beyond"))
+        self.pbRef4YOffsetDirSel = QComboBox()
+        self.pbRef4YOffsetDirSel.addItem(QApplication.translate("QComboBox", "Within"))
+        self.pbRef4YOffsetDirSel.addItem(QApplication.translate("QComboBox", "Beyond"))
 
-        self.pbRef4YOffsetTypeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 Y Offset Type: "))
+        self.pbRef4YOffsetTypeLabel = QLabel(QApplication.translate("QLabel", "Ref4 Y Offset Type: "))
         self.pbRef4YOffsetTypeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4YOffsetTypeSel = QtWidgets.QComboBox()
+        self.pbRef4YOffsetTypeSel = QComboBox()
         self.add_items_of_combobox(self.pbRef4YOffsetTypeSel, OFFSET_TYPES)
 
-        self.pbRef4YOffsetValLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 Y Offset Value: "))
+        self.pbRef4YOffsetValLabel = QLabel(QApplication.translate("QLabel", "Ref4 Y Offset Value: "))
         self.pbRef4YOffsetValLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4YOffsetValEdit = QtWidgets.QLineEdit()
-        self.pbRef4YOffsetValEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbRef4YOffsetValEdit = QLineEdit()
+        self.pbRef4YOffsetValEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbRef4YOffsetUnitLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ref4 Y Offset Unit: "))
+        self.pbRef4YOffsetUnitLabel = QLabel(QApplication.translate("QLabel", "Ref4 Y Offset Unit: "))
         self.pbRef4YOffsetUnitLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRef4YOffsetUnitSel = QtWidgets.QComboBox()
+        self.pbRef4YOffsetUnitSel = QComboBox()
         self.add_items_of_combobox(self.pbRef4YOffsetUnitSel, OFFSET_UNITS)
 
         # end of reference widgets.
@@ -1040,112 +1040,112 @@ class SkillGUI(QtWidgets.QMainWindow):
             (self.pbRef4YOffsetValLabel, self.pbRef4YOffsetValEdit),    # L16B
             (self.pbRef4YOffsetUnitLabel, self.pbRef4YOffsetUnitSel)    # L16C
             ]
-        self.pbInfoLayout = QtWidgets.QGridLayout()
+        self.pbInfoLayout = QGridLayout()
         self.add_widgets_of_gridlayout(self.pbInfoLayout, pbinfo_widgets)
         self.pbInfoWidget = QWidget()
         self.pbInfoWidget.setLayout(self.pbInfoLayout)
 
-        self.pbInfoArea = QtWidgets.QScrollArea()
-        self.pbInfoArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.pbInfoArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbInfoArea = QScrollArea()
+        self.pbInfoArea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbInfoArea.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbInfoArea.setWidgetResizable(True)
         self.pbInfoArea.setWidget(self.pbInfoWidget)
         # ------- pbsk PbInfo Part End ------- #
 
         # ------- pbsk PbAction Part Start ------- #
-        self.pbStepNameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Step Name: "))
+        self.pbStepNameLabel = QLabel(QApplication.translate("QLabel", "Step Name: "))
         self.pbStepNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbStepNameEdit = QtWidgets.QLineEdit()
-        self.pbStepNameEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: Step1"))
+        self.pbStepNameEdit = QLineEdit()
+        self.pbStepNameEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: Step1"))
 
-        self.pbStepNumberLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Step #: "))
+        self.pbStepNumberLabel = QLabel(QApplication.translate("QLabel", "Step #: "))
         self.pbStepNumberLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbStepNumberEdit = QtWidgets.QLineEdit()
-        self.pbStepNumberEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: 1"))
+        self.pbStepNumberEdit = QLineEdit()
+        self.pbStepNumberEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: 1"))
 
-        self.pbStepPrevNextLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Located "))
+        self.pbStepPrevNextLabel = QLabel(QApplication.translate("QLabel", "Located "))
         self.pbStepPrevNextLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbStepPrevNextSel = QtWidgets.QComboBox()
-        self.pbStepPrevNextSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "After"))
-        self.pbStepPrevNextSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Before"))
+        self.pbStepPrevNextSel = QComboBox()
+        self.pbStepPrevNextSel.addItem(QApplication.translate("QComboBox", "After"))
+        self.pbStepPrevNextSel.addItem(QApplication.translate("QComboBox", "Before"))
         self.pbStepPrevNextSel.currentTextChanged.connect(self.pbStepPrevNextSel_changed)
 
-        self.pbStepPrevNextNameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Prev. Step Name: "))
+        self.pbStepPrevNextNameLabel = QLabel(QApplication.translate("QLabel", "Prev. Step Name: "))
         self.pbStepPrevNextNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbStepPrevNextNameEdit = QtWidgets.QLineEdit()
-        self.stepNameCompleter = QtWidgets.QCompleter(self.step_names)
+        self.pbStepPrevNextNameEdit = QLineEdit()
+        self.stepNameCompleter = QCompleter(self.step_names)
         self.pbStepPrevNextNameEdit.setCompleter(self.stepNameCompleter)
-        self.pbStepPrevNextNameEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Ex: step1"))
+        self.pbStepPrevNextNameEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Ex: step1"))
 
-        self.pbAppLinkLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "App Exe: "))
+        self.pbAppLinkLabel = QLabel(QApplication.translate("QLabel", "App Exe: "))
         self.pbAppLinkLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbAppLinkEdit = QtWidgets.QLineEdit()
-        self.pbAppLinkEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Full Path To .exe"))
+        self.pbAppLinkEdit = QLineEdit()
+        self.pbAppLinkEdit.setPlaceholderText(QApplication.translate("QLineEdit", "Full Path To .exe"))
 
-        self.pbPageURLLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Page URL: "))
+        self.pbPageURLLabel = QLabel(QApplication.translate("QLabel", "Page URL: "))
         self.pbPageURLLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbPageURLEdit = QtWidgets.QLineEdit()
-        self.pbPageURLEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "full url"))
+        self.pbPageURLEdit = QLineEdit()
+        self.pbPageURLEdit.setPlaceholderText(QApplication.translate("QLineEdit", "full url"))
 
-        self.pbDataNameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Data Name: "))
+        self.pbDataNameLabel = QLabel(QApplication.translate("QLabel", "Data Name: "))
         self.pbDataNameLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbDataNameEdit = QtWidgets.QLineEdit()
-        self.pbDataNameEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "ex: abc"))
+        self.pbDataNameEdit = QLineEdit()
+        self.pbDataNameEdit.setPlaceholderText(QApplication.translate("QLineEdit", "ex: abc"))
 
-        self.pbMouseActionLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Mouse Action: "))
+        self.pbMouseActionLabel = QLabel(QApplication.translate("QLabel", "Mouse Action: "))
         self.pbMouseActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbMouseActionSel = QtWidgets.QComboBox()
+        self.pbMouseActionSel = QComboBox()
         self.add_items_of_combobox(self.pbMouseActionSel, ['Single Click', 'Double Click', 'Right Click', 'Scroll Up', 'Scroll Down'])
 
-        self.pbMouseActionAmountLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Scroll Amount: "))
+        self.pbMouseActionAmountLabel = QLabel(QApplication.translate("QLabel", "Scroll Amount: "))
         self.pbMouseActionAmountLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbMouseActionAmountEdit = QtWidgets.QLineEdit()
-        self.pbMouseActionAmountEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "ex: 4"))
+        self.pbMouseActionAmountEdit = QLineEdit()
+        self.pbMouseActionAmountEdit.setPlaceholderText(QApplication.translate("QLineEdit", "ex: 4"))
 
-        self.pbKeyboardActionLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "String To Input: "))
+        self.pbKeyboardActionLabel = QLabel(QApplication.translate("QLabel", "String To Input: "))
         self.pbKeyboardActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbKeyboardActionEdit = QtWidgets.QLineEdit()
-        self.pbKeyboardActionEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "ex: abc"))
+        self.pbKeyboardActionEdit = QLineEdit()
+        self.pbKeyboardActionEdit.setPlaceholderText(QApplication.translate("QLineEdit", "ex: abc"))
 
-        self.pbDataFileLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "File Name: "))
+        self.pbDataFileLabel = QLabel(QApplication.translate("QLabel", "File Name: "))
         self.pbDataFileLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbDataFileEdit = QtWidgets.QLineEdit()
-        self.pbDataFileEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "full path to data file"))
+        self.pbDataFileEdit = QLineEdit()
+        self.pbDataFileEdit.setPlaceholderText(QApplication.translate("QLineEdit", "full path to data file"))
 
-        self.pbConditionLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Condition Expression: "))
+        self.pbConditionLabel = QLabel(QApplication.translate("QLabel", "Condition Expression: "))
         self.pbConditionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbConditionEdit = QtWidgets.QLineEdit()
-        self.pbConditionEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "example: a > 5"))
+        self.pbConditionEdit = QLineEdit()
+        self.pbConditionEdit.setPlaceholderText(QApplication.translate("QLineEdit", "example: a > 5"))
 
-        self.pbConditionTrueLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "If True: "))
+        self.pbConditionTrueLabel = QLabel(QApplication.translate("QLabel", "If True: "))
         self.pbConditionTrueLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbConditionTrueEdit = QtWidgets.QLineEdit()
-        self.pbConditionTrueEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "step name here"))
+        self.pbConditionTrueEdit = QLineEdit()
+        self.pbConditionTrueEdit.setPlaceholderText(QApplication.translate("QLineEdit", "step name here"))
 
-        self.pbConditionFalseLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "If False: "))
+        self.pbConditionFalseLabel = QLabel(QApplication.translate("QLabel", "If False: "))
         self.pbConditionFalseLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbConditionFalseEdit = QtWidgets.QLineEdit()
-        self.pbConditionFalseEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "step name here"))
+        self.pbConditionFalseEdit = QLineEdit()
+        self.pbConditionFalseEdit.setPlaceholderText(QApplication.translate("QLineEdit", "step name here"))
 
-        self.pbJumpLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Jump to: "))
+        self.pbJumpLabel = QLabel(QApplication.translate("QLabel", "Jump to: "))
         self.pbJumpLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbJumpEdit = QtWidgets.QLineEdit()
-        self.pbJumpEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "step name here"))
+        self.pbJumpEdit = QLineEdit()
+        self.pbJumpEdit.setPlaceholderText(QApplication.translate("QLineEdit", "step name here"))
 
-        self.pbRoutineLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Subroutine Name: "))
+        self.pbRoutineLabel = QLabel(QApplication.translate("QLabel", "Subroutine Name: "))
         self.pbRoutineLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbRoutineEdit = QtWidgets.QLineEdit()
-        self.pbRoutineEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "subroutine name here"))
+        self.pbRoutineEdit = QLineEdit()
+        self.pbRoutineEdit.setPlaceholderText(QApplication.translate("QLineEdit", "subroutine name here"))
 
-        self.pbExternLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "External Script: "))
+        self.pbExternLabel = QLabel(QApplication.translate("QLabel", "External Script: "))
         self.pbExternLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbExternEdit = QtWidgets.QLineEdit()
-        self.pbExternEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "extern script name here"))
+        self.pbExternEdit = QLineEdit()
+        self.pbExternEdit.setPlaceholderText(QApplication.translate("QLineEdit", "extern script name here"))
 
-        self.pbWaittimeLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Wait Time: "))
+        self.pbWaittimeLabel = QLabel(QApplication.translate("QLabel", "Wait Time: "))
         self.pbWaittimeLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.pbWaittimeEdit = QtWidgets.QLineEdit()
-        self.pbWaittimeEdit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "time in seconds."))
+        self.pbWaittimeEdit = QLineEdit()
+        self.pbWaittimeEdit.setPlaceholderText(QApplication.translate("QLineEdit", "time in seconds."))
 
         pbAction_widgets = [
             (self.pbStepNameLabel, self.pbStepNameEdit),                    # L0
@@ -1169,135 +1169,135 @@ class SkillGUI(QtWidgets.QMainWindow):
             (self.pbWaittimeLabel, self.pbWaittimeEdit)                     # L15
         ]
 
-        self.pbActionLayout = QtWidgets.QGridLayout()
+        self.pbActionLayout = QGridLayout()
         self.add_widgets_of_gridlayout(self.pbActionLayout, pbAction_widgets)
-        self.pbActionWidget = QtWidgets.QWidget()
+        self.pbActionWidget = QWidget()
         self.pbActionWidget.setLayout(self.pbActionLayout)
 
-        self.pbActionArea = QtWidgets.QScrollArea()
-        self.pbActionArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.pbActionArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbActionArea = QScrollArea()
+        self.pbActionArea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbActionArea.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbActionArea.setWidgetResizable(True)
         self.pbActionArea.setWidget(self.pbActionWidget)
         # -------- pbsk PbAction Part End ------- #
 
         # -------- pbsk pbtabs Start ------ #
-        self.pbtabs = QtWidgets.QTabWidget()
+        self.pbtabs = QTabWidget()
         self.pbtabs.addTab(self.pbInfoArea, "Feature Info")
         self.pbtabs.addTab(self.pbActionArea, "Step")
         self.pbtabs.currentChanged.connect(self.IndividualItemChanged)
         # -------- pbsk pbtabs End ------ #
 
         # ------- pbsk List View Start ------- #
-        self.pbskALLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Anchor List:"))
-        # self.pbskAnchorListView = QtWidgets.QListView()
+        self.pbskALLabel = QLabel(QApplication.translate("QLabel", "Anchor List:"))
+        # self.pbskAnchorListView = QListView()
         self.pbskAnchorListView = AnchorListView()
         self.pbskAnchorListView.installEventFilter(self)
-        self.anchorListModel = QtGui.QStandardItemModel(self.pbskAnchorListView)
+        self.anchorListModel = QStandardItemModel(self.pbskAnchorListView)
         self.pbskAnchorListView.setModel(self.anchorListModel)
-        self.pbskAnchorListView.setViewMode(QtWidgets.QListView.IconMode)
-        self.pbskAnchorListView.setMovement(QtWidgets.QListView.Snap)
+        self.pbskAnchorListView.setViewMode(QListView.IconMode)
+        self.pbskAnchorListView.setMovement(QListView.Snap)
         # newach = ANCHOR("abc", "image")
         # self.anchorListModel.appendRow(newach)
 
-        self.pbskAnchorListScroll = QtWidgets.QScrollArea()
-        self.pbskAnchorListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.pbskAnchorListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskAnchorListScroll = QScrollArea()
+        self.pbskAnchorListScroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskAnchorListScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskAnchorListScroll.setWidgetResizable(True)
         self.pbskAnchorListScroll.setWidget(self.pbskAnchorListView)
 
-        self.pbskALLayout = QtWidgets.QVBoxLayout()
+        self.pbskALLayout = QVBoxLayout()
         self.pbskALLayout.addWidget(self.pbskALLabel)
         self.pbskALLayout.addWidget(self.pbskAnchorListScroll)
-        self.pbskALWidget = QtWidgets.QWidget()
+        self.pbskALWidget = QWidget()
         self.pbskALWidget.setLayout(self.pbskALLayout)
 
-        self.pbskDLLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Useful Data List:"))
-        self.pbskDataListView = QtWidgets.QListView()
+        self.pbskDLLabel = QLabel(QApplication.translate("QLabel", "Useful Data List:"))
+        self.pbskDataListView = QListView()
         self.pbskDataListView.installEventFilter(self)
-        self.dataListModel = QtGui.QStandardItemModel(self.pbskDataListView)
+        self.dataListModel = QStandardItemModel(self.pbskDataListView)
         self.pbskDataListView.setModel(self.dataListModel)
-        self.pbskDataListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.pbskDataListView.setMovement(QtWidgets.QListView.Snap)
+        self.pbskDataListView.setViewMode(QListView.ListMode)
+        self.pbskDataListView.setMovement(QListView.Snap)
         # newui = USER_INFO("aaa")
         # self.dataListModel.appendRow(newui)
 
-        self.pbskDataListScroll = QtWidgets.QScrollArea()
-        self.pbskDataListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.pbskDataListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskDataListScroll = QScrollArea()
+        self.pbskDataListScroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskDataListScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskDataListScroll.setWidgetResizable(True)
         self.pbskDataListScroll.setWidget(self.pbskDataListView)
 
-        self.pbskDLLayout = QtWidgets.QVBoxLayout()
+        self.pbskDLLayout = QVBoxLayout()
         self.pbskDLLayout.addWidget(self.pbskDLLabel)
         self.pbskDLLayout.addWidget(self.pbskDataListScroll)
-        self.pbskDLWidget = QtWidgets.QWidget()
+        self.pbskDLWidget = QWidget()
         self.pbskDLWidget.setLayout(self.pbskDLLayout)
 
-        self.pbskSLLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Step List:"))
-        self.pbskStepListView = QtWidgets.QListView()
+        self.pbskSLLabel = QLabel(QApplication.translate("QLabel", "Step List:"))
+        self.pbskStepListView = QListView()
         self.pbskStepListView.installEventFilter(self)
-        self.stepListModel = QtGui.QStandardItemModel(self.pbskStepListView)
+        self.stepListModel = QStandardItemModel(self.pbskStepListView)
         self.pbskStepListView.setModel(self.stepListModel)
-        self.pbskStepListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.pbskStepListView.setMovement(QtWidgets.QListView.Snap)
+        self.pbskStepListView.setViewMode(QListView.ListMode)
+        self.pbskStepListView.setMovement(QListView.Snap)
         # newst = PROCEDURAL_STEP("bbb")
         # self.stepListModel.appendRow(newst)
 
-        self.pbskStepListScroll = QtWidgets.QScrollArea()
-        self.pbskStepListScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.pbskStepListScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskStepListScroll = QScrollArea()
+        self.pbskStepListScroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.pbskStepListScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.pbskStepListScroll.setWidgetResizable(True)
         self.pbskStepListScroll.setWidget(self.pbskStepListView)
 
-        self.pbskSLLayout = QtWidgets.QVBoxLayout()
+        self.pbskSLLayout = QVBoxLayout()
         self.pbskSLLayout.addWidget(self.pbskSLLabel)
         self.pbskSLLayout.addWidget(self.pbskStepListScroll)
-        self.pbskSLWidget = QtWidgets.QWidget()
+        self.pbskSLWidget = QWidget()
         self.pbskSLWidget.setLayout(self.pbskSLLayout)
         self.pbskSLWidget.setVisible(False)
         # ------- pbsk List View End ------- #
 
         # ------- pbsk buttons Start ------- #
-        self.IA_Remove_button = QtWidgets.QPushButton("Remove")
-        self.IA_Add_button = QtWidgets.QPushButton("Add")
-        self.IA_Save_button = QtWidgets.QPushButton("Save")
+        self.IA_Remove_button = QPushButton("Remove")
+        self.IA_Add_button = QPushButton("Add")
+        self.IA_Save_button = QPushButton("Save")
 
         self.IA_Remove_button.clicked.connect(self.ia_remove)
         self.IA_Add_button.clicked.connect(self.ia_add)
         self.IA_Save_button.clicked.connect(self.ia_save)
 
-        self.pbskButtonsLayout = QtWidgets.QHBoxLayout()
+        self.pbskButtonsLayout = QHBoxLayout()
         self.pbskButtonsLayout.addWidget(self.IA_Remove_button)
         self.pbskButtonsLayout.addWidget(self.IA_Add_button)
         self.pbskButtonsLayout.addWidget(self.IA_Save_button)
 
-        self.pbskButtonsWidget = QtWidgets.QWidget()
+        self.pbskButtonsWidget = QWidget()
         self.pbskButtonsWidget.setLayout(self.pbskButtonsLayout)
         # ------- pbsk buttons End ------- #
 
-        self.hsplitter2 = QtWidgets.QSplitter(Qt.Vertical)
+        self.hsplitter2 = QSplitter(Qt.Vertical)
         self.hsplitter2.addWidget(self.pbtabs)
         self.hsplitter2.addWidget(self.pbskALWidget)
         self.hsplitter2.addWidget(self.pbskDLWidget)
         self.hsplitter2.addWidget(self.pbskSLWidget)
         self.hsplitter2.addWidget(self.pbskButtonsWidget)
 
-        self.pbsklayout = QtWidgets.QVBoxLayout()
+        self.pbsklayout = QVBoxLayout()
         self.pbsklayout.addWidget(self.pbsk_header_widget)
         self.pbsklayout.addWidget(self.hsplitter2)
 
-        self.pbskWidget = QtWidgets.QWidget()
+        self.pbskWidget = QWidget()
         self.pbskWidget.setLayout(self.pbsklayout)
 
         # ------ sk layout start ------- #
-        self.skill_load_button = QtWidgets.QPushButton("Load Skill")
-        self.skill_save_button = QtWidgets.QPushButton("Save Skill")
-        self.skill_cancel_button = QtWidgets.QPushButton("Cancel")
-        self.skill_run_button = QtWidgets.QPushButton("Trial Run")
-        self.skill_step_button = QtWidgets.QPushButton("Step")
-        self.skill_stop_button = QtWidgets.QPushButton("Stop")
-        self.skill_resume_button = QtWidgets.QPushButton("Continue")
+        self.skill_load_button = QPushButton("Load Skill")
+        self.skill_save_button = QPushButton("Save Skill")
+        self.skill_cancel_button = QPushButton("Cancel")
+        self.skill_run_button = QPushButton("Trial Run")
+        self.skill_step_button = QPushButton("Step")
+        self.skill_stop_button = QPushButton("Stop")
+        self.skill_resume_button = QPushButton("Continue")
 
         self.skill_load_button.clicked.connect(self.load_skill_file)
         self.skill_save_button.clicked.connect(self.save_skill_file)
@@ -1307,7 +1307,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skill_stop_button.clicked.connect(self.stop_run)
         self.skill_resume_button.clicked.connect(self.continue_run)
 
-        self.skblayout = QtWidgets.QHBoxLayout()
+        self.skblayout = QHBoxLayout()
         self.skblayout.addWidget(self.skill_load_button)
         self.skblayout.addWidget(self.skill_run_button)
         self.skblayout.addWidget(self.skill_step_button)
@@ -1317,34 +1317,34 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.skFCWidget = SkFCWidget()
         self.skCodeWidget = PMGPythonEditor()
 
-        self.skvtabs = QtWidgets.QTabWidget()
+        self.skvtabs = QTabWidget()
         self.skvtabs.addTab(self.skFCWidget, "Flow Chart")
         self.skvtabs.addTab(self.skCodeWidget, "Code")
 
-        self.skconsolelabel = QtWidgets.QLabel("Console")
+        self.skconsolelabel = QLabel("Console")
         self.skconsolelabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.skconsole = QtWidgets.QTextBrowser()
-        self.consoleLayout = QtWidgets.QVBoxLayout()
+        self.skconsole = QTextBrowser()
+        self.consoleLayout = QVBoxLayout()
         self.consoleLayout.addWidget(self.skconsolelabel)
         self.consoleLayout.addWidget(self.skconsole)
 
-        self.consoleWidget = QtWidgets.QWidget()
+        self.consoleWidget = QWidget()
         self.consoleWidget.setLayout(self.consoleLayout)
 
-        self.hsplitter1 = QtWidgets.QSplitter(Qt.Vertical)
+        self.hsplitter1 = QSplitter(Qt.Vertical)
         self.hsplitter1.addWidget(self.skvtabs)
         self.hsplitter1.addWidget(self.consoleWidget)
 
-        self.sklayout = QtWidgets.QVBoxLayout()
+        self.sklayout = QVBoxLayout()
         self.sklayout.addWidget(self.hsplitter1)
         self.sklayout.addLayout(self.skblayout)
 
-        self.skWidget = QtWidgets.QWidget()
+        self.skWidget = QWidget()
         self.skWidget.setLayout(self.sklayout)
         # -------- sk layout end ------ #
 
         # ------ main layout ------- #
-        self.vsplitter1 = QtWidgets.QSplitter(Qt.Horizontal)
+        self.vsplitter1 = QSplitter(Qt.Horizontal)
         self.vsplitter1.addWidget(self.pbrunWidget)
         self.vsplitter1.addWidget(self.pbskWidget)
         self.vsplitter1.addWidget(self.skWidget)
@@ -1354,14 +1354,14 @@ class SkillGUI(QtWidgets.QMainWindow):
         # self.vsplitter1.setChildrenCollapsible(0)
         # self.vsplitter1.setChildrenCollapsible(1)
 
-        self.layout = QtWidgets.QHBoxLayout()
+        self.layout = QHBoxLayout()
         self.layout.addWidget(self.vsplitter1)
 
-        self.mainWidget = QtWidgets.QWidget()
+        self.mainWidget = QWidget()
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
-        # app = QtWidgets.QApplication.instance()
+        # app = QApplication.instance()
         # screen = app.primaryScreen()
         # #print('Screen: %s' % screen.name())
         # size = screen.size()
@@ -1372,7 +1372,7 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def add_items_of_combobox(self, combobox: QComboBox, items: []):
         for item in items:
-            combobox.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", item))
+            combobox.addItem(QApplication.translate("QComboBox", item))
 
     def add_widgets_of_gridlayout(self, gridlayout: QGridLayout, widgets: ()):
         for i, (w1, w2) in enumerate(widgets):
@@ -1387,7 +1387,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         self.pbview.set_mode(inmode)
 
     def load_image_file(self, infile):
-        self.image_qt = QtGui.QImage(infile)
+        self.image_qt = QImage(infile)
 
         self.pixmap = QPixmap.fromImage(self.image_qt)
         # pixmap.setDevicePixelRatio(2.5)
@@ -1725,9 +1725,9 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def eventFilter(self, source, event):
         # print("source:", source, " event: ", event)
-        if event.type() == QtCore.QEvent.ContextMenu and source is self.pbview:
+        if event.type() == QEvent.ContextMenu and source is self.pbview:
             print("right clicking...")
-            self.popMenu = QtWidgets.QMenu(self)
+            self.popMenu = QMenu(self)
             self.setAnchorAction = self._createSetAnchorAction()
             self.setUDAction = self._createSetUDAction()
             self.clearBBAction = self._createClearBBAction()
@@ -1752,9 +1752,9 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.pbview.set_mode("quiet")
             return True
 
-        if event.type() == QtCore.QEvent.ContextMenu and source is self.pbskAnchorListView:
+        if event.type() == QEvent.ContextMenu and source is self.pbskAnchorListView:
             #print("bot RC menu....")
-            self.popMenu = QtWidgets.QMenu(self)
+            self.popMenu = QMenu(self)
             self.anchorEditAction = self._createAnchorEditAction()
             self.anchorCloneAction = self._createAnchorCloneAction()
             self.anchorDeleteAction = self._createAnchorDeleteAction()
@@ -1775,9 +1775,9 @@ class SkillGUI(QtWidgets.QMainWindow):
                 elif selected_act == self.anchorDeleteAction:
                     self.deleteAnchor()
             return True
-        elif event.type() == QtCore.QEvent.ContextMenu and source is self.pbskDataListView:
+        elif event.type() == QEvent.ContextMenu and source is self.pbskDataListView:
             #print("mission RC menu....")
-            self.popMenu = QtWidgets.QMenu(self)
+            self.popMenu = QMenu(self)
             self.userDataEditAction = self._createUserDataEditAction()
             self.userDataCloneAction = self._createUserDataCloneAction()
             self.userDataDeleteAction = self._createUserDataDeleteAction()
@@ -1798,9 +1798,9 @@ class SkillGUI(QtWidgets.QMainWindow):
                 elif selected_act == self.userDataDeleteAction:
                     self.deleteUserData()
             return True
-        elif event.type() == QtCore.QEvent.ContextMenu and source is self.pbskStepListView:
+        elif event.type() == QEvent.ContextMenu and source is self.pbskStepListView:
             # print("mission RC menu....")
-            self.popMenu = QtWidgets.QMenu(self)
+            self.popMenu = QMenu(self)
             self.stepEditAction = self._createStepEditAction()
             self.stepCloneAction = self._createStepCloneAction()
             self.stepDeleteAction = self._createStepDeleteAction()
@@ -1825,18 +1825,18 @@ class SkillGUI(QtWidgets.QMainWindow):
         return super().eventFilter(source, event)
 
     def _createSetAnchorAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Set Anchor"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Set Anchor"))
         return new_action
 
     def _createSetUDAction(self):
-       new_action = QtGui.QAction(self)
-       new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Set Useful Data"))
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&Set Useful Data"))
        return new_action
 
     def _createClearBBAction(self):
-       new_action = QtGui.QAction(self)
-       new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clear Bound Box"))
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&Clear Bound Box"))
        return new_action
 
     def formRectPos(self, start, end):
@@ -2052,7 +2052,7 @@ class SkillGUI(QtWidgets.QMainWindow):
                 json.dump(sk_json, f)
             # self.rebuildHTML()
         except IOError:
-            QtGui.QMessageBox.information(
+            QMessageBox.information(
                 self,
                 "Unable to open file: %s" % skj_path
             )
@@ -2112,9 +2112,9 @@ class SkillGUI(QtWidgets.QMainWindow):
             if self.pbInfoSel.currentText() == "Anchor":
                 self.newAnchor = ANCHOR(self.pbInfoNameEdit.text())
                 self.pbRTSel.currentIndex
-                self.pbRTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "No Ref"))
-                self.pbRTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "By Offset"))
-                self.pbRTSel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "By Bound Box"))
+                self.pbRTSel.addItem(QApplication.translate("QComboBox", "No Ref"))
+                self.pbRTSel.addItem(QApplication.translate("QComboBox", "By Offset"))
+                self.pbRTSel.addItem(QApplication.translate("QComboBox", "By Bound Box"))
 
             elif self.pbInfoSel.currentText() == "Useful Data":
                 self.newUserInfo = USER_INFO(self.pbInfoNameEdit.text())
@@ -2203,9 +2203,9 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def pbStepPrevNextSel_changed(self):
         if self.pbStepPrevNextSel.currentIndex() == 0:
-            self.pbStepPrevNextNameLabel.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Previous Step Name:"))
+            self.pbStepPrevNextNameLabel.setText(QApplication.translate("QLabel", "Previous Step Name:"))
         else:
-            self.pbStepPrevNextNameLabel.setText(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Next Step Name:"))
+            self.pbStepPrevNextNameLabel.setText(QApplication.translate("QLabel", "Next Step Name:"))
 
     def pbNRefSel_changed(self):
         pbNRefSel_index = self.pbNRefSel.currentIndex()
@@ -2238,9 +2238,9 @@ class SkillGUI(QtWidgets.QMainWindow):
     def IndividualItemChanged(self):
         if self.pbtabs.currentIndex() == 0:
             # user click on Info Tab
-            self.IA_Add_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Add Feature"))
-            self.IA_Remove_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Remove CSK"))
-            self.IA_Save_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Save CSK"))
+            self.IA_Add_button.setText(QApplication.translate("QPushButton", "Add Feature"))
+            self.IA_Remove_button.setText(QApplication.translate("QPushButton", "Remove CSK"))
+            self.IA_Save_button.setText(QApplication.translate("QPushButton", "Save CSK"))
             self.pbskALWidget.setVisible(True)
             self.pbskDLWidget.setVisible(True)
             self.pbskSLWidget.setVisible(False)
@@ -2250,9 +2250,9 @@ class SkillGUI(QtWidgets.QMainWindow):
             self.pbskALWidget.setVisible(False)
             self.pbskDLWidget.setVisible(False)
             self.pbskSLWidget.setVisible(True)
-            self.IA_Add_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Add Step"))
-            self.IA_Remove_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Remove Step"))
-            self.IA_Save_button.setText(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Save Step"))
+            self.IA_Add_button.setText(QApplication.translate("QPushButton", "Add Step"))
+            self.IA_Remove_button.setText(QApplication.translate("QPushButton", "Remove Step"))
+            self.IA_Save_button.setText(QApplication.translate("QPushButton", "Save Step"))
 
     def load_skill_file(self):
         # bring out the load file dialog
@@ -2375,48 +2375,48 @@ class SkillGUI(QtWidgets.QMainWindow):
         continueRun(steps, last_step)
 
     def _createAnchorEditAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Edit"))
         return new_action
 
     def _createAnchorCloneAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Clone"))
         return new_action
 
     def _createAnchorDeleteAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Delete"))
         return new_action
 
     def _createUserDataEditAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Edit"))
         return new_action
 
     def _createUserDataCloneAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Clone"))
         return new_action
 
     def _createUserDataDeleteAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Delete"))
         return new_action
 
     def _createStepEditAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Edit"))
         return new_action
 
     def _createStepCloneAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Clone"))
         return new_action
 
     def _createStepDeleteAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Delete"))
         return new_action
 
     def editAnchor(self):
@@ -2427,15 +2427,15 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def deleteAnchor(self):
         # File actions
-        msgBox = QtWidgets.QMessageBox()
-        QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you sure about deleting this anchor?")
-        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "The anchor will be removed and won't be able recover from it.."))
-        msgBox.setInformativeText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you sure about deleting this anchor?"))
-        msgBox.setStandardButtons(QtWidgets.QMessageBox.Cancel | QtWidgets.QMessageBox.Yes)
-        msgBox.setDefaultButton(QtWidgets.QMessageBox.Yes)
+        msgBox = QMessageBox()
+        QApplication.translate("QMessageBox", "Are you sure about deleting this anchor?")
+        msgBox.setText(QApplication.translate("QMessageBox", "The anchor will be removed and won't be able recover from it.."))
+        msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this anchor?"))
+        msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
+        msgBox.setDefaultButton(QMessageBox.Yes)
         ret = msgBox.exec_()
 
-        if ret == QtWidgets.QMessageBox.Yes:
+        if ret == QMessageBox.Yes:
             api_removes = []
             items = [self.selected_anchor_item]
             if len(items):
@@ -2458,14 +2458,14 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def deleteUserData(self):
         # File actions
-        msgBox = QtWidgets.QMessageBox()
-        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "The step will be removed and won't be able recover from it.."))
-        msgBox.setInformativeText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you sure about deleting this step?"))
-        msgBox.setStandardButtons(QtWidgets.QMessageBox.Cancel | QtWidgets.QMessageBox.Yes)
-        msgBox.setDefaultButton(QtWidgets.QMessageBox.Yes)
+        msgBox = QMessageBox()
+        msgBox.setText(QApplication.translate("QMessageBox", "The step will be removed and won't be able recover from it.."))
+        msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this step?"))
+        msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
+        msgBox.setDefaultButton(QMessageBox.Yes)
         ret = msgBox.exec_()
 
-        if ret == QtWidgets.QMessageBox.Yes:
+        if ret == QMessageBox.Yes:
             api_removes = []
             items = [self.selected_user_data_item]
             if len(items):
@@ -2488,14 +2488,14 @@ class SkillGUI(QtWidgets.QMainWindow):
 
     def deleteStep(self):
         # File actions
-        msgBox = QtWidgets.QMessageBox()
-        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "The step will be removed and won't be able recover from it.."))
-        msgBox.setInformativeText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you sure about deleting this step?"))
-        msgBox.setStandardButtons(QtWidgets.QMessageBox.Cancel | QtWidgets.QMessageBox.Yes)
-        msgBox.setDefaultButton(QtWidgets.QMessageBox.Yes)
+        msgBox = QMessageBox()
+        msgBox.setText(QApplication.translate("QMessageBox", "The step will be removed and won't be able recover from it.."))
+        msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this step?"))
+        msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
+        msgBox.setDefaultButton(QMessageBox.Yes)
         ret = msgBox.exec_()
 
-        if ret == QtWidgets.QMessageBox.Yes:
+        if ret == QMessageBox.Yes:
             api_removes = []
             items = [self.selected_step_item]
             if len(items):

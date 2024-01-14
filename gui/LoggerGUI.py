@@ -1,31 +1,30 @@
 import sys
 import random
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+from PySide6.QtWidgets import QWidget, QPushButton, QMainWindow, QTextEdit, QVBoxLayout
 from ebbot import *
 from locale import getdefaultlocale
 from FlowLayout import *
 from ebbot import *
 
-class CommanderLogWin(QtWidgets.QMainWindow):
+class CommanderLogWin(QMainWindow):
     def __init__(self, parent):
         super(CommanderLogWin, self).__init__(parent)
 
     # def __init__(self):
     #     super().__init__()
         self.parent = parent
-        self.setWindowTitle(QtWidgets.QMainWindow.tr('Network Logs'))
-        self.logconsolelabel = QtWidgets.QLabel(QtWidgets.QLabel.tr("Log Console"), alignment=QtCore.Qt.AlignLeft)
-        self.logconsole = QtWidgets.QTextEdit()
+        self.setWindowTitle(QMainWindow.tr('Network Logs'))
+        self.logconsolelabel = QLabel(QLabel.tr("Log Console"), alignment=Qt.AlignLeft)
+        self.logconsole = QTextEdit()
         self.logconsole.setReadOnly(True)
-        self.clearButton = QtWidgets.QPushButton(QtWidgets.QPushButton.tr("Clear"))
-        self.closeButton = QtWidgets.QPushButton(QtWidgets.QPushButton.tr("Close"))
+        self.clearButton = QPushButton(QPushButton.tr("Clear"))
+        self.closeButton = QPushButton(QPushButton.tr("Close"))
 
         self.clearButton.clicked.connect(self.clear)
         self.closeButton.clicked.connect(self.close)
 
-        self.mainWidget = QtWidgets.QWidget()
-        self.logconsoleLayout = QtWidgets.QVBoxLayout(self)
+        self.mainWidget = QWidget()
+        self.logconsoleLayout = QVBoxLayout(self)
         self.logconsoleLayout.addWidget(self.clearButton)
         self.logconsoleLayout.addWidget(self.logconsolelabel)
         self.logconsoleLayout.addWidget(self.logconsole)

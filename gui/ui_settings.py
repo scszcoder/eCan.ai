@@ -1,7 +1,6 @@
 import sys
 import random
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QFormLayout, QLineEdit, QCheckBox
 from ebbot import *
 from locale import getdefaultlocale
 from FlowLayout import *
@@ -20,12 +19,12 @@ from FlowLayout import *
 #
 # locale = getdefaultlocale()
 #
-# translator = QtCore.QTranslator(app)
+# translator = QTranslator(app)
 # translator.load('/usr/share/my_app/tr/qt_%s.qm' % locale[0])
 # app.installTranslator(translator)
 
 
-class SettingsWidget(QtWidgets.QMainWindow):
+class SettingsWidget(QMainWindow):
     def __init__(self, parent):
         super(SettingsWidget, self).__init__(parent)
 
@@ -35,23 +34,23 @@ class SettingsWidget(QtWidgets.QMainWindow):
         self.overcapcity_warning = True
         self.overcapcity_force = True
 
-        self.mainWidget = QtWidgets.QWidget()
-        self.save_button = QtWidgets.QPushButton("Save")
-        self.cancel_button = QtWidgets.QPushButton("Cancel")
-        self.text = QtWidgets.QLabel("Hello World", alignment=QtCore.Qt.AlignCenter)
+        self.mainWidget = QWidget()
+        self.save_button = QPushButton("Save")
+        self.cancel_button = QPushButton("Cancel")
+        self.text = QLabel("Hello World", alignment=Qt.AlignCenter)
 
-        self.layout = QtWidgets.QFormLayout(self)
+        self.layout = QFormLayout(self)
 
-        self.browser_path_label = QtWidgets.QLabel("Browser Executable:", alignment=QtCore.Qt.AlignLeft)
-        self.browser_path_line_edit = QtWidgets.QLineEdit()
+        self.browser_path_label = QLabel("Browser Executable:", alignment=Qt.AlignLeft)
+        self.browser_path_line_edit = QLineEdit()
         self.browser_path_line_edit.setPlaceholderText("input full path here")
 
-        self.commander_run_cb = QtWidgets.QCheckBox("Commander Self Run Tasks")
-        self.overcapcity_warning_cb = QtWidgets.QCheckBox("Warning If Over-capacity")
-        self.overcapcity_force_cb = QtWidgets.QCheckBox("Force Commander To Run If Over-capacity")
+        self.commander_run_cb = QCheckBox("Commander Self Run Tasks")
+        self.overcapcity_warning_cb = QCheckBox("Warning If Over-capacity")
+        self.overcapcity_force_cb = QCheckBox("Force Commander To Run If Over-capacity")
 
-        self.num_vehicle_label = QtWidgets.QLabel("Number Of Vehicles:")
-        self.num_vehicle_text = QtWidgets.QLineEdit()
+        self.num_vehicle_label = QLabel("Number Of Vehicles:")
+        self.num_vehicle_text = QLineEdit()
 
         # self.layout.addWidget(self.text)
         self.layout.addRow(self.browser_path_label, self.browser_path_line_edit);
@@ -68,6 +67,6 @@ class SettingsWidget(QtWidgets.QMainWindow):
         self.setCentralWidget(self.mainWidget)
 
     def save_settings(self):
-        self.commander_run = (self.commander_run_cb.checState() == QtGui.Checked)
-        self.overcapcity_warning = (self.overcapcity_warning_cb.checState() == QtGui.Checked)
-        self.overcapcity_force = (self.overcapcity_force_cb.checState() == QtGui.Checked)
+        self.commander_run = (self.commander_run_cb.checkState() == Qt.Checked)
+        self.overcapcity_warning = (self.overcapcity_warning_cb.checkState() == Qt.Checked)
+        self.overcapcity_force = (self.overcapcity_force_cb.checkState() == Qt.Checked)

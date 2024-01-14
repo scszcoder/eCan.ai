@@ -1,6 +1,7 @@
 import sys
 import random
-from PySide6 import QtCore, QtWidgets, QtGui
+
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton
 from locale import getdefaultlocale
 
@@ -31,36 +32,36 @@ class STEP:
         self.action = ""
 
 
-class TrainDialogWin(QtWidgets.QMainWindow):
+class TrainDialogWin(QMainWindow):
     def __init__(self, parent):
         super(TrainDialogWin, self).__init__(parent)
 
-        self.mainWidget = QtWidgets.QWidget()
-        self.reminder_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "press <Esc> key to end recording"), alignment=QtCore.Qt.AlignLeft)
+        self.mainWidget = QWidget()
+        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"), alignment=Qt.AlignLeft)
 
-        self.start_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Start Training"))
-        self.cancel_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Cancel"))
+        self.start_button = QPushButton(QApplication.translate("QPushButton", "Start Training"))
+        self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
 
-        self.rLayout = QtWidgets.QHBoxLayout(self)
+        self.rLayout = QHBoxLayout(self)
         self.rLayout.addWidget(self.reminder_label)
         self.mainWidget.setLayout(self.rLayout)
         self.setCentralWidget(self.mainWidget)
 
 
-class ReminderWin(QtWidgets.QMainWindow):
+class ReminderWin(QMainWindow):
     def __init__(self, parent):
         super(ReminderWin, self).__init__(parent)
 
-        self.mainWidget = QtWidgets.QWidget()
-        self.reminder_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "press <Esc> key to end recording"), alignment=QtCore.Qt.AlignLeft)
-        self.rLayout = QtWidgets.QHBoxLayout()
+        self.mainWidget = QWidget()
+        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"), alignment=Qt.AlignLeft)
+        self.rLayout = QHBoxLayout()
         self.rLayout.addWidget(self.reminder_label)
         self.mainWidget.setLayout(self.rLayout)
         self.setCentralWidget(self.mainWidget)
-        self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.CustomizeWindowHint | QtCore.Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.Window | Qt.CustomizeWindowHint | Qt.WindowStaysOnTopHint)
 
 
-class TrainNewWin(QtWidgets.QMainWindow):
+class TrainNewWin(QMainWindow):
     def __init__(self, parent):
         super(TrainNewWin, self).__init__(parent)
 
@@ -68,20 +69,20 @@ class TrainNewWin(QtWidgets.QMainWindow):
     #     super().__init__()
         self.newSkill = None
         self.parent = parent
-        self.mainWidget = QtWidgets.QWidget()
+        self.mainWidget = QWidget()
         self.trainDialog = TrainDialogWin(self)
         self.session = None
         self.cog = None
 
-        self.start_tutor_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Tutorial"))
-        self.start_demo_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Start Demo"))
-        self.start_skill_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Define Skill"))
-        self.cancel_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Cancel"))
+        self.start_tutor_button = QPushButton(QApplication.translate("QPushButton", "Tutorial"))
+        self.start_demo_button = QPushButton(QApplication.translate("QPushButton", "Start Demo"))
+        self.start_skill_button = QPushButton(QApplication.translate("QPushButton", "Define Skill"))
+        self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
 
-        self.bLayout = QtWidgets.QHBoxLayout(self)
-        self.rLayout = QtWidgets.QHBoxLayout(self)
+        self.bLayout = QHBoxLayout(self)
+        self.rLayout = QHBoxLayout(self)
 
-        #self.label = QtWidgets.QLabel()
+        #self.label = QLabel()
         self.bLayout.addWidget(self.start_tutor_button)
         self.bLayout.addWidget(self.start_demo_button)
         self.bLayout.addWidget(self.start_skill_button)
@@ -107,7 +108,7 @@ class TrainNewWin(QtWidgets.QMainWindow):
 
 
     def mouseMoveEvent(self, event):
-        delta = QtCore.QPoint(event.globalPos() - self.oldPos)
+        delta = QPoint(event.globalPos() - self.oldPos)
         #self.move(self.x() + delta.x(), self.y() + delta.y())
         #self.oldPos = event.globalPos()
         # Update the origin for next time.
@@ -115,7 +116,7 @@ class TrainNewWin(QtWidgets.QMainWindow):
         #self.last_y = event.y()
 
     def mouseReleaseEvent(self, e):
-        delta = QtCore.QPoint(e.globalPos() - self.oldPos)
+        delta = QPoint(e.globalPos() - self.oldPos)
         print("box[", self.oldPos.x(), ", ", self.oldPos.y(), ", ", e.globalPos().x(), ", ", e.globalPos().y(), "]")
         # color code design: text: yellow, image: purple, selected text: orange, selected image, dark purple.
         # anchored text: red, anchored image: Blue. info-box: blue, seletected info-box: cyan
@@ -128,7 +129,7 @@ class TrainNewWin(QtWidgets.QMainWindow):
         # double click on
 
     def keyPressEvent(self, event):
-        if event.key() == QtCore.Qt.Key_Escape:
+        if event.key() == Qt.Key_Escape:
             self.showMinimized()
 
 
@@ -192,14 +193,14 @@ class TrainNewWin(QtWidgets.QMainWindow):
             record_over = True
             self.parent.reminderWin.hide()
 
-            msgBox = QtWidgets.QMessageBox()
-            msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you done with showing the process to be automated?"))
+            msgBox = QMessageBox()
+            msgBox.setText(QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
             # msgBox.setInformativeText("Do you want to save your changes?")
-            msgBox.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             # msgBox.setDefaultButton(QMessageBox.Save)
             ret = msgBox.exec()
 
-            if ret == QtWidgets.QMessageBox.Yes:
+            if ret == QMessageBox.Yes:
                 print("done with demo...")
                 self.saveRecordFile()
 
@@ -234,7 +235,7 @@ class TrainNewWin(QtWidgets.QMainWindow):
         self.hide()
 
     def saveRecordFile(self):
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+        filename, _ = QFileDialog.getSaveFileName(
             self,
             'Save File',
             '',
@@ -246,7 +247,7 @@ class TrainNewWin(QtWidgets.QMainWindow):
                     json.dump(self.actionRecord, f)
                 # self.rebuildHTML()
             except IOError:
-                QtGui.QMessageBox.information(
+                QMessageBox.information(
                     self,
                     "Unable to open file: %s" % filename
                 )

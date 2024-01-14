@@ -1,5 +1,4 @@
-from PySide6 import QtWidgets
-from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog
+from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QTabWidget
 from PySide6.QtTest import QTest
 import sys
 from gui.skfc.skfc_widget import *
@@ -17,7 +16,7 @@ class GraphEditorWindow(QMainWindow):
         self.skFCWidget = SkFCWidget()
         self.skCodeWidget = PMGPythonEditor()
 
-        self.skvtabs = QtWidgets.QTabWidget()
+        self.skvtabs = QTabWidget()
         self.skvtabs.addTab(self.skFCWidget, "Flow Chart")
         self.skvtabs.addTab(self.skCodeWidget, "Code")
 

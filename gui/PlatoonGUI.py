@@ -1,3 +1,5 @@
+from PySide6.QtWidgets import QStyledItemDelegate, QTableView, QHeaderView
+
 from BotGUI import *
 from MissionGUI import *
 from ScheduleGUI import *
@@ -13,18 +15,18 @@ from BorderLayout import *
 import lzstring
 from vehicles import *
 
-class IconDelegate(QtWidgets.QStyledItemDelegate):
+class IconDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         if index.data(Qt.DecorationRole) is not None:
             icon = index.data(Qt.DecorationRole)
             pixmap = icon.pixmap(QSize(64, 64))  # Adjust the size as needed
             painter.drawPixmap(option.rect, pixmap)
 
-class MovieDelegate(QtWidgets.QStyledItemDelegate):
+class MovieDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         if index.data(Qt.DecorationRole) is not None:
             label = index.data(Qt.DecorationRole)
-            # label.movie().setCacheMode(QtGui.QMovie.CacheAll)  # Corrected method
+            # label.movie().setCacheMode(QMovie.CacheAll)  # Corrected method
             label.movie().setSpeed(100)
             label.movie().jumpToFrame(0)
             label.movie().start()
@@ -33,22 +35,22 @@ class MovieDelegate(QtWidgets.QStyledItemDelegate):
             label.movie().setScaledSize(QSize(16, 16))  # Adjust the size as needed
             label.movie().render(painter, movie_rect)
 
-class PlatoonListView(QtWidgets.QListView):
+class PlatoonListView(QListView):
     def __init__(self, parent):
         super(PlatoonListView, self).__init__()
         self.selected_row = None
         self.parent = parent
 
     def mousePressEvent(self, e):
-        if e.type() == QtCore.QEvent.MouseButtonDblClick:
-            if e.button() == QtCore.Qt.LeftButton:
+        if e.type() == QEvent.MouseButtonDblClick:
+            if e.button() == Qt.LeftButton:
                 print("row:", self.indexAt(e.pos()).row())
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.fetchVehicleStatus([self.selected_row])
 
 
 
-class PLATOON(QtGui.QStandardItem):
+class PLATOON(QStandardItem):
     def __init__(self, ip, hostname, env, homepath):
         super().__init__()
         self.name = hostname
@@ -57,7 +59,7 @@ class PLATOON(QtGui.QStandardItem):
         self.homepath = homepath
 
         self.setText(self.name)
-        self.icon = QtGui.QIcon(homepath + '/resource/images/icons/vehicle1-62.png')
+        self.icon = QIcon(homepath + '/resource/images/icons/vehicle1-62.png')
         self.setIcon(self.icon)
 
     def getData(self):
@@ -65,31 +67,31 @@ class PLATOON(QtGui.QStandardItem):
 
 
 
-# class MainWindow(QtWidgets.QWidget):
-class PlatoonWindow(QtWidgets.QMainWindow):
+# class MainWindow(QWidget):
+class PlatoonWindow(QMainWindow):
     def __init__(self, parent, entrance="msg"):
         super(PlatoonWindow, self).__init__()
         self.parent = parent
-        self.mainWidget = QtWidgets.QWidget()
+        self.mainWidget = QWidget()
 
         self.platoonTableViews = []
 
-        self.refresh_button = QtWidgets.QPushButton("Refresh")
+        self.refresh_button = QPushButton("Refresh")
         # self.refresh_button.clicked.connect(self.fetchVehicleStatus)
 
-        self.cancel_button = QtWidgets.QPushButton("Cancel")
+        self.cancel_button = QPushButton("Cancel")
         # self.cancel_button.clicked.connect(self.cancelMission)
 
 
-        self.tabs = QtWidgets.QTabWidget()
-        self.layout = QtWidgets.QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        self.layout = QVBoxLayout(self)
         self.layout.setAlignment(Qt.AlignTop)
         self.layout.addWidget(self.tabs)
 
 
-        self.mainWidget = QtWidgets.QWidget()
+        self.mainWidget = QWidget()
         self.main_menu_font = QFont("Helvetica", 10)
-        self.main_menu_bar_font = QtGui.QFont("Helvetica", 12)
+        self.main_menu_bar_font = QFont("Helvetica", 12)
 
         #creating QActions
 
@@ -100,8 +102,8 @@ class PlatoonWindow(QtWidgets.QMainWindow):
 
         #centralWidget.setPlainText("Central widget")
 
-        self.centralSplitter = QtWidgets.QSplitter(Qt.Horizontal)
-        self.bottomSplitter = QtWidgets.QSplitter(Qt.Vertical)
+        self.centralSplitter = QSplitter(Qt.Horizontal)
+        self.bottomSplitter = QSplitter(Qt.Vertical)
 
         if entrance != "conn":
             for v in self.parent.vehicles:
@@ -149,98 +151,98 @@ class PlatoonWindow(QtWidgets.QMainWindow):
     def fill1TableRow(self, rowIdx, rowDataJson, model):
         print("filling table row #", rowIdx)
 
-        text_item = QtGui.QStandardItem(str(rowDataJson["mid"]))
+        text_item = QStandardItem(str(rowDataJson["mid"]))
         model.setItem(rowIdx, 0, text_item)
 
-        text_item = QtGui.QStandardItem(str(rowDataJson["botid"]))
+        text_item = QStandardItem(str(rowDataJson["botid"]))
         model.setItem(rowIdx, 1, text_item)
 
-        text_item = QtGui.QStandardItem(rowDataJson["sst"])
+        text_item = QStandardItem(rowDataJson["sst"])
         model.setItem(rowIdx, 2, text_item)
 
-        text_item = QtGui.QStandardItem(str(rowDataJson["sd"]))
+        text_item = QStandardItem(str(rowDataJson["sd"]))
         model.setItem(rowIdx, 3, text_item)
 
-        text_item = QtGui.QStandardItem(rowDataJson["ast"])
+        text_item = QStandardItem(rowDataJson["ast"])
         model.setItem(rowIdx, 4, text_item)
 
-        text_item = QtGui.QStandardItem(rowDataJson["aet"])
+        text_item = QStandardItem(rowDataJson["aet"])
         model.setItem(rowIdx, 5, text_item)
 
-        icon_item = QtGui.QStandardItem()
+        icon_item = QStandardItem()
         if rowDataJson["status"] == "scheduled":
-            icon_item.setIcon(QtGui.QIcon(self.parent.getHomePath() + '/resource/images/icons/timer0_480.png'))
+            icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/timer0_480.png'))
             model.setItem(rowIdx, 6, icon_item)
         elif rowDataJson["status"] == "running":
-            # icon_item.setIcon(QtGui.QIcon(self.parent.getHomePath() + '/resource/images/icons/c_mission96_1.png'))
-            # gif_item = QtGui.QStandardItem()
-            # gif_item.setData(QtGui.QMovie("path_to_animated.gif"), Qt.DecorationRole)
+            # icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/c_mission96_1.png'))
+            # gif_item = QStandardItem()
+            # gif_item.setData(QMovie("path_to_animated.gif"), Qt.DecorationRole)
             # model.setItem(rowIdx, 6, gif_item)
-            icon_item.setIcon(QtGui.QIcon(self.parent.getHomePath() + '/resource/images/icons/progress1_480.png'))
+            icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/progress1_480.png'))
             model.setItem(rowIdx, 6, icon_item)
         elif rowDataJson["status"] == "completed":
-            icon_item.setIcon(QtGui.QIcon(self.parent.getHomePath() + '/resource/images/icons/checked1_256.png'))
+            icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/checked1_256.png'))
             model.setItem(rowIdx, 6, icon_item)
         elif rowDataJson["status"] == "warned":
-            icon_item.setIcon(QtGui.QIcon(self.parent.getHomePath() + '/resource/images/icons/warning2_480.png'))
+            icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/warning2_480.png'))
             model.setItem(rowIdx, 6, icon_item)
         else:
-            icon_item.setIcon(QtGui.QIcon(self.parent.getHomePath() + '/resource/images/icons/close0_480.png'))
+            icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/close0_480.png'))
             model.setItem(rowIdx, 6, icon_item)
 
-        # gif_item = QtGui.QStandardItem()
-        # # gif_item.setData(QtGui.QMovie(self.parent.getHomePath() + '/resource/images/icons/botpushup.gif'), Qt.DecorationRole)
-        # label = QtWidgets.QLabel()
-        # movie = QtGui.QMovie(self.parent.getHomePath() + '/resource/images/icons/botpushup.gif')
+        # gif_item = QStandardItem()
+        # # gif_item.setData(QMovie(self.parent.getHomePath() + '/resource/images/icons/botpushup.gif'), Qt.DecorationRole)
+        # label = QLabel()
+        # movie = QMovie(self.parent.getHomePath() + '/resource/images/icons/botpushup.gif')
         # label.setMovie(movie)
         # gif_item.setData(label, Qt.DecorationRole)
         # model.setItem(rowIdx, 6, gif_item)
-        # gif_item = QtGui.QStandardItem()
-        # gif_item.setData(QtGui.QMovie("path_to_animated.gif"), Qt.DecorationRole)
+        # gif_item = QStandardItem()
+        # gif_item.setData(QMovie("path_to_animated.gif"), Qt.DecorationRole)
 
-        text_item = QtGui.QStandardItem(rowDataJson["error"])
+        text_item = QStandardItem(rowDataJson["error"])
         model.setItem(rowIdx, 7, text_item)
 
 
 
     def createLabel(self, text):
-        label = QtWidgets.QLabel(text)
-        label.setFrameStyle(QtWidgets.QFrame.Box | QtWidgets.QFrame.Raised)
+        label = QLabel(text)
+        label.setFrameStyle(QFrame.Box | QFrame.Raised)
         return label
 
 
 
     def _createReportsShowAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
+        new_action = QAction(self)
         new_action.setText("&View")
         return new_action
 
     def _createReportsGenAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
+        new_action = QAction(self)
         new_action.setText("&Generate")
         return new_action
 
 
 
     def _createVehicleTab(self, statsJson):
-        vTab = QtWidgets.QWidget()
-        vTab.layout = QtWidgets.QVBoxLayout(self)
-        font = QtGui.QFont("Arial", 10)
+        vTab = QWidget()
+        vTab.layout = QVBoxLayout(self)
+        font = QFont("Arial", 10)
 
-        centralScroll = QtWidgets.QScrollArea()
-        centralScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        centralScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        centralScroll = QScrollArea()
+        centralScroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        centralScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         centralScroll.setWidgetResizable(True)
 
-        completedMissionTableView = QtWidgets.QTableView()
+        completedMissionTableView = QTableView()
 
         header = completedMissionTableView.horizontalHeader()
         header.setFont(font)
-        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
 
-        completedMissionModel = QtGui.QStandardItemModel(0, 8)
+        completedMissionModel = QStandardItemModel(0, 8)
         completedMissionModel.setHorizontalHeaderLabels(['Mission ID', 'Bot', 'Scheduled Start Time', 'Actual Start Time', 'Scheduled Duration', 'Actual End Time', 'status', 'error'])
         completedMissionTableView.setModel(completedMissionModel)
 
@@ -289,9 +291,9 @@ class PlatoonWindow(QtWidgets.QMainWindow):
 
     def eventFilter(self, source, event):
         print("Source:", source)
-        if event.type() == QtCore.QEvent.ContextMenu and source in self.platoonTableViews:
+        if event.type() == QEvent.ContextMenu and source in self.platoonTableViews:
             #print("bot RC menu....")
-            self.popMenu = QtWidgets.QMenu(self)
+            self.popMenu = QMenu(self)
             self.platoonRefreshAction = self._createPlatoonRefreshMissionsStatAction()
             self.platoonHaltAction = self._createPlatoonHaltMissionsAction()
             self.platoonResumeAction = self._createPlatoonResumeMissionsAction()
@@ -359,31 +361,31 @@ class PlatoonWindow(QtWidgets.QMainWindow):
 
 
     def _createPlatoonRefreshMissionsStatAction(self):
-       new_action = QtGui.QAction(self)
+       new_action = QAction(self)
        new_action.setText("&Refresh Status")
        return new_action
 
 
     def _createPlatoonHaltMissionsAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
+        new_action = QAction(self)
         new_action.setText("&Halt Missions")
         return new_action
 
     def _createPlatoonResumeMissionsAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
+        new_action = QAction(self)
         new_action.setText("&Resume Missions")
         return new_action
 
     def _createPlatoonCancelThisMissionAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
+        new_action = QAction(self)
         new_action.setText("&Cancel This Mission")
         return new_action
 
     def _createPlatoonCancelAllMissionsAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
+        new_action = QAction(self)
         new_action.setText("&Cancel All Missions")
         return new_action

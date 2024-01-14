@@ -1,9 +1,9 @@
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import QDialog, QGridLayout, QLayout, QMessageBox, QGroupBox, QSpinBox, QSlider, QDial, \
+    QProgressBar, QLabel, QComboBox, QDialogButtonBox
 
-from PySide6 import QtCore, QtGui, QtWidgets
 
-
-
-class Dialog(QtWidgets.QDialog):
+class Dialog(QDialog):
     def __init__(self):
         super(Dialog, self).__init__()
 
@@ -13,11 +13,11 @@ class Dialog(QtWidgets.QDialog):
         self.createOptionsGroupBox()
         self.createButtonBox()
 
-        mainLayout = QtWidgets.QGridLayout()
+        mainLayout = QGridLayout()
         mainLayout.addWidget(self.rotableGroupBox, 0, 0)
         mainLayout.addWidget(self.optionsGroupBox, 1, 0)
         mainLayout.addWidget(self.buttonBox, 2, 0)
-        mainLayout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+        mainLayout.setSizeConstraint(QLayout.SetMinimumSize)
 
         self.mainLayout = mainLayout
         self.setLayout(self.mainLayout)
@@ -39,7 +39,7 @@ class Dialog(QtWidgets.QDialog):
             self.rotableLayout.addWidget(self.rotableWidgets[i], 1, i)
 
     def buttonsOrientationChanged(self, index):
-        self.mainLayout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint);
+        self.mainLayout.setSizeConstraint(QLayout.SetNoConstraint);
         self.setMinimumSize(0, 0);
 
         orientation = Qt.Orientation(int(self.buttonsOrientationComboBox.itemData(index)))
@@ -51,65 +51,65 @@ class Dialog(QtWidgets.QDialog):
 
         spacing = self.mainLayout.spacing()
 
-        oldSizeHint = self.buttonBox.sizeHint() + QtWidgets.QSize(spacing, spacing);
+        oldSizeHint = self.buttonBox.sizeHint() + QSize(spacing, spacing);
         self.buttonBox.setOrientation(orientation)
-        newSizeHint = self.buttonBox.sizeHint() + QtWidgets.QSize(spacing, spacing)
+        newSizeHint = self.buttonBox.sizeHint() + QSize(spacing, spacing)
 
-        if orientation == QtWidgets.Horizontal:
+        if orientation == Qt.Horizontal:
             self.mainLayout.addWidget(self.buttonBox, 2, 0);
-            self.resize(self.size() + QtWidgets.QSize(-oldSizeHint.width(), newSizeHint.height()))
+            self.resize(self.size() + QSize(-oldSizeHint.width(), newSizeHint.height()))
         else:
             self.mainLayout.addWidget(self.buttonBox, 0, 3, 2, 1);
-            self.resize(self.size() + QtWidgets.QSize(newSizeHint.width(), -oldSizeHint.height()))
+            self.resize(self.size() + QSize(newSizeHint.width(), -oldSizeHint.height()))
 
-        self.mainLayout.setSizeConstraint(QtWidgets.QLayout.SetDefaultConstraint)
+        self.mainLayout.setSizeConstraint(QLayout.SetDefaultConstraint)
 
     def show_help(self):
-        QtWidgets.QMessageBox.information(self, "Dynamic Layouts Help",
+        QMessageBox.information(self, "Dynamic Layouts Help",
                                 "This example shows how to change layouts "
                                 "dynamically.")
 
     def createRotableGroupBox(self):
-        self.rotableGroupBox = QtWidgets.QGroupBox("Rotable Widgets")
+        self.rotableGroupBox = QGroupBox("Rotable Widgets")
 
-        self.rotableWidgets.append(QtWidgets.QSpinBox())
-        self.rotableWidgets.append(QtWidgets.QSlider())
-        self.rotableWidgets.append(QtWidgets.QDial())
-        self.rotableWidgets.append(QtWidgets.QProgressBar())
+        self.rotableWidgets.append(QSpinBox())
+        self.rotableWidgets.append(QSlider())
+        self.rotableWidgets.append(QDial())
+        self.rotableWidgets.append(QProgressBar())
         count = len(self.rotableWidgets)
         for i in range(count):
             self.rotableWidgets[i].valueChanged[int]. \
                 connect(self.rotableWidgets[(i + 1) % count].setValue)
 
-        self.rotableLayout = QtWidgets.QGridLayout()
+        self.rotableLayout = QGridLayout()
         self.rotableGroupBox.setLayout(self.rotableLayout)
 
         self.rotateWidgets()
 
     def createOptionsGroupBox(self):
-        self.optionsGroupBox = QtWidgets.QGroupBox("Options")
+        self.optionsGroupBox = QGroupBox("Options")
 
-        buttonsOrientationLabel = QtWidgets.QLabel("Orientation of buttons:")
+        buttonsOrientationLabel = QLabel("Orientation of buttons:")
 
-        buttonsOrientationComboBox = QtWidgets.QComboBox()
-        buttonsOrientationComboBox.addItem("Horizontal", QtWidgets.Horizontal)
-        buttonsOrientationComboBox.addItem("Vertical", QtWidgets.Vertical)
+        buttonsOrientationComboBox = QComboBox()
+        buttonsOrientationComboBox.addItem("Horizontal", Qt.Horizontal)
+        buttonsOrientationComboBox.addItem("Vertical", Qt.Vertical)
         buttonsOrientationComboBox.currentIndexChanged[int].connect(self.buttonsOrientationChanged)
 
         self.buttonsOrientationComboBox = buttonsOrientationComboBox
 
-        optionsLayout = QtWidgets.QGridLayout()
+        optionsLayout = QGridLayout()
         optionsLayout.addWidget(buttonsOrientationLabel, 0, 0)
         optionsLayout.addWidget(self.buttonsOrientationComboBox, 0, 1)
         optionsLayout.setColumnStretch(2, 1)
         self.optionsGroupBox.setLayout(optionsLayout)
 
     def createButtonBox(self):
-        self.buttonBox = QtWidgets.QDialogButtonBox()
+        self.buttonBox = QDialogButtonBox()
 
-        closeButton = self.buttonBox.addButton(QtWidgets.QDialogButtonBox.Close)
-        helpButton = self.buttonBox.addButton(QtWidgets.QDialogButtonBox.Help)
-        rotateWidgetsButton = self.buttonBox.addButton("Rotate &Widgets", QtWidgets.QDialogButtonBox.ActionRole)
+        closeButton = self.buttonBox.addButton(QDialogButtonBox.Close)
+        helpButton = self.buttonBox.addButton(QDialogButtonBox.Help)
+        rotateWidgetsButton = self.buttonBox.addButton("Rotate &Widgets", QDialogButtonBox.ActionRole)
 
         rotateWidgetsButton.clicked.connect(self.rotateWidgets)
         closeButton.clicked.connect(self.close)

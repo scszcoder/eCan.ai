@@ -297,7 +297,7 @@ class M_Pub_Attributes():
 # help --
 
 
-class EBMISSION(QtGui.QStandardItem):
+class EBMISSION(QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
@@ -309,7 +309,7 @@ class EBMISSION(QtGui.QStandardItem):
                                 "token": self.parent.tokens['AuthenticationResult']['IdToken'],
                                 "uid": self.parent.uid}
         self.setText('mission' + str(self.getMid()))
-        self.icon = QtGui.QIcon(parent.mission_icon_path)
+        self.icon = QIcon(parent.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
 
