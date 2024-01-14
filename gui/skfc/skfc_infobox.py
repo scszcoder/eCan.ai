@@ -198,7 +198,7 @@ class SkFCInfoBox(QFrame):
         self.attrs_table.setRowCount(len(attrs))
 
         for row, (key, value) in enumerate(attrs.items()):
-            print(f"Row: {row}, Key: {key}, Value: {value}")
+            # print(f"Row: {row}, Key: {key}, Value: {value}")
             item_label = QLabel(self.convert_field_name(key))
             item_widget = self.create_attrs_cell_widget(diagram_type, key, value)
 

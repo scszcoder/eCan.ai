@@ -2353,6 +2353,8 @@ class SkillGUI(QtWidgets.QMainWindow):
         worksettings = self.get_work_settings()
 
         skname = self.skFCWidget.skfc_infobox.get_skill_info().skname
+        sk = WORKSKILL(self.parent.parent, skname)
+        setWorkSettingsSkill(worksettings, sk)
         psk_words = self.skFCWidget.skfc_scene.gen_psk_words(worksettings)
         psk_file_path = app_info.appdata_temp_path + "/" + skname + ".psk"
         if psk_file_path:
@@ -2364,7 +2366,7 @@ class SkillGUI(QtWidgets.QMainWindow):
         all_skill_codes = [{"ns": "B0M20231225!!", "skfile": psk_file_path}]
 
         rpa_script = prepRunSkill(all_skill_codes)
-        runResult = runAllSteps(rpa_script, trMission, WORKSKILL(self.parent.parent, skname))   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
+        runResult = runAllSteps(rpa_script, trMission, sk)   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
 
     def continue_run(self):
         continueRun(steps, last_step)
