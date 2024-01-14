@@ -12,7 +12,6 @@ from config.app_settings import app_settings
 class SkillWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        SkillGUI.Debug = True
         self.skill_gui = SkillGUI(self)
         # self.skill_gui.showMaximized()
         self.skill_gui.show()
