@@ -46,6 +46,7 @@ class SkillManagerWindow(QtWidgets.QMainWindow):
         self.skill_search_edit.setClearButtonEnabled(True)
         self.skill_search_edit.addAction(QtGui.QIcon(self.parent.getHomePath() + '/resource/images/icons/search1_80.png'), QtWidgets.QLineEdit.LeadingPosition)
         self.skill_search_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Search Skill With Keywords"))
+        self.skill_search_edit.returnPressed.connect(self.fetch_mine_button.click)
 
         self.skillInfoConsole = QtWidgets.QTextEdit()
         self.skillInfoConsole.setLineWrapMode(QtWidgets.QTextEdit.FixedPixelWidth)
@@ -191,12 +192,12 @@ class SkillManagerWindow(QtWidgets.QMainWindow):
         return label
 
 
-
     def _createReportsShowAction(self):
         # File actions
         new_action = QtGui.QAction(self)
         new_action.setText("&View")
         return new_action
+
 
     def _createReportsGenAction(self):
         # File actions
@@ -245,10 +246,10 @@ class SkillManagerWindow(QtWidgets.QMainWindow):
             self.popMenu.addAction(self.SkillDeleteAction)
             self.popMenu.setFont(self.main_menu_font)
 
-            selected_skill = self.popMenu.exec_(event.globalPos())
-            print("selected:", selected_skill)
+            selected_act = self.popMenu.exec_(event.globalPos())
+            print("selected:", selected_act)
 
-            if selected_skill:
+            if selected_act:
                 self.selected_skill_row = source.rowAt(event.pos().y())
                 print("selected row:", self.selected_skill_row)
                 if self.selected_skill_row == -1:
@@ -281,13 +282,13 @@ class SkillManagerWindow(QtWidgets.QMainWindow):
 
                 print("selected mids :", skids)
 
-                # if selected_act == self.SkillOpenAction:
-                #     print("set to refresh status...", Skill_idxs, skids)
-                #     self.parent.sendSkillCommand("open", Skill_idxs, skids)
-                # elif selected_act == self.SkillCopyAction:
-                #     self.parent.sendSkillCommand("copy", Skill_idxs, skids)
-                # elif selected_act == self.SkillDeleteAction:
-                #     self.parent.sendSkillCommand("delete", Skill_idxs, skids)
+                if selected_act == self.SkillOpenAction:
+                    print("set to refresh status...", Skill_idxs, skids)
+                    self.openSkill("open", Skill_idxs, skids)
+                elif selected_act == self.SkillCopyAction:
+                    self.copySkill("copy", Skill_idxs, skids)
+                elif selected_act == self.SkillDeleteAction:
+                    self.deleteSkill("delete", Skill_idxs, skids)
             return True
 
         return super().eventFilter(source, event)
@@ -313,11 +314,19 @@ class SkillManagerWindow(QtWidgets.QMainWindow):
         return new_action
 
     def fetchMySkills(self):
-        resp = send_query_skills_request_to_cloud()
+        print("Start fetching......")
+        if self.skill_search_edit.text() == "":
+            qsettings = {"byowneruser": True, "qphrase": ""}
+        else:
+            qsettings = {"byowneruser": False, "qphrase": self.skill_search_edit.text()}
+
+        resp = send_query_skills_request_to_cloud(self.parent.session, self.parent.tokens['AuthenticationResult']['IdToken'], qsettings)
+        print("fetch skills results:", resp)
 
 
     def openSkill(self, skill):
-        self.parent.SkillGui.show()
+        print("opening skill....")
+        self.parent.trainNewSkillWin.show()
 
 
     def deleteSkill(self, skill):
@@ -331,22 +340,23 @@ class SkillManagerWindow(QtWidgets.QMainWindow):
         ret = msgBox.exec_()
 
         if ret == QtWidgets.QMessageBox.Yes:
+            print("deleting skill....")
             items = [self.selected_skill_item]
-            if len(items):
-                for item in items:
-                    # remove file first, then the item in the model.
-                    # shutil.rmtree(temp_page_dir)
-                    # os.remove(full_temp_page)
-
-                    # remove the local data and GUI.
-                    self.missionModel.removeRow(item.row())
-
-                # remove on the cloud side
-                jresp = send_remove_skills_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'])
-                if "errorType" in jresp:
-                    screen_error = True
-                    print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
-                else:
-                    jbody = json.loads(jresp["body"])
-                    #now that delete is successfull, update local file as well.
-                    self.writeMissionJsonFile()
+            # if len(items):
+            #     for item in items:
+            #         # remove file first, then the item in the model.
+            #         # shutil.rmtree(temp_page_dir)
+            #         # os.remove(full_temp_page)
+            #
+            #         # remove the local data and GUI.
+            #         self.missionModel.removeRow(item.row())
+            #
+            #     # remove on the cloud side
+            #     jresp = send_remove_skills_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'])
+            #     if "errorType" in jresp:
+            #         screen_error = True
+            #         print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+            #     else:
+            #         jbody = json.loads(jresp["body"])
+            #         #now that delete is successfull, update local file as well.
+            #         self.writeMissionJsonFile()

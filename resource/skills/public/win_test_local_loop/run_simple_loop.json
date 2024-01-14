@@ -1,6 +1,7 @@
 {
     "name": "run_simple_loop",
     "skid": 101,
+    "createdOn": "2023-05-05",
     "owner": "public",
     "price": 0,
     "price_model": "free",
@@ -22,5 +23,6 @@
     },
     "cloud_skill": {
         "path": "pubilc/win_test_local_loop/run_simple_loop"
-    }
+    },
+    "description": "This is a test skill for testing simple loops."
 }
