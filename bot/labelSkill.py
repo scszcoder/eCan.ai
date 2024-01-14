@@ -1,15 +1,11 @@
+from datetime import datetime, timedelta
+
 from basicSkill import *
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from PyPDF2 import PdfReader
 from scrapeGoodSupply import *
-import subprocess
-import os
-from datetime import datetime, timedelta
-import time
-
-from basicSkill import *
 
 global symTab
 global STEP_GAP
@@ -302,11 +298,11 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    dt_today_string = datetime.datetime.today().strftime('%m/%d/%Y')
-    yesterday = datetime.datetime.today() - timedelta(days=1)
+    dt_today_string = datetime.today().strftime('%m/%d/%Y')
+    yesterday = datetime.today() - timedelta(days=1)
     dt_yesterday_string = yesterday.strftime('%m/%d/%Y')
     dt_range_string = dt_yesterday_string + " - " + dt_today_string
-    md_string = datetime.datetime.today().strftime('%m%d')
+    md_string = datetime.today().strftime('%m%d')
 
     print("MD string is:", md_string)
 
@@ -536,7 +532,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # save the html file.
-    dtnow = datetime.datetime.now()
+    dtnow = datetime.now()
     dt_string = str(int(dtnow.timestamp()))
     hfname = "etsyOrders" + dt_string + ".html"
 

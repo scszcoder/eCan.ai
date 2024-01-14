@@ -1,13 +1,7 @@
-from scraperEbay import *
-from scraperEtsy import *
-from scrapeGoodSupply import *
-from labelSkill import *
-from missions import *
-from rarSkill import *
 from genSkills import *
 from readSkill import *
 import re
-import datetime
+from datetime import datetime
 import time
 import pytz
 
@@ -223,7 +217,7 @@ def test_rar():
         time.sleep(2)
 
 def test_get_tz():
-    local_timezone = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
+    local_timezone = datetime.now(datetime.timezone.utc).astimezone().tzinfo
     print("time zone info:", local_timezone)
     for tz in pytz.all_timezones:
         print(tz)
