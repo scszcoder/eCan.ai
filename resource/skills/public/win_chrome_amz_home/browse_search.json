@@ -2,6 +2,7 @@
     "name": "browse_search",
     "skid": 0,
     "owner": "public",
+    "createdOn": "2023-05-05",
     "price": 0,
     "price_model": "free",
     "path": "resource/skills/public/",
@@ -108,5 +109,6 @@
     },
     "cloud_skill": {
         "path": "pubilc/win_chrmoe_amz_home/browse_search"
-    }
+    },
+    "description": "a skill automatically searches and browses amazon web site."
 }

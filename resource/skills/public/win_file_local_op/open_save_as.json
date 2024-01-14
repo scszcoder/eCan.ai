@@ -1,6 +1,7 @@
 {
     "name": "open_save_as",
     "skid": 10,
+    "createdOn": "2023-05-05",
     "owner": "public",
     "price": 0,
     "price_model": "free",
@@ -22,5 +23,6 @@
     },
     "cloud_skill": {
         "path": "pubilc/win_file_all_op/open_save_as"
-    }
+    },
+    "description": "this skill handles open or save a file."
 }

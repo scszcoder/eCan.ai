@@ -1,6 +1,7 @@
 {
     "name": "unzip_archive",
     "skid": 20,
+    "createdOn": "2023-05-05",
     "owner": "public",
     "price": 0,
     "price_model": "free",
@@ -22,5 +23,6 @@
     },
     "cloud_skill": {
         "path": "pubilc/win_rar_local_unzip/unzip_archive"
-    }
+    },
+    "description": "this skills handles zip and unzip files and directories."
 }

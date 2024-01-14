@@ -2,6 +2,7 @@ import platform
 import sys
 import random
 import boto3
+import datetime
 from crontab import CronTab
 from PySide6 import QtCore, QtGui, QtWidgets
 import json
@@ -214,27 +215,28 @@ class WORKSKILL(QtGui.QStandardItem):
         self.setText(skname)
         self.setFont(parent.std_item_font)
         self.skid = 0
-        self.owner = 0
+        self.owner = ""
         self.price = 0
         self.parent = parent
         self.homepath = parent.homepath
         self.price_model = ""
-        self.price_model = ""
         self.path = "/resource/skills/public/"
-        self.privacy = ""
-        self.platform = ""
-        self.app = ""
+        self.privacy = "PRV"
+        self.platform = "win"
+        self.app = "chrome"
         self.app_link = ""
         self.app_args = ""
         self.site_name = ""
-        self.site = ""
+        self.site = "amz"
         self.page = ""
+        self.runtime = 1
         self.private_skill = PROCEDURAL_SKILL(parent)
         self.cloud_skill = CLOUD_SKILL(parent)
         self.setText('Skill'+str(self.getSkid()))
         self.icon = QtGui.QIcon(parent.skill_icon_path)
         self.setIcon(self.icon)
-        self.createOn = ""
+        self.createdOn = datetime.today().strftime('%Y-%m-%d')
+        self.description = "This skill does great automation."
 
         self.setText(self.name)
         self.icon = QtGui.QIcon(self.homepath + '/resource/images/icons/skills_78.png')
@@ -268,6 +270,9 @@ class WORKSKILL(QtGui.QStandardItem):
     def getSkid(self):
         return self.skid
 
+    def setSkid(self, skid):
+        self.skid = skid
+
     def getPskFileName(self):
         return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".psk"
 
@@ -300,6 +305,9 @@ class WORKSKILL(QtGui.QStandardItem):
 
     def getPage(self):
         return self.page
+
+    def getRunTime(self):
+        return self.runtime
 
     def setPage(self, page):
         self.page = page
@@ -346,6 +354,23 @@ class WORKSKILL(QtGui.QStandardItem):
     def setPrivacy(self, priv):
         self.privacy = priv
 
+    def setCreatedOn(self, co):
+        self.createdOn = co
+
+    def setDescription(self, ds):
+        self.desription = ds
+
+    def setPlatform(self, platform):
+        self.platform = platform
+
+    def setSite(self, site):
+        self.site = site
+
+    def setName(self, name):
+        self.name = name
+
+    def setRunTime(self, rt):
+        self.runtime = rt
 
     def setConfig(self, cfg):
         self.private_skill.setConfig(cfg)
@@ -360,6 +385,7 @@ class WORKSKILL(QtGui.QStandardItem):
 
         self.skid = jd["skid"]
         self.owner = jd["owner"]
+        self.createdOn = jd["createdOn"]
         self.platform = jd["platform"]
         self.app = jd["app"]
         self.app_link = jd["app_link"]
@@ -371,6 +397,7 @@ class WORKSKILL(QtGui.QStandardItem):
         self.price_model = jd["price_model"]
         self.price = jd["price"]
         self.path = jd["path"]
+        self.description = jd["description"]
         self.private_skill.loadJson(jd["private_skill"])
         self.cloud_skill.loadJson(jd["cloud_skill"])
 

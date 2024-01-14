@@ -272,7 +272,7 @@ def gen_query_skills_string(q_setting):
     if q_setting["byowneruser"]:
         query_string = "query MySkQuery { querySkills(qs: \"{ \\\"byowneruser\\\": true}\") } "
     else:
-        query_string = "query MySkQuery { querySkills(qs: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\""+q_setting["phrase"]+"\\\"}\") } "
+        query_string = "query MySkQuery { querySkills(qs: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\""+q_setting["qphrase"]+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
@@ -626,26 +626,32 @@ def gen_add_skills_string(skills):
     for i in range(len(skills)):
         if isinstance(skills[i], dict):
             rec_string = rec_string + "{ skid: " + str(skills[i]["skid"]) + ", "
-            rec_string = rec_string + "owner: '" + str(skills[i]["owner"]) + "', "
-            rec_string = rec_string + "platform: '" + skills[i]["platform"] + "', "
-            rec_string = rec_string + "app: '" + skills[i]["app"] + "', "
-            rec_string = rec_string + "site: '" + skills[i]["site"] + "', "
-            rec_string = rec_string + "name: '" + skills[i]["name"] + "', "
-            rec_string = rec_string + "path: '" + skills[i]["path"] + "', "
-            rec_string = rec_string + "price_model: '" + skills[i]["price_model"] + "', "
-            rec_string = rec_string + "price: '" + skills[i]["price"] + "', "
-            rec_string = rec_string + "privacy: '" + skills[i]["privacy"] + "'} "
+            rec_string = rec_string + "owner: \"" + str(skills[i]["owner"]) + "\", "
+            rec_string = rec_string + "createdOn: \"" + str(skills[i]["createdOn"]) + "\", "
+            rec_string = rec_string + "platform: \"" + skills[i]["platform"] + "\", "
+            rec_string = rec_string + "app: \"" + skills[i]["app"] + "\", "
+            rec_string = rec_string + "site: \"" + skills[i]["site"] + "\", "
+            rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
+            rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
+            rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
+            rec_string = rec_string + "runtime: " + str(skills[i]["runtime"]) + ", "
+            rec_string = rec_string + "price_model: \"" + skills[i]["price_model"] + "\", "
+            rec_string = rec_string + "price: " + str(skills[i]["price"]) + ", "
+            rec_string = rec_string + "privacy: \"" + skills[i]["privacy"] + "\"} "
         else:
             rec_string = rec_string + "{ skid: " + str(skills[i].getSkid()) + ", "
-            rec_string = rec_string + "owner: '" + str(skills[i].getOwner()) + "', "
-            rec_string = rec_string + "platform: '" + skills[i].getPlatform() + "', "
-            rec_string = rec_string + "app: '" + skills[i].getApp() + "', "
-            rec_string = rec_string + "site: '" + skills[i].getSite() + "', "
-            rec_string = rec_string + "name: '" + skills[i].getName() + "', "
-            rec_string = rec_string + "path: '" + skills[i].getPath() + "', "
-            rec_string = rec_string + "price_model: '" + skills[i].getPriceModel() + "', "
-            rec_string = rec_string + "price: '" + skills[i].getPrice() + "', "
-            rec_string = rec_string + "privacy: '" + skills[i].getPrivacy() + "'} "
+            rec_string = rec_string + "owner: \"" + str(skills[i].getOwner()) + "\", "
+            rec_string = rec_string + "createdOn: \"" + str(skills[i].getCreatedOn()) + "\", "
+            rec_string = rec_string + "platform: \"" + skills[i].getPlatform() + "\", "
+            rec_string = rec_string + "app: \"" + skills[i].getApp() + "\", "
+            rec_string = rec_string + "site: \"" + skills[i].getSite() + "\", "
+            rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
+            rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
+            rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
+            rec_string = rec_string + "runtime: " + str(skills[i].getRunTime()) + ", "
+            rec_string = rec_string + "price_model: \"" + skills[i].getPriceModel() + "\", "
+            rec_string = rec_string + "price: " + str(skills[i].getPrice()) + ", "
+            rec_string = rec_string + "privacy: \"" + skills[i].getPrivacy() + "\"} "
 
         if i != len(skills) - 1:
             rec_string = rec_string + ', '
@@ -667,26 +673,32 @@ def gen_update_skills_string(skills):
     for i in range(len(skills)):
         if isinstance(skills[i], dict):
             rec_string = rec_string + "{ skid: " + str(skills[i]["skid"]) + ", "
-            rec_string = rec_string + "owner: '" + str(skills[i]["owner"]) + "', "
-            rec_string = rec_string + "platform: '" + skills[i]["platform"] + "', "
-            rec_string = rec_string + "app: '" + skills[i]["app"] + "', "
-            rec_string = rec_string + "site: '" + skills[i]["site"] + "', "
-            rec_string = rec_string + "name: '" + skills[i]["name"] + "', "
-            rec_string = rec_string + "path: '" + skills[i]["path"] + "', "
-            rec_string = rec_string + "price_model: '" + skills[i]["price_model"] + "', "
-            rec_string = rec_string + "price: '" + skills[i]["price"] + "', "
-            rec_string = rec_string + "privacy: '" + skills[i]["privacy"] + "'} "
+            rec_string = rec_string + "owner: \"" + str(skills[i]["owner"]) + "\", "
+            rec_string = rec_string + "createdOn: \"" + str(skills[i]["createdOn"]) + "\", "
+            rec_string = rec_string + "platform: \"" + skills[i]["platform"] + "\", "
+            rec_string = rec_string + "app: \"" + skills[i]["app"] + "\", "
+            rec_string = rec_string + "site: \"" + skills[i]["site"] + "\", "
+            rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
+            rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
+            rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
+            rec_string = rec_string + "runtime: " + str(skills[i]["runtime"]) + ", "
+            rec_string = rec_string + "price_model: \"" + skills[i]["price_model"] + "\", "
+            rec_string = rec_string + "price: " + str(skills[i]["price"]) + ", "
+            rec_string = rec_string + "privacy: \"" + skills[i]["privacy"] + "\"} "
         else:
             rec_string = rec_string + "{ skid: " + str(skills[i].getSkid()) + ", "
-            rec_string = rec_string + "owner: '" + str(skills[i].getOwner()) + "', "
-            rec_string = rec_string + "platform: '" + skills[i].getPlatform() + "', "
-            rec_string = rec_string + "app: '" + skills[i].getApp() + "', "
-            rec_string = rec_string + "site: '" + skills[i].getSite() + "', "
-            rec_string = rec_string + "name: '" + skills[i].getName() + "', "
-            rec_string = rec_string + "path: '" + skills[i].getPath() + "', "
-            rec_string = rec_string + "price_model: '" + skills[i].getPriceModel() + "', "
-            rec_string = rec_string + "price: '" + skills[i].getPrice() + "', "
-            rec_string = rec_string + "privacy: '" + skills[i].getPrivacy() + "'} "
+            rec_string = rec_string + "owner: \"" + str(skills[i].getOwner()) + "\", "
+            rec_string = rec_string + "createdOn: \"" + str(skills[i].getCreatedOn()) + "\", "
+            rec_string = rec_string + "platform: \"" + skills[i].getPlatform() + "\", "
+            rec_string = rec_string + "app: \"" + skills[i].getApp() + "\", "
+            rec_string = rec_string + "site: \"" + skills[i].getSite() + "\", "
+            rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
+            rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
+            rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
+            rec_string = rec_string + "runtime: " + str(skills[i].getRunTime()) + ", "
+            rec_string = rec_string + "price_model: \"" + skills[i].getPriceModel() + "\", "
+            rec_string = rec_string + "price: " + str(skills[i].getPrice()) + ", "
+            rec_string = rec_string + "privacy: \"" + skills[i].getPrivacy() + "\"} "
 
         if i != len(skills) - 1:
             rec_string = rec_string + ', '
@@ -710,7 +722,7 @@ def gen_remove_skills_string(removeOrders):
     """
     rec_string = ""
     for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ skid:\"" + str(removeOrders[i]["skid"]) + "\", "
+        rec_string = rec_string + "{ oid:\"" + str(removeOrders[i]["skid"]) + "\", "
         rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
         rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
 
@@ -1078,9 +1090,9 @@ def send_get_bots_request_to_cloud(session, token):
 
     return jresponse
 
-def send_query_skills_request_to_cloud(session, token, q_setting):
+def send_query_skills_request_to_cloud(session, token, q_settings):
 
-    queryInfo = gen_query_skills_string(q_setting)
+    queryInfo = gen_query_skills_string(q_settings)
 
     jresp = appsync_http_request(queryInfo, session, token)
 
