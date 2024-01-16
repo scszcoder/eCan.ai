@@ -356,7 +356,7 @@ class Login(QDialog):
             # print(self.cog.access_token)
             # print(self.cog.refresh_token)
             # print(user)
-            print("timezone:", datetime.datetime.now().astimezone().tzinfo)
+            print("timezone:", datetime.now().astimezone().tzinfo)
             # now make this window dissappear and bring out the main windows.
             os.environ["SCECBOTPW"] = self.scramble(self.textPass.text())
             data = {"mem_cb": True, "user": self.textName.text(), "pw": "SCECBOTPW", "lan": "EN"}
