@@ -6,7 +6,7 @@ from PyPDF2 import PdfReader
 from scrapeGoodSupply import *
 import subprocess
 import os
-from datetime import datetime, timedelta
+import datetime
 import time
 
 from basicSkill import *
@@ -302,11 +302,12 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    dt_today_string = datetime.datetime.today().strftime('%m/%d/%Y')
-    yesterday = datetime.datetime.today() - timedelta(days=1)
+    dtnow = datetime.now()
+    dt_today_string = dtnow.strftime('%m/%d/%Y')
+    yesterday = dtnow - datetime.timedelta(days=1)
     dt_yesterday_string = yesterday.strftime('%m/%d/%Y')
     dt_range_string = dt_yesterday_string + " - " + dt_today_string
-    md_string = datetime.datetime.today().strftime('%m%d')
+    md_string = dtnow.strftime('%m%d')
 
     print("MD string is:", md_string)
 
@@ -536,7 +537,6 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # save the html file.
-    dtnow = datetime.datetime.now()
     dt_string = str(int(dtnow.timestamp()))
     hfname = "etsyOrders" + dt_string + ".html"
 

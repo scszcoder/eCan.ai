@@ -23,7 +23,6 @@ from network import *
 from LoggerGUI import *
 from ui_settings import *
 import schedule
-from datetime import datetime, timedelta
 import time
 import pytz
 import tzlocal
@@ -1420,7 +1419,7 @@ class MainWindow(QtWidgets.QMainWindow):
         print("checking todos......", self.todays_work["tbd"])
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
-        pt = datetime.now()
+        pt = datetime.datetime.now()
         if len(self.todays_work["tbd"]) > 0:
             if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
@@ -1992,7 +1991,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def ts2time(self, ts):
         thistime = datetime.datetime.now()
         zerotime = datetime.datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
-        time_change = timedelta(minutes=20*ts)
+        time_change = datetime.timedelta(minutes=20*ts)
         runtime = zerotime + time_change
         return runtime
 

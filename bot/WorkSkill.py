@@ -2,7 +2,7 @@ import platform
 import sys
 import random
 import boto3
-import datetime
+from datetime import datetime
 from crontab import CronTab
 from PySide6 import QtCore, QtGui, QtWidgets
 import json
@@ -235,7 +235,7 @@ class WORKSKILL(QtGui.QStandardItem):
         self.setText('Skill'+str(self.getSkid()))
         self.icon = QtGui.QIcon(parent.skill_icon_path)
         self.setIcon(self.icon)
-        self.createdOn = datetime.today().strftime('%Y-%m-%d')
+        self.createdOn = datetime.datetime.today().strftime('%Y-%m-%d')
         self.description = "This skill does great automation."
 
         self.setText(self.name)

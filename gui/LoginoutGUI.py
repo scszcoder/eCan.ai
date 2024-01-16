@@ -6,8 +6,6 @@ import botocore
 from botocore.exceptions import ClientError
 import boto3
 from signio import *
-import time
-from datetime import datetime
 from BorderLayout import *
 import json
 from os.path import exists
@@ -17,6 +15,7 @@ from pycognito.aws_srp import AWSSRP
 from envi import *
 from Cloud import *
 from config.app_info import app_info
+from datetime import datetime
 
 import asyncio
 import qasync
@@ -356,7 +355,7 @@ class Login(QtWidgets.QDialog):
             # print(self.cog.access_token)
             # print(self.cog.refresh_token)
             # print(user)
-            print("timezone:", datetime.now().astimezone().tzinfo)
+            print("timezone:", datetime.datetime.now().astimezone().tzinfo)
             # now make this window dissappear and bring out the main windows.
             os.environ["SCECBOTPW"] = self.scramble(self.textPass.text())
             data = {"mem_cb": True, "user": self.textName.text(), "pw": "SCECBOTPW", "lan": "EN"}
