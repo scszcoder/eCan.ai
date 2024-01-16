@@ -1,5 +1,3 @@
-import copy
-import os
 from basicSkill import *
 from scraperEtsy import *
 import pandas as pd

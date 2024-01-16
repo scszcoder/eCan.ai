@@ -3,7 +3,6 @@ import sys
 import random
 import boto3
 from crontab import CronTab
-from PySide6 import QtCore, QtGui, QtWidgets
 import json
 from WorkSkill import *
 from readSkill import *
@@ -12,7 +11,7 @@ from ebbot import *
 
 
 
-class VEHICLE(QtGui.QStandardItem):
+class VEHICLE(QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
@@ -23,7 +22,7 @@ class VEHICLE(QtGui.QStandardItem):
         self.ip = ""
         self.id = ""
         self.setText('vehicle' + str(self.getVid()))
-        self.icon = QtGui.QIcon(parent.vehicle_icon_path)
+        self.icon = QIcon(parent.vehicle_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
         self.status = "Idle";

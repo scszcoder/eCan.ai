@@ -24,6 +24,15 @@ elif sys.platform == 'darwin':
         kCGWindowListOptionOnScreenOnly,
         kCGNullWindowID
     )
+
+    # fix bug of macos TypeError: '<' not supported between instances of 'str' and 'int' in _screenshot_osx
+    # https://github.com/asweigart/pyautogui/issues/790
+    import pyscreeze
+    import PIL
+
+    __PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
+    pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
+
 from scraper import *
 from Cloud import *
 from pynput.mouse import Button, Controller
@@ -619,7 +628,8 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         os.makedirs(os.path.dirname(sfile))
 
     #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-    im0 = pyautogui.screenshot(imageFilename=sfile, region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    im0.save(sfile)
     screen_loc = (window_rect[0], window_rect[1])
 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
@@ -762,7 +772,7 @@ def processExtractInfo(step, i, mission, skill):
     ex_stat = "success:0"
     try:
         screen_error = False
-        dtnow = datetime.datetime.now()
+        dtnow = datetime.now()
 
         if step["page_data_info"]:
             page_layout = symTab[step["page_data_info"]]["products"]["layout"]
@@ -812,7 +822,7 @@ def processExtractInfo(step, i, mission, skill):
         fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
         # fdir = fdir + ppword + "/"
         fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
-        fdir = fdir + step_settings["skname"] + "/images/"
+        fdir = fdir + step_settings["skname"] + "images/"
         sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
         print("sfile: ", sfile)
 
@@ -824,7 +834,8 @@ def processExtractInfo(step, i, mission, skill):
         symTab[step["data_sink"]] = result
         print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-    except:
+    except Exception as e:
+        print(f"Exception info:{e}")
         ex_stat = "ErrorExtractInf:" + str(i)
 
     return (i+1), ex_stat
@@ -2466,7 +2477,23 @@ def processSaveHtml(step, i, mission, skill):
 
 
 if __name__ == '__main__':
+    file = '/Users/liuqiang/MyDocuments/Workspace/scszcoder/ecbot/runlogs/20240109/b1m20231225/win_chrome_amz_home/skills/images/scrn249511118_qq_1704766171.png'
     window_name, window_rect = get_top_visible_window()
+    # im0 = pyautogui.screenshot(imageFilename=file,
+    #                            region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+
+    from PIL import Image
+
+    # file = '../screenshot.png'
+    # 截取屏幕并保存图像
+    image = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    image.save(file)
+
+    # 打开图像文件
+    im = Image.open(file)
+    im.show()
+
+    # screen_loc = (window_rect[0], window_rect[1])
 
     # path = os.path.join(os.path.dirname(__file__), '', 'screenshot.png')
     # if not os.path.exists(os.path.dirname(path)):

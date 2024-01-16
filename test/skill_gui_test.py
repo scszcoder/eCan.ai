@@ -39,7 +39,7 @@ class SkillWindow(QMainWindow):
 
     def save_json(self):
         data = self.skill_gui.skFCWidget.encode_json(indent=4)
-        file_path, _ = QFileDialog.getSaveFileName(self, 'Save JSON File', 'skill_gui_test.json', 'JSON Files (*.json)')
+        file_path, _ = QFileDialog.getSaveFileName(self, 'Save JSON File', 'skill_gui_test.skd', 'SKD Files (*.skd)')
         if file_path:
             with open(file_path, 'w') as file:
                 # json.dump(data, file, indent=4)
@@ -47,7 +47,7 @@ class SkillWindow(QMainWindow):
                 print(f'JSON data saved to {file_path}')
 
     def open_json(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, 'Open JSON File', '', 'JSON Files (*.json)')
+        file_path, _ = QFileDialog.getOpenFileName(self, 'Open SKD File', '', 'SKD Files (*.sdk)')
         if file_path:
             with open(file_path, 'r') as file:
                 data = json.load(file)
@@ -56,11 +56,11 @@ class SkillWindow(QMainWindow):
                 self.skill_gui.skFCWidget.decode_json(json.dumps(data))
 
     def load_json_file(self):
-        file_path = 'skill_gui_test.json'
+        file_path = 'skill_gui_test.skd'
         with open(file_path, 'r') as f:
             data = json.load(f)
 
-            print(f'JSON data loaded from {file_path}: {data}')
+            print(f'SKD data loaded from {file_path}: {data}')
 
             self.skill_gui.skFCWidget.decode_json(json.dumps(data))
 

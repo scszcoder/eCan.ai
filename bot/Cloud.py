@@ -1,15 +1,12 @@
-import http.client
 import json
 import requests
 import boto3
-from boto3 import Session as AWSSession
 from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 import logging
 from requests_aws4auth import AWS4Auth
-from Logger import *
+from datetime import datetime
 import os
-import shutil
 
 # Constants Copied from AppSync API 'Settings'
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
@@ -1225,6 +1222,7 @@ def appsync_http_request(query_string, session, token):
     response = session.request(
         url=APPSYNC_API_ENDPOINT_URL,
         method='POST',
+        timeout=180,
         headers=headers,
         json={'query': query_string}
     )
