@@ -7,8 +7,6 @@ from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 import logging
 from requests_aws4auth import AWS4Auth
-from datetime import datetime
-from datetime import timedelta
 from Logger import *
 import os
 import shutil

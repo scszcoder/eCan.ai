@@ -3,7 +3,7 @@ import sys
 import random
 import boto3
 from crontab import CronTab
-from datetime import datetime, date
+import datetime
 from PySide6 import QtCore, QtGui, QtWidgets
 import json
 
@@ -260,7 +260,7 @@ class BOT_PUB_PROFILE():
         self.location = loc
 
     def setAgeFromBirthday(self, bd):
-        today = date.today()
+        today = datetime.today()
         age = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
 
     def setLevels(self, levels):
