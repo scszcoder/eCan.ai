@@ -3,7 +3,7 @@ from enum import Enum
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QFont, QPainter, QColor
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QLabel, QTableWidgetItem, QGraphicsView, \
-    QHBoxLayout, QFrame, QLineEdit, QHeaderView, QComboBox
+    QHBoxLayout, QFrame, QLineEdit, QHeaderView, QComboBox, QCheckBox
 
 from skfc.diagram_item_normal import DiagramNormalItem
 from skfc.skfc_scene import SkFCScene
@@ -18,41 +18,59 @@ PROPS_COLUMN_COUNT = 2
 STEP_ATTR_KEY = "step_attr_key"
 
 
-class SwitchButton(QWidget):
-    stateChanged = Signal(bool)
+class SKInfo:
+    def __init__(self, skname="", os="win", version="1.0", author="AIPPS LLC", skid="", description=""):
+        self.skname = skname
+        self.os = os
+        self.version = version
+        self.author = author
+        self.skid = skid
+        self.description = description
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(64, 24)
-        self._checked = False
+    @classmethod
+    def from_dict(cls, obj_dict):
+        sk_info = SKInfo()
+        for key, value in dict(obj_dict).items():
+            setattr(sk_info, key, value)
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        return sk_info
 
-        # 绘制背景
-        bg_color = QColor(0, 255, 0) if self._checked else QColor(100, 100, 100)
-        painter.setBrush(bg_color)
-        painter.drawRoundedRect(0, 0, self.width(), self.height(), 15, 15)
 
-        # 绘制滑块
-        slider_color = QColor(255, 255, 255) if self._checked else QColor(200, 200, 200)
-        slider_x = self.width() - 23 if self._checked else 3
-        painter.setBrush(slider_color)
-        painter.drawEllipse(slider_x, 3, 18, 18)
-
-    def mousePressEvent(self, event):
-        self.setChecked(not self._checked)
-        self.update()
-
-    def isChecked(self):
-        return self._checked
-
-    def setChecked(self, checked):
-        if self._checked != checked:
-            self._checked = checked
-            self.stateChanged.emit(checked)
-            self.update()
+# class SwitchButton(QWidget):
+#     stateChanged = Signal(bool)
+#
+#     def __init__(self, parent=None):
+#         super().__init__(parent)
+#         self.setFixedSize(64, 24)
+#         self._checked = False
+#
+#     def paintEvent(self, event):
+#         painter = QPainter(self)
+#         painter.setRenderHint(QPainter.Antialiasing)
+#
+#         # 绘制背景
+#         bg_color = QColor(0, 255, 0) if self._checked else QColor(100, 100, 100)
+#         painter.setBrush(bg_color)
+#         painter.drawRoundedRect(0, 0, self.width(), self.height(), 15, 15)
+#
+#         # 绘制滑块
+#         slider_color = QColor(255, 255, 255) if self._checked else QColor(200, 200, 200)
+#         slider_x = self.width() - 23 if self._checked else 3
+#         painter.setBrush(slider_color)
+#         painter.drawEllipse(slider_x, 3, 18, 18)
+#
+#     def mousePressEvent(self, event):
+#         self.setChecked(not self._checked)
+#         self.update()
+#
+#     def isChecked(self):
+#         return self._checked
+#
+#     def setChecked(self, checked):
+#         if self._checked != checked:
+#             self._checked = checked
+#             self.stateChanged.emit(checked)
+#             self.update()
 
 
 class SkFCInfoBox(QFrame):
@@ -125,8 +143,26 @@ class SkFCInfoBox(QFrame):
 
         # self.setSizePolicy(QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Ignored))
         # self.setMinimumWidth(self.panel_title_widget.sizeHint().width())
+        self.init_qline_edit(SKInfo())
 
-    def get_skill_info(self):
+    def to_dict(self):
+        sk_info = self.get_skill_info()
+
+        return sk_info.__dict__
+
+    def from_json(self, sk_info_dict: dict):
+        if sk_info_dict is not None:
+            self.init_qline_edit(SKInfo.from_dict(sk_info_dict))
+
+    def init_qline_edit(self, sk_info: SKInfo):
+        self.basic_info_skname.setText(sk_info.skname)
+        self.basic_info_skos.setText(sk_info.os)
+        self.basic_info_skversion.setText(sk_info.version)
+        self.basic_info_skauthor.setText(sk_info.author)
+        self.basic_info_skid.setText(sk_info.skid)
+        self.basic_info_skdesp.setText(sk_info.description)
+
+    def get_skill_info(self) -> SKInfo:
         skname = self.basic_info_skname.text()
         os = self.basic_info_skos.text()
         version = self.basic_info_skversion.text()
@@ -134,7 +170,9 @@ class SkFCInfoBox(QFrame):
         skid = self.basic_info_skid.text()
         desp = self.basic_info_skdesp.text()
 
-        return skname, os, version, author, skid, desp
+        sk_info = SKInfo(skname, os, version, author, skid, desp)
+
+        return sk_info
 
     def convert_field_name(self, text):
         return ' '.join(w.capitalize() for w in text.split('_'))
@@ -160,7 +198,7 @@ class SkFCInfoBox(QFrame):
         self.attrs_table.setRowCount(len(attrs))
 
         for row, (key, value) in enumerate(attrs.items()):
-            print(f"Row: {row}, Key: {key}, Value: {value}")
+            # print(f"Row: {row}, Key: {key}, Value: {value}")
             item_label = QLabel(self.convert_field_name(key))
             item_widget = self.create_attrs_cell_widget(diagram_type, key, value)
 
@@ -183,10 +221,9 @@ class SkFCInfoBox(QFrame):
                 widget.setCurrentText(step_attrs_value.value)
                 widget.currentTextChanged.connect(self.step_attrs_normal_cmb_changed)
             elif isinstance(step_attrs_value, bool):
-                widget = SwitchButton()
-                widget.setChecked(step_attrs_value)
+                widget = QCheckBox('', self)
+                # widget.move(20, 20)
                 widget.stateChanged.connect(self.step_attrs_toggle_state_changed)
-                widget.show()
             else:
                 widget = QLineEdit()
                 widget.setText(str(step_attrs_value))
@@ -222,10 +259,10 @@ class SkFCInfoBox(QFrame):
         step: StepBase = self.current_diagram_item.step
         step.set_attr_value(self.sender().property(STEP_ATTR_KEY), text)
 
-    def step_attrs_toggle_state_changed(self, checked):
-        print('SwitchButton state changed:', checked, self.sender())
+    def step_attrs_toggle_state_changed(self, state):
+        print('SwitchButton state changed:', state, self.sender())
         step: StepBase = self.current_diagram_item.step
-        step.set_attr_value(self.sender().property(STEP_ATTR_KEY), checked)
+        step.set_attr_value(self.sender().property(STEP_ATTR_KEY), True if state == 2 else False)
 
     def step_attrs_text_changed(self, text):
         print("text changed: ", text, self.sender())

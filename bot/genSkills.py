@@ -71,7 +71,7 @@ def getWorkSettings(lieutenant, bot_works):
     name_space = "B" + str(bot_id) + "M" + str(mission_id) + "!" + "" + "!"
 
     run_config = works[tz][bidx][grp][idx]["config"]
-    root_path = lieutenant.home_path
+    root_path = lieutenant.homepath
 
     dtnow = datetime.now()
 
@@ -206,7 +206,8 @@ def genSkillCode(worksettings, start_step, theme):
     if worksettings["platform"] == "win":
         genWinSkillCode(worksettings, start_step, theme)
     elif worksettings["platform"] == "mac":
-        genMacSkillCode(worksettings, start_step, theme)
+        # genMacSkillCode(worksettings, start_step, theme)
+        genWinSkillCode(worksettings, start_step, theme)
 
 
 

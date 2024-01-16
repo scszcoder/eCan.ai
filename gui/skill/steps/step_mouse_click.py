@@ -28,7 +28,7 @@ class StepMouseClick(StepBase):
 
     def __init__(self, stepN=0, action=EnumMouseClickAction.SingleClick, action_args=None, saverb=True, screen=None,
                  target=None, target_type=None, template=None, nth=None, offset_from=EnumMouseClickOffsetFrom.Top,
-                 offset=None, offset_unit=EnumMouseClickOffsetUnit.Screen, move_pause=None, post_wait=None,
+                 offset=0.0, offset_unit=EnumMouseClickOffsetUnit.Screen, move_pause=None, post_wait=0.0,
                  post_move=None):
         super().__init__(stepN)
 
@@ -43,7 +43,21 @@ class StepMouseClick(StepBase):
         self.nth = nth
         self.offset_from: EnumMouseClickOffsetFrom = offset_from
         self.offset_unit: EnumMouseClickOffsetUnit = offset_unit
-        self.offset = offset
+        self.offset: float = offset
         self.move_pause = move_pause
         self.post_move = post_move
-        self.post_wait = post_wait
+        self.post_wait: float = post_wait
+
+    def gen_step(self, stepN, **kwargs):
+        self.post_wait = float(self.post_wait)
+        self.offset = float(self.offset)
+        json_step = super().gen_step(stepN)
+
+        return json_step
+
+    def to_obj(self, obj_dict):
+        super().to_obj(obj_dict)
+
+        self.action = EnumMouseClickAction(self.action)
+        self.offset_from = EnumMouseClickOffsetFrom(self.offset_from)
+        self.offset_unit = EnumMouseClickOffsetUnit(self.offset_unit)

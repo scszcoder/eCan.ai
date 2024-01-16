@@ -20,3 +20,8 @@ class StepCreateData(StepBase):
         self.data_name = dname
         self.key_name = keyname
         self.key_value = keyval
+
+    def to_obj(self, obj_dict):
+        super().to_obj(obj_dict)
+
+        self.data_type = EnumCreateDataType(self.data_type)

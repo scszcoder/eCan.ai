@@ -1,7 +1,10 @@
 import sys
 import random
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+
+from PySide6.QtCore import QEvent, QStringListModel
+from PySide6.QtGui import QStandardItemModel
+from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QTabWidget, QVBoxLayout, QLineEdit, \
+    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QCheckBox, QFileDialog
 from ebbot import *
 from locale import getdefaultlocale
 from FlowLayout import *
@@ -9,7 +12,7 @@ from ebbot import *
 from missions import *
 
 
-class SkillListView(QtWidgets.QListView):
+class SkillListView(QListView):
     def __init__(self, parent):
         super(SkillListView, self).__init__()
         self.selected_row = None
@@ -17,15 +20,15 @@ class SkillListView(QtWidgets.QListView):
         self.homepath = parent.homepath
 
     def mousePressEvent(self, e):
-        if e.type() == QtCore.QEvent.MouseButtonPress:
-            if e.button() == QtCore.Qt.LeftButton:
+        if e.type() == QEvent.MouseButtonPress:
+            if e.button() == Qt.LeftButton:
                 print("row:", self.indexAt(e.pos()).row())
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.updateSelectedSkill(self.selected_row)
 
 
 
-class MWORKSKILL(QtGui.QStandardItem):
+class MWORKSKILL(QStandardItem):
     def __init__(self, homepath, platform, app, applink, site, sitelink, action):
         super().__init__()
         self.platform = platform
@@ -38,18 +41,18 @@ class MWORKSKILL(QtGui.QStandardItem):
         self.name = platform+"_"+app+"_"+site+"_"+action
 
         self.setText(self.name)
-        self.icon = QtGui.QIcon(homepath+'/resource/images/icons/skills-78.png')
+        self.icon = QIcon(homepath+'/resource/images/icons/skills-78.png')
         self.setIcon(self.icon)
 
     def getData(self):
         return self.platform, self.app, self.applink, self.site, self.sitelink, self.action
 
 
-class MissionNewWin(QtWidgets.QMainWindow):
+class MissionNewWin(QMainWindow):
     def __init__(self, parent):
         super(MissionNewWin, self).__init__(parent)
 
-        self.text = QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "new mission")
+        self.text = QApplication.translate("QMainWindow", "new mission")
         self.parent = parent
         self.homepath = parent.homepath
         self.newMission = None
@@ -65,244 +68,244 @@ class MissionNewWin(QtWidgets.QMainWindow):
         self.selected_skill_site_link = ""
         self.selected_skill_action = "Browse"
 
-        self.mainWidget = QtWidgets.QWidget()
-        self.tabs = QtWidgets.QTabWidget()
-        self.pubAttrWidget = QtWidgets.QWidget()
-        self.prvAttrWidget = QtWidgets.QWidget()
-        self.actItemsWidget = QtWidgets.QWidget()
+        self.mainWidget = QWidget()
+        self.tabs = QTabWidget()
+        self.pubAttrWidget = QWidget()
+        self.prvAttrWidget = QWidget()
+        self.actItemsWidget = QWidget()
 
-        self.skillPanel = QtWidgets.QFrame()
-        self.skillPanelLayout = QtWidgets.QVBoxLayout(self)
+        self.skillPanel = QFrame()
+        self.skillPanelLayout = QVBoxLayout(self)
 
         self.skillListView = SkillListView(self)
         self.skillListView.installEventFilter(self)
 
 
-        self.skillModel = QtGui.QStandardItemModel(self.skillListView)
+        self.skillModel = QStandardItemModel(self.skillListView)
 
         self.skillListView.setModel(self.skillModel)
-        self.skillListView.setViewMode(QtWidgets.QListView.IconMode)
-        self.skillListView.setMovement(QtWidgets.QListView.Snap)
+        self.skillListView.setViewMode(QListView.IconMode)
+        self.skillListView.setMovement(QListView.Snap)
 
-        QtWidgets.QApplication.translate("QtWidgets.QLabel", "Skill Platform:")
-        self.skillNameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Skill Name:"), alignment=QtCore.Qt.AlignLeft)
-        self.skillNameEdit = QtWidgets.QLineEdit("")
-        self.skillNameList = QtCore.QStringListModel()
-        self.skillNameCompleter = QtWidgets.QCompleter(self.skillNameList, self)
-        self.skillNameCompleter.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
+        QApplication.translate("QLabel", "Skill Platform:")
+        self.skillNameLabel = QLabel(QApplication.translate("QLabel", "Skill Name:"), alignment=Qt.AlignLeft)
+        self.skillNameEdit = QLineEdit("")
+        self.skillNameList = QStringListModel()
+        self.skillNameCompleter = QCompleter(self.skillNameList, self)
+        self.skillNameCompleter.setCaseSensitivity(Qt.CaseInsensitive)
         self.skillNameEdit.setCompleter(self.skillNameCompleter)
 
-        self.skillPlatformLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Skill Platform:"), alignment=QtCore.Qt.AlignLeft)
-        self.skill_platform_sel = QtWidgets.QComboBox()
-        self.skill_platform_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Windows"))
-        self.skill_platform_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Mac"))
-        self.skill_platform_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Linux"))
+        self.skillPlatformLabel = QLabel(QApplication.translate("QLabel", "Skill Platform:"), alignment=Qt.AlignLeft)
+        self.skill_platform_sel = QComboBox()
+        self.skill_platform_sel.addItem(QApplication.translate("QComboBox", "Windows"))
+        self.skill_platform_sel.addItem(QApplication.translate("QComboBox", "Mac"))
+        self.skill_platform_sel.addItem(QApplication.translate("QComboBox", "Linux"))
         self.skill_platform_sel.currentTextChanged.connect(self.skillPlatformSel_changed)
 
 
-        self.skillAppLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Skill App:"), alignment=QtCore.Qt.AlignLeft)
-        self.skill_app_sel = QtWidgets.QComboBox()
-        self.skill_app_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Chrome"))
-        self.skill_app_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "ADS Power"))
-        self.skill_app_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Multi-Login"))
-        self.skill_app_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "FireFox"))
-        self.skill_app_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Edge"))
-        self.skill_app_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"))
+        self.skillAppLabel = QLabel(QApplication.translate("QLabel", "Skill App:"), alignment=Qt.AlignLeft)
+        self.skill_app_sel = QComboBox()
+        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "Chrome"))
+        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "ADS Power"))
+        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "Multi-Login"))
+        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "FireFox"))
+        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "Edge"))
+        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "Custom"))
         self.skill_app_sel.currentTextChanged.connect(self.skillAppSel_changed)
 
-        QtWidgets.QApplication.translate("QtWidgets.QLabel", "Skill Site:")
-        self.skillCustomAppNameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Custome App:"), alignment=QtCore.Qt.AlignLeft)
-        self.skillCustomAppNameEdit = QtWidgets.QLineEdit("")
+        QApplication.translate("QLabel", "Skill Site:")
+        self.skillCustomAppNameLabel = QLabel(QApplication.translate("QLabel", "Custome App:"), alignment=Qt.AlignLeft)
+        self.skillCustomAppNameEdit = QLineEdit("")
 
-        self.skillCustomAppLinkLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Custome App Path:"), alignment=QtCore.Qt.AlignLeft)
-        self.skillCustomAppLinkEdit = QtWidgets.QLineEdit("")
-        self.skillCustomAppLinkButton = QtWidgets.QPushButton("...")
+        self.skillCustomAppLinkLabel = QLabel(QApplication.translate("QLabel", "Custome App Path:"), alignment=Qt.AlignLeft)
+        self.skillCustomAppLinkEdit = QLineEdit("")
+        self.skillCustomAppLinkButton = QPushButton("...")
         self.skillCustomAppLinkButton.clicked.connect(self.chooseAppLinkDir)
 
-        self.skillSiteLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Skill Site:"), alignment=QtCore.Qt.AlignLeft)
-        self.skill_site_sel = QtWidgets.QComboBox()
+        self.skillSiteLabel = QLabel(QApplication.translate("QLabel", "Skill Site:"), alignment=Qt.AlignLeft)
+        self.skill_site_sel = QComboBox()
 
-        self.skill_site_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Amazon"))
+        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Amazon"))
 
-        self.skill_site_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Ebay"))
-        self.skill_site_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Etsy"))
-        self.skill_site_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Walmart"))
-        self.skill_site_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Wish"))
-        self.skill_site_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "AliExpress"))
-        self.skill_site_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Wayfair"))
-        self.skill_site_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"))
+        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Ebay"))
+        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Etsy"))
+        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Walmart"))
+        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Wish"))
+        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "AliExpress"))
+        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Wayfair"))
+        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Custom"))
         self.skill_site_sel.currentTextChanged.connect(self.skillSiteSel_changed)
 
-        self.skillCustomSiteNameLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Custom Site:"), alignment=QtCore.Qt.AlignLeft)
-        self.skillCustomSiteNameEdit = QtWidgets.QLineEdit("")
-        self.skillCustomSiteLinkLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Custom Site Html:"), alignment=QtCore.Qt.AlignLeft)
-        self.skillCustomSiteLinkEdit = QtWidgets.QLineEdit("")
+        self.skillCustomSiteNameLabel = QLabel(QApplication.translate("QLabel", "Custom Site:"), alignment=Qt.AlignLeft)
+        self.skillCustomSiteNameEdit = QLineEdit("")
+        self.skillCustomSiteLinkLabel = QLabel(QApplication.translate("QLabel", "Custom Site Html:"), alignment=Qt.AlignLeft)
+        self.skillCustomSiteLinkEdit = QLineEdit("")
 
-        self.skillActionLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Skill Action:"), alignment=QtCore.Qt.AlignLeft)
-        self.skill_action_sel = QtWidgets.QComboBox()
+        self.skillActionLabel = QLabel(QApplication.translate("QLabel", "Skill Action:"), alignment=Qt.AlignLeft)
+        self.skill_action_sel = QComboBox()
 
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "BuyOnly"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "BuyWithPositiveFeedback"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Browse"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "ManageOffers"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "ManageReturnRequest"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "BuyShippingLabel"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "FillShippingTracking"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "ManageReplacements"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "ManageRefund"))
-        self.skill_action_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "BuyOnly"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "BuyWithPositiveFeedback"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "Browse"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "ManageOffers"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "ManageReturnRequest"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "BuyShippingLabel"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "FillShippingTracking"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "ManageReplacements"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "ManageRefund"))
+        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "Custom"))
         self.skill_action_sel.currentTextChanged.connect(self.skillActionSel_changed)
 
 
-        self.skillCustomActionLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Custom Action:"), alignment=QtCore.Qt.AlignLeft)
-        self.skillCustomActionEdit = QtWidgets.QLineEdit("")
+        self.skillCustomActionLabel = QLabel(QApplication.translate("QLabel", "Custom Action:"), alignment=Qt.AlignLeft)
+        self.skillCustomActionEdit = QLineEdit("")
 
-        self.skillScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Required Skills:"), alignment=QtCore.Qt.AlignLeft)
-        self.skillScroll = QtWidgets.QScrollArea()
+        self.skillScrollLabel = QLabel(QApplication.translate("QLabel", "Required Skills:"), alignment=Qt.AlignLeft)
+        self.skillScroll = QScrollArea()
         self.skillScroll.setWidget(self.skillListView)
-        self.skillScrollArea = QtWidgets.QWidget()
-        self.skillScrollLayout = QtWidgets.QVBoxLayout(self)
+        self.skillScrollArea = QWidget()
+        self.skillScrollLayout = QVBoxLayout(self)
 
         self.skillScrollLayout.addWidget(self.skillScrollLabel)
         self.skillScrollLayout.addWidget(self.skillScroll)
         self.skillScrollArea.setLayout(self.skillScrollLayout)
 
-        self.skillButtonsArea = QtWidgets.QWidget()
-        self.skillButtonsLayout = QtWidgets.QVBoxLayout(self)
+        self.skillButtonsArea = QWidget()
+        self.skillButtonsLayout = QVBoxLayout(self)
 
-        self.skill_add_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Add Skill"))
+        self.skill_add_button = QPushButton(QApplication.translate("QPushButton", "Add Skill"))
         self.skill_add_button.clicked.connect(self.addSkill)
 
-        self.skill_remove_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Remove Skill"))
+        self.skill_remove_button = QPushButton(QApplication.translate("QPushButton", "Remove Skill"))
         self.skill_remove_button.clicked.connect(self.removeSkill)
 
         self.skillButtonsLayout.addWidget(self.skill_add_button)
         self.skillButtonsLayout.addWidget(self.skill_remove_button)
         self.skillButtonsArea.setLayout(self.skillButtonsLayout)
 
-        self.skillArea = QtWidgets.QWidget()
-        self.skillAreaLayout = QtWidgets.QHBoxLayout(self)
+        self.skillArea = QWidget()
+        self.skillAreaLayout = QHBoxLayout(self)
         self.skillAreaLayout.addWidget(self.skillScrollArea)
         self.skillAreaLayout.addWidget(self.skillButtonsArea)
         self.skillArea.setLayout(self.skillAreaLayout)
 
 
-        self.save_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Save"))
-        self.cancel_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Cancel"))
+        self.save_button = QPushButton(QApplication.translate("QPushButton", "Save"))
+        self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
 
-        self.action_confirm_cancel_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Cancel"))
-        self.action_confirm_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Confirm"))
-        self.action_confirm_ok_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "OK"))
+        self.action_confirm_cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
+        self.action_confirm_button = QPushButton(QApplication.translate("QPushButton", "Confirm"))
+        self.action_confirm_ok_button = QPushButton(QApplication.translate("QPushButton", "OK"))
 
-        self.layout = QtWidgets.QVBoxLayout(self)
-        self.bLayout = QtWidgets.QHBoxLayout(self)
+        self.layout = QVBoxLayout(self)
+        self.bLayout = QHBoxLayout(self)
         self.bLayout.addWidget(self.cancel_button)
         self.bLayout.addWidget(self.save_button)
 
-        self.pubAttrWidget.layout = QtWidgets.QVBoxLayout(self)
-        self.prvAttrWidget.layout = QtWidgets.QVBoxLayout(self)
-        self.actItemsWidget.layout = QtWidgets.QVBoxLayout(self)
+        self.pubAttrWidget.layout = QVBoxLayout(self)
+        self.prvAttrWidget.layout = QVBoxLayout(self)
+        self.actItemsWidget.layout = QVBoxLayout(self)
 
-        self.ticket_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Ticket Number:"), alignment=QtCore.Qt.AlignLeft)
-        self.ticket_edit = QtWidgets.QLineEdit()
+        self.ticket_label = QLabel(QApplication.translate("QLabel", "Ticket Number:"), alignment=Qt.AlignLeft)
+        self.ticket_edit = QLineEdit()
         self.ticket_edit.setReadOnly(True)
 
-        self.mid_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Mission ID:"), alignment=QtCore.Qt.AlignLeft)
-        self.mid_edit = QtWidgets.QLineEdit()
+        self.mid_label = QLabel(QApplication.translate("QLabel", "Mission ID:"), alignment=Qt.AlignLeft)
+        self.mid_edit = QLineEdit()
         self.mid_edit.setReadOnly(True)
 
-        self.mission_type_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Mission Type:"), alignment=QtCore.Qt.AlignLeft)
-        self.buy_rb = QtWidgets.QRadioButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Buy Side"))
-        self.sell_rb = QtWidgets.QRadioButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Sell Side"))
+        self.mission_type_label = QLabel(QApplication.translate("QLabel", "Mission Type:"), alignment=Qt.AlignLeft)
+        self.buy_rb = QRadioButton(QApplication.translate("QPushButton", "Buy Side"))
+        self.sell_rb = QRadioButton(QApplication.translate("QPushButton", "Sell Side"))
         self.buy_rb.isChecked()
 
-        self.mission_auto_assign_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Assignment Type:"), alignment=QtCore.Qt.AlignLeft)
-        self.manual_rb = QtWidgets.QRadioButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Manual Assign(Bot and Schedule)"))
-        self.auto_rb = QtWidgets.QRadioButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Auto Assign(Bot and Schedule)"))
+        self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"), alignment=Qt.AlignLeft)
+        self.manual_rb = QRadioButton(QApplication.translate("QPushButton", "Manual Assign(Bot and Schedule)"))
+        self.auto_rb = QRadioButton(QApplication.translate("QPushButton", "Auto Assign(Bot and Schedule)"))
         self.auto_rb.isChecked()
 
-        self.bid_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Assigned Bot ID:"), alignment=QtCore.Qt.AlignLeft)
-        self.bid_edit = QtWidgets.QLineEdit()
-        self.ert_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Estimated Duration Time(Sec):"), alignment=QtCore.Qt.AlignLeft)
-        self.ert_edit = QtWidgets.QLineEdit()
-        self.est_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Estimated Start Time(hh:mm:ss):"), alignment=QtCore.Qt.AlignLeft)
-        self.est_edit = QtWidgets.QLineEdit()
+        self.bid_label = QLabel(QApplication.translate("QLabel", "Assigned Bot ID:"), alignment=Qt.AlignLeft)
+        self.bid_edit = QLineEdit()
+        self.ert_label = QLabel(QApplication.translate("QLabel", "Estimated Duration Time(Sec):"), alignment=Qt.AlignLeft)
+        self.ert_edit = QLineEdit()
+        self.est_label = QLabel(QApplication.translate("QLabel", "Estimated Start Time(hh:mm:ss):"), alignment=Qt.AlignLeft)
+        self.est_edit = QLineEdit()
 
-        self.buy_mission_type_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Buy Mission Type:"), alignment=QtCore.Qt.AlignLeft)
-        self.buy_mission_type_sel = QtWidgets.QComboBox()
+        self.buy_mission_type_label = QLabel(QApplication.translate("QLabel", "Buy Mission Type:"), alignment=Qt.AlignLeft)
+        self.buy_mission_type_sel = QComboBox()
 
-        self.buy_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Simple Buy"))
-        self.buy_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Feedback Rating"))
-        self.buy_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Review"))
+        self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", "Simple Buy"))
+        self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", "Feedback Rating"))
+        self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", "Review"))
 
-        self.sell_mission_type_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Sell Mission Type:"), alignment=QtCore.Qt.AlignLeft)
-        self.sell_mission_type_sel = QtWidgets.QComboBox()
+        self.sell_mission_type_label = QLabel(QApplication.translate("QLabel", "Sell Mission Type:"), alignment=Qt.AlignLeft)
+        self.sell_mission_type_sel = QComboBox()
 
-        self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Prepare Shipping Label"))
-        self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Check Inventory"))
-        self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Process Messages"))
-        self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Handle Return"))
-        self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Handle Replacement"))
-        self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Handle Marketing"))
-        self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom Work"))
-        self.sell_mission_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Other"))
+        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Prepare Shipping Label"))
+        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Check Inventory"))
+        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Process Messages"))
+        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Handle Return"))
+        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Handle Replacement"))
+        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Handle Marketing"))
+        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Custom Work"))
+        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Other"))
 
-        self.repeat_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Repeat every:"), alignment=QtCore.Qt.AlignLeft)
-        self.repeat_edit = QtWidgets.QLineEdit()
+        self.repeat_label = QLabel(QApplication.translate("QLabel", "Repeat every:"), alignment=Qt.AlignLeft)
+        self.repeat_edit = QLineEdit()
         self.repeat_edit.setPlaceholderText("1")
 
-        self.repeat_interval_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", " "), alignment=QtCore.Qt.AlignLeft)
-        self.repeat_interval_sel = QtWidgets.QComboBox()
+        self.repeat_interval_label = QLabel(QApplication.translate("QLabel", " "), alignment=Qt.AlignLeft)
+        self.repeat_interval_sel = QComboBox()
 
-        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Day(s)"))
-        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Week(s)"))
-        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Month(s)"))
-        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Year(s)"))
-        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Hour(s)"))
-        self.repeat_interval_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Minute(s)"))
+        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Day(s)"))
+        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Week(s)"))
+        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Month(s)"))
+        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Year(s)"))
+        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Hour(s)"))
+        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Minute(s)"))
 
-        self.search_kw_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Search Phrase:"), alignment=QtCore.Qt.AlignLeft)
-        self.search_kw_edit = QtWidgets.QLineEdit()
+        self.search_kw_label = QLabel(QApplication.translate("QLabel", "Search Phrase:"), alignment=Qt.AlignLeft)
+        self.search_kw_edit = QLineEdit()
 
-        self.search_kw_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Example: jump rope"))
+        self.search_kw_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Example: jump rope"))
 
-        self.search_cat_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Search Category:"), alignment=QtCore.Qt.AlignLeft)
-        self.search_cat_edit = QtWidgets.QLineEdit()
+        self.search_cat_label = QLabel(QApplication.translate("QLabel", "Search Category:"), alignment=Qt.AlignLeft)
+        self.search_cat_edit = QLineEdit()
 
-        self.search_cat_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Example: Home&Garden->Garden Tools"))
+        self.search_cat_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Example: Home&Garden->Garden Tools"))
 
-        self.pseudo_store_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Pseudo Store:"), alignment=QtCore.Qt.AlignLeft)
-        self.pseudo_store_edit = QtWidgets.QLineEdit()
-        self.pseudo_store_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Example: Jacks Shop, must be differrent from the actual store name."))
+        self.pseudo_store_label = QLabel(QApplication.translate("QLabel", "Pseudo Store:"), alignment=Qt.AlignLeft)
+        self.pseudo_store_edit = QLineEdit()
+        self.pseudo_store_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Example: Jacks Shop, must be differrent from the actual store name."))
 
-        self.pseudo_brand_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Pseudo Brand:"), alignment=QtCore.Qt.AlignLeft)
-        self.pseudo_brand_edit = QtWidgets.QLineEdit()
-        self.pseudo_brand_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Example: abc, must be differrent from the actual brand name."))
+        self.pseudo_brand_label = QLabel(QApplication.translate("QLabel", "Pseudo Brand:"), alignment=Qt.AlignLeft)
+        self.pseudo_brand_edit = QLineEdit()
+        self.pseudo_brand_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Example: abc, must be differrent from the actual brand name."))
 
-        self.pseudo_asin_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Pseudo ASIN code:"), alignment=QtCore.Qt.AlignLeft)
-        self.pseudo_asin_edit = QtWidgets.QLineEdit()
-        self.pseudo_asin_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Example: 123, must be differrent from the actual ASIN code/Serial code."))
+        self.pseudo_asin_label = QLabel(QApplication.translate("QLabel", "Pseudo ASIN code:"), alignment=Qt.AlignLeft)
+        self.pseudo_asin_edit = QLineEdit()
+        self.pseudo_asin_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Example: 123, must be differrent from the actual ASIN code/Serial code."))
 
-        self.pubAttrLine1Layout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine1Layout = QHBoxLayout(self)
         self.pubAttrLine1Layout.addWidget(self.ticket_label)
         self.pubAttrLine1Layout.addWidget(self.ticket_edit)
         self.pubAttrLine1Layout.addWidget(self.mid_label)
         self.pubAttrLine1Layout.addWidget(self.mid_edit)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine1Layout)
 
-        self.pubAttrLine2Layout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine2Layout = QHBoxLayout(self)
         self.pubAttrLine2Layout.addWidget(self.mission_type_label)
         self.pubAttrLine2Layout.addWidget(self.buy_rb)
         self.pubAttrLine2Layout.addWidget(self.sell_rb)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2Layout)
 
-        self.pubAttrLine2ALayout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine2ALayout = QHBoxLayout(self)
         self.pubAttrLine2ALayout.addWidget(self.mission_auto_assign_label)
         self.pubAttrLine2ALayout.addWidget(self.manual_rb)
         self.pubAttrLine2ALayout.addWidget(self.auto_rb)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2ALayout)
 
-        self.pubAttrLine2BLayout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine2BLayout = QHBoxLayout(self)
         self.pubAttrLine2BLayout.addWidget(self.bid_label)
         self.pubAttrLine2BLayout.addWidget(self.bid_edit)
         self.pubAttrLine2BLayout.addWidget(self.ert_label)
@@ -312,42 +315,42 @@ class MissionNewWin(QtWidgets.QMainWindow):
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2BLayout)
 
 
-        self.pubAttrLine3Layout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine3Layout = QHBoxLayout(self)
         self.pubAttrLine3Layout.addWidget(self.repeat_label)
         self.pubAttrLine3Layout.addWidget(self.repeat_edit)
         self.pubAttrLine3Layout.addWidget(self.repeat_interval_label)
         self.pubAttrLine3Layout.addWidget(self.repeat_interval_sel)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine3Layout)
 
-        self.pubAttrLine4Layout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine4Layout = QHBoxLayout(self)
         self.pubAttrLine4Layout.addWidget(self.search_kw_label)
         self.pubAttrLine4Layout.addWidget(self.search_kw_edit)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine4Layout)
 
-        self.pubAttrLine5Layout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine5Layout = QHBoxLayout(self)
         self.pubAttrLine5Layout.addWidget(self.search_cat_label)
         self.pubAttrLine5Layout.addWidget(self.search_cat_edit)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine5Layout)
 
 
-        self.pubAttrLine6Layout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine6Layout = QHBoxLayout(self)
         self.pubAttrLine6Layout.addWidget(self.pseudo_store_label)
         self.pubAttrLine6Layout.addWidget(self.pseudo_store_edit)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine6Layout)
 
 
-        self.pubAttrLine7Layout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine7Layout = QHBoxLayout(self)
         self.pubAttrLine7Layout.addWidget(self.pseudo_brand_label)
         self.pubAttrLine7Layout.addWidget(self.pseudo_brand_edit)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine7Layout)
 
 
-        self.pubAttrLine8Layout = QtWidgets.QHBoxLayout(self)
+        self.pubAttrLine8Layout = QHBoxLayout(self)
         self.pubAttrLine8Layout.addWidget(self.pseudo_asin_label)
         self.pubAttrLine8Layout.addWidget(self.pseudo_asin_edit)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine8Layout)
 
-        self.pubpflLine9Layout = QtWidgets.QHBoxLayout(self)
+        self.pubpflLine9Layout = QHBoxLayout(self)
         self.pubpflLine9Layout.addWidget(self.skillPlatformLabel)
         self.pubpflLine9Layout.addWidget(self.skill_platform_sel)
         self.pubpflLine9Layout.addWidget(self.skillAppLabel)
@@ -359,21 +362,21 @@ class MissionNewWin(QtWidgets.QMainWindow):
         self.skillPanelLayout.addLayout(self.pubpflLine9Layout)
 
 
-        self.pubpflLine11Layout = QtWidgets.QHBoxLayout(self)
+        self.pubpflLine11Layout = QHBoxLayout(self)
         self.pubpflLine11Layout.addWidget(self.skillCustomAppNameLabel)
         self.pubpflLine11Layout.addWidget(self.skillCustomAppNameEdit)
         self.pubpflLine11Layout.addWidget(self.skillCustomAppLinkLabel)
         self.pubpflLine11Layout.addWidget(self.skillCustomAppLinkEdit)
         self.skillPanelLayout.addLayout(self.pubpflLine11Layout)
 
-        self.pubpflLine12Layout = QtWidgets.QHBoxLayout(self)
+        self.pubpflLine12Layout = QHBoxLayout(self)
         self.pubpflLine12Layout.addWidget(self.skillCustomSiteNameLabel)
         self.pubpflLine12Layout.addWidget(self.skillCustomSiteNameEdit)
         self.pubpflLine12Layout.addWidget(self.skillCustomSiteLinkLabel)
         self.pubpflLine12Layout.addWidget(self.skillCustomSiteLinkEdit)
         self.skillPanelLayout.addLayout(self.pubpflLine12Layout)
 
-        self.pubpflLine13Layout = QtWidgets.QHBoxLayout(self)
+        self.pubpflLine13Layout = QHBoxLayout(self)
         self.pubpflLine13Layout.addWidget(self.skillCustomActionLabel)
         self.pubpflLine13Layout.addWidget(self.skillCustomActionEdit)
         self.skillPanelLayout.addLayout(self.pubpflLine13Layout)
@@ -385,124 +388,124 @@ class MissionNewWin(QtWidgets.QMainWindow):
         self.skillPanelLayout.addWidget(self.skillArea)
         self.skillPanel.setLayout(self.skillPanelLayout)
 
-        self.skillPanel.setFrameStyle(QtWidgets.QFrame.Panel|QtWidgets.QFrame.Raised)
+        self.skillPanel.setFrameStyle(QFrame.Panel|QFrame.Raised)
 
         self.pubAttrWidget.layout.addWidget(self.skillPanel)
 
-        self.skillPanel = QtWidgets.QFrame()
-        self.skillPanelLayout = QtWidgets.QVBoxLayout(self)
+        self.skillPanel = QFrame()
+        self.skillPanelLayout = QVBoxLayout(self)
 
 
 
 
         self.pubAttrWidget.setLayout(self.pubAttrWidget.layout)
 
-        self.cus_fn_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer First Name:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_fn_edit = QtWidgets.QLineEdit()
-        self.cus_fn_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input Customer First Name here"))
+        self.cus_fn_label = QLabel(QApplication.translate("QLabel", "Customer First Name:"), alignment=Qt.AlignLeft)
+        self.cus_fn_edit = QLineEdit()
+        self.cus_fn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Customer First Name here"))
 
-        self.cus_ln_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer Last Name:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_ln_edit = QtWidgets.QLineEdit()
-        self.cus_ln_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input Customer Last Name here"))
+        self.cus_ln_label = QLabel(QApplication.translate("QLabel", "Customer Last Name:"), alignment=Qt.AlignLeft)
+        self.cus_ln_edit = QLineEdit()
+        self.cus_ln_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Customer Last Name here"))
 
-        self.cus_nn_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer Nick Name:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_nn_edit = QtWidgets.QLineEdit()
-        self.cus_nn_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input Customer Nick Name here"))
+        self.cus_nn_label = QLabel(QApplication.translate("QLabel", "Customer Nick Name:"), alignment=Qt.AlignLeft)
+        self.cus_nn_edit = QLineEdit()
+        self.cus_nn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Customer Nick Name here"))
 
-        self.cus_id_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer ID:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_id_edit = QtWidgets.QLineEdit()
-        self.cus_id_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input Customer ID here"))
+        self.cus_id_label = QLabel(QApplication.translate("QLabel", "Customer ID:"), alignment=Qt.AlignLeft)
+        self.cus_id_edit = QLineEdit()
+        self.cus_id_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Customer ID here"))
 
-        self.cus_sm_type_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer Messenging Type:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_sm_type_sel = QtWidgets.QComboBox()
+        self.cus_sm_type_label = QLabel(QApplication.translate("QLabel", "Customer Messenging Type:"), alignment=Qt.AlignLeft)
+        self.cus_sm_type_sel = QComboBox()
 
-        self.cus_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "QQ"))
-        self.cus_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "WeChat"))
-        self.cus_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Telegram"))
-        self.cus_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "WhatsApp"))
-        self.cus_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Messenger"))
-        self.cus_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Other"))
+        self.cus_sm_type_sel.addItem(QApplication.translate("QComboBox", "QQ"))
+        self.cus_sm_type_sel.addItem(QApplication.translate("QComboBox", "WeChat"))
+        self.cus_sm_type_sel.addItem(QApplication.translate("QComboBox", "Telegram"))
+        self.cus_sm_type_sel.addItem(QApplication.translate("QComboBox", "WhatsApp"))
+        self.cus_sm_type_sel.addItem(QApplication.translate("QComboBox", "Messenger"))
+        self.cus_sm_type_sel.addItem(QApplication.translate("QComboBox", "Other"))
 
-        self.cus_sm_id_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer Messenger ID:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_sm_id_edit = QtWidgets.QLineEdit()
-        self.cus_sm_id_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Customer Messenger ID here"))
+        self.cus_sm_id_label = QLabel(QApplication.translate("QLabel", "Customer Messenger ID:"), alignment=Qt.AlignLeft)
+        self.cus_sm_id_edit = QLineEdit()
+        self.cus_sm_id_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Customer Messenger ID here"))
 
-        self.cus_alt_sm_type_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer Messenging Type:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_alt_sm_type_sel = QtWidgets.QComboBox()
-        self.cus_alt_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "QQ"))
-        self.cus_alt_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Wechat"))
-        self.cus_alt_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Telegram"))
-        self.cus_alt_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "WhatsApp"))
-        self.cus_alt_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Messenger"))
-        self.cus_alt_sm_type_sel.addItem(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Other"))
+        self.cus_alt_sm_type_label = QLabel(QApplication.translate("QLabel", "Customer Messenging Type:"), alignment=Qt.AlignLeft)
+        self.cus_alt_sm_type_sel = QComboBox()
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "QQ"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Wechat"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Telegram"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "WhatsApp"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Messenger"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Other"))
 
-        self.cus_alt_sm_id_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer Messenger ID:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_alt_sm_id_edit = QtWidgets.QLineEdit()
+        self.cus_alt_sm_id_label = QLabel(QApplication.translate("QLabel", "Customer Messenger ID:"), alignment=Qt.AlignLeft)
+        self.cus_alt_sm_id_edit = QLineEdit()
 
-        self.cus_alt_sm_id_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "Customer Messenger ID here"))
-        self.cus_email_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer Email:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_email_edit = QtWidgets.QLineEdit()
-        self.cus_email_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input Customer Email"))
-        self.cus_phone_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Customer Contact Phone:"), alignment=QtCore.Qt.AlignLeft)
-        self.cus_phone_edit = QtWidgets.QLineEdit()
-        self.cus_phone_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input Customer Contact Phone here"))
-        self.asin_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Product ASIN/ID:"), alignment=QtCore.Qt.AlignLeft)
-        self.asin_edit = QtWidgets.QLineEdit()
-        self.asin_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input product ASIN/ID here"))
-        self.title_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Product Title:"), alignment=QtCore.Qt.AlignLeft)
-        self.title_edit = QtWidgets.QLineEdit()
-        self.title_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input product title here"))
-        self.seller_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Product Seller:"), alignment=QtCore.Qt.AlignLeft)
-        self.seller_edit = QtWidgets.QLineEdit()
-        self.seller_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input seller here"))
-        self.rating_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Rating:"), alignment=QtCore.Qt.AlignLeft)
-        self.rating_edit = QtWidgets.QLineEdit()
-        self.rating_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input rating here"))
-        self.product_image_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Top Image:"), alignment=QtCore.Qt.AlignLeft)
-        self.product_image_edit = QtWidgets.QLineEdit()
-        self.product_image_edit.setPlaceholderText(QtWidgets.QApplication.translate("QtWidgets.QLineEdit", "input image path here"))
+        self.cus_alt_sm_id_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Customer Messenger ID here"))
+        self.cus_email_label = QLabel(QApplication.translate("QLabel", "Customer Email:"), alignment=Qt.AlignLeft)
+        self.cus_email_edit = QLineEdit()
+        self.cus_email_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Customer Email"))
+        self.cus_phone_label = QLabel(QApplication.translate("QLabel", "Customer Contact Phone:"), alignment=Qt.AlignLeft)
+        self.cus_phone_edit = QLineEdit()
+        self.cus_phone_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Customer Contact Phone here"))
+        self.asin_label = QLabel(QApplication.translate("QLabel", "Product ASIN/ID:"), alignment=Qt.AlignLeft)
+        self.asin_edit = QLineEdit()
+        self.asin_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input product ASIN/ID here"))
+        self.title_label = QLabel(QApplication.translate("QLabel", "Product Title:"), alignment=Qt.AlignLeft)
+        self.title_edit = QLineEdit()
+        self.title_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input product title here"))
+        self.seller_label = QLabel(QApplication.translate("QLabel", "Product Seller:"), alignment=Qt.AlignLeft)
+        self.seller_edit = QLineEdit()
+        self.seller_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input seller here"))
+        self.rating_label = QLabel(QApplication.translate("QLabel", "Rating:"), alignment=Qt.AlignLeft)
+        self.rating_edit = QLineEdit()
+        self.rating_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input rating here"))
+        self.product_image_label = QLabel(QApplication.translate("QLabel", "Top Image:"), alignment=Qt.AlignLeft)
+        self.product_image_edit = QLineEdit()
+        self.product_image_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input image path here"))
 
-        self.prvAttrLine1Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine1Layout = QHBoxLayout(self)
         self.prvAttrLine1Layout.addWidget(self.cus_id_label)
         self.prvAttrLine1Layout.addWidget(self.cus_id_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine1Layout)
 
-        self.prvAttrLine2Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine2Layout = QHBoxLayout(self)
         self.prvAttrLine2Layout.addWidget(self.cus_sm_id_label)
         self.prvAttrLine2Layout.addWidget(self.cus_sm_id_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine2Layout)
 
-        self.prvAttrLine3Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine3Layout = QHBoxLayout(self)
         self.prvAttrLine3Layout.addWidget(self.asin_label)
         self.prvAttrLine3Layout.addWidget(self.asin_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine3Layout)
 
-        self.prvAttrLine4Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine4Layout = QHBoxLayout(self)
         self.prvAttrLine4Layout.addWidget(self.title_label)
         self.prvAttrLine4Layout.addWidget(self.title_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine4Layout)
 
-        self.prvAttrLine5Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine5Layout = QHBoxLayout(self)
         self.prvAttrLine5Layout.addWidget(self.seller_label)
         self.prvAttrLine5Layout.addWidget(self.seller_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine5Layout)
 
-        self.prvAttrLine6Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine6Layout = QHBoxLayout(self)
         self.prvAttrLine6Layout.addWidget(self.rating_label)
         self.prvAttrLine6Layout.addWidget(self.rating_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine6Layout)
 
-        self.prvAttrLine7Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine7Layout = QHBoxLayout(self)
         self.prvAttrLine7Layout.addWidget(self.product_image_label)
         self.prvAttrLine7Layout.addWidget(self.product_image_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine7Layout)
 
-        self.prvAttrLine8Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine8Layout = QHBoxLayout(self)
         self.prvAttrLine8Layout.addWidget(self.buy_mission_type_label)
         self.prvAttrLine8Layout.addWidget(self.buy_mission_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine8Layout)
 
-        self.prvAttrLine9Layout = QtWidgets.QHBoxLayout(self)
+        self.prvAttrLine9Layout = QHBoxLayout(self)
         self.prvAttrLine9Layout.addWidget(self.sell_mission_type_label)
         self.prvAttrLine9Layout.addWidget(self.sell_mission_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine9Layout)
@@ -510,41 +513,41 @@ class MissionNewWin(QtWidgets.QMainWindow):
 
         self.prvAttrWidget.setLayout(self.prvAttrWidget.layout)
 
-        self.bought_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Item Bought:"), alignment=QtCore.Qt.AlignLeft)
-        self.bought_cb = QtWidgets.QCheckBox()
-        self.received_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Item Received:"), alignment=QtCore.Qt.AlignLeft)
-        self.received_cb = QtWidgets.QCheckBox()
-        self.fb_rated_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Feedback Rated:"), alignment=QtCore.Qt.AlignLeft)
-        self.fb_rated_cb = QtWidgets.QCheckBox()
-        self.fb_reviewed_label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Feedback Reviewed:"), alignment=QtCore.Qt.AlignLeft)
-        self.fb_reviewed_cb = QtWidgets.QCheckBox()
+        self.bought_label = QLabel(QApplication.translate("QLabel", "Item Bought:"), alignment=Qt.AlignLeft)
+        self.bought_cb = QCheckBox()
+        self.received_label = QLabel(QApplication.translate("QLabel", "Item Received:"), alignment=Qt.AlignLeft)
+        self.received_cb = QCheckBox()
+        self.fb_rated_label = QLabel(QApplication.translate("QLabel", "Feedback Rated:"), alignment=Qt.AlignLeft)
+        self.fb_rated_cb = QCheckBox()
+        self.fb_reviewed_label = QLabel(QApplication.translate("QLabel", "Feedback Reviewed:"), alignment=Qt.AlignLeft)
+        self.fb_reviewed_cb = QCheckBox()
 
 
-        self.actItemsLine1Layout = QtWidgets.QHBoxLayout(self)
+        self.actItemsLine1Layout = QHBoxLayout(self)
         self.actItemsLine1Layout.addWidget(self.bought_label)
         self.actItemsLine1Layout.addWidget(self.bought_cb)
         self.actItemsWidget.layout.addLayout(self.actItemsLine1Layout)
 
-        self.actItemsLine2Layout = QtWidgets.QHBoxLayout(self)
+        self.actItemsLine2Layout = QHBoxLayout(self)
         self.actItemsLine2Layout.addWidget(self.received_label)
         self.actItemsLine2Layout.addWidget(self.received_cb)
         self.actItemsWidget.layout.addLayout(self.actItemsLine2Layout)
 
-        self.actItemsLine3Layout = QtWidgets.QHBoxLayout(self)
+        self.actItemsLine3Layout = QHBoxLayout(self)
         self.actItemsLine3Layout.addWidget(self.fb_rated_label)
         self.actItemsLine3Layout.addWidget(self.fb_rated_cb)
         self.actItemsWidget.layout.addLayout(self.actItemsLine3Layout)
 
-        self.actItemsLine4Layout = QtWidgets.QHBoxLayout(self)
+        self.actItemsLine4Layout = QHBoxLayout(self)
         self.actItemsLine4Layout.addWidget(self.fb_reviewed_label)
         self.actItemsLine4Layout.addWidget(self.fb_reviewed_cb)
         self.actItemsWidget.layout.addLayout(self.actItemsLine4Layout)
 
         self.actItemsWidget.setLayout(self.actItemsWidget.layout)
 
-        self.tabs.addTab(self.pubAttrWidget, QtWidgets.QApplication.translate("QtWidgets.QTabWidget", "Pub Attributes"))
-        self.tabs.addTab(self.prvAttrWidget, QtWidgets.QApplication.translate("QtWidgets.QTabWidget", "Private Attributes"))
-        self.tabs.addTab(self.actItemsWidget, QtWidgets.QApplication.translate("QtWidgets.QTabWidget", "Action Items"))
+        self.tabs.addTab(self.pubAttrWidget, QApplication.translate("QTabWidget", "Pub Attributes"))
+        self.tabs.addTab(self.prvAttrWidget, QApplication.translate("QTabWidget", "Private Attributes"))
+        self.tabs.addTab(self.actItemsWidget, QApplication.translate("QTabWidget", "Action Items"))
 
         self.layout.addWidget(self.tabs)
         self.layout.addLayout(self.bLayout)
@@ -671,7 +674,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
         self.skillCustomActionEdit.setVisible(True)
 
     def chooseAppLinkDir(self):
-        self.skillCustomAppLinkEdit.setText(str(QtWidgets.QFileDialog.getExistingDirectory(self, "Select Directory")))
+        self.skillCustomAppLinkEdit.setText(str(QFileDialog.getExistingDirectory(self, "Select Directory")))
         self.selected_skill_app_link = self.skillCustomAppLinkEdit.text()
 
     def addSkill(self):
@@ -695,21 +698,21 @@ class MissionNewWin(QtWidgets.QMainWindow):
 
     def _createSkillDeleteAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Delete"))
         return new_action
 
     def _createSkillUpdateAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Update"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Update"))
         return new_action
 
 
     def eventFilter(self, source, event):
-        if event.type() == QtCore.QEvent.ContextMenu and source is self.skillListView:
+        if event.type() == QEvent.ContextMenu and source is self.skillListView:
             #print("bot RC menu....")
-            self.popMenu = QtWidgets.QMenu(self)
+            self.popMenu = QMenu(self)
             self.skillUpdateAction = self._createSkillUpdateAction()
             self.skillDeleteAction = self._createSkillDeleteAction()
 
@@ -743,7 +746,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
 
         if self.skill_app_sel.findText(app) < 0:
             print("set custom app")
-            self.skill_app_sel.setCurrentText(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"))
+            self.skill_app_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
             self.skillCustomAppNameEdit.setText(app)
             self.skillCustomAppLinkEdit.setText(applink)
         else:
@@ -752,7 +755,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
             self.skillCustomActionEdit.setText("")
 
         if self.skill_site_sel.findText(site) < 0:
-            self.skill_site_sel.setCurrentText(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"))
+            self.skill_site_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
             self.skillCustomSiteNameEdit.setText(site)
             self.skillCustomSiteLinkEdit.setText(sitelink)
         else:
@@ -761,7 +764,7 @@ class MissionNewWin(QtWidgets.QMainWindow):
 
 
         if self.skill_action_sel.findText(action) < 0:
-            self.skill_action_sel.setCurrentText(QtWidgets.QApplication.translate("QtWidgets.QComboBox", "Custom"))
+            self.skill_action_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
             self.skillCustomActionEdit.setText(action)
         else:
             self.skill_action_sel.setCurrentText(action)

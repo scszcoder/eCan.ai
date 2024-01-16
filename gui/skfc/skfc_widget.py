@@ -142,15 +142,22 @@ class SkFCWidget(QWidget):
         pass
 
     def encode_json(self, indent=None) -> str:
-        json_dict = self.skfc_scene.to_json()
+        items = self.skfc_scene.to_dict()
+        sk_info = self.skfc_infobox.to_dict()
+
+        json_dict = {
+            "sk_info": sk_info,
+            "items": items
+        }
         json_str = json.dumps(json_dict, indent=indent)
         print(f"encode json str: {json_str}")
 
         return json_str
 
     def decode_json(self, json_str):
-        items_dict = json.loads(json_str)
-        self.skfc_scene.from_json(items_dict, self.context_menu)
+        skd_dict = json.loads(json_str)
+        self.skfc_scene.from_json(skd_dict["items"], self.context_menu)
+        self.skfc_infobox.from_json(skd_dict["sk_info"] if "sk_info" in skd_dict else None)
 
     def handleFontChange(self):
         self.skfc_toolbars.handleFontChange()

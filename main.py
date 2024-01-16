@@ -5,7 +5,7 @@ from network import *
 from unittests import *
 from config.app_settings import app_settings
 import asyncio
-from qasync import QApplication, QEventLoop
+from qasync import QEventLoop
 from envi import *
 
 # Press Shift+F10 to execute it or replace it with your code.
@@ -50,7 +50,7 @@ async def main():
     return True
 
 def windowlauncher():
-    app = QtWidgets.QApplication(sys.argv)
+    app = QApplication(sys.argv)
 
     loop = QEventLoop(app)
     # asyncio.set_event_loop(loop)

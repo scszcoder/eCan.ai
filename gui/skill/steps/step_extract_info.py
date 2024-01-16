@@ -5,7 +5,7 @@ from enum import Enum
 class StepExtractInfo(StepBase):
     TYPE_KEY = "Extract Info"
 
-    def __init__(self, stepN=0, template=None, settings=None, sink=None, page=None, sect=None, theme=None,
+    def __init__(self, stepN=0, template="", settings=None, sink="screen_info", page=None, sect="top", theme=None,
                  page_data=None, option=""):
         super().__init__(stepN)
 
@@ -18,3 +18,9 @@ class StepExtractInfo(StepBase):
         self.page_data_info = page_data
         self.theme = theme
         self.section = sect
+
+    def gen_step(self, stepN, **kwargs):
+        self.settings = kwargs.get('settings')
+        json_step = super().gen_step(stepN)
+
+        return json_step

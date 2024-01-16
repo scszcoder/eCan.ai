@@ -1,42 +1,16 @@
-import json
+import sqlite3
 
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QParallelAnimationGroup, QPropertyAnimation, QAbstractAnimation, QThreadPool
+from PySide6.QtWidgets import QToolButton, QMenuBar
 
-from BotGUI import *
-from MissionGUI import *
-from ScheduleGUI import *
-from PlatoonGUI import *
-from SkillGUI import *
-
-from ebbot import *
 from inventories import *
-from csv import reader
-from signio import *
-import platform
-from os.path import exists
-import webbrowser
-from Cloud import *
-from TrainGUI import *
-from BorderLayout import *
-import lzstring
 from network import *
 from LoggerGUI import *
 from ui_settings import *
-import schedule
-import time
-import pytz
-import tzlocal
 import TestAll
-import sqlite3
-from scraper import *
-from pynput.mouse import Button, Controller
-from genSkills import *
 import importlib
-import sys
-import copy
 
 from vehicles import *
-from envi import *
 from unittests import *
 from SkillManagerGUI import *
 
@@ -48,7 +22,7 @@ rpaConfig = None
 ecb_data_homepath = getECBotDataHome()
 
 # adopted from web: https://stackoverflow.com/questions/32476006/how-to-make-an-expandable-collapsable-section-widget-in-qt
-class Expander(QtWidgets.QWidget):
+class Expander(QWidget):
     def __init__(self, parent=None, title='', animationDuration=300):
         """
         References:
@@ -60,49 +34,49 @@ class Expander(QtWidgets.QWidget):
         super(Expander, self).__init__(parent=parent)
 
         self.animationDuration = animationDuration
-        self.toggleAnimation = QtCore.QParallelAnimationGroup()
-        self.contentArea =  QtWidgets.QScrollArea()
-        self.headerLine =   QtWidgets.QFrame()
-        self.toggleButton = QtWidgets.QToolButton()
-        self.mainLayout =   QtWidgets.QGridLayout()
+        self.toggleAnimation = QParallelAnimationGroup()
+        self.contentArea = QScrollArea()
+        self.headerLine =  QFrame()
+        self.toggleButton = QToolButton()
+        self.mainLayout = QGridLayout()
 
         toggleButton = self.toggleButton
         toggleButton.setStyleSheet("QToolButton { border: none; }")
-        toggleButton.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
-        toggleButton.setArrowType(QtCore.Qt.RightArrow)
+        toggleButton.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        toggleButton.setArrowType(Qt.RightArrow)
         toggleButton.setText(str(title))
         toggleButton.setCheckable(True)
         toggleButton.setChecked(False)
 
         headerLine = self.headerLine
-        headerLine.setFrameShape(QtWidgets.QFrame.HLine)
-        headerLine.setFrameShadow(QtWidgets.QFrame.Sunken)
-        headerLine.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+        headerLine.setFrameShape(QFrame.HLine)
+        headerLine.setFrameShadow(QFrame.Sunken)
+        headerLine.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
 
         self.contentArea.setStyleSheet("QScrollArea { background-color: white; border: none; }")
-        self.contentArea.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.contentArea.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         # start out collapsed
         self.contentArea.setMaximumHeight(0)
         self.contentArea.setMinimumHeight(0)
         # let the entire widget grow and shrink with its content
         toggleAnimation = self.toggleAnimation
-        toggleAnimation.addAnimation(QtCore.QPropertyAnimation(self, b"minimumHeight"))
-        toggleAnimation.addAnimation(QtCore.QPropertyAnimation(self, b"maximumHeight"))
-        toggleAnimation.addAnimation(QtCore.QPropertyAnimation(self.contentArea, b"maximumHeight"))
+        toggleAnimation.addAnimation(QPropertyAnimation(self, b"minimumHeight"))
+        toggleAnimation.addAnimation(QPropertyAnimation(self, b"maximumHeight"))
+        toggleAnimation.addAnimation(QPropertyAnimation(self.contentArea, b"maximumHeight"))
         # don't waste space
         mainLayout = self.mainLayout
         mainLayout.setVerticalSpacing(0)
         mainLayout.setContentsMargins(0, 0, 0, 0)
         row = 0
-        mainLayout.addWidget(self.toggleButton, row, 0, 1, 1, QtCore.Qt.AlignLeft)
+        mainLayout.addWidget(self.toggleButton, row, 0, 1, 1, Qt.AlignLeft)
         mainLayout.addWidget(self.headerLine, row, 2, 1, 1)
         row += 1
         mainLayout.addWidget(self.contentArea, row, 0, 1, 3)
         self.setLayout(self.mainLayout)
 
         def start_animation(checked):
-            arrow_type = QtCore.Qt.DownArrow if checked else QtCore.Qt.RightArrow
-            direction = QtCore.QAbstractAnimation.Forward if checked else QtCore.QAbstractAnimation.Backward
+            arrow_type = Qt.DownArrow if checked else Qt.RightArrow
+            direction = QAbstractAnimation.Forward if checked else QAbstractAnimation.Backward
             toggleButton.setArrowType(arrow_type)
             self.toggleAnimation.setDirection(direction)
             self.toggleAnimation.start()
@@ -126,8 +100,8 @@ class Expander(QtWidgets.QWidget):
         contentAnimation.setEndValue(contentHeight)
 
 
-# class MainWindow(QtWidgets.QWidget):
-class MainWindow(QtWidgets.QMainWindow):
+# class MainWindow(QWidget):
+class MainWindow(QMainWindow):
     def __init__(self, inTokens, tcpserver, ip, user, homepath, machine_role, lang):
         super(MainWindow, self).__init__()
         if homepath[len(homepath)-1] == "/":
@@ -183,7 +157,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.platoons = []
         self.products = []
         self.zipper = lzstring.LZString()
-        self.threadPool = QtCore.QThreadPool()
+        self.threadPool = QThreadPool()
         self.selected_row = -1
         self.BotNewWin = None
         self.missionWin = None
@@ -194,7 +168,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
 
-        self.logConsoleBox = Expander(self, QtWidgets.QApplication.translate("QtWidgets.QWidget", "Log Console:"))
+        self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.commanderName = ""
         self.todaysReport = []
         self.todaysReports = []
@@ -229,22 +203,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self.dbcon = None
             self.dbCursor = None
 
-        # self.logConsoleBox = QtWidgets.QWidget()
-        self.logConsole = QtWidgets.QTextEdit()
-        self.logConsole.setLineWrapMode(QtWidgets.QTextEdit.FixedPixelWidth)
+        # self.logConsoleBox = QWidget()
+        self.logConsole = QTextEdit()
+        self.logConsole.setLineWrapMode(QTextEdit.FixedPixelWidth)
         self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
-        self.logConsoleLayout = QtWidgets.QVBoxLayout()
+        self.logConsoleLayout = QVBoxLayout()
 
         # self.logConsoleBox.setContentLayout(self.logConsoleLayout)
 
-        # self.toggle_button = QtWidgets.QToolButton(
+        # self.toggle_button = QToolButton(
         #     text="log console", checkable=True, checked=False
         # )
         # self.toggle_button.setStyleSheet("QToolButton { border: none; }")
         # self.toggle_button.setToolButtonStyle(
-        #     QtCore.Qt.ToolButtonTextBesideIcon
+        #     Qt.ToolButtonTextBesideIcon
         # )
-        # self.toggle_button.setArrowType(QtCore.Qt.RightArrow)
+        # self.toggle_button.setArrowType(Qt.RightArrow)
         # self.toggle_button.pressed.connect(self.on_tg_pressed)
 
         # self.logConsoleLayout.addWidget(self.toggle_button)
@@ -256,50 +230,50 @@ class MainWindow(QtWidgets.QMainWindow):
         self.owner = "NA"
         self.botRank = "soldier"              # this should be read from a file which is written during installation phase, user will select this during installation phase
 
-        self.save_all_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Save All"))
-        self.log_out_button = QtWidgets.QPushButton(QtWidgets.QApplication.translate("QtWidgets.QPushButton", "Logout"))
-        self.south_layout = QtWidgets.QVBoxLayout(self)
+        self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
+        self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
+        self.south_layout = QVBoxLayout(self)
         self.south_layout.addWidget(self.logConsoleBox)
-        self.bottomButtonsLayout = QtWidgets.QHBoxLayout(self)
+        self.bottomButtonsLayout = QHBoxLayout(self)
         self.bottomButtonsLayout.addWidget(self.save_all_button)
         self.south_layout.addLayout(self.bottomButtonsLayout)
         self.bottomButtonsLayout.addWidget(self.log_out_button)
         self.save_all_button.clicked.connect(self.saveAll)
         self.log_out_button.clicked.connect(self.logOut)
 
-        self.southWidget = QtWidgets.QWidget()
+        self.southWidget = QWidget()
         self.southWidget.setLayout(self.south_layout)
 
         self.menuFont = QFont('Arial', 10)
-        self.mainWidget = QtWidgets.QWidget()
-        self.westScrollArea = QtWidgets.QWidget()
-        self.westScrollLayout = QtWidgets.QVBoxLayout(self)
-        self.westScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Missions:"), alignment=QtCore.Qt.AlignLeft)
+        self.mainWidget = QWidget()
+        self.westScrollArea = QWidget()
+        self.westScrollLayout = QVBoxLayout(self)
+        self.westScrollLabel = QLabel(QApplication.translate("QLabel", "Missions:"), alignment=Qt.AlignLeft)
         self.westScrollLabel.setFont(self.menuFont)
 
-        self.centralScrollArea = QtWidgets.QWidget()
-        self.centralScrollLayout = QtWidgets.QVBoxLayout(self)
-        self.centralScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Bots:"), alignment=QtCore.Qt.AlignLeft)
+        self.centralScrollArea = QWidget()
+        self.centralScrollLayout = QVBoxLayout(self)
+        self.centralScrollLabel = QLabel(QApplication.translate("QLabel", "Bots:"), alignment=Qt.AlignLeft)
         self.centralScrollLabel.setFont(self.menuFont)
 
-        self.east0ScrollArea = QtWidgets.QWidget()
-        self.east0ScrollLayout = QtWidgets.QVBoxLayout(self)
+        self.east0ScrollArea = QWidget()
+        self.east0ScrollLayout = QVBoxLayout(self)
         if (self.machine_role == "Platoon"):
-            self.east0ScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Running Missions:"), alignment=QtCore.Qt.AlignLeft)
+            self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Running Missions:"), alignment=Qt.AlignLeft)
         else:
-            self.east0ScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Vehicles:"), alignment=QtCore.Qt.AlignLeft)
+            self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Vehicles:"), alignment=Qt.AlignLeft)
         self.east0ScrollLabel.setFont(self.menuFont)
 
-        self.east1ScrollArea = QtWidgets.QWidget()
-        self.east1ScrollLayout = QtWidgets.QVBoxLayout(self)
+        self.east1ScrollArea = QWidget()
+        self.east1ScrollLayout = QVBoxLayout(self)
 
-        self.east1ScrollLabel = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", "Completed Missions:"), alignment=QtCore.Qt.AlignLeft)
+        self.east1ScrollLabel = QLabel(QApplication.translate("QLabel", "Completed Missions:"), alignment=Qt.AlignLeft)
         self.east1ScrollLabel.setFont(self.menuFont)
 
-        self.westScroll = QtWidgets.QScrollArea()
-        self.centralScroll = QtWidgets.QScrollArea()
-        self.east0Scroll = QtWidgets.QScrollArea()
-        self.east1Scroll = QtWidgets.QScrollArea()
+        self.westScroll = QScrollArea()
+        self.centralScroll = QScrollArea()
+        self.east0Scroll = QScrollArea()
+        self.east1Scroll = QScrollArea()
 
         self.westScrollLayout.addWidget(self.westScrollLabel)
         self.westScrollLayout.addWidget(self.westScroll)
@@ -317,20 +291,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.east1ScrollLayout.addWidget(self.east1Scroll)
         self.east1ScrollArea.setLayout(self.east1ScrollLayout)
 
-        self.westScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.westScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.westScroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.westScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.westScroll.setWidgetResizable(True)
 
-        self.centralScroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.centralScroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.centralScroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.centralScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.centralScroll.setWidgetResizable(True)
 
-        self.east0Scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.east0Scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.east0Scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.east0Scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.east0Scroll.setWidgetResizable(True)
 
-        self.east1Scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.east1Scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.east1Scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.east1Scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.east1Scroll.setWidgetResizable(True)
 
         #creating QActions
@@ -376,36 +350,36 @@ class MainWindow(QtWidgets.QMainWindow):
         self.helpMyAccountAction = self._createHelpMyAccountAction()
         self.helpAboutAction = self._createHelpAboutAction()
 
-        self.popMenu = QtWidgets.QMenu(self)
-        self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+        self.popMenu = QMenu(self)
+        self.pop_menu_font = QFont("Helvetica", 10)
         self.popMenu.setFont(self.pop_menu_font)
 
-        self.popMenu.addAction(QtGui.QAction(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"), self))
-        self.popMenu.addAction(QtGui.QAction(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"), self))
+        self.popMenu.addAction(QAction(QApplication.translate("QAction", "&Edit"), self))
+        self.popMenu.addAction(QAction(QApplication.translate("QAction", "&Clone"), self))
         self.popMenu.addSeparator()
-        self.popMenu.addAction(QtGui.QAction(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"), self))
+        self.popMenu.addAction(QAction(QApplication.translate("QAction", "&Delete"), self))
 
         self.botListView = BotListView()
         self.botListView.installEventFilter(self)
-        self.botModel = QtGui.QStandardItemModel(self.botListView)
+        self.botModel = QStandardItemModel(self.botListView)
 
         self.missionListView = MissionListView()
         self.missionListView.installEventFilter(self)
-        self.missionModel = QtGui.QStandardItemModel(self.missionListView)
+        self.missionModel = QStandardItemModel(self.missionListView)
 
         self.running_missionListView = MissionListView()
-        self.runningMissionModel = QtGui.QStandardItemModel(self.running_missionListView)
+        self.runningMissionModel = QStandardItemModel(self.running_missionListView)
 
         self.vehicleListView = PlatoonListView(self)
         self.vehicleListView.installEventFilter(self)
-        self.runningVehicleModel = QtGui.QStandardItemModel(self.vehicleListView)
+        self.runningVehicleModel = QStandardItemModel(self.vehicleListView)
 
         self.skillListView = SkillListView(self)
         self.skillListView.installEventFilter(self)
-        self.skillModel = QtGui.QStandardItemModel(self.skillListView)
+        self.skillModel = QStandardItemModel(self.skillListView)
 
         self.completed_missionListView = MissionListView()
-        self.completedMissionModel = QtGui.QStandardItemModel(self.completed_missionListView)
+        self.completedMissionModel = QStandardItemModel(self.completed_missionListView)
 
         self.mtvViewAction = self._createMTVViewAction()
         # self.fieldMonitorAction = self._createFieldMonitorAction()
@@ -413,32 +387,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Apply the model to the list view
         self.botListView.setModel(self.botModel)
-        self.botListView.setViewMode(QtWidgets.QListView.IconMode)
-        self.botListView.setMovement(QtWidgets.QListView.Snap)
+        self.botListView.setViewMode(QListView.IconMode)
+        self.botListView.setMovement(QListView.Snap)
 
         self.skillListView.setModel(self.skillModel)
-        self.skillListView.setViewMode(QtWidgets.QListView.IconMode)
-        self.skillListView.setMovement(QtWidgets.QListView.Snap)
+        self.skillListView.setViewMode(QListView.IconMode)
+        self.skillListView.setMovement(QListView.Snap)
 
         self.mission0 = EBMISSION(self)
         self.missionModel.appendRow(self.mission0)
         self.missions.append(self.mission0)
 
         self.missionListView.setModel(self.missionModel)
-        self.missionListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.missionListView.setMovement(QtWidgets.QListView.Snap)
+        self.missionListView.setViewMode(QListView.ListMode)
+        self.missionListView.setMovement(QListView.Snap)
 
         self.running_missionListView.setModel(self.runningMissionModel)
-        self.running_missionListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.running_missionListView.setMovement(QtWidgets.QListView.Snap)
+        self.running_missionListView.setViewMode(QListView.ListMode)
+        self.running_missionListView.setMovement(QListView.Snap)
 
         self.vehicleListView.setModel(self.runningVehicleModel)
-        self.vehicleListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.vehicleListView.setMovement(QtWidgets.QListView.Snap)
+        self.vehicleListView.setViewMode(QListView.ListMode)
+        self.vehicleListView.setMovement(QListView.Snap)
 
         self.completed_missionListView.setModel(self.completedMissionModel)
-        self.completed_missionListView.setViewMode(QtWidgets.QListView.ListMode)
-        self.completed_missionListView.setMovement(QtWidgets.QListView.Snap)
+        self.completed_missionListView.setViewMode(QListView.ListMode)
+        self.completed_missionListView.setMovement(QListView.Snap)
 
         centralWidget = DragPanel()
 
@@ -471,10 +445,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         #centralWidget.setPlainText("Central widget")
 
-        layout = QtWidgets.QVBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignTop)
-        self.centralSplitter = QtWidgets.QSplitter(Qt.Horizontal)
-        self.bottomSplitter = QtWidgets.QSplitter(Qt.Vertical)
+        self.centralSplitter = QSplitter(Qt.Horizontal)
+        self.bottomSplitter = QSplitter(Qt.Vertical)
 
 
 
@@ -485,8 +459,8 @@ class MainWindow(QtWidgets.QMainWindow):
         #label_n = self.createLabel("North")
         # layout.addWidget(label_n, BorderLayout.North)
         self.menuBar = self._createMenuBar()
-        self.mbWidget = QtWidgets.QWidget()
-        self.mbLayout = QtWidgets.QVBoxLayout(self)
+        self.mbWidget = QWidget()
+        self.mbLayout = QVBoxLayout(self)
         #self.mbLayout.addWidget(menuBar)
         self.mbWidget.setLayout(self.mbLayout)
 
@@ -588,10 +562,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def on_tg_pressed(self):
         checked = self.toggle_button.isChecked()
         self.toggle_button.setArrowType(
-            QtCore.Qt.DownArrow if not checked else QtCore.Qt.RightArrow
+            Qt.DownArrow if not checked else Qt.RightArrow
         )
 
-        if self.toggle_button.arrowType() == QtCore.Qt.DownArrow:
+        if self.toggle_button.arrowType() == Qt.DownArrow:
             self.logConsole.setVisible(True)
         else:
             self.logConsole.setVisible(False)
@@ -615,20 +589,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tokens = intoken
 
     def createLabel(self, text):
-        label = QtWidgets.QLabel(QtWidgets.QApplication.translate("QtWidgets.QLabel", text))
-        label.setFrameStyle(QtWidgets.QFrame.Box | QtWidgets.QFrame.Raised)
+        label = QLabel(QApplication.translate("QLabel", text))
+        label.setFrameStyle(QFrame.Box | QFrame.Raised)
         return label
 
     def _createMenuBar(self):
         print("MAIN Creating Menu Bar")
-        self.main_menu_bar_font = QtGui.QFont("Helvetica", 12)
-        self.main_menu_font = QtGui.QFont("Helvetica", 10)
+        self.main_menu_bar_font = QFont("Helvetica", 12)
+        self.main_menu_font = QFont("Helvetica", 10)
 
-        menu_bar = QtWidgets.QMenuBar()
+        menu_bar = QMenuBar()
         menu_bar.setFont(self.main_menu_bar_font)
         # Creating menus using a QMenu object
 
-        bot_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Bots"), self)
+        bot_menu = QMenu(QApplication.translate("QMenu", "&Bots"), self)
         bot_menu.setFont(self.main_menu_font)
 
         bot_menu.addAction(self.botNewAction)
@@ -639,7 +613,7 @@ class MainWindow(QtWidgets.QMainWindow):
         bot_menu.addAction(self.botNewFromFileAction)
         menu_bar.addMenu(bot_menu)
 
-        mission_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Missions"), self)
+        mission_menu = QMenu(QApplication.translate("QMenu", "&Missions"), self)
         mission_menu.setFont(self.main_menu_font)
         mission_menu.addAction(self.missionNewAction)
         mission_menu.addAction(self.missionImportAction)
@@ -648,14 +622,14 @@ class MainWindow(QtWidgets.QMainWindow):
         mission_menu.addAction(self.missionNewFromFileAction)
         menu_bar.addMenu(mission_menu)
 
-        platoon_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Platoons"), self)
+        platoon_menu = QMenu(QApplication.translate("QMenu", "&Platoons"), self)
         platoon_menu.setFont(self.main_menu_font)
         platoon_menu.addAction(self.mtvViewAction)
         # platoon_menu.addAction(self.fieldMonitorAction)
         platoon_menu.addAction(self.commandSendAction)
         menu_bar.addMenu(platoon_menu)
 
-        settings_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Settings"), self)
+        settings_menu = QMenu(QApplication.translate("QMenu", "&Settings"), self)
         settings_menu.setFont(self.main_menu_font)
         # settings_menu.addAction(self.settingsAccountAction)
         #settings_menu.addAction(self.settingsImportAction)
@@ -663,20 +637,20 @@ class MainWindow(QtWidgets.QMainWindow):
         #settings_menu.addAction(self.settingsDelAction)
         menu_bar.addMenu(settings_menu)
 
-        reports_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Reports"), self)
+        reports_menu = QMenu(QApplication.translate("QMenu", "&Reports"), self)
         reports_menu.setFont(self.main_menu_font)
         reports_menu.addAction(self.reportsShowAction)
         reports_menu.addAction(self.reportsGenAction)
         reports_menu.addAction(self.reportsLogConsoleAction)
         menu_bar.addMenu(reports_menu)
 
-        run_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Run"), self)
+        run_menu = QMenu(QApplication.translate("QMenu", "&Run"), self)
         run_menu.setFont(self.main_menu_font)
         run_menu.addAction(self.runRunAllAction)
         run_menu.addAction(self.runTestAllAction)
         menu_bar.addMenu(run_menu)
 
-        schedule_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Schedule"), self)
+        schedule_menu = QMenu(QApplication.translate("QMenu", "&Schedule"), self)
         schedule_menu.setFont(self.main_menu_font)
         schedule_menu.addAction(self.fetchScheduleAction)
         schedule_menu.addAction(self.scheduleCalendarViewAction)
@@ -684,7 +658,7 @@ class MainWindow(QtWidgets.QMainWindow):
         schedule_menu.setFont(self.main_menu_font)
         menu_bar.addMenu(schedule_menu)
 
-        skill_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Skills"), self)
+        skill_menu = QMenu(QApplication.translate("QMenu", "&Skills"), self)
         skill_menu.setFont(self.main_menu_font)
         skill_menu.addAction(self.skillNewAction)
         skill_menu.addAction(self.skillManagerAction)
@@ -695,7 +669,7 @@ class MainWindow(QtWidgets.QMainWindow):
         skill_menu.addAction(self.skillNewFromFileAction)
         menu_bar.addMenu(skill_menu)
 
-        help_menu = QtWidgets.QMenu(QtWidgets.QApplication.translate("QtWidgets.QMenu", "&Help"), self)
+        help_menu = QMenu(QApplication.translate("QMenu", "&Help"), self)
         help_menu.setFont(self.main_menu_font)
         help_menu.addAction(self.helpUGAction)
         help_menu.addAction(self.helpCommunityAction)
@@ -710,8 +684,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _createBotNewAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&New"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&New"))
         new_action.triggered.connect(self.newBotGui)
 
         return new_action
@@ -719,83 +693,83 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _createBotNewFromFileAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&New From File"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&New From File"))
         new_action.triggered.connect(self.newBotFromFile)
         return new_action
 
     def _createGetBotsAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Load All Bots"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Load All Bots"))
         new_action.triggered.connect(self.getAllBotsFromCloud)
-        # ew_action.connect(QtGui.QAction.)
+        # ew_action.connect(QAction.)
 
         # new_action.connect(self.newBot)
-        # self.newAction.setIcon(QtGui.QIcon(":file-new.svg"))
-        # self.openAction = QtGui.QAction(QtGui.QIcon(":file-open.svg"), "&Open...", self)
-        # self.saveAction = QtGui.QAction(QtGui.QIcon(":file-save.svg"), "&Save", self)
-        # self.exitAction = QtGui.QAction("&Exit", self)
+        # self.newAction.setIcon(QIcon(":file-new.svg"))
+        # self.openAction = QAction(QIcon(":file-open.svg"), "&Open...", self)
+        # self.saveAction = QAction(QIcon(":file-save.svg"), "&Save", self)
+        # self.exitAction = QAction("&Exit", self)
         return new_action
 
     def _createSaveAllAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Save All"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Save All"))
         new_action.triggered.connect(self.saveAll)
         return new_action
 
     def _createBotDelAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Remove"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Remove"))
         return new_action
 
     def _createBotEditAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Edit"))
         return new_action
 
     def _createBotCloneAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Clone"))
         return new_action
 
     def _createBotEnDisAbleAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Disable"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Disable"))
         return new_action
 
     def _createMissionNewAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Create"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Create"))
         new_action.triggered.connect(self.newMissionView)
 
         return new_action
 
     def _createMTVViewAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Vehicles View"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Vehicles View"))
         new_action.triggered.connect(self.newVehiclesView)
 
         return new_action
 
 
     def _createFieldMonitorAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Field Monitor"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Field Monitor"))
         #new_action.triggered.connect(self.newMissionView)
 
         return new_action
 
 
     def _createCommandSendAction(self):
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Send Command"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Send Command"))
         # new_action.triggered.connect(lambda: self.sendToPlatoons("7000", None))
         cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
         new_action.triggered.connect(lambda: self.sendToPlatoons([], cmd))
@@ -805,28 +779,28 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _createMissionDelAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete M"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Delete M"))
         return new_action
 
 
     def _createMissionImportAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Import"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Import"))
         return new_action
 
 
     def _createMissionEditAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Edit"))
         return new_action
 
     def _createMissionNewFromFileAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&New From File"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&New From File"))
         new_action.triggered.connect(self.newMissionFromFile)
         return new_action
 
@@ -834,148 +808,148 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _createSettingsAccountAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Account"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Account"))
         return new_action
 
     def _createSettingsEditAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Edit"))
         new_action.triggered.connect(self.editSettings)
         return new_action
 
 
     def _createRunRunAllAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Run All"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Run All"))
         new_action.triggered.connect(self.manualRunAll)
         return new_action
 
     def _createRunTestAllAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Run All Tests"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Run All Tests"))
         new_action.triggered.connect(self.runAllTests)
         return new_action
 
 
     def _createScheduleCalendarViewAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Calendar View"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Calendar View"))
         new_action.triggered.connect(self.scheduleCalendarView)
         return new_action
 
 
     def _createFetchScheduleAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Fetch Schedules"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Fetch Schedules"))
         new_action.triggered.connect(lambda: self.fetchSchedule("", None))
         return new_action
 
 
     def _createScheduleNewFromFileAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Test Schedules From File"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Test Schedules From File"))
         new_action.triggered.connect(self.fetchScheduleFromFile)
         return new_action
 
     def _createReportsShowAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&View"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&View"))
         return new_action
 
     def _createReportsGenAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Generate"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Generate"))
         return new_action
 
     def _createReportsLogConsoleAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Log Console"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Log Console"))
         new_action.triggered.connect(self.showLogs)
         return new_action
 
     def _createSettingsGenAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Generate"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Generate"))
         return new_action
 
     # after click, should pop up a windows to ask user to choose from 3 options
     # start from scratch, start from template, start by interactive show and learn tip bubble "most popular".
     def _createSkillNewAction(self):
             # File actions
-            new_action = QtGui.QAction(self)
-            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Create New"))
+            new_action = QAction(self)
+            new_action.setText(QApplication.translate("QAction", "&Create New"))
             new_action.triggered.connect(self.trainNewSkill)
             return new_action
 
     def _createSkillManagerAction(self):
             # File actions
-            new_action = QtGui.QAction(self)
-            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Manager"))
+            new_action = QAction(self)
+            new_action.setText(QApplication.translate("QAction", "&Manager"))
             new_action.triggered.connect(self.showSkillManager)
             return new_action
 
     def _createSkillDeleteAction(self):
             # File actions
-            new_action = QtGui.QAction(self)
-            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+            new_action = QAction(self)
+            new_action.setText(QApplication.translate("QAction", "&Delete"))
             return new_action
 
     def _createSkillShowAction(self):
             # File actions
-            new_action = QtGui.QAction(self)
-            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Show All"))
+            new_action = QAction(self)
+            new_action.setText(QApplication.translate("QAction", "&Show All"))
             return new_action
 
     def _createSkillUploadAction(self):
             # File actions
-            new_action = QtGui.QAction(self)
-            new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Upload Skill"))
+            new_action = QAction(self)
+            new_action.setText(QApplication.translate("QAction", "&Upload Skill"))
             new_action.triggered.connect(self.uploadSkill)
             return new_action
 
     def _createSkillNewFromFileAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&New From File"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&New From File"))
         new_action.triggered.connect(self.newSkillFromFile)
         return new_action
 
     def _createHelpUGAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&User Guide"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&User Guide"))
         return new_action
 
 
     def _createHelpCommunityAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Community"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Community"))
         new_action.triggered.connect(self.gotoForum)
         return new_action
 
     def _createHelpMyAccountAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&My Account"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&My Account"))
         new_action.triggered.connect(self.gotoMyAccount)
         return new_action
 
     def _createHelpAboutAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&About"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&About"))
         new_action.triggered.connect(self.showAbout)
         return new_action
 
@@ -1107,9 +1081,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         self.assignWork(bodyobj["task_groups"])
                         self.logDailySchedule(uncompressed)
                     else:
-                        self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO schedule generated."))
+                        self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
                 else:
-                    self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: Empty Network Response."))
+                    self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
             if len(self.todays_work["tbd"]) > 0:
                 self.todays_work["tbd"][0]["status"] = fetch_stat
@@ -1133,9 +1107,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.assignWork(bodyobj)
                 self.logDailySchedule(uncompressed)
             else:
-                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO schedule generated."))
+                self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
         else:
-            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: Empty Network Response."))
+            self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
     def warn(self, msg):
         warnText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\" >"
@@ -1156,7 +1130,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def appendDailyLogs(self, msgs):
         #check if daily log file exists, if exists simply append to it, if not create and write to the file.
-        now = datetime.datetime.now()  # current date and time
+        now = datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1181,7 +1155,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def logDailySchedule(self, netSched):
-        now = datetime.datetime.now()  # current date and time
+        now = datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1197,7 +1171,7 @@ class MainWindow(QtWidgets.QMainWindow):
             file1.close()
 
     def saveDailyRunReport(self, runStat):
-        now = datetime.datetime.now()  # current date and time
+        now = datetime.now()  # current date and time
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
@@ -1419,7 +1393,7 @@ class MainWindow(QtWidgets.QMainWindow):
         print("checking todos......", self.todays_work["tbd"])
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
-        pt = datetime.datetime.now()
+        pt = datetime.now()
         if len(self.todays_work["tbd"]) > 0:
             if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
@@ -1989,9 +1963,9 @@ class MainWindow(QtWidgets.QMainWindow):
     # cover hawaii, which is 5 timezone away from eastern, so total time zone slots are
     # 72+15=87 or index 0~86.
     def ts2time(self, ts):
-        thistime = datetime.datetime.now()
-        zerotime = datetime.datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
-        time_change = datetime.timedelta(minutes=20*ts)
+        thistime = datetime.now()
+        zerotime = datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
+        time_change = timedelta(minutes=20*ts)
         runtime = zerotime + time_change
         return runtime
 
@@ -2005,8 +1979,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def showAbout(self):
-        msgBox = QtWidgets.QMessageBox()
-        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "E-Commerce Bots. \n (V1.0 2024-01-12 AIPPS LLC) \n"))
+        msgBox = QMessageBox()
+        msgBox.setText(QApplication.translate("QMessageBox", "E-Commerce Bots. \n (V1.0 2024-01-12 AIPPS LLC) \n"))
         # msgBox.setInformativeText("Do you want to save your changes?")
         # msgBox.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
         # msgBox.setDefaultButton(QMessageBox.Save)
@@ -2026,7 +2000,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # pop out a new windows for user to set parameters for a new bot.
         # at the moment, just add an icon.
         #new_bot = EBBOT(self)
-        #new_icon = QtGui.QIcon((":file-open.svg"))
+        #new_icon = QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
         if self.BotNewWin == None:
             self.BotNewWin = BotNewWin(self)
@@ -2407,7 +2381,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def saveBotJsonFile(self):
         if self.BOTS_FILE == None:
-            filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            filename, _ = QFileDialog.getSaveFileName(
                 self,
                 'Save Json File',
                 '',
@@ -2425,7 +2399,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 jsonfile.close()
                 # self.rebuildHTML()
             except IOError:
-                QtGui.QMessageBox.information(
+                QMessageBox.information(
                     self,
                     "Unable to save file: %s" % filename
                 )
@@ -2489,7 +2463,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def writeMissionJsonFile(self):
         if self.MISSIONS_FILE == None:
-            filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            filename, _ = QFileDialog.getSaveFileName(
                 self,
                 'Save Json File',
                 '',
@@ -2507,7 +2481,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 jsonfile.close()
                 # self.rebuildHTML()
             except IOError:
-                QtGui.QMessageBox.information(
+                QMessageBox.information(
                     self,
                     "Unable to save file: %s" % filename
                 )
@@ -2614,7 +2588,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # pop out a new windows for user to view and schedule the missions.
         # at the moment, just add an icon.
         #new_bot = EBBOT(self)
-        #new_icon = QtGui.QIcon((":file-open.svg"))
+        #new_icon = QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
         self.scheduleWin = ScheduleWin()
         #self.BotNewWin.resize(400, 200)
@@ -2636,10 +2610,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.platoonWin.show()
 
     def eventFilter(self, source, event):
-        if event.type() == QtCore.QEvent.ContextMenu and source is self.botListView:
+        if event.type() == QEvent.ContextMenu and source is self.botListView:
             #print("bot RC menu....")
-            self.popMenu = QtWidgets.QMenu(self)
-            self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+            self.popMenu = QMenu(self)
+            self.pop_menu_font = QFont("Helvetica", 10)
             self.popMenu.setFont(self.pop_menu_font)
 
             self.rcbotEditAction = self._createBotRCEditAction()
@@ -2662,10 +2636,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 elif selected_act == self.rcbotDeleteAction:
                     self.deleteBot()
             return True
-        elif event.type() == QtCore.QEvent.ContextMenu and source is self.missionListView:
+        elif event.type() == QEvent.ContextMenu and source is self.missionListView:
             #print("mission RC menu....")
-            self.popMenu = QtWidgets.QMenu(self)
-            self.pop_menu_font = QtGui.QFont("Helvetica", 10)
+            self.popMenu = QMenu(self)
+            self.pop_menu_font = QFont("Helvetica", 10)
             self.popMenu.setFont(self.pop_menu_font)
             self.cusMissionEditAction = self._createCusMissionEditAction()
             self.cusMissionCloneAction = self._createCusMissionCloneAction()
@@ -2698,26 +2672,26 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def _createCusMissionEditAction(self):
-       new_action = QtGui.QAction(self)
-       new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&Edit"))
        return new_action
 
     def _createCusMissionCloneAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Clone"))
         return new_action
 
     def _createCusMissionDeleteAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Delete"))
         return new_action
 
     def _createCusMissionUpdateAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Update Status"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Update Status"))
         return new_action
 
     def editCusMission(self):
@@ -2736,14 +2710,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def deleteCusMission(self):
         # File actions
-        msgBox = QtWidgets.QMessageBox()
-        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "The mission will be removed and won't be able recover from it.."))
-        msgBox.setInformativeText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you sure about deleting this mission?"))
-        msgBox.setStandardButtons(QtWidgets.QMessageBox.Cancel | QtWidgets.QMessageBox.Yes)
-        msgBox.setDefaultButton(QtWidgets.QMessageBox.Yes)
+        msgBox = QMessageBox()
+        msgBox.setText(QApplication.translate("QMessageBox", "The mission will be removed and won't be able recover from it.."))
+        msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this mission?"))
+        msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
+        msgBox.setDefaultButton(QMessageBox.Yes)
         ret = msgBox.exec_()
 
-        if ret == QtWidgets.QMessageBox.Yes:
+        if ret == QMessageBox.Yes:
             api_removes = []
             items = [self.selected_cus_mission_item]
             if len(items):
@@ -2782,20 +2756,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self.writeMissionJsonFile()
 
     def _createBotRCEditAction(self):
-       new_action = QtGui.QAction(self)
-       new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Edit"))
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&Edit"))
        return new_action
 
     def _createBotRCCloneAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Clone"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Clone"))
         return new_action
 
     def _createBotRCDeleteAction(self):
         # File actions
-        new_action = QtGui.QAction(self)
-        new_action.setText(QtWidgets.QApplication.translate("QtGui.QAction", "&Delete"))
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Delete"))
         return new_action
 
     def editBot(self):
@@ -2813,14 +2787,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def deleteBot(self):
         # File actions
-        msgBox = QtWidgets.QMessageBox()
-        msgBox.setText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "The bot will be removed and won't be able recover from it.."))
-        msgBox.setInformativeText(QtWidgets.QApplication.translate("QtWidgets.QMessageBox", "Are you sure about deleting this bot?"))
-        msgBox.setStandardButtons(QtWidgets.QMessageBox.Cancel | QtWidgets.QMessageBox.Yes)
-        msgBox.setDefaultButton(QtWidgets.QMessageBox.Yes)
+        msgBox = QMessageBox()
+        msgBox.setText(QApplication.translate("QMessageBox", "The bot will be removed and won't be able recover from it.."))
+        msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this bot?"))
+        msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
+        msgBox.setDefaultButton(QMessageBox.Yes)
         ret = msgBox.exec_()
 
-        if ret == QtWidgets.QMessageBox.Yes:
+        if ret == QMessageBox.Yes:
             api_removes = []
             items = [self.selected_bot_item]
             if len(items):
@@ -2936,9 +2910,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         #    print(column[0])
 
             else:
-                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO bots found in file."))
+                self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
         else:
-            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: No file."))
+            self.warn(QApplication.translate("QMainWindow", "Warning: No file."))
 
         for b in self.bots:
             print("added BID:", b.getBid())
@@ -3047,9 +3021,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         #    print(column[0])
 
             else:
-                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO missions found in file."))
+                self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
         else:
-            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: No test mission file"))
+            self.warn(QApplication.translate("QMainWindow", "Warning: No test mission file"))
 
 
     def fillNewSkill(self, nskjson, nsk):
@@ -3062,15 +3036,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.SkillManagerWin.show()
 
     def uploadSkill(self):
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+        filename, _ = QFileDialog.getOpenFileName(
             self,
-            QtWidgets.QApplication.translate("QtWidgets.QFileDialog", "Upload Skill File"),
+            QApplication.translate("QFileDialog", "Upload Skill File"),
             '',
-            QtWidgets.QApplication.translate("QtWidgets.QFileDialog", "Skill Json Files (*.json)")
+            QApplication.translate("QFileDialog", "Skill Json Files (*.json)")
         )
         if filename != "":
             # print("body string:", uncompressed, "!", len(uncompressed), "::")
-            sk_dir == os.path.abspath(filename)
+            sk_dir = os.path.abspath(filename)
             anchor_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/images"
             scripts_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/scripts"
             anchor_files = os.listdir(anchor_dir)
@@ -3083,11 +3057,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def newSkillFromFile(self):
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+        filename, _ = QFileDialog.getOpenFileName(
             self,
-            QtWidgets.QApplication.translate("QtWidgets.QFileDialog", "Open Skill File"),
+            QApplication.translate("QFileDialog", "Open Skill File"),
             '',
-            QtWidgets.QApplication.translate("QtWidgets.QFileDialog", "Skill Json Files (*.json)")
+            QApplication.translate("QFileDialog", "Skill Json Files (*.json)")
         )
         print("loading skill from a file...", filename)
         if filename != "":
@@ -3149,9 +3123,9 @@ class MainWindow(QtWidgets.QMainWindow):
                             #    print(column[0])
 
                 else:
-                    self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO skills in the file."))
+                    self.warn(QApplication.translate("QMainWindow", "Warning: NO skills in the file."))
             else:
-                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: no test skill file."))
+                self.warn(QApplication.translate("QMainWindow", "Warning: no test skill file."))
 
     # load locally stored skills
     def loadLocalSkills(self):
@@ -3188,7 +3162,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if len(fileproducts) > 0:
                 #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
-                jresp = send_add_missions_request_to_cloud(self.session, filebmissions,
+                jresp = send_add_missions_request_to_cloud(self.session, fileproducts,
                                                        self.tokens['AuthenticationResult']['IdToken'])
 
                 if "errorType" in jresp:
@@ -3200,7 +3174,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # now that add is successfull, update local file as well.
 
                     # now add bot to local DB.
-
+                    api_missions = []
                     for i in range(len(jbody)):
                         print(i)
                         new_mission = EBMISSION(self)
@@ -3276,9 +3250,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         #    print(column[0])
 
             else:
-                self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: NO products found in file."))
+                self.warn(QApplication.translate("QMainWindow", "Warning: NO products found in file."))
         else:
-            self.warn(QtWidgets.QApplication.translate("QtWidgets.QMainWindow", "Warning: No test products file"))
+            self.warn(QApplication.translate("QMainWindow", "Warning: No test products file"))
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
@@ -3344,9 +3318,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.owner = owner
 
     def runAll(self):
-        threadCount = QtCore.QThreadPool.globalInstance().maxThreadCount()
+        threadCount = QThreadPool.globalInstance().maxThreadCount()
         self.label.setText(f"Running {threadCount} Threads")
-        pool = QtCore.QThreadPool.globalInstance()
+        pool = QThreadPool.globalInstance()
         for i in range(threadCount):
             # 2. Instantiate the subclass of QRunnable
             #runnable = Runnable(i)
@@ -3375,9 +3349,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.workingState = "Working"
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
-                    last_start = int(datetime.datetime.now().timestamp()*1)
+                    last_start = int(datetime.now().timestamp()*1)
                     botTodos["status"] = self.fetchSchedule("", None)
-                    last_end = int(datetime.datetime.now().timestamp()*1)
+                    last_end = int(datetime.now().timestamp()*1)
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
                     # if "Completed" in botTodos["status"]:
@@ -3389,9 +3363,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     print("running RPA..............")
                     if "Completed" not in botTodos["status"]:
                         print("time to run RPA........", botTodos)
-                        last_start = int(datetime.datetime.now().timestamp()*1)
+                        last_start = int(datetime.now().timestamp()*1)
                         current_bid, current_mid, run_result = self.runRPA(botTodos)
-                        last_end = int(datetime.datetime.now().timestamp()*1)
+                        last_end = int(datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
                         current_run_report = self.genRunReport(last_start, last_end, current_bid, current_mid, run_result)
@@ -3826,7 +3800,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return FETCH_ROUTINE
 
 
-    def closeEvent(self):
+    def closeEvent(self, event):
         #Your desired functionality here
         print('Program quitting....')
 
@@ -3836,16 +3810,18 @@ class MainWindow(QtWidgets.QMainWindow):
         sys.exit(0)
 
     def createTrialRunMission(self):
-        self.trMission = EBMISSION(self)
-        self.trMission.pubAttributes.setType(20231225, "user", "Sell")
-        self.trMission.pubAttributes.setBot(0)
-        self.trMission.setCusPAS("win,chrome,amz")
-        self.missions.append(self.trMission)
+        trMission = EBMISSION(self)
+        trMission.pubAttributes.setType(20231225, "user", "Sell")
+        trMission.pubAttributes.setBot(0)
+        trMission.setCusPAS("win,chrome,amz")
+        self.missions.append(trMission)
+
+        return trMission
 
     def addSkillToTrialRunMission(self, skid):
         found = False
         for m in self.missions:
-            if m.getMid == 20231225:
+            if m.getMid() == 20231225:
                 found = True
                 break
         if found:
@@ -3854,7 +3830,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def getTrialRunMission(self):
         found = False
         for m in self.missions:
-            if m.getMid == 20231225:
+            if m.getMid() == 20231225:
                 found = True
                 break
         if found:

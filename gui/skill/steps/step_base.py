@@ -34,17 +34,19 @@ class StepBase(ABC):
         return obj
 
     def gen_json_str(self):
-        json_str = json.dumps(self.get_dict_attrs(), indent=4)
+        json_str = json.dumps(self.to_dict(), indent=4)
 
         return json_str
 
-    def gen_step(self, stepN):
+    # 生成step json 格式接口
+    def gen_step(self, stepN, **kwargs):
         self.stepN = stepN
         json_str = self.gen_json_str()
         json_step = ((self.stepN + STEP_GAP), ("\"step " + str(self.stepN) + "\":\n" + json_str + ",\n"))
 
         return json_step
 
+    # 自定义字段顺序
     def custom_sort(self, key_value):
         key, value = key_value
         if key == 'type':
@@ -72,8 +74,10 @@ class StepBase(ABC):
         for key, obj in attrs.items():
             if isinstance(obj, Enum):
                 attrs[key] = obj.value
+            # print(f"{key}, {type(obj)}")
         return attrs
 
+    # json 格式转为step 对象接口
     def to_obj(self, obj_dict):
         for key, value in dict(obj_dict).items():
             setattr(self, key, value)
@@ -90,17 +94,22 @@ class StepBase(ABC):
 if __name__ == '__main__':
     from gui.skill.steps.step_stub import StepStub, EnumStubName
     step = StepStub(5)
-    step.stub_name = EnumStubName.EndSkill
-    # step.remark = EnumAnchorType.Text
-    # print(step.attr_type("remark"))
-    # if isinstance(step.remark, EnumAnchorType):
-    #     print("#####")
-    # else:
-    #     print("****")
-    obj = step.to_dict()
-    print(obj)
+    # step.stub_name = EnumStubName.EndSkill
+    # # step.remark = EnumAnchorType.Text
+    # # print(step.attr_type("remark"))
+    # # if isinstance(step.remark, EnumAnchorType):
+    # #     print("#####")
+    # # else:
+    # #     print("****")
+    # obj = step.to_dict()
+    # print(obj)
+    #
+    # step = StepBase.from_dict(obj)
+    # print(step)
+    # print(step.type)
+    # print(step.stub_name)
+    print(step.get_dict_attrs())
 
-    step = StepBase.from_dict(obj)
-    print(step)
-    print(step.type)
-    print(step.stub_name)
+
+
+

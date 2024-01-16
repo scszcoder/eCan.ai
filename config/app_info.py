@@ -1,8 +1,12 @@
 import sys
-import os
+import os, errno
 import tempfile
 from pathlib import Path
 from config.constants import *
+if sys.platform == 'win32':
+    import winreg
+
+    proc_arch = os.environ['PROCESSOR_ARCHITECTURE'].lower()
 
 
 class AppInfo:
@@ -45,24 +49,50 @@ class AppInfo:
         return ecbot_resource_dir
 
     def _prod_appdata_path(self):
-        # 获取当前用户的主目录路径
-        home_dir = str(Path.home())
-
         # 检查操作系统类型，并确定 APPDATA 路径
         if os.name == 'nt':  # Windows
-            appdata_os_path = os.getenv('APPDATA')
+            ecb_data_home = ""
+            print(proc_arch)
+            #    print(proc_arch64)
+            #     if proc_arch == 'x86' and not proc_arch64:
+            #         arch_keys = {0}
+            #    elif proc_arch == 'x86' or proc_arch == 'amd64':
+            if proc_arch == 'x86' or proc_arch == 'amd64':
+                arch_keys = {winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY}
+            else:
+                raise Exception("Unhandled arch: %s" % proc_arch)
+
+            print("arch_keys: ", arch_keys)
+
+            for arch_key in arch_keys:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_READ | arch_key)
+                # print("key: ", key)
+                # print("range: ", winreg.QueryInfoKey(key)[0])
+
+                try:
+                    ecb_data_home = winreg.QueryValueEx(key, 'ECBOT_DATA_HOME')[0]
+                except OSError as e:
+                    if e.errno == errno.ENOENT:
+                        # DisplayName doesn't exist in this skey
+                        pass
+                finally:
+                    key.Close()
+                    ecb_data_home = ecb_data_home.replace('\\', '/')
+                    print("ECBot DATA Home: ", ecb_data_home)
+                    return ecb_data_home
         else:  # macOS
+            # 获取当前用户的主目录路径
+            home_dir = str(Path.home())
             appdata_os_path = os.path.join(home_dir, 'Library', 'Application Support')
+            # 在 APPDATA 或 Application Support 文件夹中创建一个名为 "ecbot" 的子文件夹
+            ecbot_appdata_path = os.path.join(appdata_os_path, APP_NAME)
+            if not os.path.exists(ecbot_appdata_path):
+                os.makedirs(ecbot_appdata_path)
 
-        # 在 APPDATA 或 Application Support 文件夹中创建一个名为 "ecbot" 的子文件夹
-        ecbot_appdata_path = os.path.join(appdata_os_path, APP_NAME)
-        if not os.path.exists(ecbot_appdata_path):
-            os.makedirs(ecbot_appdata_path)
-
-        return ecbot_appdata_path
+            return ecbot_appdata_path
 
     def _dev_appdata_path(self):
-        root_dir = os.path.join(self._dev_app_home_path(), 'resource')
+        root_dir = self._dev_app_home_path()
         # print(f"ecbot dev appdata root path:{root_dir}")
 
         return root_dir
