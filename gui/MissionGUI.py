@@ -143,17 +143,7 @@ class MissionNewWin(QMainWindow):
 
         self.skillActionLabel = QLabel(QApplication.translate("QLabel", "Skill Action:"), alignment=Qt.AlignLeft)
         self.skill_action_sel = QComboBox()
-
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "BuyOnly"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "BuyWithPositiveFeedback"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "Browse"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "ManageOffers"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "ManageReturnRequest"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "BuyShippingLabel"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "FillShippingTracking"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "ManageReplacements"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "ManageRefund"))
-        self.skill_action_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        self.buildSkillSelList()
         self.skill_action_sel.currentTextChanged.connect(self.skillActionSel_changed)
 
 
@@ -773,3 +763,8 @@ class MissionNewWin(QMainWindow):
     def genNewTicket(self):
         # get a new ticket using parent's DB connection.
         print("new ticket number is: ")
+
+    def buildSkillSelList(self):
+        for sk in self.parent.skills:
+            self.skill_action_sel.addItem(QApplication.translate("QComboBox", sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSite()+"_"+sk.getPage()+"_"+sk.getName()))
+
