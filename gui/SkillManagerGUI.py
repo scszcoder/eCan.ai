@@ -320,8 +320,9 @@ class SkillManagerWindow(QMainWindow):
         # column 6 could be either an icon or an animating gif....
         self.skillTableView.setItemDelegateForColumn(7, IconDelegate())
         # completedMissionTableView.setItemDelegateForColumn(6, MovieDelegate())
-        self.skillTableView.doubleClicked.connect(self.tableRowDoubleClicked)
         # self.skillTableView.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.skillTableView.doubleClicked.connect(self.handleRowDoubleClick)
+
 
         delegate = SkillCellDelegate(self.parent)
         self.skillTableView.setItemDelegate(delegate)
@@ -366,8 +367,10 @@ class SkillManagerWindow(QMainWindow):
 
         self.setWindowTitle(QApplication.translate("QtWidget", "Skill Manager"))
 
-    def tableRowDoubleClicked(self):
-        print("double clicked on a row...")
+    def handleRowDoubleClick(self, index):
+        row_data = [self.skillModel.item(index.row(), col).text() for col in range(self.skillModel.columnCount())]
+
+        print("double clicked on a row...", index.row())
 
     # this function search all local skills by search phrase. it will search thru platform app site page name description field for any match.
     # after search, the search result will be displayed in the table.
