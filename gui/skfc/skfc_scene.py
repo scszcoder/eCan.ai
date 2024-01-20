@@ -1,5 +1,5 @@
 from PySide6.QtCore import (Signal, QPointF, Qt)
-from PySide6.QtGui import (QFont, QColor)
+from PySide6.QtGui import (QFont, QColor, QKeyEvent)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QMenu
 from gui.skfc.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup, \
     DiagramNormalSubTextItem
@@ -80,6 +80,34 @@ class SkFCScene(QGraphicsScene):
     #         self.removeItem(item)
     #         item.deleteLater()
 
+    def keyPressEvent(self, event: QKeyEvent):
+        print("Key pressed:", event.key())  # 打印按键代码，用于调试
+        # 在 Windows 和 Linux 上，Qt.Key_Delete 通常表示 Delete 键
+        # 在 macOS 上，Qt.Key_Backspace 通常表示 Delete 键
+        if event.key() == Qt.Key_Delete or event.key() == Qt.Key_Backspace:
+            target_item = self.get_selected_diagram_item()
+            if target_item:
+                print("delete selected item:", target_item)
+                self.parent.deleteItem()
+            else:
+                print("delete selected item is none")
+        super().keyPressEvent(event)
+
+    def get_selected_diagram_item(self):
+        item = None
+        if self.isItemChange(DiagramArrowItem):
+            item = self.selectedItems()[0]
+        elif self.isItemChange(DiagramNormalItem):
+            item = self.selectedItems()[0]
+        elif self.isItemChange(DiagramTextItem):
+            item = self.selectedItems()[0]
+        elif self.isItemChange(DiagramNormalSubTextItem):
+            item = self.selectedItems()[0].parentItem()
+        else:
+            pass
+
+        return item
+
     def mousePressEvent(self, mouseEvent):
         super(SkFCScene, self).mousePressEvent(mouseEvent)
         if mouseEvent.button() != Qt.LeftButton:
@@ -128,14 +156,12 @@ class SkFCScene(QGraphicsScene):
                     self.selected_item = line
                 else:
                     print("selected existed line but not start or end point so can not be drag #2")
+            elif self.isItemChange(DiagramNormalItem):
+                self.selected_item = self.selectedItems()[0]
+            elif self.isItemChange(DiagramNormalSubTextItem):
+                self.selected_item = self.selectedItems()[0].parentItem()
             else:
-                print("----2 selected items", self.selectedItems())
-                if len(self.selectedItems()) > 0:
-                    self.selected_item = self.selectedItems()[0]
-                    if isinstance(self.selected_item, DiagramNormalSubTextItem):
-                        self.selected_item = self.selected_item.parentItem()
-                else:
-                    print("when move item mode mouse press selected item is none!!!")
+                print("when move item mode mouse press selected item is none!!!")
 
         if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramNormalItem):
