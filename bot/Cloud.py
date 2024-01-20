@@ -436,7 +436,7 @@ def gen_remove_bots_string(removeOrders):
     """
     rec_string = ""
     for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ id:\"" + str(removeOrders[i]["id"]) + "\", "
+        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["id"]) + ", "
         rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
         rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
 
@@ -598,7 +598,7 @@ def gen_remove_missions_string(removeOrders):
     """
     rec_string = ""
     for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ id:\"" + str(removeOrders[i]["id"]) + "\", "
+        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["id"]) + ", "
         rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
         rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
 
@@ -721,7 +721,7 @@ def gen_remove_skills_string(removeOrders):
     """
     rec_string = ""
     for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ oid:\"" + str(removeOrders[i]["skid"]) + "\", "
+        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["skid"]) + ", "
         rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
         rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
 

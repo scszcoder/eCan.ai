@@ -208,7 +208,7 @@ class WORKSKILL(QStandardItem):
         super().__init__()
         self.parent = parent
         self.name = skname
-        self.setText(skname)
+        self.setText(skname+"()")
         self.setFont(parent.std_item_font)
         self.skid = 0
         self.owner = ""
@@ -268,6 +268,7 @@ class WORKSKILL(QStandardItem):
 
     def setSkid(self, skid):
         self.skid = skid
+        self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
 
     def getPskFileName(self):
         return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".psk"
@@ -358,12 +359,15 @@ class WORKSKILL(QStandardItem):
 
     def setPlatform(self, platform):
         self.platform = platform
+        self.setText(self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page + "_" + self.name + "(" + str(self.skid) + ")")
 
     def setSite(self, site):
         self.site = site
+        self.setText(self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page + "_" + self.name + "(" + str(self.skid) + ")")
 
     def setName(self, name):
         self.name = name
+        self.setText(self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page + "_" + self.name + "(" + str(self.skid) + ")")
 
     def setRunTime(self, rt):
         self.runtime = rt
@@ -377,7 +381,6 @@ class WORKSKILL(QStandardItem):
 
     def loadJson(self, jd):
         self.name = jd["name"]
-        self.setText(self.name)
         self.skid = jd["skid"]
         self.owner = jd["owner"]
         self.createdOn = jd["createdOn"]
@@ -385,6 +388,7 @@ class WORKSKILL(QStandardItem):
         self.app = jd["app"]
         self.site_name = jd["site"]
         self.page = jd["page"]
+        self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
         self.privacy = jd["privacy"]
         self.price_model = jd["price_model"]
         self.price = jd["price"]

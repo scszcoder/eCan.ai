@@ -359,11 +359,11 @@ class MainWindow(QMainWindow):
         self.popMenu.addSeparator()
         self.popMenu.addAction(QAction(QApplication.translate("QAction", "&Delete"), self))
 
-        self.botListView = BotListView()
+        self.botListView = BotListView(self)
         self.botListView.installEventFilter(self)
         self.botModel = QStandardItemModel(self.botListView)
 
-        self.missionListView = MissionListView()
+        self.missionListView = MissionListView(self)
         self.missionListView.installEventFilter(self)
         self.missionModel = QStandardItemModel(self.missionListView)
 
@@ -374,9 +374,9 @@ class MainWindow(QMainWindow):
         self.vehicleListView.installEventFilter(self)
         self.runningVehicleModel = QStandardItemModel(self.vehicleListView)
 
-        self.skillListView = SkillListView(self)
-        self.skillListView.installEventFilter(self)
-        self.skillModel = QStandardItemModel(self.skillListView)
+        # self.skillListView = SkillListView(self)
+        # self.skillListView.installEventFilter(self)
+        # self.skillModel = QStandardItemModel(self.skillListView)
 
         self.completed_missionListView = MissionListView()
         self.completedMissionModel = QStandardItemModel(self.completed_missionListView)
@@ -390,9 +390,9 @@ class MainWindow(QMainWindow):
         self.botListView.setViewMode(QListView.IconMode)
         self.botListView.setMovement(QListView.Snap)
 
-        self.skillListView.setModel(self.skillModel)
-        self.skillListView.setViewMode(QListView.IconMode)
-        self.skillListView.setMovement(QListView.Snap)
+        # self.skillListView.setModel(self.skillModel)
+        # self.skillListView.setViewMode(QListView.IconMode)
+        # self.skillListView.setMovement(QListView.Snap)
 
         self.mission0 = EBMISSION(self)
         self.missionModel.appendRow(self.mission0)
@@ -733,6 +733,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Remove"))
+        new_action.triggered.connect(self.deleteBot)
         return new_action
 
     def _createBotEditAction(self):
@@ -2014,6 +2015,8 @@ class MainWindow(QMainWindow):
         #self.centralWidget.setText("<b>File > New</b> clicked")
         if self.BotNewWin == None:
             self.BotNewWin = BotNewWin(self)
+        else:
+            self.BotNewWin.setMode("new")
         self.BotNewWin.show()
 
 
@@ -2077,8 +2080,6 @@ class MainWindow(QMainWindow):
         }]
         jresp = send_add_bots_request_to_cloud(self.session, api_bots, self.tokens['AuthenticationResult']['IdToken'])
 
-
-
         if "errorType" in jresp:
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
@@ -2099,8 +2100,14 @@ class MainWindow(QMainWindow):
 
                 self.dbCursor.execute(sql, data_tuple)
 
+                # Check if the INSERT query was successful
+                if self.dbCursor.rowcount == 1:
+                    print("Insertion successful.")
+                else:
+                    print("Insertion failed.")
+
             #update self data structure and save in json file for easy access (1 line of python code)
-            self.saveBotJsonFile(jbody)
+            # self.saveBotJsonFile(jbody)
 
 
     def updateABot(self, abot):
@@ -2149,9 +2156,14 @@ class MainWindow(QMainWindow):
                               api_bots[0]["phone"], api_bots[0]["email"], api_bots[0]["epw"], api_bots[0]["backemail"], api_bots[0]["ebpw"] )
 
                 self.dbCursor.execute(sql, data_tuple)
+                # Check if the UPDATE query was successful
+                if self.dbCursor.rowcount > 0:
+                    print(f"{self.dbCursor.rowcount} row(s) updated successfully.")
+                else:
+                    print("No rows were updated.")
 
             #now that add is successfull, update local file as well.
-            self.saveBotJsonFile()
+            # self.saveBotJsonFile()
 
     def addNewMission(self, new_mission):
         # Logic for creating a new mission:
@@ -2216,6 +2228,11 @@ class MainWindow(QMainWindow):
                           api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
                           api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["customer"], api_missions[0]["platoon"])
             self.dbCursor.execute(sql, data_tuple)
+            # Check if the INSERT query was successful
+            if self.dbCursor.rowcount == 1:
+                print("Insertion successful.")
+            else:
+                print("Insertion failed.")
 
     def updateAMission(self, amission):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
@@ -2252,9 +2269,13 @@ class MainWindow(QMainWindow):
             api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
             api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["customer"], api_missions[0]["platoon"])
             self.dbCursor.execute(sql, data_tuple)
-
+            # Check if the UPDATE query was successful
+            if self.dbCursor.rowcount > 0:
+                print(f"{self.dbCursor.rowcount} row(s) updated successfully.")
+            else:
+                print("No rows were updated.")
             # now that add is successfull, update local file as well.
-            self.writeMissionJsonFile()
+            # self.writeMissionJsonFile()
 
     def addBotsMissionsFromCommander(self, botsJson, missionsJson):
 
@@ -2676,7 +2697,8 @@ class MainWindow(QMainWindow):
                 elif selected_act == self.cusMissionUpdateAction:
                     self.updateCusMissionStatus(self.selected_cus_mission_item)
             return True
-        # else:
+        elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
+            print("CLICKED on bot:", source.indexAt(event.pos()).row())
         #     print("unknwn.... RC menu....", source, " EVENT: ", event)
         return super().eventFilter(source, event)
 
@@ -2742,16 +2764,41 @@ class MainWindow(QMainWindow):
 
                 # remove on the cloud side
                 jresp = send_remove_missions_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'])
+                print("DONE WITH CLOUD SIDE REMOVE MISSION REQUEST.....")
                 if "errorType" in jresp:
                     screen_error = True
-                    print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+                    print("Delete Missions ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
                 else:
-                    jbody = json.loads(jresp["body"])
-                    #now that delete is successfull, update local file as well.
-                    self.writeMissionJsonFile()
+                    print("JRESP:", jresp, jresp['body'], jresp['body']['$metadata'], jresp['body']['numberOfRecordsUpdated'])
+                    meta_data = jresp['body']['$metadata']
+                    if jresp['body']['numberOfRecordsUpdated'] == 0:
+                        print("WARNING: CLOUD SIDE MISSION DELETE NOT EXECUTED.")
+
+                    for m in api_removes:
+                        # missionTBDId = next((x for x in self.missions if x.getMid() == m["id"]), None)
+                        self.delete_mission_from_localDB(m["id"])
+
+                    for m in api_removes:
+                        midx = next((i for i, x in enumerate(self.missions) if x.getMid() == m["id"]), -1)
+                        print("removeing MID:", midx)
+                        # If the element was found, remove it using pop()
+                        if midx != -1:
+                            self.missions.pop(midx)
+
+                    # self.writeMissionJsonFile()
 
         #self.botModel.removeRow(self.selected_bot_row)
         #print("delete bot" + str(self.selected_bot_row))
+
+    def delete_mission_from_localDB(self, mid):
+        sql = "DELETE FROM missions WHERE mid = " + str(mid) +";"
+        self.dbCursor.execute(sql)
+        # Check if the DELETE query was successful
+        if self.dbCursor.rowcount > 0:
+            print(f"{self.dbCursor.rowcount} mission row(s) deleted successfully.")
+        else:
+            print("No mission rows were deleted.")
+
 
     def updateCusMissionStatus(self, amission):
         # send this mission's status to Cloud
@@ -2788,6 +2835,7 @@ class MainWindow(QMainWindow):
             self.BotNewWin.setBot(self.selected_bot_item)
         else:
             self.BotNewWin = BotNewWin(self)
+        self.BotNewWin.setMode("update")
         self.BotNewWin.show()
         print("edit bot" + str(self.selected_bot_row))
 
@@ -2818,17 +2866,39 @@ class MainWindow(QMainWindow):
                     api_removes.append({"id": item.getBid(), "owner": "", "reason": ""})
 
                 # remove on the cloud side
-                jresp = send_remove_missions_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'])
+                jresp = send_remove_bots_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'])
+                print("DONE WITH CLOUD SIDE REMOVE BOT REQUEST.....")
                 if "errorType" in jresp:
                     screen_error = True
                     print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
                 else:
-                    jbody = json.loads(jresp["body"])
-                    #now that delete is successfull, update local file as well.
-                    self.saveBotJsonFile()
+                    print("JRESP:", jresp, jresp['body'], jresp['body']['$metadata'], jresp['body']['numberOfRecordsUpdated'])
+                    meta_data = jresp['body']['$metadata']
+                    if jresp['body']['numberOfRecordsUpdated'] == 0:
+                        print("WARNING: CLOUD SIDE DELETE NOT EXECUTED.")
 
-        #self.botModel.removeRow(self.selected_bot_row)
-        #print("delete bot" + str(self.selected_bot_row))
+                    for b in api_removes:
+                        botTBDId = next((x for x in self.bots if x.getBid() == b["id"]), None)
+                        self.delete_bot_from_localDB(b["id"])
+
+                    for b in api_removes:
+                        bidx = next((i for i, x in enumerate(self.bots) if x.getBid() == b["id"]), -1)
+
+                        # If the element was found, remove it using pop()
+                        if bidx != -1:
+                            self.bots.pop(bidx)
+
+                    # self.saveBotJsonFile()
+
+    def delete_bot_from_localDB(self, botTBDid):
+        sql = "DELETE FROM bots WHERE botid = " + str(botTBDid) +";"
+        self.dbCursor.execute(sql)
+        # Check if the DELETE query was successful
+        if self.dbCursor.rowcount > 0:
+            print(f"{self.dbCursor.rowcount} row(s) deleted successfully.")
+        else:
+            print("No rows were deleted.")
+
 
     #data format conversion. nb is in EBBOT data structure format., nbdata is json
     def fillNewBotPubInfo(self, nbjson, nb):
