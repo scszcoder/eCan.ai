@@ -214,7 +214,7 @@ class SkFCInfoBox(QFrame):
             widget.currentTextChanged.connect(self.step_attrs_type_cmb_changed)
         else:
             if isinstance(step_attrs_value, Enum):
-                print(f"step enum attrs: key {step_attr_key}= {step_attrs_value.value}")
+                # print(f"step enum attrs: key {step_attr_key}= {step_attrs_value.value}")
                 widget = QComboBox()
                 for name, member in type(step_attrs_value).__members__.items():
                     widget.addItem(member.value)
@@ -230,7 +230,7 @@ class SkFCInfoBox(QFrame):
                 widget.textChanged.connect(self.step_attrs_text_changed)
 
         widget.setProperty(STEP_ATTR_KEY, step_attr_key)
-        print(f"create field: {step_attr_key}; cell widget {widget}")
+        # print(f"create field: {step_attr_key}; cell widget {widget}")
         return widget
 
     def create_step_type_items(self, diagram_type):
