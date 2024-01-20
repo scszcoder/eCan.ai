@@ -131,7 +131,7 @@ class Expander(QWidget):
         toggleButton.setArrowType(Qt.RightArrow)
         toggleButton.setText(str(title))
         toggleButton.setCheckable(True)
-        toggleButton.setChecked(False)
+        toggleButton.setChecked(True)
 
         headerLine = self.headerLine
         headerLine.setFrameShape(QFrame.HLine)
@@ -216,10 +216,17 @@ class SkillTableView(QTableView):
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self.start_index = self.indexAt(event.pos())
+            print("Clicked ON:", self.start_index.row())
             if self.start_index.isValid():
                 self.clearSelection()  # Clear previous selections
                 self.selectionModel().setCurrentIndex(self.start_index, QItemSelectionModel.Select)
+            selected_skill = self.findSkillById(int(self.parent.skillModel.item(self.start_index.row(), 0).text()))
+            # print("SELECTED SKID:", int(self.parent.skillModel.item(self.start_index.row(), 0).text()), "::", selected_skill.getDescription(), "!")
+            self.parent.skillInfoConsole.setText(selected_skill.getDescription())
         super().mousePressEvent(event)
+
+    def findSkillById(self, skid):
+        return next((x for x in self.parent.parent.skills if x.getSkid() == skid), None)
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if event.buttons() == Qt.LeftButton and self.start_index:
@@ -285,10 +292,6 @@ class SkillManagerWindow(QMainWindow):
         self.skill_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Search Skill With Keywords"))
         self.skill_search_edit.returnPressed.connect(self.search_skill_button.click)
 
-        self.skillInfoConsole = QTextEdit()
-        self.skillInfoConsole.setLineWrapMode(QTextEdit.FixedPixelWidth)
-        self.skillInfoConsole.verticalScrollBar().setValue(self.skillInfoConsole.verticalScrollBar().minimum())
-        self.skillInfoConsole.setReadOnly(True)
 
         font = QFont("Arial", 10)
 
@@ -297,7 +300,7 @@ class SkillManagerWindow(QMainWindow):
         self.centralScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.centralScroll.setWidgetResizable(True)
 
-        self.skillTableView = SkillTableView(self.parent)
+        self.skillTableView = SkillTableView(self)
 
         header = self.skillTableView.horizontalHeader()
         header.setFont(font)
@@ -328,11 +331,13 @@ class SkillManagerWindow(QMainWindow):
         self.skillTableView.setItemDelegate(delegate)
 
         self.infoConsoleBox = Expander(self, QApplication.translate("QWidget", "Skill Info Console:"))
-        self.infoConsole = QTextEdit()
-        self.infoConsole.setLineWrapMode(QTextEdit.FixedPixelWidth)
-        self.infoConsole.verticalScrollBar().setValue(self.infoConsole.verticalScrollBar().minimum())
+        self.skillInfoConsole = QTextEdit()
+        # self.skillInfoConsole.setLineWrapMode(QTextEdit.FixedPixelWidth)
+        self.skillInfoConsole.setLineWrapMode(QTextEdit.WidgetWidth)
+        # self.skillInfoConsole.autoFormatting()
+        self.skillInfoConsole.verticalScrollBar().setValue(self.skillInfoConsole.verticalScrollBar().minimum())
         self.infoConsoleLayout = QVBoxLayout()
-        self.infoConsoleLayout.addWidget(self.infoConsole)
+        self.infoConsoleLayout.addWidget(self.skillInfoConsole)
 
         self.infoConsoleBox.setContentLayout(self.infoConsoleLayout)
 
@@ -368,9 +373,9 @@ class SkillManagerWindow(QMainWindow):
         self.setWindowTitle(QApplication.translate("QtWidget", "Skill Manager"))
 
     def handleRowDoubleClick(self, index):
-        row_data = [self.skillModel.item(index.row(), col).text() for col in range(self.skillModel.columnCount())]
+        this_skill = next((x for x in self.parent.skills if x.getSkid() == int(self.skillModel.item(index.row(), 0).text())), None)
+        # now open this skill in skill editor and populate all, but make save skill button grayed out and disabled.
 
-        print("double clicked on a row...", index.row())
 
     # this function search all local skills by search phrase. it will search thru platform app site page name description field for any match.
     # after search, the search result will be displayed in the table.
@@ -550,9 +555,9 @@ class SkillManagerWindow(QMainWindow):
 
 
     def eventFilter(self, source, event):
-        print("Source:", source, "Event:", event)
+        # print("Source:", source, "Event:", event)
         if event.type() == QEvent.ContextMenu and source is self.skillTableView:
-            print("skill menu....")
+            # print("skill menu....")
             self.popMenu = QMenu(self)
             self.SkillOpenAction = self._createSkillOpenAction()
             self.SkillCopyAction = self._createSkillCopyAction()
@@ -565,23 +570,23 @@ class SkillManagerWindow(QMainWindow):
             self.popMenu.setFont(self.main_menu_font)
 
             selected_act = self.popMenu.exec_(event.globalPos())
-            print("selected:", selected_act)
+            # print("selected:", selected_act)
 
             if selected_act:
                 self.selected_skill_row = source.rowAt(event.pos().y())
-                print("selected row:", self.selected_skill_row)
+                # print("selected row:", self.selected_skill_row)
                 if self.selected_skill_row == -1:
                     self.selected_skill_row = source.model().rowCount() - 1
                 self.selected_skill_column = source.columnAt(event.pos().x())
                 if self.selected_skill_column == -1:
                     self.selected_skill_column = source.model().columnCount() - 1
 
-                print("selected col :", self.selected_skill_column)
+                # print("selected col :", self.selected_skill_column)
                 self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
-                print("selected item1 :", self.selected_skill_item)
+                # print("selected item1 :", self.selected_skill_item)
 
                 skill_idx = self.skillTableView.index(source)
-                print("selected Skill_idx :", skill_idx)
+                # print("selected Skill_idx :", skill_idx)
 
                 if skill_idx < 0 or skill_idx >= self.skillModel.rowCount():
                     Skill_idxs = []

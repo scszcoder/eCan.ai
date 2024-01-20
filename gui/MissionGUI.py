@@ -24,7 +24,7 @@ class SkillListView(QListView):
             if e.button() == Qt.LeftButton:
                 print("row:", self.indexAt(e.pos()).row())
                 self.selected_row = self.indexAt(e.pos()).row()
-                self.parent.updateSelectedSkill(self.selected_row)
+                # self.parent.updateSelectedSkill(self.selected_row)
 
 
 
@@ -78,13 +78,13 @@ class MissionNewWin(QMainWindow):
         self.skillPanelLayout = QVBoxLayout(self)
 
         self.skillListView = SkillListView(self)
-        self.skillListView.installEventFilter(self)
+        # self.skillListView.installEventFilter(self)
 
 
         self.skillModel = QStandardItemModel(self.skillListView)
 
         self.skillListView.setModel(self.skillModel)
-        self.skillListView.setViewMode(QListView.IconMode)
+        self.skillListView.setViewMode(QListView.ListMode)
         self.skillListView.setMovement(QListView.Snap)
 
         QApplication.translate("QLabel", "Skill Platform:")
@@ -676,14 +676,18 @@ class MissionNewWin(QMainWindow):
             self.selected_skill_site = self.skillCustomSiteNameEdit.text()
             self.selected_skill_site_link = self.skillCustomSiteLinkEdit.text()
 
-        if self.skill_action_sel.currentText() == 'Custom':
-            self.selected_skill_action = self.skillCustomActionEdit.text()
+        sk_words = self.skill_action_sel.currentText().split("_")
+        sk_platform = sk_words[0]
+        sk_app = sk_words[1]
+        sk_site = sk_words[2]
+        sk_page = sk_words[3]
+        sk_name = "_".join(sk_words[4:])
+        this_skill = next((x for x in self.parent.skills if x.getPlatform() == sk_platform and x.getApp() == sk_app and x.getSite() == sk_site and x.getPage() == sk_page and x.getName() == sk_name), None)
 
-        self.newSKILL = MWORKSKILL(self.homepath, self.selected_skill_platform, self.selected_skill_app, self.selected_skill_app_link, self.selected_skill_site, self.selected_skill_site_link, self.selected_skill_action)
-        self.skillModel.appendRow(self.newSKILL)
+        self.skillModel.appendRow(this_skill)
 
     def removeSkill(self):
-        self.skillModel.removeRow(self.selected_skill_item.row())
+        self.skillModel.removeRow(self.skillListView.selected_row)
 
 
     def _createSkillDeleteAction(self):
@@ -730,35 +734,36 @@ class MissionNewWin(QMainWindow):
     def updateSelectedSkill(self, row):
         self.selected_skill_row = row
         self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
-        platform, app, applink, site, sitelink, action = self.selected_skill_item.getData()
+        if self.selected_skill_item:
+            platform, app, applink, site, sitelink, action = self.selected_skill_item.getData()
 
-        self.skill_platform_sel.setCurrentText(platform)
+            self.skill_platform_sel.setCurrentText(platform)
 
-        if self.skill_app_sel.findText(app) < 0:
-            print("set custom app")
-            self.skill_app_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
-            self.skillCustomAppNameEdit.setText(app)
-            self.skillCustomAppLinkEdit.setText(applink)
-        else:
-            print("set menu app")
-            self.skill_app_sel.setCurrentText(app)
-            self.skillCustomActionEdit.setText("")
+            if self.skill_app_sel.findText(app) < 0:
+                print("set custom app")
+                self.skill_app_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
+                self.skillCustomAppNameEdit.setText(app)
+                self.skillCustomAppLinkEdit.setText(applink)
+            else:
+                print("set menu app")
+                self.skill_app_sel.setCurrentText(app)
+                self.skillCustomActionEdit.setText("")
 
-        if self.skill_site_sel.findText(site) < 0:
-            self.skill_site_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
-            self.skillCustomSiteNameEdit.setText(site)
-            self.skillCustomSiteLinkEdit.setText(sitelink)
-        else:
-            self.skill_site_sel.setCurrentText(site)
-            self.skillCustomActionEdit.setText("")
+            if self.skill_site_sel.findText(site) < 0:
+                self.skill_site_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
+                self.skillCustomSiteNameEdit.setText(site)
+                self.skillCustomSiteLinkEdit.setText(sitelink)
+            else:
+                self.skill_site_sel.setCurrentText(site)
+                self.skillCustomActionEdit.setText("")
 
 
-        if self.skill_action_sel.findText(action) < 0:
-            self.skill_action_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
-            self.skillCustomActionEdit.setText(action)
-        else:
-            self.skill_action_sel.setCurrentText(action)
-            self.skillCustomActionEdit.setText("")
+            if self.skill_action_sel.findText(action) < 0:
+                self.skill_action_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
+                self.skillCustomActionEdit.setText(action)
+            else:
+                self.skill_action_sel.setCurrentText(action)
+                self.skillCustomActionEdit.setText("")
 
     def genNewTicket(self):
         # get a new ticket using parent's DB connection.

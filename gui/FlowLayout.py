@@ -1,85 +1,42 @@
-from PySide6.QtCore import QSize, QRect, QPoint, Qt
-from PySide6.QtGui import QStandardItem, QIcon, QAction, QCursor
+from PySide6.QtCore import QSize, QRect, QPoint, Qt, QItemSelectionModel
+from PySide6.QtGui import QStandardItem, QIcon, QAction, QCursor, QMouseEvent
 from PySide6.QtWidgets import QListView, QMenu, QFrame, QLayout, QLabel, QSizePolicy
 
 
 class BotListView(QListView):
-    def __init__(self):
+    def __init__(self, parent=None):
         super(BotListView, self).__init__()
-        # self.popMenu = QMenu(self)
-        # self.popMenu.addAction(self._createBotRCEditAction())
-        # self.popMenu.addAction(self._createBotRCCloneAction())
-        # self.popMenu.addSeparator()
-        # self.popMenu.addAction(self._createBotRCDeleteAction())
+        self.parent = parent
 
-    # def eventFilter(self, source, event):
-    #     if event.type() == QEvent.ContextMenu and source is self:
-    #         self.popMenu = QMenu(self)
-    #         self.popMenu.addAction(self._createBotRCEditAction())
-    #         self.popMenu.addAction(self._createBotRCCloneAction())
-    #         self.popMenu.addSeparator()
-    #         self.popMenu.addAction(self._createBotRCDeleteAction())
-    #
-    #         if self.popMenu.exec_(event.globalPos()):
-    #             item = source.itemAt(event.pos())
-    #             print(item.text())
-    #         return True
-    #     return super().eventFilter(source, event)
 
-    # def contextMenuEvent(self, event):
-    #     # add other required actions
-    #     self.popMenu.popup(QCursor.pos())
-
-    # def _createBotRCEditAction(self):
-    #     # File actions
-    #     new_action = QAction(self)
-    #     new_action.setText("&Edit")
-    #     new_action.triggered.connect(self.editBot)
-    #     return new_action
-    #
-    # def _createBotRCCloneAction(self):
-    #     # File actions
-    #     new_action = QAction(self)
-    #     new_action.setText("&Clone")
-    #     new_action.triggered.connect(self.cloneBot)
-    #     return new_action
-    #
-    # def _createBotRCDeleteAction(self):
-    #     # File actions
-    #     new_action = QAction(self)
-    #     new_action.setText("&Delete")
-    #     new_action.triggered.connect(self.deleteBot)
-    #     return new_action
-    #
-    # def editBot(self):
-    #     # File actions
-    #     print("edit bot")
-    #
-    # def cloneBot(self):
-    #     # File actions
-    #     print("clone bot")
-    #
-    # def deleteBot(self):
-    #     # File actions
-    #     print("delete bot")
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self.parent.selected_bot_row = self.indexAt(event.pos()).row()
+            self.parent.selected_bot_item = self.parent.botModel.item(self.parent.selected_bot_row)
+            print("clicked")
+        super().mousePressEvent(event)
 
 class MissionListView(QListView):
-    def __init__(self):
+    def __init__(self, parent=None):
         super(MissionListView, self).__init__()
-    #     self.popMenu = QMenu(self)
-    #     self.popMenu.addAction(QAction('Edit', self))
-    #     self.popMenu.addAction(QAction('Clone', self))
-    #     self.popMenu.addSeparator()
-    #     self.popMenu.addAction(QAction('Delete', self))
-    #
-    # def contextMenuEvent(self, event):
-    #     # add other required actions
-    #     self.popMenu.popup(QCursor.pos())
+        self.parent = parent
 
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self.parent.selected_cus_mission_row = self.indexAt(event.pos()).row()
+            self.parent.selected_cus_mission_item = self.parent.missionModel.item(self.parent.selected_cus_mission_row)
+        super().mousePressEvent(event)
 
 class VehicleListView(QListView):
-    def __init__(self):
+    def __init__(self, parent=None):
         super(VehicleListView, self).__init__()
+        self.parent = parent
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self.parent.selected_vehicle_row = self.indexAt(event.pos()).row()
+            self.parent.selected_cus_mission_item = self.parent.runningVehicleModel.item(self.parent.selected_vehicle_row)
+        super().mousePressEvent(event)
 
 class BotView(QStandardItem):
     def __init__(self, homepath):
@@ -94,9 +51,9 @@ class BotView(QStandardItem):
         self.popMenu.addSeparator()
         self.popMenu.addAction(QAction('Delete', self))
 
-    def contextMenuEvent(self, event):
-        # add other required actions
-        self.popMenu.popup(QCursor.pos())
+    # def contextMenuEvent(self, event):
+    #     # add other required actions
+    #     self.popMenu.popup(QCursor.pos())
 
 class DragIcon(QLabel):
 
