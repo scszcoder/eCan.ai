@@ -1,9 +1,8 @@
-from typing import Optional
-
 from PySide6.QtCore import (Signal, QPointF, Qt)
 from PySide6.QtGui import (QFont, QColor)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QMenu
-from gui.skfc.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup
+from gui.skfc.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup, \
+    DiagramNormalSubTextItem
 from gui.skfc.diagram_item_text import DiagramTextItem
 from gui.skfc.diagram_item_arrow import DiagramArrowItem
 from gui.skfc.skfc_base import EnumItemType
@@ -117,11 +116,12 @@ class SkFCScene(QGraphicsScene):
         elif self.myMode == self.InsertText:
             print("inserting a text...")
             item = DiagramTextItem(plain_text="hello", font=self.myFont, color=self.myTextColor,
-                                   position=mouseEvent.scenePos(), sub_item=False, context_menu=self.myItemMenu)
+                                   position=mouseEvent.scenePos(), context_menu=self.myItemMenu)
             self.add_diagram_item(item)
             self.textInserted.emit(item)
             self.selected_item = item
         elif self.myMode == self.MoveItem:
+            print("----1 current scene mode move item")
             if self.isItemChange(DiagramArrowItem):
                 line: DiagramArrowItem = self.selectedItems()[0]
                 if line.prepare_dragging(mouseEvent) is True:
@@ -129,15 +129,21 @@ class SkFCScene(QGraphicsScene):
                 else:
                     print("selected existed line but not start or end point so can not be drag #2")
             else:
+                print("----2 selected items", self.selectedItems())
                 if len(self.selectedItems()) > 0:
                     self.selected_item = self.selectedItems()[0]
+                    if isinstance(self.selected_item, DiagramNormalSubTextItem):
+                        self.selected_item = self.selected_item.parentItem()
                 else:
                     print("when move item mode mouse press selected item is none!!!")
 
         if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramNormalItem):
                 self.parent.skfc_infobox.show_diagram_item_step_attrs(self.selected_item)
-
+            else:
+                print("selected item is not DiagramNormalItem ", self.selected_item)
+        else:
+            print("selected item is none!!!")
         # super(SkFCScene, self).mousePressEvent(mouseEvent)
 
     def mouseMoveEvent(self, mouseEvent):
