@@ -292,6 +292,15 @@ def test_api(parent, session, token):
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = send_get_bots_request_to_cloud(session, qs, token)
     # print("send_get_bots_request_to_cloud RESULT:", result)
+
+    # test passed
+    # qs = {"byowneruser": True}
+    # qs = {"byowneruser": False, "qphrase": "etsy male"}
+    # result = send_query_bots_request_to_cloud(session, token, qs)
+    # print("send_remove_missions_request_to_cloud RESULT:", result)
+    # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
+
+
     #
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = send_add_missions_request_to_cloud(session, qs, token)
@@ -305,7 +314,16 @@ def test_api(parent, session, token):
     # result = send_remove_missions_request_to_cloud(session, qs, token)
     # print("send_remove_missions_request_to_cloud RESULT:", result)
     #
-    # test passed.
+
+    # test passed
+    # qs = {"byowneruser": True}
+    # qs = {"byowneruser": False, "created_date_range": "2022-10-20 00:00:00,2022-10-25 00:00:00"}
+    # result = send_query_missions_request_to_cloud(session, token, qs)
+    # print("send_remove_missions_request_to_cloud RESULT:", result)
+    # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
+
+
+# test passed.
     # ts_skill = WORKSKILL(parent, "test_skill")
     # qs = [ts_skill]
     # result = send_add_skills_request_to_cloud(session, qs, token)
@@ -325,10 +343,11 @@ def test_api(parent, session, token):
     # print("send_remove_skills_request_to_cloud RESULT:", result)
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
+    # test passed.
     # qs = {"byowneruser": True}
-    qs = {"byowneruser": False, "qphrase": "great automation"}
-    result = send_query_skills_request_to_cloud(session, token, qs)
-    print("send_remove_skills_request_to_cloud RESULT:", result)
+    # qs = {"byowneruser": False, "qphrase": "great automation"}
+    # result = send_query_skills_request_to_cloud(session, token, qs)
+    # print("send_remove_skills_request_to_cloud RESULT:", result)
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
 

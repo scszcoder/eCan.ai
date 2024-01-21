@@ -9,8 +9,7 @@ from PIL import ImageFont, ImageDraw, Image
 import numpy as np
 from pdf2image import convert_from_path
 # import win32print
-from datetime import date
-from datetime import datetime
+import datetime
 from basicSkill import *
 
 
@@ -139,7 +138,7 @@ def add_text(iimg, text, text_loc, font = cv2.FONT_HERSHEY_SIMPLEX, fontScale = 
 # Press the green button in the gutter to run the script.
 def print_labels(label_dir, printer):
 
-    today = date.today()
+    today = datetime.today()
     yesterday = today - datetime.timedelta(days=1)
 
     today_string = yesterday.strftime("%Y%m%d")

@@ -275,6 +275,48 @@ def gen_query_skills_string(q_setting):
     print(query_string)
     return query_string
 
+def gen_query_bots_string(q_setting):
+    if q_setting["byowneruser"]:
+        query_string = "query MySkQuery { queryBots(qb: \"{ \\\"byowneruser\\\": true}\") } "
+    else:
+        query_string = "query MySkQuery { queryBots(qb: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\""+q_setting["qphrase"]+"\\\"}\") } "
+
+    rec_string = ""
+    tail_string = ""
+    query_string = query_string + rec_string + tail_string
+    print(query_string)
+    return query_string
+
+
+def gen_query_missions_string(q_setting):
+    if q_setting["byowneruser"]:
+        query_string = "query MySkQuery { queryMissions(qm: \"{ \\\"byowneruser\\\": true}\") } "
+    else:
+        query_string = "query MySkQuery { queryMissions(qm: \"{ \\\"byowneruser\\\": false "
+        if "created_date_range" in q_setting:
+            query_string = query_string + ", \\\"created_date_range\\\": \\\"" + q_setting["created_date_range"] + "\\\""
+
+        if "status" in q_setting:
+            query_string = query_string + ", \\\"status\\\":" + q_setting["status"] + "\\\","
+
+        if "type" in q_setting:
+            query_string = query_string + ", \\\"type\\\":" + q_setting["type"] + "\\\","
+
+        if "phrase" in q_setting:
+            query_string = query_string + ", \\\"phrase\\\":" + q_setting["phrase"] + "\\\","
+
+        if "pseudo_store" in q_setting:
+            query_string = query_string + ", \\\"pseudo_store\\\":" + q_setting["pseudo_store"] + "\\\""
+
+        query_string = query_string + "}\") } "
+
+
+    rec_string = ""
+    tail_string = ""
+    query_string = query_string + rec_string + tail_string
+    print(query_string)
+    return query_string
+
 
 def gen_schedule_request_string(test_name, schedule_settings):
     if test_name != "":
@@ -436,7 +478,7 @@ def gen_remove_bots_string(removeOrders):
     """
     rec_string = ""
     for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ id:\"" + str(removeOrders[i]["id"]) + "\", "
+        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["id"]) + ", "
         rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
         rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
 
@@ -598,7 +640,7 @@ def gen_remove_missions_string(removeOrders):
     """
     rec_string = ""
     for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ id:\"" + str(removeOrders[i]["id"]) + "\", "
+        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["id"]) + ", "
         rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
         rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
 
@@ -626,6 +668,7 @@ def gen_add_skills_string(skills):
             rec_string = rec_string + "platform: \"" + skills[i]["platform"] + "\", "
             rec_string = rec_string + "app: \"" + skills[i]["app"] + "\", "
             rec_string = rec_string + "site: \"" + skills[i]["site"] + "\", "
+            rec_string = rec_string + "page: \"" + skills[i]["page"] + "\", "
             rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
             rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
             rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
@@ -640,6 +683,7 @@ def gen_add_skills_string(skills):
             rec_string = rec_string + "platform: \"" + skills[i].getPlatform() + "\", "
             rec_string = rec_string + "app: \"" + skills[i].getApp() + "\", "
             rec_string = rec_string + "site: \"" + skills[i].getSite() + "\", "
+            rec_string = rec_string + "page: \"" + skills[i].getPage() + "\", "
             rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
             rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
             rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
@@ -673,6 +717,7 @@ def gen_update_skills_string(skills):
             rec_string = rec_string + "platform: \"" + skills[i]["platform"] + "\", "
             rec_string = rec_string + "app: \"" + skills[i]["app"] + "\", "
             rec_string = rec_string + "site: \"" + skills[i]["site"] + "\", "
+            rec_string = rec_string + "page: \"" + skills[i]["page"] + "\", "
             rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
             rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
             rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
@@ -687,6 +732,7 @@ def gen_update_skills_string(skills):
             rec_string = rec_string + "platform: \"" + skills[i].getPlatform() + "\", "
             rec_string = rec_string + "app: \"" + skills[i].getApp() + "\", "
             rec_string = rec_string + "site: \"" + skills[i].getSite() + "\", "
+            rec_string = rec_string + "page: \"" + skills[i].getPage() + "\", "
             rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
             rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
             rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
@@ -717,7 +763,7 @@ def gen_remove_skills_string(removeOrders):
     """
     rec_string = ""
     for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ oid:\"" + str(removeOrders[i]["skid"]) + "\", "
+        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["skid"]) + ", "
         rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
         rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
 
@@ -1097,6 +1143,38 @@ def send_query_skills_request_to_cloud(session, token, q_settings):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["querySkills"])
+
+
+    return jresponse
+
+def send_query_bots_request_to_cloud(session, token, q_settings):
+
+    queryInfo = gen_query_bots_string(q_settings)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryBots"])
+
+
+    return jresponse
+
+def send_query_missions_request_to_cloud(session, token, q_settings):
+
+    queryInfo = gen_query_missions_string(q_settings)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryMissions"])
 
 
     return jresponse
