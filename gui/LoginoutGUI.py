@@ -7,8 +7,6 @@ import botocore
 from botocore.exceptions import ClientError
 import boto3
 from signio import *
-import time
-from datetime import datetime
 from BorderLayout import *
 import json
 from os.path import exists
@@ -18,6 +16,7 @@ from pycognito.aws_srp import AWSSRP
 from envi import *
 from Cloud import *
 from config.app_info import app_info
+from datetime import datetime
 
 import asyncio
 import qasync

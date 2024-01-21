@@ -5,8 +5,6 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from PyPDF2 import PdfReader
 import subprocess
 import os
-from datetime import datetime
-import time
 from basicSkill import *
 
 global symTab

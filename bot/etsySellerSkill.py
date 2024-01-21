@@ -3,7 +3,7 @@ from scraperEtsy import *
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-from datetime import datetime
+import datetime
 from envi import *
 from config.app_info import app_info
 
