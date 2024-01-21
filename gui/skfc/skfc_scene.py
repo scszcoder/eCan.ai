@@ -37,6 +37,7 @@ class SkFCScene(QGraphicsScene):
         self.myLineColor: QColor = QColor(Qt.black)
         self.myFont: QFont = QFont("Times New Roman", 14)
         self.gridSize = 5
+        self.ignore_mouse_move = False
 
         self.diagram_item_map_stepN = {}
 
@@ -91,6 +92,13 @@ class SkFCScene(QGraphicsScene):
                 self.parent.deleteItem()
             else:
                 print("delete selected item is none")
+        elif event.key() == Qt.Key_Escape:
+            if (self.myMode == self.InsertLine and isinstance(self.selected_item, DiagramArrowItem) and
+                    self.ignore_mouse_move is False):
+                self.ignore_mouse_move = True
+                self.removeItem(self.selected_item)
+                self.selected_item = None
+
         super().keyPressEvent(event)
 
     def get_selected_diagram_item(self):
@@ -137,6 +145,7 @@ class SkFCScene(QGraphicsScene):
 
                     self.add_diagram_item(item)
                     self.selected_item = item
+                    self.ignore_mouse_move = False
                 elif target_item_group is not None:
                     self.selected_item = target_item_group.diagram_normal_item
                 else:
@@ -180,6 +189,11 @@ class SkFCScene(QGraphicsScene):
             super().mouseMoveEvent(mouseEvent)
             # print(f"moving normal item {self.selected_item}")
         elif isinstance(self.selected_item, DiagramArrowItem):
+            if self.ignore_mouse_move:
+                print("ignore mouse move event")
+                mouseEvent.ignore()
+                return
+
             target_item_group = self.query_target_event_items(mouseEvent.scenePos())
             self.selected_item.mouse_move_handler(mouseEvent.scenePos(), target_item_group)
             # print(f"moving arrow item {self.selected_item}")
@@ -192,6 +206,7 @@ class SkFCScene(QGraphicsScene):
         super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
         if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramArrowItem):
+                self.ignore_mouse_move = True
                 line: DiagramArrowItem = self.selected_item
                 target_item_group = self.query_target_event_items(mouseEvent.scenePos())
                 line.mouse_release_handler(mouseEvent.scenePos(), target_item_group)
