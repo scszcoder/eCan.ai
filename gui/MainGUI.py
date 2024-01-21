@@ -550,7 +550,6 @@ class MainWindow(QMainWindow):
                 vicrop.update(vicrop_extension)
 
         # now hand daily tasks
-
         self.todays_work = {"tbd": [], "allstat": "working"}
         self.todays_completed = []
         if not self.hostrole == "Platoon":
