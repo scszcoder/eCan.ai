@@ -195,10 +195,10 @@ class BotNewWin(QMainWindow):
         self.setngsWidget_layout = QVBoxLayout(self)
         self.statWidget_layout = QVBoxLayout(self)
 
-        self.tag_label = QLabel(QApplication.translate("QLabel", "Tag:"), alignment=Qt.AlignLeft)
+        self.tag_label = QLabel(QApplication.translate("QLabel", "Bot ID:"), alignment=Qt.AlignLeft)
         self.tag_edit = QLineEdit("")
-
-        self.tag_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input bot tag here"))
+        self.tag_edit.setPlaceholderText(QApplication.translate("QLineEdit", "auto generated bot ID here"))
+        self.tag_edit.setReadOnly(True)
         self.icon_label = QLabel(QApplication.translate("QLabel", "Icon Image:"))
         self.icon_path_edit = QLineEdit("")
         self.icon_path_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input icon img file path here"))
@@ -806,18 +806,20 @@ class BotNewWin(QMainWindow):
         self.acctpw_edit.setText(bot.getAcctPw())
         self.age_edit.setText(str(bot.getAge()))
         self.backem_edit.setText(bot.getBackEm())
-        self.loccity_edit.setText(bot.getLocation())
+        self.loccity_edit.setText(bot.getLocation().split("|")[0])
+        self.locstate_edit.setText(bot.getLocation().split("|")[1])
         self.em_edit.setText(bot.getEmail())
         self.empw_edit.setText(bot.getEmPW())
         self.fn_edit.setText(bot.getFn())
         self.ln_edit.setText(bot.getLn())
-        #self.pln_edit.setText()
-        #self.pfn_edit.setText()
-        #self.pnn_edit.setText()
+        self.pln_edit.setText(bot.getPseudoLastName())
+        self.pfn_edit.setText(bot.getPseudoFirstName())
+        # self.pnn_edit.setText(bot.getNickName())
         self.phone_edit.setText(bot.getPhone())
-        self.locstate_edit.setText(bot.getLocation())
         # self.icon_path_edit.setText(bot.getIconLink())
-        #self.tag_edit.setText()
+        self.tag_edit.setReadOnly(False)
+        self.tag_edit.setText(str(bot.getBid()))
+        self.tag_edit.setReadOnly(True)
         if bot.getGender() == "Male":
             self.m_rb.setChecked(True)
         elif bot.getGender() == "Female":
@@ -827,6 +829,23 @@ class BotNewWin(QMainWindow):
         self.os_sel.setCurrentText(bot.getOS())
         self.browser_sel.setCurrentText(bot.getBrowser())
         self.machine_sel.setCurrentText(bot.getMachine())
+
+        self.addr_l1_edit.setText(bot.getAddrStreet1())
+        self.addr_l2_edit.setText(bot.getAddrStreet2())
+        self.addr_city_edit.setText(bot.getAddrCity())
+        self.addr_state_edit.setText(bot.getAddrState())
+        self.addr_zip_edit.setText(bot.getAddrZip())
+
+        if bot.getAddrShippingAddrSame():
+            self.shipaddr_same_checkbox.setChecked(True)
+        else:
+            self.shipaddr_same_checkbox.setChecked(False)
+
+        self.shipaddr_l1_edit.setText(bot.getShippingAddrStreet1())
+        self.shipaddr_l2_edit.setText(bot.getShippingAddrStreet2())
+        self.shipaddr_city_edit.setText(bot.getShippingAddrCity())
+        self.shipaddr_state_edit.setText(bot.getShippingAddrState())
+        self.shipaddr_zip_edit.setText(bot.getShippingAddrZip())
 
     def setOwner(self, owner):
         self.owner = owner

@@ -435,7 +435,7 @@ class SkillManagerWindow(QMainWindow):
 
 
     def fill1TableRow(self, rowIdx, rowData, model):
-        print("filling table row #", rowIdx)
+        # print("filling table row #", rowIdx)
         items = []
         text_item = QStandardItem(str(rowData[rowIdx].getSkid()))
         model.setItem(rowIdx, 0, text_item)

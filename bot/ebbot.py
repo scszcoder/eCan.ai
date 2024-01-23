@@ -107,9 +107,14 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrstate = ""
         self.shipping_addrzip = ""
 
-    def setName(self, n_first, n_last):
-        self.first_name = n_first
-        self.last_name = n_last
+    def setName(self, name):
+        name_words = name.split()
+        if len(name_words) >= 2:
+            self.first_name = name_words[0]
+            self.last_name = name_words[len(name_words)-1]
+        else:
+            self.first_name = name_words[0]
+            self.last_name = ""
 
 
     def setAddr(self, l1, l2, city, state, zip):
@@ -157,8 +162,9 @@ class BOT_PRIVATE_PROFILE():
         self.acct_pw = epw
 
     def setBirthday(self, bdtxt):
+        print("SETTING BIRTHDAY:", bdtxt)
         self.birthday = bdtxt
-        format = '%m/%d/%Y'
+        format = '%Y-%m-%d'
 
         # convert from string format to datetime format
         self.birthdaydt = datetime.strptime(bdtxt, format)
@@ -225,9 +231,11 @@ class BOT_PUB_PROFILE():
         super().__init__()
         self.bid = 0
         self.pseudo_name = "Jonny"
+        self.pseudo_first_name = "Jonny"
+        self.pseudo_last_name = "Doe"
         self.nick_name = "Jonny"
         self.location = "CA"
-        self.pubbirthday = "01/01/1992"
+        self.pubbirthday = "1992-01-01"
         self.gender = "M"
         self.interests = ""
         self.roles = ""
@@ -248,6 +256,14 @@ class BOT_PUB_PROFILE():
         self.roles = roles
 
     def setPseudoName(self, pn):
+        name_words = pn.split()
+        if len(name_words) >= 2:
+            self.pseudo_first_name = name_words[0]
+            self.pseudo_last_name = name_words[len(name_words)-1]
+        else:
+            self.pseudo_first_name = name_words[0]
+            self.pseudo_last_name = ""
+
         self.pseudo_name = pn
 
     def setNickName(self, nn):
@@ -382,7 +398,7 @@ class EBBOT(QStandardItem):
         return self.pubProfile.roles
 
     def getAge(self):
-        birthday = datetime.strptime(self.pubProfile.pubbirthday, "%m/%d/%Y")
+        birthday = datetime.strptime(self.pubProfile.pubbirthday, '%Y-%m-%d')
         # Get the current date
         today = datetime.today()
         # Calculate the age
@@ -425,6 +441,31 @@ class EBBOT(QStandardItem):
     def getAddrZip(self):
         return self.privateProfile.shipping_addrzip
 
+    def getShippingAddrStreet1(self):
+        return self.privateProfile.shipping_addrl1
+
+    def getShippingAddrStreet2(self):
+        return self.privateProfile.shipping_addrl2
+
+    def getShippingAddrCity(self):
+        return self.privateProfile.shipping_addrcity
+
+    def getShippingAddrState(self):
+        return self.privateProfile.shipping_addrstate
+
+    def getShippingAddrZip(self):
+        return self.privateProfile.shipping_addrzip
+
+    def getAddrShippingAddrSame(self):
+        if self.privateProfile.shipping_addrzip == self.privateProfile.addrzip and \
+            self.privateProfile.shipping_addrstate == self.privateProfile.addrstate and \
+            self.privateProfile.shipping_addrcity == self.privateProfile.addrcity and \
+            self.privateProfile.shipping_addrl2 == self.privateProfile.addrl2 and \
+            self.privateProfile.shipping_addrl1 == self.privateProfile.addrl1:
+            return True
+        else:
+            return False
+
     def getInterests(self):
         return self.pubProfile.interests
 
@@ -445,6 +486,12 @@ class EBBOT(QStandardItem):
 
     def getPseudoName(self):
         return self.pubProfile.pseudo_name
+
+    def getPseudoFirstName(self):
+        return self.pubProfile.pseudo_first_name
+
+    def getPseudoLastName(self):
+        return self.pubProfile.pseudo_last_name
 
     def getNickName(self):
         return self.pubProfile.nick_name
@@ -523,50 +570,30 @@ class EBBOT(QStandardItem):
         print(json.dumps(jsd))
         return jsd
 
-    # fill data structure from a row in sqlite db fetchall result
-    # "bid": [0]
-    # "owner": [1]
-    # "roles": [2]
-    # "pubbirthday": [3]
-    # "gender": [4]
-    # "location": [5]
-    # "levels": [6]
-    # "birthday": [7]
-    # "interests": [8]
-    # "status": [9]
-    # "delDate": [10]
-    # "name": [11]
-    # "pseudoname": [12]
-    # "nickname": [13]
-    # "addr": [14]
-    # "shipaddr": [15]
-    # "phone": [16]
-    # "email": [17]
-    # "epw": [18]
-    # "backemail": [19]
-    # "ebpw": [20]
+    def updateDisplay(self):
+        self.setText('bot' + str(self.getBid()))
+
     def loadDBData(self, dbd):
         self.pubProfile.setBid(dbd[0])
         self.pubProfile.setOwner(dbd[1])
-        self.pubProfile.setRoles(dbd[2])
-        self.pubProfile.setPubBirthday(dbd[3])
-        self.pubProfile.setGender(dbd[4])
-        self.pubProfile.setLoc(dbd[5])
-        self.pubProfile.setLevels(dbd[6])
-        self.privateProfile.setBirthday(dbd[7])
-        self.pubProfile.setInterests(dbd[8])
-        self.pubProfile.setStatus(dbd[9])
-        self.pubProfile.setDelDate(dbd[10])
-        self.privateProfile.setName(dbd[11])
-        self.pubProfile.setPseudoName(dbd[12])
-        self.pubProfile.setNickName(dbd[13])
-        self.privateProfile.setAddr1(dbd[14])
-        self.privateProfile.setShippingAddr1(dbd[15])
-        self.privateProfile.setPhone(dbd[16])
-        self.privateProfile.setEmail(dbd[17])
-        self.privateProfile.setEPW(dbd[18])
-        self.privateProfile.setBackEmail(dbd[19])
-        self.privateProfile.setEBPW(dbd[20])
+        self.pubProfile.setRoles(dbd[7])
+        self.pubProfile.setPubBirthday(dbd[4])
+        self.pubProfile.setGender(dbd[3])
+        self.pubProfile.setLoc(dbd[6])
+        self.pubProfile.setLevels(dbd[2])
+        self.pubProfile.setInterests(dbd[5])
+        self.pubProfile.setStatus(dbd[8])
+        self.pubProfile.setDelDate(dbd[9])
+        self.privateProfile.setName(dbd[10])
+        self.pubProfile.setPseudoName(dbd[11])
+        self.pubProfile.setNickName(dbd[12])
+        self.privateProfile.setAddr1(dbd[13])
+        self.privateProfile.setShippingAddr1(dbd[14])
+        self.privateProfile.setPhone(dbd[15])
+        self.privateProfile.setEmail(dbd[16])
+        self.privateProfile.setEPW(dbd[17])
+        self.privateProfile.setBackEmail(dbd[18])
+        self.privateProfile.setEBPW(dbd[19])
 
 
 
