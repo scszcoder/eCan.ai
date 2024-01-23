@@ -458,9 +458,6 @@ class EBBOT(QStandardItem):
     def getLevels(self):
         return self.pubProfile.levels
 
-    def setLevels(self, levels):
-        self.pubProfile.levels = levels
-
     def getLn(self):
         return self.privateProfile.last_name
 
@@ -487,8 +484,15 @@ class EBBOT(QStandardItem):
 
     # sets--------------------------
 
+    def setBid(self, bid):
+        self.pubProfile.bid = bid
+        self.setText('bot'+str(bid))
+
     def setOwner(self, owner):
         self.pubProfile.owner = owner
+
+    def setLevels(self, levels):
+        self.pubProfile.levels = levels
 
     def setRoles(self, rw):
         self.pubProfile.roles = rw

@@ -277,20 +277,21 @@ def test_api(parent, session, token):
     # result = send_completion_status_to_cloud(session, qs, token)
     # print("send_completion_status_to_cloud RESULT:", result)
 
-    # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_add_bots_request_to_cloud(session, qs, token)
-    # print("send_add_bots_request_to_cloud RESULT:", result)
+    qs = [{"actid": 5, "op":"", "options": ""}]
+    result = send_add_bots_request_to_cloud(session, qs, token)
+    print("send_add_bots_request_to_cloud RESULT:", result)
     #
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = send_update_bots_request_to_cloud(session, qs, token)
     # print("send_update_bots_request_to_cloud RESULT:", result)
     #
-    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # test passed - 2024-01-21
+    # qs = [{"id": 12, "owner": "", "reason": ""}]
     # result = send_remove_bots_request_to_cloud(session, qs, token)
     # print("send_remove_bots_request_to_cloud RESULT:", result)
     #
-    # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_get_bots_request_to_cloud(session, qs, token)
+    # test passed.
+    # result = send_get_bots_request_to_cloud(session, token)
     # print("send_get_bots_request_to_cloud RESULT:", result)
 
     # test passed
@@ -310,7 +311,8 @@ def test_api(parent, session, token):
     # result = send_update_missions_request_to_cloud(session, qs, token)
     # print("send_update_missions_request_to_cloud RESULT:", result)
     #
-    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # test passed - 2024-01-21
+    # qs = [{"id": 44, "owner": "", "reason": ""}]
     # result = send_remove_missions_request_to_cloud(session, qs, token)
     # print("send_remove_missions_request_to_cloud RESULT:", result)
     #
@@ -323,7 +325,7 @@ def test_api(parent, session, token):
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
 
-# test passed.
+    # test passed.
     # ts_skill = WORKSKILL(parent, "test_skill")
     # qs = [ts_skill]
     # result = send_add_skills_request_to_cloud(session, qs, token)
@@ -358,6 +360,7 @@ def test_api(parent, session, token):
     # result = req_train_read_screen(session, qs, token)
     # print("req_train_read_screen RESULT:", result)
     #
+    # tested many times by now
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = req_cloud_read_screen(session, qs, token)
     # print("req_cloud_read_screen RESULT:", result)
