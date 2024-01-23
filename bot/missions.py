@@ -321,6 +321,7 @@ class EBMISSION(QStandardItem):
 
     def setMid(self, mid):
         self.pubAttributes.missionId = mid
+        self.setText('mission' + str(mid))
 
     def getTicket(self):
         return self.pubAttributes.ticket

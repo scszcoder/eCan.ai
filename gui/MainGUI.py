@@ -2053,8 +2053,6 @@ class MainWindow(QMainWindow):
     def addNewBot(self, new_bot):
         # Logic for creating a new bot:
         print("adding a .... new... bot")
-        self.bots.append(new_bot)
-        self.botModel.appendRow(new_bot)
         api_bots = [{
             "bid": new_bot.getBid(),
             "owner": self.owner,
@@ -2078,25 +2076,33 @@ class MainWindow(QMainWindow):
             "backemail": new_bot.getBackEm(),
             "ebpw": new_bot.getAcctPw()
         }]
-        jresp = send_add_bots_request_to_cloud(self.session, api_bots, self.tokens['AuthenticationResult']['IdToken'])
+        jresp = send_add_bots_request_to_cloud(self.session, [new_bot], self.tokens['AuthenticationResult']['IdToken'])
 
         if "errorType" in jresp:
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
         else:
-            jbody = json.loads(jresp["body"])
+            print("jresp:", jresp)
+            jbody = jresp["body"]
             #now that add is successfull, update local file as well.
+            # first, update bot ID both in data structure and in GUI display.
+
+            new_bot.setBid(jresp["body"][0]["bid"])
+
+            self.bots.append(new_bot)
+            self.botModel.appendRow(new_bot)
 
             sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
 
             # now add bot to local DB.
+            j = 0
             for newbot in jbody:
                 sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                data_tuple = (api_bots[0]["bid"], api_bots[0]["owner"], api_bots[0]["levels"], api_bots[0]["gender"], api_bots[0]["birthday"], \
-                              api_bots[0]["interests"], api_bots[0]["location"], api_bots[0]["roles"], api_bots[0]["status"], api_bots[0]["delDate"], \
-                              api_bots[0]["name"], api_bots[0]["pseudoname"], api_bots[0]["nickname"], api_bots[0]["addr"], api_bots[0]["shipaddr"], \
-                              api_bots[0]["phone"], api_bots[0]["email"], api_bots[0]["epw"], api_bots[0]["backemail"], api_bots[0]["ebpw"])
+                data_tuple = (newbot["bid"], newbot["owner"], newbot["levels"], newbot["gender"], newbot["birthday"], \
+                              newbot["interests"], newbot["location"], newbot["roles"], newbot["status"], newbot["delDate"], \
+                              api_bots[j]["name"], api_bots[j]["pseudoname"], api_bots[j]["nickname"], api_bots[j]["addr"], api_bots[j]["shipaddr"], \
+                              api_bots[j]["phone"], api_bots[j]["email"], api_bots[j]["epw"], api_bots[j]["backemail"], api_bots[j]["ebpw"])
 
                 self.dbCursor.execute(sql, data_tuple)
 
@@ -2106,6 +2112,7 @@ class MainWindow(QMainWindow):
                 else:
                     print("Insertion failed.")
 
+                j = j + 1
             #update self data structure and save in json file for easy access (1 line of python code)
             # self.saveBotJsonFile(jbody)
 
@@ -2168,8 +2175,6 @@ class MainWindow(QMainWindow):
     def addNewMission(self, new_mission):
         # Logic for creating a new mission:
         print("adding a .... new... mission")
-        self.missions.append(new_mission)
-        self.missionModel.appendRow(new_mission)
         api_missions = [{
             "mid": new_mission.getMid(),
             "ticket": new_mission.getMid(),
@@ -2207,25 +2212,29 @@ class MainWindow(QMainWindow):
             "customer": new_mission.getCustomerID(),
             "platoon": new_mission.getPlatoonID()
         }]
-        jresp = send_add_missions_request_to_cloud(self.session, api_missions, self.tokens['AuthenticationResult']['IdToken'])
+        jresp = send_add_missions_request_to_cloud(self.session, [new_mission], self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
             print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
         else:
-            jbody = json.loads(jresp["body"])
+            jbody = jresp["body"]
             # now that delete is successfull, update local file as well.
-            self.writeMissionJsonFile()
+            # self.writeMissionJsonFile()
+            new_mission.setMid(jbody[0]["mid"])
+
+            self.missions.append(new_mission)
+            self.missionModel.appendRow(new_mission)
 
             #add to local DB
             sql = ''' INSERT INTO missions(mid, ticket, owner, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, startt, esttime, runtime, 
                     cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
                     title, rating, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-            data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
-                          api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], api_missions[0]["abd"], api_missions[0]["aad"], \
-                          api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["startt"], api_missions[0]["esttime"], api_missions[0]["runtime"], \
-                          api_missions[0]["cuspas"], api_missions[0]["category"], api_missions[0]["phrase"], api_missions[0]["pseudoStore"], \
-                          api_missions[0]["pseudoBrand"], api_missions[0]["pseudoASIN"], api_missions[0]["type"], api_missions[0]["config"], \
-                          api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
+            data_tuple = (jbody[0]["mid"], jbody[0]["ticket"], jbody[0]["owner"], jbody[0]["botid"], jbody[0]["status"], jbody[0]["createon"], \
+                          jbody[0]["esd"], jbody[0]["ecd"], jbody[0]["asd"], jbody[0]["abd"], jbody[0]["aad"], \
+                          jbody[0]["afd"], jbody[0]["acd"], jbody[0]["startt"], jbody[0]["esttime"], jbody[0]["runtime"], \
+                          jbody[0]["cuspas"], jbody[0]["category"], jbody[0]["phrase"], jbody[0]["pseudoStore"], \
+                          jbody[0]["pseudoBrand"], jbody[0]["pseudoASIN"], jbody[0]["type"], jbody[0]["config"], \
+                          jbody[0]["skills"], jbody[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
                           api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["customer"], api_missions[0]["platoon"])
             self.dbCursor.execute(sql, data_tuple)
             # Check if the INSERT query was successful
