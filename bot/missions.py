@@ -45,8 +45,11 @@ class M_Private_Attributes():
         self.rating = ""
         self.rank = 0
         self.feedbacks = 0
-        self.fb_type = "NA"
-        self.customer_id = 0
+        self.buy_type = "NA"
+        self.sell_type = "NA"
+        self.customer_id = ""
+        self.customer_sm_id = ""
+        self.customer_sm_platform = ""
 
 
 
@@ -71,8 +74,11 @@ class M_Private_Attributes():
     def getPrice(self):
         return self.price
 
-    def setFbType(self, fbtype):
-        self.fb_type = fbtype
+    def setBuyType(self, buy_type):
+        self.buy_type = buy_type
+
+    def setSellType(self, stype):
+        self.sell_type = stype
 
     def loadJson(self, dj):
         self.item_number = dj["item_number"]
@@ -82,7 +88,7 @@ class M_Private_Attributes():
         self.price = dj["price"]
         self.rank = dj["rank"]
         self.feedbacks = dj["feedbacks"]
-        self.fb_type = dj["fb_type"]
+        self.buy_type = dj["buy_type"]
 
     def genJson(self):
         jd = {
@@ -93,7 +99,8 @@ class M_Private_Attributes():
                 "price": self.price,
                 "rank": self.rank,
                 "feedbacks": self.feedbacks,
-                "fb_type": self.fb_type
+                "buy_type": self.buy_type,
+                "sell_type": self.sell_type
             }
         return jd
 
@@ -101,7 +108,7 @@ class M_Pub_Attributes():
     def __init__(self):
         super().__init__()
         self.missionId = -1
-        self.ticket = 1
+        self.ticket = 0
         self.owner = ""
         self.assign_type = "USER"         # user assigned or cloud auto assigned.
         self.search_kw = ""               # search phrase
@@ -138,8 +145,7 @@ class M_Pub_Attributes():
         self.platoon_id = ""
 
 
-    def setType(self, mid, atype, mtype):
-        self.missionId = mid
+    def setType(self, atype, mtype):
         self.assign_type = atype
         self.ms_type = mtype
 
@@ -607,7 +613,7 @@ class EBMISSION(QStandardItem):
     def getImagePath(self):
         return self.privateAttributes.imglink
 
-    def setImage(self, imgpath):
+    def setImagePath(self, imgpath):
         self.privateAttributes.imglink = imgpath
 
     def getTitle(self):
@@ -633,6 +639,19 @@ class EBMISSION(QStandardItem):
 
     def setCustomer(self, cid):
         self.privateAttributes.customer_id = cid
+
+    def getCustomerSMID(self):
+        return self.privateAttributes.customer_sm_id
+
+    def setCustomerSMID(self, cid):
+        self.privateAttributes.customer_sm_id = cid
+
+
+    def getCustomerSMPlatform(self):
+        return self.privateAttributes.customer_sm_platform
+
+    def setCustomerSMPlatform(self, smp):
+        self.privateAttributes.customer_sm_platform = smp
 
     def getPlatoonID(self):
         return self.pubAttributes.platoon_id

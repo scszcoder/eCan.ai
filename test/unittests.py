@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 import time
 import pytz
+from ebbot import *
+from missions import *
 
 global symTab
 
@@ -278,12 +280,16 @@ def test_api(parent, session, token):
     # result = send_completion_status_to_cloud(session, qs, token)
     # print("send_completion_status_to_cloud RESULT:", result)
 
+    # test passed - 2024-01-21
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = send_add_bots_request_to_cloud(session, qs, token)
     # print("send_add_bots_request_to_cloud RESULT:", result)
     #
-    # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_update_bots_request_to_cloud(session, qs, token)
+
+    # test passsed - 2024-01-23
+    # abot = parent.bots[0]
+    # abot.pubProfile.setPubBirthday("1992-03-01")
+    # result = send_update_bots_request_to_cloud(session, [abot], token)
     # print("send_update_bots_request_to_cloud RESULT:", result)
     #
     # test passed - 2024-01-21
@@ -304,12 +310,52 @@ def test_api(parent, session, token):
 
 
     #
-    # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_add_missions_request_to_cloud(session, qs, token)
+    # test passed 202-01-24
+    # amission = EBMISSION(parent)
+    # amission.setMid(30)    # MID
+    # amission.setTicket(0)
+    # amission.setOwner('songc@yahoo.com')
+    # amission.setBid(2)
+    # amission.setStatus('')
+    # amission.setBD('')
+    #
+    # amission.setRetry("1")
+    # amission.setCusPAS('win,chrome,etsy')
+    # amission.setSearchCat('')
+    # amission.setSearchKW('yoga mats')
+    # amission.setPseudoStore('')
+    # amission.setPseudoBrand('')
+    # amission.setPseudoASIN('')
+    # amission.setMtype('Browse')
+    # amission.setConfig('')
+    # amission.setSkills('9, 3')
+    # amission.setDelDate('3022-10-23 00:00:00')
+    # result = send_add_missions_request_to_cloud(session, [amission], token)
     # print("send_add_missions_request_to_cloud RESULT:", result)
     #
-    # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_update_missions_request_to_cloud(session, qs, token)
+
+    # test passed 202-01-24
+    # amission = EBMISSION(parent)
+    # amission.setMid(30)    # MID
+    # amission.setTicket(0)
+    # amission.setOwner('songc@yahoo.com')
+    # amission.setBid(2)
+    # amission.setStatus('ASSIGNED')
+    # amission.setBD('2022-10-23 00:00:00')
+    #
+    # amission.setRetry("1")
+    # amission.setCusPAS('win,chrome,amz')
+    # amission.setSearchCat('')
+    # amission.setSearchKW('yoga mats')
+    # amission.setPseudoStore('')
+    # amission.setPseudoBrand('')
+    # amission.setPseudoASIN('')
+    # amission.setMtype('Browse')
+    # amission.setConfig('')
+    # amission.setSkills('2, 3')
+    # amission.setDelDate('3022-10-23 00:00:00')
+    #
+    # result = send_update_missions_request_to_cloud(session, [amission], token)
     # print("send_update_missions_request_to_cloud RESULT:", result)
     #
     # test passed - 2024-01-21

@@ -57,7 +57,7 @@ class MissionNewWin(QMainWindow):
         self.homepath = parent.homepath
         self.newMission = None
         self.owner = None
-
+        self.mode = "new"
         self.selected_skill_row = None
         self.selected_skill_item = None
 
@@ -244,15 +244,15 @@ class MissionNewWin(QMainWindow):
         self.repeat_edit = QLineEdit()
         self.repeat_edit.setPlaceholderText("1")
 
-        self.repeat_interval_label = QLabel(QApplication.translate("QLabel", " "), alignment=Qt.AlignLeft)
-        self.repeat_interval_sel = QComboBox()
-
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Day(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Week(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Month(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Year(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Hour(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Minute(s)"))
+        # self.repeat_interval_label = QLabel(QApplication.translate("QLabel", " "), alignment=Qt.AlignLeft)
+        # self.repeat_interval_sel = QComboBox()
+        #
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Day(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Week(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Month(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Year(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Hour(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Minute(s)"))
 
         self.search_kw_label = QLabel(QApplication.translate("QLabel", "Search Phrase:"), alignment=Qt.AlignLeft)
         self.search_kw_edit = QLineEdit()
@@ -308,8 +308,8 @@ class MissionNewWin(QMainWindow):
         self.pubAttrLine3Layout = QHBoxLayout(self)
         self.pubAttrLine3Layout.addWidget(self.repeat_label)
         self.pubAttrLine3Layout.addWidget(self.repeat_edit)
-        self.pubAttrLine3Layout.addWidget(self.repeat_interval_label)
-        self.pubAttrLine3Layout.addWidget(self.repeat_interval_sel)
+        # self.pubAttrLine3Layout.addWidget(self.repeat_interval_label)
+        # self.pubAttrLine3Layout.addWidget(self.repeat_interval_sel)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine3Layout)
 
         self.pubAttrLine4Layout = QHBoxLayout(self)
@@ -427,6 +427,9 @@ class MissionNewWin(QMainWindow):
         self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Telegram"))
         self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "WhatsApp"))
         self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Messenger"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Line"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Thread"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Facebook"))
         self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Other"))
 
         self.cus_alt_sm_id_label = QLabel(QApplication.translate("QLabel", "Customer Messenger ID:"), alignment=Qt.AlignLeft)
@@ -463,6 +466,8 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine2Layout = QHBoxLayout(self)
         self.prvAttrLine2Layout.addWidget(self.cus_sm_id_label)
         self.prvAttrLine2Layout.addWidget(self.cus_sm_id_edit)
+        self.prvAttrLine2Layout.addWidget(self.cus_alt_sm_type_label)
+        self.prvAttrLine2Layout.addWidget(self.cus_alt_sm_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine2Layout)
 
         self.prvAttrLine3Layout = QHBoxLayout(self)
@@ -554,29 +559,102 @@ class MissionNewWin(QMainWindow):
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
+
+    def setMode(self, mode):
+        self.mode = mode
+        if self.mode == "new":
+            self.setWindowTitle('Adding a new mission')
+        elif self.mode == "update":
+            self.setWindowTitle('Updating a mission')
+
     def saveMission(self):
         print("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         self.newMission = EBMISSION(self.parent)
 
 
-        if self.repeat_edit.text().isnumeric():
-            self.newMission.pubAttributes.setNex(int(self.repeat_edit.text()))
-        self.newMission.pubAttributes.setSearch(self.search_kw_edit.text(), self.search_cat_edit.text())
-        if self.buy_rb.isChecked():
-            self.newMission.pubAttributes.setType(0, "user", "Sell")
-        elif self.sell_rb.isChecked():
-            self.newMission.pubAttributes.setType(0, "user", "Buy")
-        else:
-            self.newMission.pubAttributes.setType(0, "user", "NA")
+        if self.manual_rb.isChecked():
+            if int(self.bid_edit.text()) != self.newMission.getBid():
+                self.newMission.setBid(int(self.bid_edit.text()))
+                self.newMission.setEstimatedStartTime(self.est_edit.text())
+                self.newMission.setEstimatedRunTime(self.ert_edit.text())
 
-        self.newMission.privateAttributes.setFbType(self.buy_mission_type_sel.currentText())
+        if self.repeat_edit.text().isnumeric():
+            self.newMission.setRetry(int(self.repeat_edit.text()))
+
+        if self.buy_rb.isChecked():
+            self.newMission.pubAttributes.setType("user", "Sell")
+        elif self.sell_rb.isChecked():
+            self.newMission.pubAttributes.setType("user", "Buy")
+        else:
+            self.newMission.pubAttributes.setType("user", "NA")
+
+
+        self.newMission.privateAttributes.setBuyType(self.buy_mission_type_sel.currentText())
+        self.newMission.privateAttributes.setSellType(self.sell_mission_type_sel.currentText())
+
         self.newMission.privateAttributes.setItem(self.asin_edit.text(), self.seller_edit.text(), self.title_edit.text(), self.product_image_edit.text(), self.rating_edit.text())
 
-        print("adding new mission....")
-        self.parent.addNewMission(self.newMission)
+        self.newMission.setCustomer(self.cus_email_edit.text())
+        self.newMission.setCustomerSMID(self.cus_sm_id_edit.text())
+        self.newMission.setCustomerSMPlatform(self.cus_alt_sm_type_sel.currentText())
+
+        if self.fb_reviewed_cb.isChecked():
+            self.newMission.setStatus("reviewed")
+        elif self.fb_rated_cb_cb.isChecked():
+            self.newMission.setStatus("rated")
+        elif self.received_cb.isChecked():
+            self.newMission.setStatus("received")
+        elif self.bought_cb.isChecked():
+            self.newMission.setStatus("bought")
+
+
+        self.newMission.pubAttributes.setSearch(self.search_kw_edit.text(), self.search_cat_edit.text())
+
+        self.newMission.setPseudoStore(self.pseudo_store_edit.text())
+        self.newMission.setPseudoBrand(self.pseudo_brand_edit.text())
+        self.newMission.setPseudoASIN(self.pseudo_asin_edit.text())
+        self.fillSkills()
+
+        # public: type,
+
+
+        if self.mode == "new":
+            print("adding new mission....")
+            self.parent.addNewMission(self.newMission)
+        elif self.mode == "update":
+            print("update a mission....")
+            self.parent.updateAMission(self.newMission)
+
         self.close()
 
+
+    def loadSkills(self, mission):
+        skp_options = ['win', 'mac', 'linux']
+        skapp_options = ['chrome', 'edge', 'firefox', 'safari', 'ads', 'multilogin']
+        sksite_options = ['amz', 'etsy', 'ebay']
+        all_skids = mission.getSkills().split(",")
+
+        for skidw in all_skids:
+            skid = skidw.strip()
+            this_skill = next((x for x in self.parent.skills if x.getSkid() == skid), None)
+
+            if this_skill:
+                self.skillModel.appendRow(this_skill)
+
+        self.selected_skill_row = 0
+        self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
+
+
+    def fillSkills(self):
+        sk_word = ""
+        for i in range(self.skillModel.rowCount()):
+            self.selected_skill_item = self.skillModel.item(i)
+            skid = self.selected_skill_item.getSkid()
+            sk_word = sk_word + "," + int(skid)
+            print("skills>>>>>", self.newMission.getSkills())
+
+        self.newMission.setSkills(sk_word)
 
     def selFile(self):
         # File actions

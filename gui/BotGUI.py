@@ -225,8 +225,13 @@ class BotNewWin(QMainWindow):
         self.locstate_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input State here"))
         self.age_label = QLabel(QApplication.translate("QLabel", "Age:"), alignment=Qt.AlignLeft)
         self.age_edit = QLineEdit()
+        self.age_edit.setReadOnly(True)
         self.pfn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input age here"))
         self.mf_label = QLabel(QApplication.translate("QLabel", "Gender:"), alignment=Qt.AlignLeft)
+
+        self.bd_label = QLabel(QApplication.translate("QLabel", "Birthday:"), alignment=Qt.AlignLeft)
+        self.bd_edit = QLineEdit()
+        self.bd_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Birthday here in MM/DD/YYYY"))
 
         self.m_rb = QRadioButton(QApplication.translate("QRadioButton", "Male"))
         self.f_rb = QRadioButton(QApplication.translate("QRadioButton", "Female"))
@@ -274,18 +279,18 @@ class BotNewWin(QMainWindow):
         self.interest_sub_category3_sel.currentTextChanged.connect(self.interestSubCategory3Sel_changed)
 
 
-        self.interest_sub_category4_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category4:"), alignment=Qt.AlignLeft)
-        self.interest_sub_category4_sel = QComboBox()
-        self.interest_sub_category4_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        self.interest_sub_category4_sel.addItem(QApplication.translate("QComboBox", "Custom"))
-        self.interest_sub_category4_sel.currentTextChanged.connect(self.interestSubCategory4Sel_changed)
-
-
-        self.interest_sub_category5_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category5:"), alignment=Qt.AlignLeft)
-        self.interest_sub_category5_sel = QComboBox()
-        self.interest_sub_category5_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        self.interest_sub_category5_sel.addItem(QApplication.translate("QComboBox", "Custom"))
-        self.interest_sub_category5_sel.currentTextChanged.connect(self.interestSubCategory5Sel_changed)
+        # self.interest_sub_category4_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category4:"), alignment=Qt.AlignLeft)
+        # self.interest_sub_category4_sel = QComboBox()
+        # self.interest_sub_category4_sel.addItem(QApplication.translate("QComboBox", "Any"))
+        # self.interest_sub_category4_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        # self.interest_sub_category4_sel.currentTextChanged.connect(self.interestSubCategory4Sel_changed)
+        #
+        #
+        # self.interest_sub_category5_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category5:"), alignment=Qt.AlignLeft)
+        # self.interest_sub_category5_sel = QComboBox()
+        # self.interest_sub_category5_sel.addItem(QApplication.translate("QComboBox", "Any"))
+        # self.interest_sub_category5_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        # self.interest_sub_category5_sel.currentTextChanged.connect(self.interestSubCategory5Sel_changed)
 
         QApplication.translate("QLabel", "Interest Custom Main Sub Category1:")
         self.interest_custom_platform_label = QLabel(QApplication.translate("QLabel", "Interest Custom platform:"), alignment=Qt.AlignLeft)
@@ -298,10 +303,10 @@ class BotNewWin(QMainWindow):
         self.interest_custom_sub_category2_edit = QLineEdit()
         self.interest_custom_sub_category3_label = QLabel(QApplication.translate("QLabel", "Interest Custom Main Sub Category3:"), alignment=Qt.AlignLeft)
         self.interest_custom_sub_category3_edit = QLineEdit()
-        self.interest_custom_sub_category4_label = QLabel(QApplication.translate("QLabel", "Interest Custom Main Sub Category4:"), alignment=Qt.AlignLeft)
-        self.interest_custom_sub_category4_edit = QLineEdit()
-        self.interest_custom_sub_category5_label = QLabel(QApplication.translate("QLabel", "Interest Custom Main Sub Category5:"), alignment=Qt.AlignLeft)
-        self.interest_custom_sub_category5_edit = QLineEdit()
+        # self.interest_custom_sub_category4_label = QLabel(QApplication.translate("QLabel", "Interest Custom Main Sub Category4:"), alignment=Qt.AlignLeft)
+        # self.interest_custom_sub_category4_edit = QLineEdit()
+        # self.interest_custom_sub_category5_label = QLabel(QApplication.translate("QLabel", "Interest Custom Main Sub Category5:"), alignment=Qt.AlignLeft)
+        # self.interest_custom_sub_category5_edit = QLineEdit()
 
         self.role_platform_label = QLabel(QApplication.translate("QLabel", "Platform:"), alignment=Qt.AlignLeft)
         self.role_platform_edit = QLineEdit()
@@ -364,6 +369,11 @@ class BotNewWin(QMainWindow):
         self.pubpflLine5Layout.addWidget(self.locstate_edit)
         self.pubpflWidget_layout.addLayout(self.pubpflLine5Layout)
 
+        self.pubpflLine5ALayout = QHBoxLayout(self)
+        self.pubpflLine5ALayout.addWidget(self.bd_label)
+        self.pubpflLine5ALayout.addWidget(self.bd_edit)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine5ALayout)
+
         self.pubpflLine6Layout = QHBoxLayout(self)
         self.pubpflLine6Layout.addWidget(self.age_label)
         self.pubpflLine6Layout.addWidget(self.age_edit)
@@ -394,10 +404,10 @@ class BotNewWin(QMainWindow):
         self.pubpflLine7BLayout.addWidget(self.interest_sub_category2_sel)
         self.pubpflLine7BLayout.addWidget(self.interest_sub_category3_label)
         self.pubpflLine7BLayout.addWidget(self.interest_sub_category3_sel)
-        self.pubpflLine7BLayout.addWidget(self.interest_sub_category4_label)
-        self.pubpflLine7BLayout.addWidget(self.interest_sub_category4_sel)
-        self.pubpflLine7BLayout.addWidget(self.interest_sub_category5_label)
-        self.pubpflLine7BLayout.addWidget(self.interest_sub_category5_sel)
+        # self.pubpflLine7BLayout.addWidget(self.interest_sub_category4_label)
+        # self.pubpflLine7BLayout.addWidget(self.interest_sub_category4_sel)
+        # self.pubpflLine7BLayout.addWidget(self.interest_sub_category5_label)
+        # self.pubpflLine7BLayout.addWidget(self.interest_sub_category5_sel)
         self.pubpflWidget_layout.addLayout(self.pubpflLine7BLayout)
 
         self.pubpflLine7DLayout = QHBoxLayout(self)
@@ -414,10 +424,10 @@ class BotNewWin(QMainWindow):
         self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category2_edit)
         self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category3_label)
         self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category3_edit)
-        self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category4_label)
-        self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category4_edit)
-        self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category5_label)
-        self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category5_edit)
+        # self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category4_label)
+        # self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category4_edit)
+        # self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category5_label)
+        # self.pubpflLine7ELayout.addWidget(self.interest_custom_sub_category5_edit)
         self.pubpflWidget_layout.addLayout(self.pubpflLine7ELayout)
 
         self.hide_interest_custom_platform()
@@ -425,8 +435,8 @@ class BotNewWin(QMainWindow):
         self.hide_interest_custom_sub_category1()
         self.hide_interest_custom_sub_category2()
         self.hide_interest_custom_sub_category3()
-        self.hide_interest_custom_sub_category4()
-        self.hide_interest_custom_sub_category5()
+        # self.hide_interest_custom_sub_category4()
+        # self.hide_interest_custom_sub_category5()
         self.pubpflWidget_layout.addWidget(self.interest_save_button)
         self.pubpflWidget_layout.addWidget(self.interestScrollArea)
 
@@ -465,9 +475,7 @@ class BotNewWin(QMainWindow):
         self.ln_label = QLabel(QApplication.translate("QLabel", "Last Name:"), alignment=Qt.AlignLeft)
         self.ln_edit = QLineEdit()
         self.ln_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Last Name here"))
-        self.bd_label = QLabel(QApplication.translate("QLabel", "Birthday:"), alignment=Qt.AlignLeft)
-        self.bd_edit = QLineEdit()
-        self.bd_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Birthday here in MM/DD/YYYY"))
+
 
         self.addr_label = QLabel(QApplication.translate("QLabel", "Address:"), alignment=Qt.AlignLeft)
         self.shipaddr_label = QLabel(QApplication.translate("QLabel", "Shipping Address:"), alignment=Qt.AlignLeft)
@@ -524,11 +532,6 @@ class BotNewWin(QMainWindow):
         self.prvpflLine1Layout.addWidget(self.ln_label)
         self.prvpflLine1Layout.addWidget(self.ln_edit)
         self.prvpflWidget_layout.addLayout(self.prvpflLine1Layout)
-
-        self.prvpflLine1ALayout = QHBoxLayout(self)
-        self.prvpflLine1ALayout.addWidget(self.bd_label)
-        self.prvpflLine1ALayout.addWidget(self.bd_edit)
-        self.prvpflWidget_layout.addLayout(self.prvpflLine1ALayout)
 
         self.prvpflLine1A1Layout = QHBoxLayout(self)
         self.prvpflLine1A1Layout.addWidget(self.addr_label)
@@ -730,21 +733,21 @@ class BotNewWin(QMainWindow):
         self.interest_custom_sub_category3_label.setVisible(True)
         self.interest_custom_sub_category3_edit.setVisible(True)
 
-    def hide_interest_custom_sub_category4(self):
-        self.interest_custom_sub_category4_label.setVisible(False)
-        self.interest_custom_sub_category4_edit.setVisible(False)
-
-    def show_interest_custom_sub_category4(self):
-        self.interest_custom_sub_category4_label.setVisible(True)
-        self.interest_custom_sub_category4_edit.setVisible(True)
-
-    def hide_interest_custom_sub_category5(self):
-        self.interest_custom_sub_category5_label.setVisible(False)
-        self.interest_custom_sub_category5_edit.setVisible(False)
-
-    def show_interest_custom_sub_category5(self):
-        self.interest_custom_sub_category5_label.setVisible(True)
-        self.interest_custom_sub_category5_edit.setVisible(True)
+    # def hide_interest_custom_sub_category4(self):
+    #     self.interest_custom_sub_category4_label.setVisible(False)
+    #     self.interest_custom_sub_category4_edit.setVisible(False)
+    #
+    # def show_interest_custom_sub_category4(self):
+    #     self.interest_custom_sub_category4_label.setVisible(True)
+    #     self.interest_custom_sub_category4_edit.setVisible(True)
+    #
+    # def hide_interest_custom_sub_category5(self):
+    #     self.interest_custom_sub_category5_label.setVisible(False)
+    #     self.interest_custom_sub_category5_edit.setVisible(False)
+    #
+    # def show_interest_custom_sub_category5(self):
+    #     self.interest_custom_sub_category5_label.setVisible(True)
+    #     self.interest_custom_sub_category5_edit.setVisible(True)
 
     def saveRole(self):
         if self.role_platform_sel.currentText() == QApplication.translate("QComboBox", "Custom"):
@@ -783,11 +786,11 @@ class BotNewWin(QMainWindow):
         if self.interest_sub_category3_sel.currentText() == QApplication.translate("QComboBox", "Custom"):
             self.selected_interest_sub_category3 = self.interest_custom_sub_category3_edit.text()
 
-        if self.interest_sub_category4_sel.currentText() == QApplication.translate("QComboBox", "Custom"):
-            self.selected_interest_sub_category4 = self.interest_custom_sub_category4_edit.text()
-
-        if self.interest_sub_category5_sel.currentText() == QApplication.translate("QComboBox", "Custom"):
-            self.selected_interest_sub_category5 = self.interest_custom_sub_category5_edit.text()
+        # if self.interest_sub_category4_sel.currentText() == QApplication.translate("QComboBox", "Custom"):
+        #     self.selected_interest_sub_category4 = self.interest_custom_sub_category4_edit.text()
+        #
+        # if self.interest_sub_category5_sel.currentText() == QApplication.translate("QComboBox", "Custom"):
+        #     self.selected_interest_sub_category5 = self.interest_custom_sub_category5_edit.text()
 
         self.newInterest = INTEREST(self.selected_interest_platform, self.selected_interest_main_category, self.selected_interest_sub_category1, self.selected_interest_sub_category2, self.selected_interest_sub_category3, self.selected_interest_sub_category4, self.selected_interest_sub_category5)
         self.interestModel.appendRow(self.newInterest)
@@ -805,11 +808,13 @@ class BotNewWin(QMainWindow):
         #now populate the GUI to reflect info in this bot.
         self.acctpw_edit.setText(bot.getAcctPw())
         self.age_edit.setText(str(bot.getAge()))
+        self.bd_edit.setText(bot.getPubBirthday())
         self.backem_edit.setText(bot.getBackEm())
         self.loccity_edit.setText(bot.getLocation().split("|")[0])
         self.locstate_edit.setText(bot.getLocation().split("|")[1])
         self.em_edit.setText(bot.getEmail())
         self.empw_edit.setText(bot.getEmPW())
+        self.backem_edit.setText(bot.getBackEm())
         self.fn_edit.setText(bot.getFn())
         self.ln_edit.setText(bot.getLn())
         self.pln_edit.setText(bot.getPseudoLastName())
@@ -847,6 +852,106 @@ class BotNewWin(QMainWindow):
         self.shipaddr_state_edit.setText(bot.getShippingAddrState())
         self.shipaddr_zip_edit.setText(bot.getShippingAddrZip())
 
+        self.loadRoles(bot)
+        self.loadInterests(bot)
+
+    def loadRoles(self, bot):
+        rp_options = ['Amazon', 'Etsy', 'Ebay']
+        rl_options = ['green', 'experienced', 'expert']
+        rr_options = ['Buyer', 'Seller']
+        all_roles = bot.getLevels()
+        if all_roles != "":
+            roles = all_roles.split(",")
+            print("ROLES:", roles)
+            if len(roles) > 0:
+                role_parts = roles[0].split(":")
+                role_platform = role_parts[0]
+                role_level = role_parts[2]
+                role_role = role_parts[1]
+
+                if role_platform in rp_options:
+                    self.role_platform_sel.setCurrentText(role_platform)
+                else:
+                    self.role_platform_sel.setCurrentText('Custom')
+                    self.role_custom_platform_edit.setText(role_platform)
+
+                if role_level in rl_options:
+                    self.role_level_sel.setCurrentText(role_level)
+                else:
+                    self.role_level_sel.setCurrentText('Custom')
+                    self.role_level_edit.setText(role_level)
+
+                if role_role in rr_options:
+                    self.role_name_sel.setCurrentText(role_role)
+                else:
+                    self.role_name_sel.setCurrentText('Custom')
+                    self.role_name_edit.setText(role_level)
+
+            for role in roles:
+                self.newRole = ROLE(role_platform, role_level, role_role, self.homepath)
+                self.roleModel.appendRow(self.newRole)
+
+            self.selected_role_row = 0
+            self.selected_role_item = self.roleModel.item(self.selected_role_row)
+
+
+    def loadInterests(self, bot):
+        intp_options = ['Amazon', 'Etsy', 'Ebay', 'Any']
+        imc_options = ['Any']
+        isc1_options = ['Any']
+        isc2_options = ['Any']
+        isc3_options = ['Any']
+        all_ints = bot.getInterests()
+        if all_ints != "":
+            ints = all_ints.split("|")
+
+            if len(ints) > 0:
+                int_parts = ints[0].split(",")
+                int_platform = int_parts[0]
+                int_mc = int_parts[1]
+                int_sc1 = int_parts[2]
+                int_sc2 = int_parts[3]
+                int_sc3 = int_parts[4]
+
+                if int_platform in intp_options:
+                    self.interest_platform_sel.setCurrentText(int_platform)
+                else:
+                    self.interest_platform_sel.setCurrentText('Custom')
+                    self.interest_custom_platform_edit.setText(int_platform)
+
+                if int_mc in imc_options:
+                    self.interest_main_category_sel.setCurrentText(int_mc)
+                else:
+                    self.interest_main_category_sel.setCurrentText('Custom')
+                    self.interest_custom_main_category_edit.setText(int_mc)
+
+                if int_sc1 in isc1_options:
+                    self.interest_sub_category1_sel.setCurrentText(int_sc1)
+                else:
+                    self.interest_sub_category1_sel.setCurrentText('Custom')
+                    self.interest_custom_sub_category1_edit.setText(int_sc1)
+
+                if int_sc2 in isc2_options:
+                    self.interest_sub_category2_sel.setCurrentText(int_sc2)
+                else:
+                    self.interest_sub_category2_sel.setCurrentText('Custom')
+                    self.interest_custom_sub_category2_edit.setText(int_sc2)
+
+                if int_sc3 in isc3_options:
+                    self.interest_sub_category3_sel.setCurrentText(int_sc3)
+                else:
+                    self.interest_sub_category3_sel.setCurrentText('Custom')
+                    self.interest_custom_sub_category3_edit.setText(int_sc3)
+
+            for aint in ints:
+                self.newInterest = INTEREST(int_platform, int_mc, int_sc1, int_sc2, int_sc3, "Any", "Any")
+                self.interestModel.appendRow(self.newInterest)
+
+            self.selected_interest_row = 0
+            self.selected_interest_item = self.interestModel.item(self.selected_interest_row)
+
+
+
     def setOwner(self, owner):
         self.owner = owner
         self.newBot.setOwner(owner)
@@ -856,28 +961,30 @@ class BotNewWin(QMainWindow):
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         #if self.mode == "new":
         #    self.newBot = EBBOT(self)
-
         self.newBot.pubProfile.setPseudoName(self.pnn_edit.text())
         self.newBot.pubProfile.setLoc(self.loccity_edit.text() + "|" + self.locstate_edit.text())
         if self.m_rb.isChecked():
-            self.newBot.pubProfile.setPersonal(self.age_edit.text(), "Male")
+            self.newBot.pubProfile.setPersonal("Male")
         elif self.f_rb.isChecked():
-            self.newBot.pubProfile.setPersonal(self.age_edit.text(), "Female")
+            self.newBot.pubProfile.setPersonal("Female")
         else:
-            self.newBot.pubProfile.setPersonal(self.age_edit.text(), "NA")
+            self.newBot.pubProfile.setPersonal("NA")
 
-
-        self.newBot.privateProfile.setName(self.fn_edit.text(), self.ln_edit.text())
+        self.newBot.pubProfile.setPseudoFirstLastName(self.pfn_edit.text(), self.pln_edit.text())
+        self.newBot.privateProfile.setFirstLastName(self.fn_edit.text(), self.ln_edit.text())
         self.newBot.privateProfile.setAcct(self.em_edit.text(), self.empw_edit.text(), self.phone_edit.text(), self.backem_edit.text(), self.acctpw_edit.text())
 
-        self.newBot.privateProfile.setBirthday(self.bd_edit.text())
-        self.newBot.pubProfile.setAgeFromBirthday(self.newBot.privateProfile.getBirthday())
+        self.newBot.pubProfile.setPubBirthday(self.bd_edit.text())
+        self.newBot.pubProfile.setNickName(self.pnn_edit.text())
+
 
         self.newBot.settings.setComputer(self.os_sel.currentText(), self.machine_sel.currentText(), self.browser_sel.currentText())
 
-
         self.newBot.privateProfile.setAddr(self.addr_l1_edit.text(), self.addr_l2_edit.text(), self.addr_city_edit.text(), self.addr_state_edit.text(), self.addr_zip_edit.text())
         self.newBot.privateProfile.setShippingAddr(self.shipaddr_l1_edit.text(), self.shipaddr_l2_edit.text(), self.shipaddr_city_edit.text(), self.shipaddr_state_edit.text(), self.shipaddr_zip_edit.text())
+
+        self.fillRoles()
+        self.fillInterests()
 
         if self.mode == "new":
             print("adding new bot....")
@@ -888,6 +995,24 @@ class BotNewWin(QMainWindow):
 
         self.close()
         # print(self.parent)
+
+    def fillRoles(self):
+        self.newBot.setRoles("")
+        for i in range(self.roleModel.rowCount()):
+            self.selected_role_item = self.roleModel.item(i)
+            rd = self.selected_role_item.getData()
+            role_words = rd[0] + ":" + rd[2] + ":" + rd[1]
+            self.newBot.setRoles(self.newBot.getRoles() + "," + role_words)
+            print("roles>>>>>", self.newBot.getRoles())
+
+    def fillInterests(self):
+        self.newBot.setInterests("")
+        for i in range(self.interestModel.rowCount()):
+            self.selected_interest_item = self.interestModel.item(i)
+            intd = self.selected_interest_item.getData()
+            int_words = intd[0] + "," + intd[1] + "," + intd[2] + "," + intd[3] + "," + intd[4]
+            self.newBot.setInterests(self.newBot.getInterests() + "|" + int_words)
+            print("interests>>>>>", self.newBot.getInterests())
 
     def selFile(self):
         # File actions
@@ -962,21 +1087,21 @@ class BotNewWin(QMainWindow):
             self.selected_interest_sub_category3 = self.interest_custom_sub_category3_edit.text()
 
 
-    def interestSubCategory4Sel_changed(self):
-        if self.interest_sub_category4_sel.currentText() != 'Custom':
-            self.hide_interest_custom_sub_category4()
-            self.selected_interest_sub_category4 = self.interest_sub_category4_sel.currentText()
-        else:
-            self.show_interest_custom_sub_category4()
-            self.selected_interest_sub_category4 = self.interest_custom_sub_category4_edit.text()
-
-    def interestSubCategory5Sel_changed(self):
-        if self.interest_sub_category5_sel.currentText() != 'Custom':
-            self.hide_interest_custom_sub_category5()
-            self.selected_interest_sub_category5 = self.interest_sub_category5_sel.currentText()
-        else:
-            self.show_interest_custom_sub_category5()
-            self.selected_interest_sub_category5 = self.interest_custom_sub_category5_edit.text()
+    # def interestSubCategory4Sel_changed(self):
+    #     if self.interest_sub_category4_sel.currentText() != 'Custom':
+    #         self.hide_interest_custom_sub_category4()
+    #         self.selected_interest_sub_category4 = self.interest_sub_category4_sel.currentText()
+    #     else:
+    #         self.show_interest_custom_sub_category4()
+    #         self.selected_interest_sub_category4 = self.interest_custom_sub_category4_edit.text()
+    #
+    # def interestSubCategory5Sel_changed(self):
+    #     if self.interest_sub_category5_sel.currentText() != 'Custom':
+    #         self.hide_interest_custom_sub_category5()
+    #         self.selected_interest_sub_category5 = self.interest_sub_category5_sel.currentText()
+    #     else:
+    #         self.show_interest_custom_sub_category5()
+    #         self.selected_interest_sub_category5 = self.interest_custom_sub_category5_edit.text()
 
 
     def updateSelectedInterest(self, row):
@@ -1029,24 +1154,24 @@ class BotNewWin(QMainWindow):
             self.interest_sub_category3_sel.setCurrentText(sub_cat3)
             self.interest_custom_sub_category3_edit.setText("")
 
-        # update sub cat 4
-        if self.interest_sub_category4_sel.findText(sub_cat4) < 0:
-            self.interest_sub_category4_sel.setCurrentText("Custom")
-            self.interest_custom_sub_category4_edit.setText(sub_cat4)
-
-        else:
-            self.interest_sub_category4_sel.setCurrentText(sub_cat4)
-            self.interest_custom_sub_category4_edit.setText("")
-
-        # update sub cat 5
-        if self.interest_sub_category5_sel.findText(sub_cat5) < 0:
-            self.interest_sub_category5_sel.setCurrentText("Custom")
-            self.interest_custom_sub_category5_edit.setText(sub_cat5)
-
-        else:
-            self.interest_sub_category5_sel.setCurrentText(sub_cat5)
-            self.interest_custom_sub_category5_edit.setText("")
-
+        # # update sub cat 4
+        # if self.interest_sub_category4_sel.findText(sub_cat4) < 0:
+        #     self.interest_sub_category4_sel.setCurrentText("Custom")
+        #     self.interest_custom_sub_category4_edit.setText(sub_cat4)
+        #
+        # else:
+        #     self.interest_sub_category4_sel.setCurrentText(sub_cat4)
+        #     self.interest_custom_sub_category4_edit.setText("")
+        #
+        # # update sub cat 5
+        # if self.interest_sub_category5_sel.findText(sub_cat5) < 0:
+        #     self.interest_sub_category5_sel.setCurrentText("Custom")
+        #     self.interest_custom_sub_category5_edit.setText(sub_cat5)
+        #
+        # else:
+        #     self.interest_sub_category5_sel.setCurrentText(sub_cat5)
+        #     self.interest_custom_sub_category5_edit.setText("")
+        #
 
     def updateSelectedRole(self, row):
         self.selected_role_row = row
