@@ -693,7 +693,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&New"))
-        new_action.triggered.connect(self.newBotGui)
+        new_action.triggered.connect(self.newBotView)
 
         return new_action
 
@@ -987,8 +987,8 @@ class MainWindow(QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        test_sqlite3(self)
-        # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # test_sqlite3(self)
+        test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         #the grand test,
         # 1) fetch today's schedule.
@@ -1998,7 +1998,7 @@ class MainWindow(QMainWindow):
         url="https://www.maipps.com/my.html"
         webbrowser.open(url, new=0, autoraise=True)
 
-    def newBotGui(self):
+    def newBotView(self):
         # Logic for creating a new bot:
         # pop out a new windows for user to set parameters for a new bot.
         # at the moment, just add an icon.
@@ -2083,6 +2083,8 @@ class MainWindow(QMainWindow):
 
             self.bots.append(new_bot)
             self.botModel.appendRow(new_bot)
+            self.selected_row = self.botModel.rowCount() - 1
+            self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
             sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
 
@@ -2137,7 +2139,7 @@ class MainWindow(QMainWindow):
             "backemail": abot.getBackEm(),
             "ebpw": abot.getAcctPw()
         }]
-        jresp = send_update_bots_request_to_cloud(self.session, api_bots, self.tokens['AuthenticationResult']['IdToken'])
+        jresp = send_update_bots_request_to_cloud(self.session, [abot], self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
@@ -2634,7 +2636,10 @@ class MainWindow(QMainWindow):
         if self.missionWin == None:
             self.missionWin = MissionNewWin(self)
             self.missionWin.setOwner(self.owner)
-        #self.BotNewWin.resize(400, 200)
+            #self.BotNewWin.resize(400, 200)
+        else:
+            self.missionWin.setMode("new")
+
         self.missionWin.show()
 
     def newVehiclesView(self):
@@ -2738,6 +2743,8 @@ class MainWindow(QMainWindow):
         else:
             self.missionWin = MissionNewWin(self)
             self.missionWin.setOwner(self.owner)
+
+        self.missionWin.setMode("update")
         self.missionWin.show()
         print("edit bot" + str(self.selected_cus_mission_row))
 
@@ -2941,6 +2948,8 @@ class MainWindow(QMainWindow):
                     self.fillNewBotFullInfo(fb, new_bot)
                     self.bots.append(new_bot)
                     self.botModel.appendRow(new_bot)
+                    self.selected_row = self.botModel.rowCount()-1
+                    self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
                 # jresp = send_add_bots_request_to_cloud(self.session, filebbots,
                 #                                        self.tokens['AuthenticationResult']['IdToken'])
@@ -3380,6 +3389,8 @@ class MainWindow(QMainWindow):
                 new_bot.updateDisplay()
                 self.bots.append(new_bot)
                 self.botModel.appendRow(new_bot)
+                self.selected_bot_row = self.botModel.rowCount() - 1
+                self.selected_bot_item = self.botModel.item(self.selected_bot_row)
         else:
             self.newBotFromFile()
 
@@ -3912,7 +3923,8 @@ class MainWindow(QMainWindow):
 
     def createTrialRunMission(self):
         trMission = EBMISSION(self)
-        trMission.pubAttributes.setType(20231225, "user", "Sell")
+        trMission.setMid(20231225)
+        trMission.pubAttributes.setType("user", "Sell")
         trMission.pubAttributes.setBot(0)
         trMission.setCusPAS("win,chrome,amz")
         self.missions.append(trMission)

@@ -107,13 +107,20 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrstate = ""
         self.shipping_addrzip = ""
 
-    def setName(self, name):
-        name_words = name.split()
-        if len(name_words) >= 2:
-            self.first_name = name_words[0]
-            self.last_name = name_words[len(name_words)-1]
+    def setFirstLastName(self, fn, ln):
+        self.name = fn+" "+ln
+        self.first_name = fn
+        self.last_name = ln
+
+    def setName(self, nm):
+        self.name = nm
+        nm_words = nm.split()
+
+        if len(nm_words) >= 2:
+            self.first_name = nm_words[0]
+            self.last_name = nm_words[len(nm_words)-1]
         else:
-            self.first_name = name_words[0]
+            self.first_name = nm_words[0]
             self.last_name = ""
 
 
@@ -163,14 +170,14 @@ class BOT_PRIVATE_PROFILE():
 
     def setBirthday(self, bdtxt):
         print("SETTING BIRTHDAY:", bdtxt)
-        self.birthday = bdtxt
+        self.privateProfile.birthday = bdtxt
         format = '%Y-%m-%d'
 
         # convert from string format to datetime format
-        self.birthdaydt = datetime.strptime(bdtxt, format)
+        self.privateProfile.birthdaydt = datetime.strptime(bdtxt, format)
 
     def getBirthday(self):
-        return self.birthdaydt
+        return self.privateProfile.birthdaydt
 
 
     def setAcct(self, email, epw, phone, back_email, acct_pw):
@@ -236,6 +243,7 @@ class BOT_PUB_PROFILE():
         self.nick_name = "Jonny"
         self.location = "CA"
         self.pubbirthday = "1992-01-01"
+        self.age = 32
         self.gender = "M"
         self.interests = ""
         self.roles = ""
@@ -255,13 +263,23 @@ class BOT_PUB_PROFILE():
     def setRoles(self, roles):
         self.roles = roles
 
+    def setPseudoFirstLastName(self, pfn, pln):
+        self.pseudo_first_name = pfn
+        self.pseudo_last_name = pln
+        self.pseudo_name = pfn+" "+pln
+
+
     def setPseudoName(self, pn):
         name_words = pn.split()
+        print("name_words", len(name_words), ":", name_words)
         if len(name_words) >= 2:
             self.pseudo_first_name = name_words[0]
             self.pseudo_last_name = name_words[len(name_words)-1]
-        else:
+        elif len(name_words) == 1:
             self.pseudo_first_name = name_words[0]
+            self.pseudo_last_name = ""
+        else:
+            self.pseudo_first_name = ""
             self.pseudo_last_name = ""
 
         self.pseudo_name = pn
@@ -272,9 +290,16 @@ class BOT_PUB_PROFILE():
     def setLoc(self, loc):
         self.location = loc
 
-    def setAgeFromBirthday(self, bd):
-        today = date.today()
-        age = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+    def setAgePubBirthday(self, age_txt):
+        age = int(age_txt)
+        if age != self.age:
+            delta_age = age - self.age
+            if delta_age > 0:
+                self.pubbirthdaydt = self.pubbirthdaydt + datetime.timedelta(days=delta_age)
+            else:
+                self.pubbirthdaydt = self.pubbirthdaydt + datetime.timedelta(days=-delta_age)
+
+            self.pubbirthday = self.pubbirthdaydt.strftime("%Y-%m-%d")
 
     def setLevels(self, levels):
         self.levels = levels
@@ -291,9 +316,15 @@ class BOT_PUB_PROFILE():
     def setPubBirthday(self, pbbd):
         self.pubbirthday = pbbd
 
-    def setPersonal(self, age_text, gender):
-        if age_text.isnumeric():
-            self.age = int(age_text)
+        format = '%Y-%m-%d'
+        # convert from string format to datetime format
+        self.pubbirthdaydt = datetime.strptime(pbbd, format)
+
+        today = date.today()
+        self.age = today.year - self.pubbirthdaydt.year - ((today.month, today.day) < (self.pubbirthdaydt.month, self.pubbirthdaydt.day))
+
+
+    def setPersonal(self, gender):
         self.gender = gender
 
     def setInterests(self, interests):
@@ -529,6 +560,9 @@ class EBBOT(QStandardItem):
     def getPhone(self):
         return self.privateProfile.phone
 
+    def getPubBirthday(self):
+        return self.pubProfile.pubbirthday
+
     # sets--------------------------
 
     def setBid(self, bid):
@@ -584,9 +618,9 @@ class EBBOT(QStandardItem):
         self.pubProfile.setInterests(dbd[5])
         self.pubProfile.setStatus(dbd[8])
         self.pubProfile.setDelDate(dbd[9])
-        self.privateProfile.setName(dbd[10])
         self.pubProfile.setPseudoName(dbd[11])
         self.pubProfile.setNickName(dbd[12])
+        self.privateProfile.setName(dbd[10])
         self.privateProfile.setAddr1(dbd[13])
         self.privateProfile.setShippingAddr1(dbd[14])
         self.privateProfile.setPhone(dbd[15])
