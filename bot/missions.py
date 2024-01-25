@@ -662,6 +662,9 @@ class EBMISSION(QStandardItem):
     def loadNetRespJson(self, jd):
         self.pubAttributes.loadNetRespJson(jd)
 
+    def updateDisplay(self):
+        self.setText('mission' + str(self.getMid()))
+
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])

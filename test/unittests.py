@@ -273,13 +273,14 @@ def test_get_account_info(session, token):
     print("RESULT:", result)
 
 def test_api(parent, session, token):
+    print("TESTING API....")
     # qs = [{"mid": 1, "bid": 1, "status":"Completed:0", "starttime": 123, "endtime": 123}]
     # result = send_completion_status_to_cloud(session, qs, token)
     # print("send_completion_status_to_cloud RESULT:", result)
 
-    qs = [{"actid": 5, "op":"", "options": ""}]
-    result = send_add_bots_request_to_cloud(session, qs, token)
-    print("send_add_bots_request_to_cloud RESULT:", result)
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_add_bots_request_to_cloud(session, qs, token)
+    # print("send_add_bots_request_to_cloud RESULT:", result)
     #
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = send_update_bots_request_to_cloud(session, qs, token)
@@ -368,3 +369,47 @@ def test_api(parent, session, token):
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = send_account_info_request_to_cloud(session, qs, token)
     # print("send_account_info_request_to_cloud RESULT:", result)
+
+
+
+    # qs = [{"actid": 5, "op":"", "options": ""}]
+    # result = send_account_info_request_to_cloud(session, qs, token)
+    # print("send_account_info_request_to_cloud RESULT:", result)
+
+def test_sqlite3(mw):
+    sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+    data_tuple = (21, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Male', '1992-01-01', \
+                  'Any,Any,Any,Any,Any', 'miami|fl', 'Amazon:Buyer', '', '2524-01-22', \
+                  'joe', 'do', '', '', '', '', '', '', '', '')
+
+    mw.dbCursor.execute(sql, data_tuple)
+
+    # Check if the INSERT query was successful
+    if mw.dbCursor.rowcount == 1:
+        print("Insertion successful.")
+    else:
+        print("Insertion failed.")
+
+    sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+    data_tuple = (22, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Female', '1992-01-01', \
+                  'Any,Any,Any,Any,Any', 'miami|fl', 'Amazon:Buyer', '', '2524-01-22', \
+                  'joe', 'do', '', '', '', '', '', '', '', '')
+
+    mw.dbCursor.execute(sql, data_tuple)
+
+    # Check if the INSERT query was successful
+    if mw.dbCursor.rowcount == 1:
+        print("Insertion successful.")
+    else:
+        print("Insertion failed.")
+
+    mw.dbcon.commit()
+
+    sql = 'SELECT * FROM bots'
+    res = mw.dbCursor.execute(sql)
+
+    db_data = res.fetchall()
+
+    print("DB Data:", db_data)
