@@ -369,7 +369,7 @@ class Login(QDialog):
             self.hide()
             print("hello hello hello")
 
-            if self.machine_role == "Commander":
+            if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
                 global commanderServer
 
                 self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath, self.machine_role, self.lang)

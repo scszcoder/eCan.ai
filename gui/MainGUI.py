@@ -320,7 +320,6 @@ class MainWindow(QMainWindow):
         self.missionDelAction = self._createMissionDelAction()
         self.missionEditAction = self._createMissionEditAction()
         self.missionImportAction = self._createMissionImportAction()
-        self.missionNewFromFileAction = self._createMissionNewFromFileAction()
 
         self.settingsAccountAction = self._createSettingsAccountAction()
         self.settingsEditAction = self._createSettingsEditAction()
@@ -629,7 +628,6 @@ class MainWindow(QMainWindow):
         mission_menu.addAction(self.missionImportAction)
         mission_menu.addAction(self.missionEditAction)
         mission_menu.addAction(self.missionDelAction)
-        mission_menu.addAction(self.missionNewFromFileAction)
         menu_bar.addMenu(mission_menu)
 
         platoon_menu = QMenu(QApplication.translate("QMenu", "&Platoons"), self)
@@ -704,7 +702,7 @@ class MainWindow(QMainWindow):
     def _createBotNewFromFileAction(self):
         # File actions
         new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&New From File"))
+        new_action.setText(QApplication.translate("QAction", "&Import"))
         new_action.triggered.connect(self.newBotFromFile)
         return new_action
 
@@ -746,6 +744,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Clone"))
+        new_action.triggered.connect(self.cloneBot)
         return new_action
 
     def _createBotEnDisAbleAction(self):
@@ -799,6 +798,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Import"))
+        new_action.triggered.connect(self.newMissionFromFile)
         return new_action
 
 
@@ -807,14 +807,6 @@ class MainWindow(QMainWindow):
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Edit"))
         return new_action
-
-    def _createMissionNewFromFileAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&New From File"))
-        new_action.triggered.connect(self.newMissionFromFile)
-        return new_action
-
 
 
     def _createSettingsAccountAction(self):
@@ -932,7 +924,7 @@ class MainWindow(QMainWindow):
     def _createSkillNewFromFileAction(self):
         # File actions
         new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&New From File"))
+        new_action.setText(QApplication.translate("QAction", "&Import"))
         new_action.triggered.connect(self.newSkillFromFile)
         return new_action
 
@@ -996,7 +988,8 @@ class MainWindow(QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        test_sqlite3(self)
+        # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         #the grand test,
         # 1) fetch today's schedule.
@@ -1459,7 +1452,7 @@ class MainWindow(QMainWindow):
         return nextrun
 
     def findMissonsToBeRetried(self, todos):
-        retryies = copied_dict = copy.deepcopy(todos)
+        retryies = copy.deepcopy(todos)
         for key1, value1 in todos.items():
             # regions
             if isinstance(value1, dict):
@@ -2109,6 +2102,7 @@ class MainWindow(QMainWindow):
                 # Check if the INSERT query was successful
                 if self.dbCursor.rowcount == 1:
                     print("Insertion successful.")
+                    self.dbcon.commit()
                 else:
                     print("Insertion failed.")
 
@@ -2166,6 +2160,7 @@ class MainWindow(QMainWindow):
                 # Check if the UPDATE query was successful
                 if self.dbCursor.rowcount > 0:
                     print(f"{self.dbCursor.rowcount} row(s) updated successfully.")
+                    self.dbcon.commit()
                 else:
                     print("No rows were updated.")
 
@@ -2240,6 +2235,7 @@ class MainWindow(QMainWindow):
             # Check if the INSERT query was successful
             if self.dbCursor.rowcount == 1:
                 print("Insertion successful.")
+                self.dbcon.commit()
             else:
                 print("Insertion failed.")
 
@@ -2281,6 +2277,7 @@ class MainWindow(QMainWindow):
             # Check if the UPDATE query was successful
             if self.dbCursor.rowcount > 0:
                 print(f"{self.dbCursor.rowcount} row(s) updated successfully.")
+                self.dbcon.commit()
             else:
                 print("No rows were updated.")
             # now that add is successfull, update local file as well.
@@ -2747,7 +2744,9 @@ class MainWindow(QMainWindow):
 
     def cloneCusMission(self):
         # File actions
-        print("clone bot" + str(self.selected_bot_row))
+        new_mission = copy.deepcopy(self.selected_cus_mission_item)
+        # new_bot.setText()
+        self.addNewMission(new_mission)
 
     def deleteCusMission(self):
         # File actions
@@ -2805,6 +2804,7 @@ class MainWindow(QMainWindow):
         # Check if the DELETE query was successful
         if self.dbCursor.rowcount > 0:
             print(f"{self.dbCursor.rowcount} mission row(s) deleted successfully.")
+            self.dbcon.commit()
         else:
             print("No mission rows were deleted.")
 
@@ -2841,16 +2841,24 @@ class MainWindow(QMainWindow):
     def editBot(self):
         # File actions
         if self.BotNewWin:
+            print("populating bot GUI............")
             self.BotNewWin.setBot(self.selected_bot_item)
         else:
+            print("creating bot GUI .......")
             self.BotNewWin = BotNewWin(self)
+            print("Done creating bot GUI .......")
+            self.BotNewWin.setBot(self.selected_bot_item)
+            print("Done updating bot GUI .......")
+
         self.BotNewWin.setMode("update")
         self.BotNewWin.show()
         print("edit bot" + str(self.selected_bot_row))
 
     def cloneBot(self):
         # File actions
-        print("clone bot" + str(self.selected_bot_row))
+        new_bot = copy.deepcopy(self.selected_bot_item)
+        # new_bot.setText()
+        self.addNewBot(new_bot)
 
     def deleteBot(self):
         # File actions
@@ -2905,6 +2913,7 @@ class MainWindow(QMainWindow):
         # Check if the DELETE query was successful
         if self.dbCursor.rowcount > 0:
             print(f"{self.dbCursor.rowcount} row(s) deleted successfully.")
+            self.dbcon.commit()
         else:
             print("No rows were deleted.")
 
@@ -3360,14 +3369,18 @@ class MainWindow(QMainWindow):
 
         res = self.dbCursor.execute(sql)
 
-        db_data = res.fetchall()
+        db_data = self.dbCursor.fetchall()
+
+        print("get local::", db_data)
         if len(db_data) != 0:
             print("bot fetchall", db_data)
             for row in db_data:
                 print("loading a bot: ", row)
                 new_bot = EBBOT(self)
                 new_bot.loadDBData(row)
+                new_bot.updateDisplay()
                 self.bots.append(new_bot)
+                self.botModel.appendRow(new_bot)
         else:
             self.newBotFromFile()
 
@@ -3894,7 +3907,7 @@ class MainWindow(QMainWindow):
         print('Program quitting....')
 
         if self.dbcon:
-            self.dbconn.close()
+            self.dbcon.close()
 
         sys.exit(0)
 
