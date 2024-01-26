@@ -120,6 +120,11 @@ class MainWindow(QMainWindow):
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
         self.SELLER_INVENTORY_FILE = self.homepath+"/resource/inventory.json"
+        self.PLATFORMS = ['Windows', 'Mac', 'Linux']
+        self.APPS = ['Chrome', 'Edge','Firefox','ADS','Multilogin','Safari','Custom']
+        self.SITES = ['Amazon','Etsy','Ebay','Temu','Shein','Walmart','Wayfair','Tiktok','Facebook','Google', 'AliExpress','Custom']
+        self.SITES_SH_DICT = {'Amazon': "amz",'Etsy': "etsy",'Ebay': "ebay",'Temu': "temu",'Shein': "shein",'Walmart': "walmart",'Wayfair': "wf",'Tiktok': "tiktok",'Facebook': "fb",'Google': "google", 'AliExpress': 'ali'}
+
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.machine_role = machine_role
@@ -176,6 +181,8 @@ class MainWindow(QMainWindow):
         self.tester = TestAll.Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
+
+
         print(self.dbfile)
         if (self.machine_role != "Platoon"):
             self.dbcon = sqlite3.connect(self.dbfile)
@@ -559,6 +566,21 @@ class MainWindow(QMainWindow):
 
     def getHomePath(self):
         return self.homepath
+
+    def getPLATFORMS(self):
+        return self.PLATFORMS
+
+    def getAPPS(self):
+        return self.APPS
+
+    def getSITES(self):
+        return self.SITES
+
+    def translateSiteName(self, site_text):
+        if site_text in self.SITES_SH_DICT.keys():
+            return self.SITES_SH_DICT[site_text]
+        else:
+            return site_text
 
 
     def setCog(self, cog):
@@ -2194,7 +2216,7 @@ class MainWindow(QMainWindow):
             "pseudo_store": new_mission.getPseudoStore(),
             "pseudo_brand": new_mission.getPseudoBrand(),
             "pseudo_asin": new_mission.getPseudoASIN(),
-            "repeat": new_mission.getRepeat(),
+            "repeat": new_mission.getRetry(),
             "mtype": new_mission.getMtype(),
             "mconfig": new_mission.getConfig(),
             "skills": new_mission.getSkills(),

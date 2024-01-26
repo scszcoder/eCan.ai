@@ -241,16 +241,9 @@ class BotNewWin(QMainWindow):
         self.interest_area_label = QLabel(QApplication.translate("QLabel", "Interests Area:"), alignment=Qt.AlignLeft)
         self.interest_platform_label = QLabel(QApplication.translate("QLabel", "Interests platform:"), alignment=Qt.AlignLeft)
         self.interest_platform_sel = QComboBox()
-
         self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Amazon"))
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Ebay"))
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Etsy"))
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Walmart"))
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Wish"))
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "AliExpress"))
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Wayfair"))
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        for p in self.parent.getSITES():
+            self.interest_platform_sel.addItem(QApplication.translate("QComboBox", p))
         self.interest_platform_sel.currentTextChanged.connect(self.interestPlatformSel_changed)
         self.interest_main_category_label = QLabel(QApplication.translate("QLabel", "Interest Main Category:"), alignment=Qt.AlignLeft)
         self.interest_main_category_sel = QComboBox()
@@ -311,14 +304,9 @@ class BotNewWin(QMainWindow):
         self.role_platform_label = QLabel(QApplication.translate("QLabel", "Platform:"), alignment=Qt.AlignLeft)
         self.role_platform_edit = QLineEdit()
         self.role_platform_sel = QComboBox()
-        self.role_platform_sel.addItem(QApplication.translate("QComboBox", "Amazon"))
-        self.role_platform_sel.addItem(QApplication.translate("QComboBox", "Ebay"))
-        self.role_platform_sel.addItem(QApplication.translate("QComboBox", "Etsy"))
-        self.role_platform_sel.addItem(QApplication.translate("QComboBox", "Walmart"))
-        self.role_platform_sel.addItem(QApplication.translate("QComboBox", "Wish"))
-        self.role_platform_sel.addItem(QApplication.translate("QComboBox", "AliExpress"))
-        self.role_platform_sel.addItem(QApplication.translate("QComboBox", "Wayfair"))
-        self.role_platform_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        for p in self.parent.getSITES():
+            self.role_platform_sel.addItem(QApplication.translate("QComboBox", p))
+
         self.role_platform_sel.currentTextChanged.connect(self.rolePlatformSel_changed)
         self.role_custom_platform_label = QLabel(QApplication.translate("QLabel", "Custom Platform:"), alignment=Qt.AlignLeft)
         self.role_custom_platform_edit = QLineEdit()
@@ -611,21 +599,14 @@ class BotNewWin(QMainWindow):
         QApplication.translate("QLabel", "App Name:")
         self.browser_label = QLabel(QApplication.translate("QLabel", "App Name:"), alignment=Qt.AlignLeft)
         self.browser_sel = QComboBox()
-        self.browser_sel.addItem(QApplication.translate("QComboBox", "ADS"))
-
-        self.browser_sel.addItem(QApplication.translate("QComboBox", "Multi-Login"))
-        self.browser_sel.addItem(QApplication.translate("QComboBox", "SuperBrowser"))
-        self.browser_sel.addItem(QApplication.translate("QComboBox", "Chrome"))
-        self.browser_sel.addItem(QApplication.translate("QComboBox", "Firefox"))
-        self.browser_sel.addItem(QApplication.translate("QComboBox", "Edge"))
-        self.browser_sel.addItem(QApplication.translate("QComboBox", "Edge"))
+        for app in self.parent.getAPPS():
+            self.browser_sel.addItem(QApplication.translate("QComboBox", app))
 
         self.os_label = QLabel(QApplication.translate("QLabel", "OS Type:"), alignment=Qt.AlignLeft)
         self.os_sel = QComboBox()
-        self.os_sel.addItem(QApplication.translate("QComboBox", "Windows"))
-        self.os_sel.addItem(QApplication.translate("QComboBox", "MacOS"))
-        self.os_sel.addItem(QApplication.translate("QComboBox", "ChromeOS"))
-        self.os_sel.addItem(QApplication.translate("QComboBox", "Linux"))
+        for cos in self.parent.getPLATFORMS():
+            self.os_sel.addItem(QApplication.translate("QComboBox", cos))
+
         self.machine_label = QLabel(QApplication.translate("QLabel", "Machine Type:"), alignment=Qt.AlignLeft)
         self.machine_sel = QComboBox()
         self.machine_sel.addItem(QApplication.translate("QComboBox", "Mac"))
