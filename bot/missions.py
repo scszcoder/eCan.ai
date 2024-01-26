@@ -110,12 +110,12 @@ class M_Pub_Attributes():
         self.missionId = -1
         self.ticket = 0
         self.owner = ""
-        self.assign_type = "USER"         # user assigned or cloud auto assigned.
-        self.search_kw = ""               # search phrase
-        self.search_cat = "NA"
+        self.assign_type = "auto"         # user assigned or cloud auto assigned.
+        self.search_kw = "yoga mats"               # search phrase
+        self.search_cat = ""
         self.retry = 3                      # number of time this mission to repeated.
         self.status = "NA"
-        self.ms_type = "SELL"             # buy/sell type of mission.
+        self.ms_type = "sell"             # buy/sell type of mission.
         self.config = ""
         self.bot_id = 0                   # the bot associated with a mission.
         self.eststartt = 0
@@ -134,8 +134,12 @@ class M_Pub_Attributes():
         self.actual_start_time_in_ms = 0
         self.actual_end_time = ""
         self.actual_end_time_in_ms = 0
-        self.cuspas = ""
+        self.cuspas = "win,chrome,amz"
         self.app_exe = ""
+        self.platform = "Windows"
+        self.app = "Chrome"
+        self.site = "Amazon"
+        self.site_html = "https://www.amazon.com"
         self.pseudo_store = ""
         self.pseudo_brand = ""
         self.pseudo_asin = ""
@@ -359,6 +363,12 @@ class EBMISSION(QStandardItem):
     def setMtype(self, mtype):
         self.pubAttributes.ms_type = mtype
 
+    def getAssignmentType(self):
+        return self.pubAttributes.assign_type
+
+    def setAssignmentType(self, astype):
+        self.pubAttributes.assign_type = astype
+
     def getBid(self):
         return self.pubAttributes.bot_id
 
@@ -502,13 +512,22 @@ class EBMISSION(QStandardItem):
         self.pubAttributes.app_exe = appexe
 
     def getPlatform(self):
-        return self.pubAttributes.cuspas.split(",")[0]
+        return self.pubAttributes.platform
 
     def getApp(self):
-        return self.pubAttributes.cuspas.split(",")[1]
+        return self.pubAttributes.app
 
     def getSite(self):
-        return self.pubAttributes.cuspas.split(",")[2]
+        return self.pubAttributes.site
+
+    def setSite(self, site):
+        self.pubAttributes.site = site
+
+    def setSiteHTML(self, sl):
+        self.pubAttributes.site_html = sl
+
+    def getSiteHTML(self):
+        return self.pubAttributes.site_html
 
     def getPseudoStore(self):
         return self.pubAttributes.pseudo_store
@@ -633,6 +652,9 @@ class EBMISSION(QStandardItem):
 
     def setFeedbacks(self, fbs):
         self.privateAttributes.feedbacks = fbs
+
+    def getPrice(self):
+        return self.privateAttributes.price
 
     def getCustomerID(self):
         return self.privateAttributes.customer_id
