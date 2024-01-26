@@ -120,8 +120,8 @@ class MainWindow(QMainWindow):
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
         self.SELLER_INVENTORY_FILE = self.homepath+"/resource/inventory.json"
-        self.PLATFORMS = ['Windows', 'Mac', 'Linux']
-        self.APPS = ['Chrome', 'Edge','Firefox','ADS','Multilogin','Safari','Custom']
+        self.PLATFORMS = ['windows', 'mac', 'linux']
+        self.APPS = ['chrome', 'edge','firefox','ads','multilogin','safari','Custom']
         self.SITES = ['Amazon','Etsy','Ebay','Temu','Shein','Walmart','Wayfair','Tiktok','Facebook','Google', 'AliExpress','Custom']
         self.SITES_SH_DICT = {'Amazon': "amz",'Etsy': "etsy",'Ebay': "ebay",'Temu': "temu",'Shein': "shein",'Walmart': "walmart",'Wayfair': "wf",'Tiktok': "tiktok",'Facebook': "fb",'Google': "google", 'AliExpress': 'ali'}
 
