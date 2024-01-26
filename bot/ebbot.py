@@ -241,7 +241,7 @@ class BOT_PUB_PROFILE():
         self.pseudo_first_name = "Jonny"
         self.pseudo_last_name = "Doe"
         self.nick_name = "Jonny"
-        self.location = "CA"
+        self.location = "austin,tx"
         self.pubbirthday = "1992-01-01"
         self.age = 32
         self.gender = "M"

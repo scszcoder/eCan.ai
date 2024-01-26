@@ -791,8 +791,8 @@ class BotNewWin(QMainWindow):
         self.age_edit.setText(str(bot.getAge()))
         self.bd_edit.setText(bot.getPubBirthday())
         self.backem_edit.setText(bot.getBackEm())
-        self.loccity_edit.setText(bot.getLocation().split("|")[0])
-        self.locstate_edit.setText(bot.getLocation().split("|")[1])
+        self.loccity_edit.setText(bot.getLocation().split(",")[0])
+        self.locstate_edit.setText(bot.getLocation().split(",")[1])
         self.em_edit.setText(bot.getEmail())
         self.empw_edit.setText(bot.getEmPW())
         self.backem_edit.setText(bot.getBackEm())
@@ -943,7 +943,7 @@ class BotNewWin(QMainWindow):
         #if self.mode == "new":
         #    self.newBot = EBBOT(self)
         self.newBot.pubProfile.setPseudoName(self.pnn_edit.text())
-        self.newBot.pubProfile.setLoc(self.loccity_edit.text() + "|" + self.locstate_edit.text())
+        self.newBot.pubProfile.setLoc(self.loccity_edit.text() + "," + self.locstate_edit.text())
         if self.m_rb.isChecked():
             self.newBot.pubProfile.setPersonal("Male")
         elif self.f_rb.isChecked():
