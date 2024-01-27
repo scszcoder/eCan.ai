@@ -4,7 +4,7 @@ import random
 from PySide6.QtCore import QEvent, QStringListModel
 from PySide6.QtGui import QStandardItemModel
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QTabWidget, QVBoxLayout, QLineEdit, \
-    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QCheckBox, QFileDialog
+    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QCheckBox, QFileDialog, QButtonGroup
 from ebbot import *
 from locale import getdefaultlocale
 from FlowLayout import *
@@ -57,15 +57,15 @@ class MissionNewWin(QMainWindow):
         self.homepath = parent.homepath
         self.newMission = None
         self.owner = None
-
+        self.mode = "new"
         self.selected_skill_row = None
         self.selected_skill_item = None
 
-        self.selected_skill_platform = "Windows"
-        self.selected_skill_app = "Chrome"
-        self.selected_skill_app_link = ""
-        self.selected_skill_site = "Amazon"
-        self.selected_skill_site_link = ""
+        self.selected_mission_platform = "Windows"
+        self.selected_mission_app = "Chrome"
+        self.selected_mission_app_link = ""
+        self.selected_mission_site = "Amazon"
+        self.selected_mission_site_link = ""
         self.selected_skill_action = "Browse"
 
         self.mainWidget = QWidget()
@@ -95,51 +95,38 @@ class MissionNewWin(QMainWindow):
         self.skillNameCompleter.setCaseSensitivity(Qt.CaseInsensitive)
         self.skillNameEdit.setCompleter(self.skillNameCompleter)
 
-        self.skillPlatformLabel = QLabel(QApplication.translate("QLabel", "Skill Platform:"), alignment=Qt.AlignLeft)
-        self.skill_platform_sel = QComboBox()
-        self.skill_platform_sel.addItem(QApplication.translate("QComboBox", "Windows"))
-        self.skill_platform_sel.addItem(QApplication.translate("QComboBox", "Mac"))
-        self.skill_platform_sel.addItem(QApplication.translate("QComboBox", "Linux"))
-        self.skill_platform_sel.currentTextChanged.connect(self.skillPlatformSel_changed)
+        self.missionPlatformLabel = QLabel(QApplication.translate("QLabel", "Mission Platform:"), alignment=Qt.AlignLeft)
+        self.mission_platform_sel = QComboBox()
+        for p in self.parent.getPLATFORMS():
+            self.mission_platform_sel.addItem(QApplication.translate("QComboBox", p))
+        self.mission_platform_sel.currentTextChanged.connect(self.skillPlatformSel_changed)
 
 
-        self.skillAppLabel = QLabel(QApplication.translate("QLabel", "Skill App:"), alignment=Qt.AlignLeft)
-        self.skill_app_sel = QComboBox()
-        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "Chrome"))
-        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "ADS Power"))
-        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "Multi-Login"))
-        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "FireFox"))
-        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "Edge"))
-        self.skill_app_sel.addItem(QApplication.translate("QComboBox", "Custom"))
-        self.skill_app_sel.currentTextChanged.connect(self.skillAppSel_changed)
+        self.missionAppLabel = QLabel(QApplication.translate("QLabel", "Mission App:"), alignment=Qt.AlignLeft)
+        self.mission_app_sel = QComboBox()
+        for app in self.parent.getAPPS():
+            self.mission_app_sel.addItem(QApplication.translate("QComboBox", app))
+        self.mission_app_sel.currentTextChanged.connect(self.skillAppSel_changed)
 
         QApplication.translate("QLabel", "Skill Site:")
-        self.skillCustomAppNameLabel = QLabel(QApplication.translate("QLabel", "Custome App:"), alignment=Qt.AlignLeft)
-        self.skillCustomAppNameEdit = QLineEdit("")
+        self.missionCustomAppNameLabel = QLabel(QApplication.translate("QLabel", "Custome App:"), alignment=Qt.AlignLeft)
+        self.missionCustomAppNameEdit = QLineEdit("")
 
-        self.skillCustomAppLinkLabel = QLabel(QApplication.translate("QLabel", "Custome App Path:"), alignment=Qt.AlignLeft)
-        self.skillCustomAppLinkEdit = QLineEdit("")
-        self.skillCustomAppLinkButton = QPushButton("...")
-        self.skillCustomAppLinkButton.clicked.connect(self.chooseAppLinkDir)
+        self.missionCustomAppLinkLabel = QLabel(QApplication.translate("QLabel", "Custome App Path:"), alignment=Qt.AlignLeft)
+        self.missionCustomAppLinkEdit = QLineEdit("")
+        self.missionCustomAppLinkButton = QPushButton("...")
+        self.missionCustomAppLinkButton.clicked.connect(self.chooseAppLinkDir)
 
-        self.skillSiteLabel = QLabel(QApplication.translate("QLabel", "Skill Site:"), alignment=Qt.AlignLeft)
-        self.skill_site_sel = QComboBox()
+        self.missionSiteLabel = QLabel(QApplication.translate("QLabel", "Mission Site:"), alignment=Qt.AlignLeft)
+        self.mission_site_sel = QComboBox()
+        for site in self.parent.getSITES():
+            self.mission_site_sel.addItem(QApplication.translate("QComboBox", site))
+        self.mission_site_sel.currentTextChanged.connect(self.skillSiteSel_changed)
 
-        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Amazon"))
-
-        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Ebay"))
-        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Etsy"))
-        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Walmart"))
-        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Wish"))
-        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "AliExpress"))
-        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Wayfair"))
-        self.skill_site_sel.addItem(QApplication.translate("QComboBox", "Custom"))
-        self.skill_site_sel.currentTextChanged.connect(self.skillSiteSel_changed)
-
-        self.skillCustomSiteNameLabel = QLabel(QApplication.translate("QLabel", "Custom Site:"), alignment=Qt.AlignLeft)
-        self.skillCustomSiteNameEdit = QLineEdit("")
-        self.skillCustomSiteLinkLabel = QLabel(QApplication.translate("QLabel", "Custom Site Html:"), alignment=Qt.AlignLeft)
-        self.skillCustomSiteLinkEdit = QLineEdit("")
+        self.missionCustomSiteNameLabel = QLabel(QApplication.translate("QLabel", "Custom Site:"), alignment=Qt.AlignLeft)
+        self.missionCustomSiteNameEdit = QLineEdit("")
+        self.missionCustomSiteLinkLabel = QLabel(QApplication.translate("QLabel", "Custom Site Html:"), alignment=Qt.AlignLeft)
+        self.missionCustomSiteLinkEdit = QLineEdit("")
 
         self.skillActionLabel = QLabel(QApplication.translate("QLabel", "Skill Action:"), alignment=Qt.AlignLeft)
         self.skill_action_sel = QComboBox()
@@ -207,12 +194,12 @@ class MissionNewWin(QMainWindow):
         self.mission_type_label = QLabel(QApplication.translate("QLabel", "Mission Type:"), alignment=Qt.AlignLeft)
         self.buy_rb = QRadioButton(QApplication.translate("QPushButton", "Buy Side"))
         self.sell_rb = QRadioButton(QApplication.translate("QPushButton", "Sell Side"))
-        self.buy_rb.isChecked()
+
 
         self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"), alignment=Qt.AlignLeft)
         self.manual_rb = QRadioButton(QApplication.translate("QPushButton", "Manual Assign(Bot and Schedule)"))
         self.auto_rb = QRadioButton(QApplication.translate("QPushButton", "Auto Assign(Bot and Schedule)"))
-        self.auto_rb.isChecked()
+
 
         self.bid_label = QLabel(QApplication.translate("QLabel", "Assigned Bot ID:"), alignment=Qt.AlignLeft)
         self.bid_edit = QLineEdit()
@@ -244,15 +231,15 @@ class MissionNewWin(QMainWindow):
         self.repeat_edit = QLineEdit()
         self.repeat_edit.setPlaceholderText("1")
 
-        self.repeat_interval_label = QLabel(QApplication.translate("QLabel", " "), alignment=Qt.AlignLeft)
-        self.repeat_interval_sel = QComboBox()
-
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Day(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Week(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Month(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Year(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Hour(s)"))
-        self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Minute(s)"))
+        # self.repeat_interval_label = QLabel(QApplication.translate("QLabel", " "), alignment=Qt.AlignLeft)
+        # self.repeat_interval_sel = QComboBox()
+        #
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Day(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Week(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Month(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Year(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Hour(s)"))
+        # self.repeat_interval_sel.addItem(QApplication.translate("QComboBox", "Minute(s)"))
 
         self.search_kw_label = QLabel(QApplication.translate("QLabel", "Search Phrase:"), alignment=Qt.AlignLeft)
         self.search_kw_edit = QLineEdit()
@@ -283,11 +270,21 @@ class MissionNewWin(QMainWindow):
         self.pubAttrLine1Layout.addWidget(self.mid_edit)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine1Layout)
 
+        self.buy_sell_button_group = QButtonGroup()
+        self.buy_sell_button_group.addButton(self.buy_rb)
+        self.buy_sell_button_group.addButton(self.sell_rb)
+        # self.buy_sell_button_group.setExclusive(False)
+
+
         self.pubAttrLine2Layout = QHBoxLayout(self)
         self.pubAttrLine2Layout.addWidget(self.mission_type_label)
         self.pubAttrLine2Layout.addWidget(self.buy_rb)
         self.pubAttrLine2Layout.addWidget(self.sell_rb)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2Layout)
+
+        self.auto_manual_button_group = QButtonGroup()
+        self.auto_manual_button_group.addButton(self.manual_rb)
+        self.auto_manual_button_group.addButton(self.auto_rb)
 
         self.pubAttrLine2ALayout = QHBoxLayout(self)
         self.pubAttrLine2ALayout.addWidget(self.mission_auto_assign_label)
@@ -308,8 +305,8 @@ class MissionNewWin(QMainWindow):
         self.pubAttrLine3Layout = QHBoxLayout(self)
         self.pubAttrLine3Layout.addWidget(self.repeat_label)
         self.pubAttrLine3Layout.addWidget(self.repeat_edit)
-        self.pubAttrLine3Layout.addWidget(self.repeat_interval_label)
-        self.pubAttrLine3Layout.addWidget(self.repeat_interval_sel)
+        # self.pubAttrLine3Layout.addWidget(self.repeat_interval_label)
+        # self.pubAttrLine3Layout.addWidget(self.repeat_interval_sel)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine3Layout)
 
         self.pubAttrLine4Layout = QHBoxLayout(self)
@@ -341,29 +338,29 @@ class MissionNewWin(QMainWindow):
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine8Layout)
 
         self.pubpflLine9Layout = QHBoxLayout(self)
-        self.pubpflLine9Layout.addWidget(self.skillPlatformLabel)
-        self.pubpflLine9Layout.addWidget(self.skill_platform_sel)
-        self.pubpflLine9Layout.addWidget(self.skillAppLabel)
-        self.pubpflLine9Layout.addWidget(self.skill_app_sel)
-        self.pubpflLine9Layout.addWidget(self.skillSiteLabel)
-        self.pubpflLine9Layout.addWidget(self.skill_site_sel)
+        self.pubpflLine9Layout.addWidget(self.missionPlatformLabel)
+        self.pubpflLine9Layout.addWidget(self.mission_platform_sel)
+        self.pubpflLine9Layout.addWidget(self.missionAppLabel)
+        self.pubpflLine9Layout.addWidget(self.mission_app_sel)
+        self.pubpflLine9Layout.addWidget(self.missionSiteLabel)
+        self.pubpflLine9Layout.addWidget(self.mission_site_sel)
         self.pubpflLine9Layout.addWidget(self.skillActionLabel)
         self.pubpflLine9Layout.addWidget(self.skill_action_sel)
         self.skillPanelLayout.addLayout(self.pubpflLine9Layout)
 
 
         self.pubpflLine11Layout = QHBoxLayout(self)
-        self.pubpflLine11Layout.addWidget(self.skillCustomAppNameLabel)
-        self.pubpflLine11Layout.addWidget(self.skillCustomAppNameEdit)
-        self.pubpflLine11Layout.addWidget(self.skillCustomAppLinkLabel)
-        self.pubpflLine11Layout.addWidget(self.skillCustomAppLinkEdit)
+        self.pubpflLine11Layout.addWidget(self.missionCustomAppNameLabel)
+        self.pubpflLine11Layout.addWidget(self.missionCustomAppNameEdit)
+        self.pubpflLine11Layout.addWidget(self.missionCustomAppLinkLabel)
+        self.pubpflLine11Layout.addWidget(self.missionCustomAppLinkEdit)
         self.skillPanelLayout.addLayout(self.pubpflLine11Layout)
 
         self.pubpflLine12Layout = QHBoxLayout(self)
-        self.pubpflLine12Layout.addWidget(self.skillCustomSiteNameLabel)
-        self.pubpflLine12Layout.addWidget(self.skillCustomSiteNameEdit)
-        self.pubpflLine12Layout.addWidget(self.skillCustomSiteLinkLabel)
-        self.pubpflLine12Layout.addWidget(self.skillCustomSiteLinkEdit)
+        self.pubpflLine12Layout.addWidget(self.missionCustomSiteNameLabel)
+        self.pubpflLine12Layout.addWidget(self.missionCustomSiteNameEdit)
+        self.pubpflLine12Layout.addWidget(self.missionCustomSiteLinkLabel)
+        self.pubpflLine12Layout.addWidget(self.missionCustomSiteLinkEdit)
         self.skillPanelLayout.addLayout(self.pubpflLine12Layout)
 
         self.pubpflLine13Layout = QHBoxLayout(self)
@@ -371,8 +368,8 @@ class MissionNewWin(QMainWindow):
         self.pubpflLine13Layout.addWidget(self.skillCustomActionEdit)
         self.skillPanelLayout.addLayout(self.pubpflLine13Layout)
 
-        self.hide_skill_custom_app()
-        self.hide_skill_custom_site()
+        self.hide_mission_custom_app()
+        self.hide_mission_custom_site()
         self.hide_skill_custom_action()
 
         self.skillPanelLayout.addWidget(self.skillArea)
@@ -427,6 +424,9 @@ class MissionNewWin(QMainWindow):
         self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Telegram"))
         self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "WhatsApp"))
         self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Messenger"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Line"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Thread"))
+        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Facebook"))
         self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Other"))
 
         self.cus_alt_sm_id_label = QLabel(QApplication.translate("QLabel", "Customer Messenger ID:"), alignment=Qt.AlignLeft)
@@ -451,6 +451,15 @@ class MissionNewWin(QMainWindow):
         self.rating_label = QLabel(QApplication.translate("QLabel", "Rating:"), alignment=Qt.AlignLeft)
         self.rating_edit = QLineEdit()
         self.rating_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input rating here"))
+
+        self.feedbacks_label = QLabel(QApplication.translate("QLabel", "# of feedbacks:"), alignment=Qt.AlignLeft)
+        self.feedbacks_edit = QLineEdit()
+        self.feedbacks_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input # feedbacks here"))
+
+        self.price_label = QLabel(QApplication.translate("QLabel", "Selling Price:"), alignment=Qt.AlignLeft)
+        self.price_edit = QLineEdit()
+        self.price_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input selling price here, ex. 12.99"))
+
         self.product_image_label = QLabel(QApplication.translate("QLabel", "Top Image:"), alignment=Qt.AlignLeft)
         self.product_image_edit = QLineEdit()
         self.product_image_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input image path here"))
@@ -463,6 +472,8 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine2Layout = QHBoxLayout(self)
         self.prvAttrLine2Layout.addWidget(self.cus_sm_id_label)
         self.prvAttrLine2Layout.addWidget(self.cus_sm_id_edit)
+        self.prvAttrLine2Layout.addWidget(self.cus_alt_sm_type_label)
+        self.prvAttrLine2Layout.addWidget(self.cus_alt_sm_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine2Layout)
 
         self.prvAttrLine3Layout = QHBoxLayout(self)
@@ -483,6 +494,10 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine6Layout = QHBoxLayout(self)
         self.prvAttrLine6Layout.addWidget(self.rating_label)
         self.prvAttrLine6Layout.addWidget(self.rating_edit)
+        self.prvAttrLine6Layout.addWidget(self.feedbacks_label)
+        self.prvAttrLine6Layout.addWidget(self.feedbacks_edit)
+        self.prvAttrLine6Layout.addWidget(self.price_label)
+        self.prvAttrLine6Layout.addWidget(self.price_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine6Layout)
 
         self.prvAttrLine7Layout = QHBoxLayout(self)
@@ -554,29 +569,126 @@ class MissionNewWin(QMainWindow):
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
+
+    def setMode(self, mode):
+        self.mode = mode
+        if self.mode == "new":
+            self.setWindowTitle('Adding a new mission')
+        elif self.mode == "update":
+            self.setWindowTitle('Updating a mission')
+
     def saveMission(self):
         print("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         self.newMission = EBMISSION(self.parent)
 
 
+        if self.manual_rb.isChecked():
+            if int(self.bid_edit.text()) != self.newMission.getBid():
+                self.newMission.setBid(int(self.bid_edit.text()))
+                self.newMission.setEstimatedStartTime(self.est_edit.text())
+                self.newMission.setEstimatedRunTime(self.ert_edit.text())
+
         if self.repeat_edit.text().isnumeric():
-            self.newMission.pubAttributes.setNex(int(self.repeat_edit.text()))
-        self.newMission.pubAttributes.setSearch(self.search_kw_edit.text(), self.search_cat_edit.text())
+            self.newMission.setRetry(int(self.repeat_edit.text()))
+
         if self.buy_rb.isChecked():
-            self.newMission.pubAttributes.setType(0, "user", "Sell")
+            if self.auto_rb.isChecked():
+                self.newMission.pubAttributes.setType("auto", "Buy")
+            else:
+                self.newMission.pubAttributes.setType("manual", "Buy")
         elif self.sell_rb.isChecked():
-            self.newMission.pubAttributes.setType(0, "user", "Buy")
+            if self.auto_rb.isChecked():
+                self.newMission.pubAttributes.setType("auto", "Sell")
+            else:
+                self.newMission.pubAttributes.setType("manual", "Sell")
+
+
+        self.newMission.privateAttributes.setBuyType(self.buy_mission_type_sel.currentText())
+        self.newMission.privateAttributes.setSellType(self.sell_mission_type_sel.currentText())
+
+        self.newMission.privateAttributes.setItem(self.asin_edit.text(), self.seller_edit.text(), self.title_edit.text(), self.product_image_edit.text(), self.rating_edit.text(), self.feedbacks_edit.text(), self.price_edit.text())
+
+        self.newMission.setCustomer(self.cus_email_edit.text())
+        self.newMission.setCustomerSMID(self.cus_sm_id_edit.text())
+        self.newMission.setCustomerSMPlatform(self.cus_alt_sm_type_sel.currentText())
+
+        if self.fb_reviewed_cb.isChecked():
+            self.newMission.setStatus("reviewed")
+        elif self.fb_rated_cb.isChecked():
+            self.newMission.setStatus("rated")
+        elif self.received_cb.isChecked():
+            self.newMission.setStatus("received")
+        elif self.bought_cb.isChecked():
+            self.newMission.setStatus("bought")
+
+
+        self.newMission.pubAttributes.setSearch(self.search_kw_edit.text(), self.search_cat_edit.text())
+
+        self.newMission.setPseudoStore(self.pseudo_store_edit.text())
+        self.newMission.setPseudoBrand(self.pseudo_brand_edit.text())
+        self.newMission.setPseudoASIN(self.pseudo_asin_edit.text())
+
+        platform_text = self.mission_platform_sel.currentText()
+        platform_sh = platform_text
+
+        if self.mission_app_sel.currentText() == 'Custom':
+            app_text = self.missionCustomAppNameEdit.text()
         else:
-            self.newMission.pubAttributes.setType(0, "user", "NA")
+            app_text = self.mission_app_sel.currentText()
 
-        self.newMission.privateAttributes.setFbType(self.buy_mission_type_sel.currentText())
-        self.newMission.privateAttributes.setItem(self.asin_edit.text(), self.seller_edit.text(), self.title_edit.text(), self.product_image_edit.text(), self.rating_edit.text())
+        app_sh = app_text
 
-        print("adding new mission....")
-        self.parent.addNewMission(self.newMission)
+        if self.mission_site_sel.currentText() == 'Custom':
+            site_text = self.missionCustomSiteNameEdit.text()
+        else:
+            site_text = self.mission_site_sel.currentText()
+
+        site_sh = self.parent.translateSiteName(site_text)
+
+        self.newMission.setCusPAS(platform_sh+","+app_sh+","+site_sh)
+        self.fillSkills()
+
+        # public: type,
+
+
+        if self.mode == "new":
+            print("adding new mission....")
+            self.parent.addNewMission(self.newMission)
+        elif self.mode == "update":
+            print("update a mission....")
+            self.parent.updateAMission(self.newMission)
+
         self.close()
 
+
+    def loadSkills(self, mission):
+        skp_options = ['win', 'mac', 'linux']
+        skapp_options = ['chrome', 'edge', 'firefox', 'safari', 'ads', 'multilogin']
+        sksite_options = ['amz', 'etsy', 'ebay']
+        all_skids = mission.getSkills().split(",")
+
+        for skidw in all_skids:
+            skid = skidw.strip()
+            this_skill = next((x for x in self.parent.skills if x.getSkid() == skid), None)
+
+            if this_skill:
+                self.skillModel.appendRow(this_skill)
+
+        self.selected_skill_row = 0
+        self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
+
+
+    def fillSkills(self):
+        sk_word = ""
+        for i in range(self.skillModel.rowCount()):
+            self.selected_skill_item = self.skillModel.item(i)
+            skid = self.selected_skill_item.getSkid()
+            sk_word = sk_word + "," + str(skid)
+
+        print("skills>>>>>", sk_word)
+
+        self.newMission.setSkills(sk_word)
 
     def selFile(self):
         # File actions
@@ -589,34 +701,104 @@ class MissionNewWin(QMainWindow):
 
     def setMission(self, mission):
         self.newMission = mission
+        self.mid_edit.setText(str(self.newMission.getMid()))
+        self.ticket_edit.setText(str(self.newMission.getTicket()))
+
+        self.bid_edit.setText(str(self.newMission.getBid()))
+        self.est_edit.setText(self.newMission.getEstimatedStartTime())
+        self.ert_edit.setText(self.newMission.getEstimatedRunTime())
+
+
+        self.repeat_edit.setText(str(self.newMission.getRetry()))
+
+        if self.newMission.getMtype() == "buy":
+            self.buy_rb.setChecked(True)
+        else:
+            self.sell_rb.setChecked(True)
+
+        if self.newMission.getAssignmentType() == "auto":
+            self.auto_rb.setChecked(True)
+        else:
+            self.manual_rb.setChecked(True)
+
+
+        self.buy_mission_type_sel.setCurrentText(self.newMission.privateAttributes.getBuyType())
+        self.sell_mission_type_sel.setCurrentText(self.newMission.privateAttributes.getSellType())
+
+        self.asin_edit.setText(self.newMission.getASIN())
+        self.seller_edit.setText(self.newMission.getStore())
+        self.title_edit.setText(self.newMission.getTitle())
+        self.product_image_edit.setText(self.newMission.getImagePath())
+        self.rating_edit.setText(self.newMission.getRating())
+        self.feedbacks_edit.setText(self.newMission.getFeedbacks())
+        self.price_edit.setText(self.newMission.getPrice())
+
+        self.cus_email_edit.setText(self.newMission.getCustomer())
+        self.cus_sm_id_edit.setText(self.newMission.getCustomerSMID())
+        self.cus_alt_sm_type_sel.currentText(self.newMission.getCustomerSMPlatform())
+
+
+
+        if self.newMission.getStatus() == "reviewed":
+            self.fb_reviewed_cb.setChecked(True)
+        elif self.newMission.getStatus() == "rated":
+            self.fb_rated_cb_cb.setChecked(True)
+        elif self.newMission.getStatus() == "received":
+            self.received_cb.setChecked(True)
+        elif self.newMission.getStatus() == "bought":
+            self.bought_cb.setChecked(True)
+
+        self.search_kw_edit.setText(self.newMission.getSearchKW())
+        self.search_cat_edit.setText(self.newMission.getSearchCat())
+
+        self.pseudo_store_edit.setText(self.newMission.getPseudoStore())
+        self.pseudo_brand_edit.setText(self.newMission.getPseudoBrand())
+        self.pseudo_asin_edit.setText(self.newMission.getPseudoASIN())
+
+        self.mission_platform_sel.setCurrentText(self.newMission.getPlatform())
+        if self.newMission.getApp() in self.parent.getAPPS():
+            self.mission_app_sel.setCurrentText(self.newMission.getApp())
+        else:
+            self.mission_app_sel.setCurrentText('Custom')
+            self.missionCustomAppNameEdit.setText(self.newMission.getApp())
+            self.missionCustomAppLinkEdit.setText(self.newMission.getAppExe())
+
+        if self.newMission.getSite() in self.parent.getSITES():
+            self.mission_site_sel.setCurrentText(self.newMission.getSite())
+        else:
+            self.mission_site_sel.setCurrentText('Custom')
+            self.missionCustomAppNameEdit.setText(self.newMission.getSite())
+            self.missionCustomAppLinkEdit.setText(self.newMission.getSiteH())
+
+        self.loadSkills(mission)
 
 
     def skillPlatformSel_changed(self):
-        self.selected_skill_platform = self.skill_platform_sel.currentText()
+        self.missionCustomAppLinkEdit = self.skill_platform_sel.currentText()
 
 
     def skillAppSel_changed(self):
         print("app changed....")
-        if self.skill_app_sel.currentText() != 'Custom':
+        if self.mission_app_sel.currentText() != 'Custom':
             self.hide_skill_custom_app()
-            self.selected_skill_app = self.skill_app_sel.currentText()
-            self.selected_skill_app_link = ""
+            self.selected_mission_app = self.mission_app_sel.currentText()
+            self.selected_mission_app_link = ""
 
         else:
-            self.show_skill_custom_app()
-            self.selected_skill_app = self.skillCustomAppNameEdit.text()
-            self.selected_skill_app_link = self.skillCustomAppLinkEdit.text()
+            self.show_mission_custom_app()
+            self.selected_mission_app = self.missionCustomAppNameEdit.text()
+            self.selected_mission_app_link = self.missionCustomAppLinkEdit.text()
 
     def skillSiteSel_changed(self):
-        if self.skill_site_sel.currentText() != 'Custom':
-            self.hide_skill_custom_site()
-            self.selected_skill_site = self.skill_site_sel.currentText()
+        if self.mission_site_sel.currentText() != 'Custom':
+            self.hide_mission_custom_site()
+            self.selected_skill_site = self.mission_site_sel.currentText()
             self.selected_skill_site_link = ""
 
         else:
-            self.show_skill_custom_site()
-            self.selected_skill_site = self.skillCustomSiteNameEdit.text()
-            self.selected_skill_site_link = self.skillCustomSiteLinkEdit.text()
+            self.show_mission_custom_site()
+            self.selected_mission_site = self.missionCustomSiteNameEdit.text()
+            self.selected_mission_site_link = self.missionCustomSiteLinkEdit.text()
 
     def skillActionSel_changed(self):
         if self.skill_action_sel.currentText() != 'Custom':
@@ -629,31 +811,31 @@ class MissionNewWin(QMainWindow):
 
 
 
-    def hide_skill_custom_app(self):
-        self.skillCustomAppNameLabel.setVisible(False)
-        self.skillCustomAppNameEdit.setVisible(False)
-        self.skillCustomAppLinkLabel.setVisible(False)
-        self.skillCustomAppLinkEdit.setVisible(False)
+    def hide_mission_custom_app(self):
+        self.missionCustomAppNameLabel.setVisible(False)
+        self.missionCustomAppNameEdit.setVisible(False)
+        self.missionCustomAppLinkLabel.setVisible(False)
+        self.missionCustomAppLinkEdit.setVisible(False)
 
-    def show_skill_custom_app(self):
-        self.skillCustomAppNameLabel.setVisible(True)
-        self.skillCustomAppNameEdit.setVisible(True)
-        self.skillCustomAppLinkLabel.setVisible(True)
-        self.skillCustomAppLinkEdit.setVisible(True)
-
-
-    def hide_skill_custom_site(self):
-        self.skillCustomSiteNameLabel.setVisible(False)
-        self.skillCustomSiteNameEdit.setVisible(False)
-        self.skillCustomSiteLinkLabel.setVisible(False)
-        self.skillCustomSiteLinkEdit.setVisible(False)
+    def show_mission_custom_app(self):
+        self.missionCustomAppNameLabel.setVisible(True)
+        self.missionCustomAppNameEdit.setVisible(True)
+        self.missionCustomAppLinkLabel.setVisible(True)
+        self.missionCustomAppLinkEdit.setVisible(True)
 
 
-    def show_skill_custom_site(self):
-        self.skillCustomSiteNameLabel.setVisible(True)
-        self.skillCustomSiteNameEdit.setVisible(True)
-        self.skillCustomSiteLinkLabel.setVisible(True)
-        self.skillCustomSiteLinkEdit.setVisible(True)
+    def hide_mission_custom_site(self):
+        self.missionCustomSiteNameLabel.setVisible(False)
+        self.missionCustomSiteNameEdit.setVisible(False)
+        self.missionCustomSiteLinkLabel.setVisible(False)
+        self.missionCustomSiteLinkEdit.setVisible(False)
+
+
+    def show_mission_custom_site(self):
+        self.missionCustomSiteNameLabel.setVisible(True)
+        self.missionCustomSiteNameEdit.setVisible(True)
+        self.missionCustomSiteLinkLabel.setVisible(True)
+        self.missionCustomSiteLinkEdit.setVisible(True)
 
     def hide_skill_custom_action(self):
         self.skillCustomActionLabel.setVisible(False)
@@ -664,8 +846,8 @@ class MissionNewWin(QMainWindow):
         self.skillCustomActionEdit.setVisible(True)
 
     def chooseAppLinkDir(self):
-        self.skillCustomAppLinkEdit.setText(str(QFileDialog.getExistingDirectory(self, "Select Directory")))
-        self.selected_skill_app_link = self.skillCustomAppLinkEdit.text()
+        self.missionCustomAppLinkEdit.setText(str(QFileDialog.getExistingDirectory(self, "Select Directory")))
+        self.selected_skill_app_link = self.missionCustomAppLinkEdit.text()
 
     def addSkill(self):
         if self.skill_app_sel.currentText() == 'Custom':

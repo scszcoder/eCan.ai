@@ -120,6 +120,11 @@ class MainWindow(QMainWindow):
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
         self.SELLER_INVENTORY_FILE = self.homepath+"/resource/inventory.json"
+        self.PLATFORMS = ['windows', 'mac', 'linux']
+        self.APPS = ['chrome', 'edge','firefox','ads','multilogin','safari','Custom']
+        self.SITES = ['Amazon','Etsy','Ebay','Temu','Shein','Walmart','Wayfair','Tiktok','Facebook','Google', 'AliExpress','Custom']
+        self.SITES_SH_DICT = {'Amazon': "amz",'Etsy': "etsy",'Ebay': "ebay",'Temu': "temu",'Shein': "shein",'Walmart': "walmart",'Wayfair': "wf",'Tiktok': "tiktok",'Facebook': "fb",'Google': "google", 'AliExpress': 'ali'}
+
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.machine_role = machine_role
@@ -176,6 +181,8 @@ class MainWindow(QMainWindow):
         self.tester = TestAll.Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
+
+
         print(self.dbfile)
         if (self.machine_role != "Platoon"):
             self.dbcon = sqlite3.connect(self.dbfile)
@@ -561,6 +568,21 @@ class MainWindow(QMainWindow):
     def getHomePath(self):
         return self.homepath
 
+    def getPLATFORMS(self):
+        return self.PLATFORMS
+
+    def getAPPS(self):
+        return self.APPS
+
+    def getSITES(self):
+        return self.SITES
+
+    def translateSiteName(self, site_text):
+        if site_text in self.SITES_SH_DICT.keys():
+            return self.SITES_SH_DICT[site_text]
+        else:
+            return site_text
+
 
     def setCog(self, cog):
         self.cog = cog
@@ -694,7 +716,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&New"))
-        new_action.triggered.connect(self.newBotGui)
+        new_action.triggered.connect(self.newBotView)
 
         return new_action
 
@@ -988,8 +1010,8 @@ class MainWindow(QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        test_sqlite3(self)
-        # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # test_sqlite3(self)
+        test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         #the grand test,
         # 1) fetch today's schedule.
@@ -1999,7 +2021,7 @@ class MainWindow(QMainWindow):
         url="https://www.maipps.com/my.html"
         webbrowser.open(url, new=0, autoraise=True)
 
-    def newBotGui(self):
+    def newBotView(self):
         # Logic for creating a new bot:
         # pop out a new windows for user to set parameters for a new bot.
         # at the moment, just add an icon.
@@ -2084,6 +2106,8 @@ class MainWindow(QMainWindow):
 
             self.bots.append(new_bot)
             self.botModel.appendRow(new_bot)
+            self.selected_row = self.botModel.rowCount() - 1
+            self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
             sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
 
@@ -2138,7 +2162,7 @@ class MainWindow(QMainWindow):
             "backemail": abot.getBackEm(),
             "ebpw": abot.getAcctPw()
         }]
-        jresp = send_update_bots_request_to_cloud(self.session, api_bots, self.tokens['AuthenticationResult']['IdToken'])
+        jresp = send_update_bots_request_to_cloud(self.session, [abot], self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
@@ -2193,7 +2217,7 @@ class MainWindow(QMainWindow):
             "pseudo_store": new_mission.getPseudoStore(),
             "pseudo_brand": new_mission.getPseudoBrand(),
             "pseudo_asin": new_mission.getPseudoASIN(),
-            "repeat": new_mission.getRepeat(),
+            "repeat": new_mission.getRetry(),
             "mtype": new_mission.getMtype(),
             "mconfig": new_mission.getConfig(),
             "skills": new_mission.getSkills(),
@@ -2635,7 +2659,10 @@ class MainWindow(QMainWindow):
         if self.missionWin == None:
             self.missionWin = MissionNewWin(self)
             self.missionWin.setOwner(self.owner)
-        #self.BotNewWin.resize(400, 200)
+            #self.BotNewWin.resize(400, 200)
+        else:
+            self.missionWin.setMode("new")
+
         self.missionWin.show()
 
     def newVehiclesView(self):
@@ -2739,6 +2766,8 @@ class MainWindow(QMainWindow):
         else:
             self.missionWin = MissionNewWin(self)
             self.missionWin.setOwner(self.owner)
+
+        self.missionWin.setMode("update")
         self.missionWin.show()
         print("edit bot" + str(self.selected_cus_mission_row))
 
@@ -2942,6 +2971,8 @@ class MainWindow(QMainWindow):
                     self.fillNewBotFullInfo(fb, new_bot)
                     self.bots.append(new_bot)
                     self.botModel.appendRow(new_bot)
+                    self.selected_row = self.botModel.rowCount()-1
+                    self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
                 # jresp = send_add_bots_request_to_cloud(self.session, filebbots,
                 #                                        self.tokens['AuthenticationResult']['IdToken'])
@@ -3381,6 +3412,8 @@ class MainWindow(QMainWindow):
                 new_bot.updateDisplay()
                 self.bots.append(new_bot)
                 self.botModel.appendRow(new_bot)
+                self.selected_bot_row = self.botModel.rowCount() - 1
+                self.selected_bot_item = self.botModel.item(self.selected_bot_row)
         else:
             self.newBotFromFile()
 
@@ -3913,7 +3946,8 @@ class MainWindow(QMainWindow):
 
     def createTrialRunMission(self):
         trMission = EBMISSION(self)
-        trMission.pubAttributes.setType(20231225, "user", "Sell")
+        trMission.setMid(20231225)
+        trMission.pubAttributes.setType("user", "Sell")
         trMission.pubAttributes.setBot(0)
         trMission.setCusPAS("win,chrome,amz")
         self.missions.append(trMission)
