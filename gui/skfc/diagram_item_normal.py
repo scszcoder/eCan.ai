@@ -98,6 +98,20 @@ class DiagramNormalSubTextItem(QGraphicsTextItem):
         self.setFlag(QGraphicsTextItem.ItemIsSelectable)
         self.setTextInteractionFlags(Qt.NoTextInteraction)
 
+    def boundingRect(self):
+        # 确保返回的矩形表示项的实际边界
+        rect = super().boundingRect()
+        if rect.width() < 50:
+            # 如果文字宽度小于最小宽度，则扩展边界
+            return QRectF(rect.x(), rect.y(), 50, rect.height())
+        return rect
+
+    def shape(self):
+        path = QPainterPath()
+        rect = self.boundingRect()
+        path.addRect(rect)
+        return path
+
     def mouseDoubleClickEvent(self, event):
         if self.textInteractionFlags() == Qt.NoTextInteraction:
             self.setTextInteractionFlags(Qt.TextEditorInteraction)

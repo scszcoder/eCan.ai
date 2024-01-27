@@ -109,8 +109,12 @@ class SkFCScene(QGraphicsScene):
             item = self.selectedItems()[0]
         elif self.isItemChange(DiagramTextItem):
             item = self.selectedItems()[0]
-        elif self.isItemChange(DiagramNormalSubTextItem):
-            item = self.selectedItems()[0].parentItem()
+            if item.textInteractionFlags() == Qt.TextEditorInteraction:
+                item = None
+        # elif self.isItemChange(DiagramNormalSubTextItem):
+        #     item = self.selectedItems()[0].parentItem()
+        #     if item.textInteractionFlags() == Qt.TextEditorInteraction:
+        #         item = None
         else:
             pass
 
