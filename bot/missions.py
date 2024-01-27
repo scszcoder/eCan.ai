@@ -114,13 +114,12 @@ class M_Pub_Attributes():
         self.search_kw = "yoga mats"               # search phrase
         self.search_cat = ""
         self.retry = 3                      # number of time this mission to repeated.
+        self.n_retries = 0
         self.status = "NA"
         self.ms_type = "sell"             # buy/sell type of mission.
         self.config = ""
         self.bot_id = 0                   # the bot associated with a mission.
-        self.eststartt = 0
-        self.startt = 0
-        self.esttime = 0
+        self.esttime = 0                    # estimated start time.
         self.esd = ""
         self.ecd = ""
         self.asd = ""
@@ -128,7 +127,8 @@ class M_Pub_Attributes():
         self.abd = ""
         self.afd = ""
         self.acd = ""
-        self.run_time = 0
+        self.run_time = 0               #estimated run time.
+        self.actual_run_time = 0
         self.createon = ""
         self.actual_start_time = ""
         self.actual_start_time_in_ms = 0
@@ -193,11 +193,10 @@ class M_Pub_Attributes():
         self.aad = dj["aad"]
         self.afd = dj["afd"]
         self.acd = dj["acd"]
-        self.run_time = dj["run_time"]
+        self.actual_run_time = dj["actual_run_time"]
+        self.run_time = dj["est_run_time"]
         self.actual_start_time = dj["actual_start_time"]
-        self.eststartt = dj["eststartt"]
-        self.startt = dj["startt"]
-        self.esttime = dj["esttime"]
+        self.esttime = dj["est_start_time"]
         self.del_date = dj["del_date"]
         self.pseudo_store = dj["pseudo_store"]
         self.pseudo_brand = dj["pseudo_brand"]
@@ -226,7 +225,7 @@ class M_Pub_Attributes():
         self.aad = dj["aad"]
         self.afd = dj["afd"]
         self.acd = dj["acd"]
-        self.run_time = dj["runtime"]
+        self.run_time = dj["est_run_time"]
         self.esttime = dj["esttime"]
         self.del_date = dj["delDate"]
         self.pseudo_store = dj["pseudoStore"]
@@ -261,11 +260,11 @@ class M_Pub_Attributes():
                 "skills": self.skills,
                 "cuspas": self.cuspas,
                 "createon": self.createon,
-                "run_time": self.run_time,
                 "actual_start_time": self.actual_start_time,
-                "eststartt": self.eststartt,
-                "startt": self.startt,
-                "esttime": self.esttime,
+                "est_start_time": self.esttime,
+                "actual_run_time": self.run_time,
+                "est_run_time": self.run_time,
+                "n_retries": 0,
                 "del_date": self.del_date,
                 "platoon_id": self.platoon_id,
                 "app_exe": self.app_exe
@@ -470,6 +469,13 @@ class EBMISSION(QStandardItem):
             epoch_time = int(datetime_obj.timestamp())
             self.pubAttributes.actual_end_time_in_ms = epoch_time
 
+
+    def getActualRunTime(self):
+        return self.pubAttributes.actual_run_time
+
+    def setActualRunTime(self, art):
+        self.actual_run_time = art
+
     def getEstimatedStartTime(self):
         return self.pubAttributes.eststartt
 
@@ -480,23 +486,16 @@ class EBMISSION(QStandardItem):
         self.pubAttributes.eststartt = est
 
     def getEstimatedRunTime(self):
-        return self.pubAttributes.esttime
-
-    def setEstimatedRunTime(self, ert):
-        self.pubAttributes.esttime = ert
-
-    # actual run time.
-    def getRunTime(self):
         return self.pubAttributes.run_time
 
-    def setRunTime(self, rt):
-        self.pubAttributes.run_time = rt
+    def setEstimatedRunTime(self, ert):
+        self.pubAttributes.run_time = ert
 
     # estimated run time.
-    def getEstTime(self):
+    def getEstStartTime(self):
         return self.pubAttributes.esttime
 
-    def setEstTime(self, ert):
+    def setEstStartTime(self, ert):
         self.pubAttributes.esttime = ert
 
     def getCusPAS(self):
@@ -681,6 +680,13 @@ class EBMISSION(QStandardItem):
     def setPlatoon(self, pid):
         self.pubAttributes.platoon_id = pid
 
+    def getNRetries(self):
+        return self.n_retries
+
+    def setNRetries(self, nrt):
+        self.n_retries = nrt
+
+
     # self.
     def setJsonData(self, ppJson):
         self.pubAttributes.loadJson(ppJson["pubAttributes"])
@@ -766,8 +772,9 @@ class EBMISSION(QStandardItem):
         self.setAcd(dbd[12])
         self.setEstimatedStartTime(dbd[13])
         self.setActualStartTime(dbd[14])
-        self.setEstTime(dbd[15])
-        self.setRunTime(dbd[16])
+        self.setEstimatedRunTime(dbd[15])
+        self.setActualRunTime(dbd[16])
+        self.setNRetries((dbd[16]))
         self.setCusPAS(dbd[17])
         self.setSearchCat(dbd[18])
         self.setSearchKW(dbd[19])

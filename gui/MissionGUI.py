@@ -193,8 +193,9 @@ class MissionNewWin(QMainWindow):
 
         self.mission_type_label = QLabel(QApplication.translate("QLabel", "Mission Type:"), alignment=Qt.AlignLeft)
         self.buy_rb = QRadioButton(QApplication.translate("QPushButton", "Buy Side"))
-        self.sell_rb = QRadioButton(QApplication.translate("QPushButton", "Sell Side"))
+        self.buy_rb.toggled.connect(self.buy_rb_checked_state_changed)
 
+        self.sell_rb = QRadioButton(QApplication.translate("QPushButton", "Sell Side"))
 
         self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"), alignment=Qt.AlignLeft)
         self.manual_rb = QRadioButton(QApplication.translate("QPushButton", "Manual Assign(Bot and Schedule)"))
@@ -569,6 +570,7 @@ class MissionNewWin(QMainWindow):
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
+        self.buy_rb.setChecked(True)
 
     def setMode(self, mode):
         self.mode = mode
@@ -955,3 +957,91 @@ class MissionNewWin(QMainWindow):
         for sk in self.parent.skills:
             self.skill_action_sel.addItem(QApplication.translate("QComboBox", sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSite()+"_"+sk.getPage()+"_"+sk.getName()))
 
+    def buy_rb_checked_state_changed(self):
+        if self.buy_rb.isChecked():
+            print("buy mission is selected....")
+            self.show_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.show_sell_attributes()
+            self.hide_buy_attributes()
+
+    def show_buy_attributes(self):
+        self.pseudo_store_label.setVisible(True)
+        self.pseudo_store_edit.setVisible(True)
+        self.pseudo_brand_label.setVisible(True)
+        self.pseudo_brand_edit.setVisible(True)
+        self.pseudo_asin_label.setVisible(True)
+        self.pseudo_asin_edit.setVisible(True)
+        self.seller_label.setVisible(True)
+        self.seller_edit.setVisible(True)
+        self.rating_label.setVisible(True)
+        self.rating_edit.setVisible(True)
+        self.feedbacks_label.setVisible(True)
+        self.feedbacks_edit.setVisible(True)
+        self.price_label.setVisible(True)
+        self.price_edit.setVisible(True)
+        self.title_label.setVisible(True)
+        self.title_edit.setVisible(True)
+        self.search_kw_label.setVisible(True)
+        self.search_kw_edit.setVisible(True)
+        self.search_cat_label.setVisible(True)
+        self.search_cat_edit.setVisible(True)
+        self.buy_mission_type_label.setVisible(True)
+        self.buy_mission_type_sel.setVisible(True)
+        self.asin_label.setVisible(True)
+        self.asin_edit.setVisible(True)
+        self.product_image_label.setVisible(True)
+        self.product_image_edit.setVisible(True)
+        self.bought_label.setVisible(True)
+        self.bought_cb.setVisible(True)
+        self.received_label.setVisible(True)
+        self.received_cb.setVisible(True)
+        self.fb_rated_label.setVisible(True)
+        self.fb_rated_cb.setVisible(True)
+        self.fb_reviewed_label.setVisible(True)
+        self.fb_reviewed_cb.setVisible(True)
+
+    def hide_buy_attributes(self):
+        self.pseudo_store_label.setVisible(False)
+        self.pseudo_store_edit.setVisible(False)
+        self.pseudo_brand_label.setVisible(False)
+        self.pseudo_brand_edit.setVisible(False)
+        self.pseudo_asin_label.setVisible(False)
+        self.pseudo_asin_edit.setVisible(False)
+        self.seller_label.setVisible(False)
+        self.seller_edit.setVisible(False)
+        self.rating_label.setVisible(False)
+        self.rating_edit.setVisible(False)
+        self.feedbacks_label.setVisible(False)
+        self.feedbacks_edit.setVisible(False)
+        self.price_label.setVisible(False)
+        self.price_edit.setVisible(False)
+        self.title_label.setVisible(False)
+        self.title_edit.setVisible(False)
+        self.search_kw_label.setVisible(False)
+        self.search_kw_edit.setVisible(False)
+        self.search_cat_label.setVisible(False)
+        self.search_cat_edit.setVisible(False)
+        self.buy_mission_type_label.setVisible(False)
+        self.buy_mission_type_sel.setVisible(False)
+        self.asin_label.setVisible(False)
+        self.asin_edit.setVisible(False)
+        self.product_image_label.setVisible(False)
+        self.product_image_edit.setVisible(False)
+        self.bought_label.setVisible(False)
+        self.bought_cb.setVisible(False)
+        self.received_label.setVisible(False)
+        self.received_cb.setVisible(False)
+        self.fb_rated_label.setVisible(False)
+        self.fb_rated_cb.setVisible(False)
+        self.fb_reviewed_label.setVisible(False)
+        self.fb_reviewed_cb.setVisible(False)
+
+    def show_sell_attributes(self):
+        self.sell_mission_type_label.setVisible(True)
+        self.sell_mission_type_sel.setVisible(True)
+
+    def hide_sell_attributes(self):
+        self.sell_mission_type_label.setVisible(False)
+        self.sell_mission_type_sel.setVisible(False)

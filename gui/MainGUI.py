@@ -200,10 +200,13 @@ class MainWindow(QMainWindow):
             for column in res.description:
                 print(column[0])
             #
-            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, startt TEXT, esttime TEXT, runtime TEXT, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating TEXT, customer TEXT, platoon TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
+            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating REAL, feedbacks INTEGER, customer TEXT, platoon TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
             self.dbCursor.execute(sql)
 
             sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, runtime TEXT, price_model TEXT, price INTEGER, privacy TEXT)'
+            self.dbCursor.execute(sql)
+
+            sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variation TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
             self.dbCursor.execute(sql)
 
         else:
@@ -1009,8 +1012,8 @@ class MainWindow(QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        # test_sqlite3(self)
-        test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        test_sqlite3(self)
+        # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         #the grand test,
         # 1) fetch today's schedule.
@@ -2197,7 +2200,6 @@ class MainWindow(QMainWindow):
             "mid": new_mission.getMid(),
             "ticket": new_mission.getMid(),
             "botid": new_mission.getBid(),
-            "owner": self.owner,
             "status": new_mission.getStatus(),
             "createon": new_mission.getBD(),
             "esd": new_mission.getEsd(),
@@ -2207,9 +2209,11 @@ class MainWindow(QMainWindow):
             "aad": new_mission.getAad(),
             "afd": new_mission.getAfd(),
             "acd": new_mission.getAcd(),
-            "startt": new_mission.getActualStartTime(),
-            "esttime": new_mission.getEstimatedStartTime(),
-            "runtime": new_mission.getRunTime(),
+            "actual_start_time": new_mission.getActualStartTime(),
+            "est_start_time": new_mission.getEstimatedStartTime(),
+            "actual_run_time": new_mission.getActualRunTime(),
+            "est_run_time": new_mission.getRunTime(),
+            "n_retries": new_mission.getNRetries(),
             "cuspas": new_mission.getCusPAS(),
             "search_cat": new_mission.getSearchCat(),
             "search_kw": new_mission.getSearchKW(),
@@ -2227,6 +2231,7 @@ class MainWindow(QMainWindow):
             "image": new_mission.getImagePath(),
             "title": new_mission.getTitle(),
             "rating": new_mission.getRating(),
+            "feedbacks": new_mission.getFeedbacks(),
             "customer": new_mission.getCustomerID(),
             "platoon": new_mission.getPlatoonID()
         }]
@@ -2238,22 +2243,27 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             # now that delete is successfull, update local file as well.
             # self.writeMissionJsonFile()
+            print("JUST ADDED mission:", jbody)
             new_mission.setMid(jbody[0]["mid"])
-
+            new_mission.setTicket(jbody[0]["ticket"])
+            new_mission.setEstimatedStartTime(jbody[0]["esttime"])
+            new_mission.setEstimatedRunTime(jbody[0]["runtime"])
+            new_mission.setEsd(jbody[0]["esd"])
             self.missions.append(new_mission)
             self.missionModel.appendRow(new_mission)
 
-            #add to local DB
-            sql = ''' INSERT INTO missions(mid, ticket, owner, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, startt, esttime, runtime, 
-                    cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
-                    title, rating, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-            data_tuple = (jbody[0]["mid"], jbody[0]["ticket"], jbody[0]["owner"], jbody[0]["botid"], jbody[0]["status"], jbody[0]["createon"], \
+            # mid ticket botid status createon esd ecd asd abd aad afd acd startt esttime runtime cuspas category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, title, rating, customer, platoon'
+            # add to local DB
+            sql = ''' INSERT INTO missions(mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, actual_start_time, est_start_time, actual_runtime,
+                    est_runtime, n_retries, cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
+                    title, rating, feedbacks, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+            data_tuple = (jbody[0]["mid"], jbody[0]["ticket"], jbody[0]["botid"], jbody[0]["status"], jbody[0]["createon"], \
                           jbody[0]["esd"], jbody[0]["ecd"], jbody[0]["asd"], jbody[0]["abd"], jbody[0]["aad"], \
-                          jbody[0]["afd"], jbody[0]["acd"], jbody[0]["startt"], jbody[0]["esttime"], jbody[0]["runtime"], \
-                          jbody[0]["cuspas"], jbody[0]["category"], jbody[0]["phrase"], jbody[0]["pseudoStore"], \
+                          jbody[0]["afd"], jbody[0]["acd"], api_missions[0]["actual_start_time"], jbody[0]["esttime"], api_missions[0]["actual_run_time"], jbody[0]["runtime"], \
+                          api_missions[0]["n_tries"], jbody[0]["category"], jbody[0]["phrase"], jbody[0]["pseudoStore"], \
                           jbody[0]["pseudoBrand"], jbody[0]["pseudoASIN"], jbody[0]["type"], jbody[0]["config"], \
                           jbody[0]["skills"], jbody[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
-                          api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["customer"], api_missions[0]["platoon"])
+                          api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], api_missions[0]["customer"], api_missions[0]["platoon"])
             self.dbCursor.execute(sql, data_tuple)
             # Check if the INSERT query was successful
             if self.dbCursor.rowcount == 1:
@@ -2265,15 +2275,44 @@ class MainWindow(QMainWindow):
     def updateAMission(self, amission):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
         # otherwise, only update locally.
-        jresp = {"body": []}
         api_missions = [{
-            "bid": amission.getBid(),
-            "owner": self.owner,
-            "role": amission.getRole(),
-            "age": amission.getAge(),
-            "gender": amission.getGender(),
-            "location": amission.getLocation(),
-            "interests": amission.getInterests()
+            "mid": amission.getMid(),
+            "ticket": amission.getMid(),
+            "botid": amission.getBid(),
+            "status": amission.getStatus(),
+            "createon": amission.getBD(),
+            "esd": amission.getEsd(),
+            "ecd": amission.getEcd(),
+            "asd": amission.getAsd(),
+            "abd": amission.getAbd(),
+            "aad": amission.getAad(),
+            "afd": amission.getAfd(),
+            "acd": amission.getAcd(),
+            "actual_start_time": amission.getActualStartTime(),
+            "est_start_time": amission.getEstimatedStartTime(),
+            "actual_run_time": amission.getActualRunTime(),
+            "est_run_time": amission.getRunTime(),
+            "n_retries": amission.getNRetries(),
+            "cuspas": amission.getCusPAS(),
+            "search_cat": amission.getSearchCat(),
+            "search_kw": amission.getSearchKW(),
+            "pseudo_store": amission.getPseudoStore(),
+            "pseudo_brand": amission.getPseudoBrand(),
+            "pseudo_asin": amission.getPseudoASIN(),
+            "repeat": amission.getRetry(),
+            "mtype": amission.getMtype(),
+            "mconfig": amission.getConfig(),
+            "skills": amission.getSkills(),
+            "delDate": amission.getDelDate(),
+            "asin": amission.getASIN(),
+            "store": amission.getStore(),
+            "brand": amission.getBrand(),
+            "image": amission.getImagePath(),
+            "title": amission.getTitle(),
+            "rating": amission.getRating(),
+            "feedbacks": amission.getFeedbacks(),
+            "customer": amission.getCustomerID(),
+            "platoon": amission.getPlatoonID()
         }]
         api_missions = [amission]
         jresp = send_update_missions_request_to_cloud(self.session, api_missions, self.tokens['AuthenticationResult']['IdToken'])
@@ -2281,21 +2320,22 @@ class MainWindow(QMainWindow):
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
         else:
-            jbody = json.loads(jresp["body"])
+            jbody = jresp["body"]
 
             #update local DB
-            sql = ''' Update missions(ticket = ?, botid = ?, owner = ?, status = ?, createon = ?, esd = ?, ecd = ?, asd = ?, abd = ?, 
-                    aad = ?, afd = ?, acd = ?, startt = ?, esttime = ?, runtime = ?, cuspas = ?, category = ?, phrase = ?, 
-                    pseudoStore = ?, pseudoBrand = ?, pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, 
-                    asin = ?, store = ?, brand = ?, img = ?, title = ?, rating = ?, customer = ?, platoon = ? where mid = ?; '''
+            sql = ''' Update missions(ticket = ?, botid = ?, status = ?, createon = ?, esd = ?, ecd = ?, asd = ?, abd = ?, 
+                    aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
+                    n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
+                    pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
+                    img = ?, title = ?, rating = ?, feedbacks = ?, customer = ?, platoon = ? where mid = ?; '''
             data_tuple = (
-            api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
-            api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], api_missions[0]["abd"], api_missions[0]["aad"], \
-            api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["startt"], api_missions[0]["esttime"], api_missions[0]["runtime"], \
-            api_missions[0]["cuspas"], api_missions[0]["category"], api_missions[0]["phrase"], api_missions[0]["pseudoStore"], \
-            api_missions[0]["pseudoBrand"], api_missions[0]["pseudoASIN"], api_missions[0]["type"], api_missions[0]["config"], \
-            api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
-            api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["customer"], api_missions[0]["platoon"])
+            jbody[0]["mid"], jbody[0]["ticket"], jbody[0]["botid"], jbody[0]["status"], jbody[0]["createon"], \
+            jbody[0]["esd"], jbody[0]["ecd"], jbody[0]["asd"], jbody[0]["abd"], jbody[0]["aad"], \
+            jbody[0]["afd"], jbody[0]["acd"], amission[0]["actual_start_time"], jbody[0]["esttime"], amission[0]["actual_runtime"], jbody[0]["runtime"], \
+            amission[0]["n_retries"], jbody[0]["cuspas"], jbody[0]["category"], jbody[0]["phrase"], jbody[0]["pseudoStore"], \
+            jbody[0]["pseudoBrand"], jbody[0]["pseudoASIN"], jbody[0]["type"], jbody[0]["config"], \
+            jbody[0]["skills"], jbody[0]["delDate"], amission[0]["asin"], amission[0]["store"], amission[0]["brand"], \
+            amission[0]["img"], amission[0]["title"], amission[0]["rating"], amission[0]["feedbacks"], amission[0]["customer"], amission[0]["platoon"])
             self.dbCursor.execute(sql, data_tuple)
             # Check if the UPDATE query was successful
             if self.dbCursor.rowcount > 0:
@@ -3121,22 +3161,24 @@ class MainWindow(QMainWindow):
                             "platoon": new_mission.getPlatoonID()
                         })
 
-                        sql = ''' INSERT INTO missions(mid, ticket, owner, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, eststartt, startt, esttime, runtime, 
-                                            cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
-                                            title, rating, feedbacks, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                        sql = ''' INSERT INTO missions(mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, 
+                                    acd, actual_start_time, est_start_time, actual_runtime, est_runtime, n_retries, 
+                                    cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, 
+                                    skills, delDate, asin, store, brand, img,  title, rating, feedbacks, customer, 
+                                    platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
                         data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], \
                                       api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
                                       api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], \
                                       api_missions[0]["abd"], api_missions[0]["aad"], \
-                                      api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["eststartt"], api_missions[0]["startt"], \
-                                      api_missions[0]["esttime"], api_missions[0]["runtime"], \
-                                      api_missions[0]["cuspas"], api_missions[0]["category"], api_missions[0]["phrase"], \
-                                      api_missions[0]["pseudoStore"], \
+                                      api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["actual_start_time"],
+                                      api_missions[0]["esttime"], api_missions[0]["actual_runtime"], api_missions[0]["runtime"], \
+                                      api_missions[0]["n_retries"], api_missions[0]["cuspas"], api_missions[0]["category"], \
+                                      api_missions[0]["phrase"], api_missions[0]["pseudoStore"], \
                                       api_missions[0]["pseudoBrand"], api_missions[0]["pseudoASIN"], \
                                       api_missions[0]["type"], api_missions[0]["config"], \
                                       api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], \
                                       api_missions[0]["store"], api_missions[0]["brand"], \
-                                      api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], \
+                                      api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], \
                                       api_missions[0]["feedbacks"], api_missions[0]["customer"], api_missions[0]["platoon"])
 
                         self.dbCursor.execute(sql, data_tuple)
@@ -3281,7 +3323,7 @@ class MainWindow(QMainWindow):
 
     def newProductsFromFile(self):
 
-        print("loading products from a file...")
+        print("loading products from a local file or DB...")
         api_products = []
         uncompressed = open(self.homepath + "/resource/testdata/newproducts.json")
         if uncompressed != None:
@@ -3290,92 +3332,23 @@ class MainWindow(QMainWindow):
             if len(fileproducts) > 0:
                 #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
-                jresp = send_add_missions_request_to_cloud(self.session, fileproducts,
-                                                       self.tokens['AuthenticationResult']['IdToken'])
+                # sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variation TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
+                #
+                # sql = ''' INSERT INTO products(pid, name, title, asin, variation, site, sku, size_in, weight_lbs,
+                #         condition, fullfiller, price, cost, inventory_loc, inventory_qty) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                # data_tuple = (pd[0]["pid"], pd[0]["name"], pd[0]["title"], pd[0]["asin"], pd[0]["variation"], pd[0]["site"], \
+                #               pd[0]["sku"], pd[0]["size_in"], pd[0]["weight_lbs"], pd[0]["condition"], pd[0]["fullfiller"], \
+                #               pd[0]["price"], pd[0]["cost"], pd[0]["inventory_loc"], pd[0]["inventory_qty"])
+                #
+                # self.dbCursor.execute(sql, data_tuple)
+                # self.dbcon.commit()
 
-                if "errorType" in jresp:
-                    screen_error = True
-                    print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
-                else:
-                    print("jresp type: ", type(jresp), len(jresp["body"]))
-                    jbody = jresp["body"]
-                    # now that add is successfull, update local file as well.
-
-                    # now add bot to local DB.
-                    api_missions = []
-                    for i in range(len(jbody)):
-                        print(i)
-                        new_mission = EBMISSION(self)
-                        self.fillNewMission(jbody[i], new_mission)
-                        self.missions.append(new_mission)
-                        self.missionModel.appendRow(new_mission)
-
-                        api_missions.append({
-                            "mid": new_mission.getMid(),
-                            "ticket": new_mission.getMid(),
-                            "botid": new_mission.getBid(),
-                            "owner": self.owner,
-                            "status": new_mission.getStatus(),
-                            "createon": new_mission.getBD(),
-                            "esd": new_mission.getEsd(),
-                            "ecd": new_mission.getEcd(),
-                            "asd": new_mission.getAsd(),
-                            "abd": new_mission.getAbd(),
-                            "aad": new_mission.getAad(),
-                            "afd": new_mission.getAfd(),
-                            "acd": new_mission.getAcd(),
-                            "eststartt": new_mission.getEstimatedStartTime(),
-                            "startt": new_mission.getActualStartTime(),
-                            "esttime": new_mission.getEstimatedRunTime(),
-                            "runtime": new_mission.getRunTime(),
-                            "cuspas": new_mission.getCusPAS(),
-                            "search_cat": new_mission.getSearchCat(),
-                            "search_kw": new_mission.getSearchKW(),
-                            "pseudo_store": new_mission.getPseudoStore(),
-                            "pseudo_brand": new_mission.getPseudoBrand(),
-                            "pseudo_asin": new_mission.getPseudoASIN(),
-                            "repeat": new_mission.getRepeat(),
-                            "mtype": new_mission.getMtype(),
-                            "mconfig": new_mission.getConfig(),
-                            "skills": new_mission.getSkills(),
-                            "delDate": new_mission.getDelDate(),
-                            "asin": new_mission.getASIN(),
-                            "store": new_mission.getStore(),
-                            "brand": new_mission.getBrand(),
-                            "image": new_mission.getImagePath(),
-                            "title": new_mission.getTitle(),
-                            "rating": new_mission.getRating(),
-                            "feedbacks": new_mission.getFeedbacks(),
-                            "customer": new_mission.getCustomerID(),
-                            "platoon": new_mission.getPlatoonID()
-                        })
-
-                        sql = ''' INSERT INTO missions(mid, ticket, owner, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, eststartt, startt, esttime, runtime, 
-                                            cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
-                                            title, rating, feedbacks, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                        data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], \
-                                      api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
-                                      api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], \
-                                      api_missions[0]["abd"], api_missions[0]["aad"], \
-                                      api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["eststartt"], api_missions[0]["startt"], \
-                                      api_missions[0]["esttime"], api_missions[0]["runtime"], \
-                                      api_missions[0]["cuspas"], api_missions[0]["category"], api_missions[0]["phrase"], \
-                                      api_missions[0]["pseudoStore"], \
-                                      api_missions[0]["pseudoBrand"], api_missions[0]["pseudoASIN"], \
-                                      api_missions[0]["type"], api_missions[0]["config"], \
-                                      api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], \
-                                      api_missions[0]["store"], api_missions[0]["brand"], \
-                                      api_missions[0]["img"], api_missions[0]["title"], api_missions[0]["rating"], \
-                                      api_missions[0]["feedbacks"], api_missions[0]["customer"], api_missions[0]["platoon"])
-
-                        self.dbCursor.execute(sql, data_tuple)
-
-                        sql = 'SELECT * FROM missions'
-                        res = self.dbCursor.execute(sql)
-                        print("fetchall", res.fetchall())
-                        # important about format: returned here is a list of tuples (,,,,)
-                        #for column in res.description:
-                        #    print(column[0])
+                sql = 'SELECT * FROM products'
+                res = self.dbCursor.execute(sql)
+                print("fetchall", res.fetchall())
+                # important about format: returned here is a list of tuples (,,,,)
+                #for column in res.description:
+                #    print(column[0])
 
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: NO products found in file."))
