@@ -13,6 +13,7 @@ from skill.steps.step_base import StepBase
 from skill.steps.step_check_condition import StepCheckCondition
 from skill.steps.step_fill_data import StepFillData
 from skill.steps.step_stub import StepStub
+from skill.steps.step_wait import StepWait
 
 PROPS_COLUMN_COUNT = 2
 STEP_ATTR_KEY = "step_attr_key"
@@ -183,7 +184,7 @@ class SkFCInfoBox(QFrame):
         elif diagram_type == DiagramNormalItem.Conditional:
             return StepCheckCondition()
         elif diagram_type == DiagramNormalItem.Step:
-            return StepBase()
+            return StepWait()
         elif diagram_type == DiagramNormalItem.Io:
             return StepFillData()
 
