@@ -335,7 +335,7 @@ class BOT_PUB_PROFILE():
 
     def loadJson(self, dj):
         self.bid = dj["bid"]
-        self.pseudo_nick_name = dj["pseudo_nick_name"]
+        self.nick_name = dj["pseudo_nick_name"]
         self.pseudo_name = dj["pseudo_name"]
         self.location = dj["location"]
         self.pubbirthday = dj["pubbirthday"]
@@ -360,7 +360,7 @@ class BOT_PUB_PROFILE():
 
     def genJson(self):
         jd = {
-                "pseudo_nick_name": self.pseudo_nick_name,
+                "pseudo_nick_name": self.nick_name,
                 "pseudo_name": self.pseudo_name,
                 "location": self.location,
                 "pubbirthday": self.pubbirthday,
