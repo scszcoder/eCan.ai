@@ -423,39 +423,71 @@ def test_api(parent, session, token):
     # print("send_account_info_request_to_cloud RESULT:", result)
 
 def test_sqlite3(mw):
-    sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-    data_tuple = (21, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Male', '1992-01-01', \
-                  'Any,Any,Any,Any,Any', 'miami|fl', 'Amazon:Buyer', '', '2524-01-22', \
-                  'joe', 'do', '', '', '', '', '', '', '', '')
+    # sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
+    #               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+    # data_tuple = (21, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Male', '1992-01-01', \
+    #               'Any,Any,Any,Any,Any', 'miami|fl', 'Amazon:Buyer', '', '2524-01-22', \
+    #               'joe', 'do', '', '', '', '', '', '', '', '')
+    #
+    # mw.dbCursor.execute(sql, data_tuple)
+    #
+    # # Check if the INSERT query was successful
+    # if mw.dbCursor.rowcount == 1:
+    #     print("Insertion successful.")
+    # else:
+    #     print("Insertion failed.")
+    #
+    # sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
+    #               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+    # data_tuple = (22, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Female', '1992-01-01', \
+    #               'Any,Any,Any,Any,Any', 'miami|fl', 'Amazon:Buyer', '', '2524-01-22', \
+    #               'joe', 'do', '', '', '', '', '', '', '', '')
+    #
+    # mw.dbCursor.execute(sql, data_tuple)
+    #
+    # # Check if the INSERT query was successful
+    # if mw.dbCursor.rowcount == 1:
+    #     print("Insertion successful.")
+    # else:
+    #     print("Insertion failed.")
+    #
+    # mw.dbcon.commit()
+    #
+    # sql = 'SELECT * FROM bots'
+    # res = mw.dbCursor.execute(sql)
+    #
+    # db_data = res.fetchall()
+    mw.dbCursor.execute("PRAGMA table_info(missions);")
 
-    mw.dbCursor.execute(sql, data_tuple)
+    # Fetch all the rows (each row represents a column)
+    db_data = mw.dbCursor.fetchall()
 
-    # Check if the INSERT query was successful
-    if mw.dbCursor.rowcount == 1:
-        print("Insertion successful.")
-    else:
-        print("Insertion failed.")
+    print("DB Data:", db_data)
 
-    sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-    data_tuple = (22, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Female', '1992-01-01', \
-                  'Any,Any,Any,Any,Any', 'miami|fl', 'Amazon:Buyer', '', '2524-01-22', \
-                  'joe', 'do', '', '', '', '', '', '', '', '')
 
-    mw.dbCursor.execute(sql, data_tuple)
+    new_fb = 'feedbacks'
+    fb_type = 'INTEGER'  # Change this to the desired data type
+    rt_col = 'rating'
 
-    # Check if the INSERT query was successful
-    if mw.dbCursor.rowcount == 1:
-        print("Insertion successful.")
-    else:
-        print("Insertion failed.")
+    new_rrt = 'realruntime'
+    rrt_type = 'INTEGER'  # Change this to the desired data type
+    est_col = 'esttime'
 
-    mw.dbcon.commit()
+    sql = f"ALTER TABLE missions ADD COLUMN {new_fb} {fb_type} AFTER {rt_col};"
+    # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
+    # mw.dbCursor.execute(sql)
 
-    sql = 'SELECT * FROM bots'
-    res = mw.dbCursor.execute(sql)
+    sql = f"ALTER TABLE missions ADD COLUMN {new_rrt} {rrt_type} AFTER {est_col};"
+    # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
+    # mw.dbCursor.execute(sql)
 
-    db_data = res.fetchall()
+    # mw.dbcon.commit()
+    # table_name = 'missions'
+    # mw.dbCursor.execute(f"DROP TABLE {table_name};")
+
+    mw.dbCursor.execute("PRAGMA table_info(products);")
+
+    # Fetch all the rows (each row represents a column)
+    db_data = mw.dbCursor.fetchall()
 
     print("DB Data:", db_data)

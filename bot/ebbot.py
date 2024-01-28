@@ -315,14 +315,19 @@ class BOT_PUB_PROFILE():
 
     def setPubBirthday(self, pbbd):
         self.pubbirthday = pbbd
-
         format = '%Y-%m-%d'
-        # convert from string format to datetime format
-        self.pubbirthdaydt = datetime.strptime(pbbd, format)
+        try:
+            # convert from string format to datetime format
+            self.pubbirthdaydt = datetime.strptime(pbbd, format)
 
-        today = date.today()
-        self.age = today.year - self.pubbirthdaydt.year - ((today.month, today.day) < (self.pubbirthdaydt.month, self.pubbirthdaydt.day))
-
+            today = date.today()
+            self.age = today.year - self.pubbirthdaydt.year - ((today.month, today.day) < (self.pubbirthdaydt.month, self.pubbirthdaydt.day))
+        except ValueError:
+            self.pubbirthday = "2000-01-01"
+            self.pubbirthdaydt = datetime.strptime("2000-01-01", format)
+            today = date.today()
+            self.age = today.year - self.pubbirthdaydt.year - (
+                        (today.month, today.day) < (self.pubbirthdaydt.month, self.pubbirthdaydt.day))
 
     def setPersonal(self, gender):
         self.gender = gender
@@ -335,7 +340,7 @@ class BOT_PUB_PROFILE():
 
     def loadJson(self, dj):
         self.bid = dj["bid"]
-        self.pseudo_nick_name = dj["pseudo_nick_name"]
+        self.nick_name = dj["pseudo_nick_name"]
         self.pseudo_name = dj["pseudo_name"]
         self.location = dj["location"]
         self.pubbirthday = dj["pubbirthday"]
@@ -360,7 +365,7 @@ class BOT_PUB_PROFILE():
 
     def genJson(self):
         jd = {
-                "pseudo_nick_name": self.pseudo_nick_name,
+                "pseudo_nick_name": self.nick_name,
                 "pseudo_name": self.pseudo_name,
                 "location": self.location,
                 "pubbirthday": self.pubbirthday,
@@ -610,17 +615,17 @@ class EBBOT(QStandardItem):
     def loadDBData(self, dbd):
         self.pubProfile.setBid(dbd[0])
         self.pubProfile.setOwner(dbd[1])
-        self.pubProfile.setRoles(dbd[7])
-        self.pubProfile.setPubBirthday(dbd[4])
-        self.pubProfile.setGender(dbd[3])
-        self.pubProfile.setLoc(dbd[6])
         self.pubProfile.setLevels(dbd[2])
+        self.pubProfile.setGender(dbd[3])
+        self.pubProfile.setPubBirthday(dbd[4])
         self.pubProfile.setInterests(dbd[5])
+        self.pubProfile.setLoc(dbd[6])
+        self.pubProfile.setRoles(dbd[7])
         self.pubProfile.setStatus(dbd[8])
         self.pubProfile.setDelDate(dbd[9])
+        self.privateProfile.setName(dbd[10])
         self.pubProfile.setPseudoName(dbd[11])
         self.pubProfile.setNickName(dbd[12])
-        self.privateProfile.setName(dbd[10])
         self.privateProfile.setAddr1(dbd[13])
         self.privateProfile.setShippingAddr1(dbd[14])
         self.privateProfile.setPhone(dbd[15])
