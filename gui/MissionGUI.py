@@ -99,14 +99,14 @@ class MissionNewWin(QMainWindow):
         self.mission_platform_sel = QComboBox()
         for p in self.parent.getPLATFORMS():
             self.mission_platform_sel.addItem(QApplication.translate("QComboBox", p))
-        self.mission_platform_sel.currentTextChanged.connect(self.skillPlatformSel_changed)
+        self.mission_platform_sel.currentTextChanged.connect(self.missionPlatformSel_changed)
 
 
         self.missionAppLabel = QLabel(QApplication.translate("QLabel", "Mission App:"), alignment=Qt.AlignLeft)
         self.mission_app_sel = QComboBox()
         for app in self.parent.getAPPS():
             self.mission_app_sel.addItem(QApplication.translate("QComboBox", app))
-        self.mission_app_sel.currentTextChanged.connect(self.skillAppSel_changed)
+        self.mission_app_sel.currentTextChanged.connect(self.missionAppSel_changed)
 
         QApplication.translate("QLabel", "Skill Site:")
         self.missionCustomAppNameLabel = QLabel(QApplication.translate("QLabel", "Custome App:"), alignment=Qt.AlignLeft)
@@ -121,7 +121,7 @@ class MissionNewWin(QMainWindow):
         self.mission_site_sel = QComboBox()
         for site in self.parent.getSITES():
             self.mission_site_sel.addItem(QApplication.translate("QComboBox", site))
-        self.mission_site_sel.currentTextChanged.connect(self.skillSiteSel_changed)
+        self.mission_site_sel.currentTextChanged.connect(self.missionSiteSel_changed)
 
         self.missionCustomSiteNameLabel = QLabel(QApplication.translate("QLabel", "Custom Site:"), alignment=Qt.AlignLeft)
         self.missionCustomSiteNameEdit = QLineEdit("")
@@ -193,8 +193,9 @@ class MissionNewWin(QMainWindow):
 
         self.mission_type_label = QLabel(QApplication.translate("QLabel", "Mission Type:"), alignment=Qt.AlignLeft)
         self.buy_rb = QRadioButton(QApplication.translate("QPushButton", "Buy Side"))
-        self.sell_rb = QRadioButton(QApplication.translate("QPushButton", "Sell Side"))
+        self.buy_rb.toggled.connect(self.buy_rb_checked_state_changed)
 
+        self.sell_rb = QRadioButton(QApplication.translate("QPushButton", "Sell Side"))
 
         self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"), alignment=Qt.AlignLeft)
         self.manual_rb = QRadioButton(QApplication.translate("QPushButton", "Manual Assign(Bot and Schedule)"))
@@ -211,21 +212,14 @@ class MissionNewWin(QMainWindow):
         self.buy_mission_type_label = QLabel(QApplication.translate("QLabel", "Buy Mission Type:"), alignment=Qt.AlignLeft)
         self.buy_mission_type_sel = QComboBox()
 
-        self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", "Simple Buy"))
-        self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", "Feedback Rating"))
-        self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", "Review"))
+        for bt in self.parent.getBUYTYPES():
+            self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", bt))
 
         self.sell_mission_type_label = QLabel(QApplication.translate("QLabel", "Sell Mission Type:"), alignment=Qt.AlignLeft)
         self.sell_mission_type_sel = QComboBox()
 
-        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Prepare Shipping Label"))
-        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Check Inventory"))
-        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Process Messages"))
-        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Handle Return"))
-        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Handle Replacement"))
-        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Handle Marketing"))
-        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Custom Work"))
-        self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", "Other"))
+        for st in self.parent.getSELLTYPES():
+            self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
         self.repeat_label = QLabel(QApplication.translate("QLabel", "Repeat every:"), alignment=Qt.AlignLeft)
         self.repeat_edit = QLineEdit()
@@ -419,15 +413,8 @@ class MissionNewWin(QMainWindow):
 
         self.cus_alt_sm_type_label = QLabel(QApplication.translate("QLabel", "Customer Messenging Type:"), alignment=Qt.AlignLeft)
         self.cus_alt_sm_type_sel = QComboBox()
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "QQ"))
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Wechat"))
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Telegram"))
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "WhatsApp"))
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Messenger"))
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Line"))
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Thread"))
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Facebook"))
-        self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", "Other"))
+        for sm in self.parent.getSMPLATFORMS():
+            self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", sm))
 
         self.cus_alt_sm_id_label = QLabel(QApplication.translate("QLabel", "Customer Messenger ID:"), alignment=Qt.AlignLeft)
         self.cus_alt_sm_id_edit = QLineEdit()
@@ -569,6 +556,7 @@ class MissionNewWin(QMainWindow):
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
+        self.buy_rb.setChecked(True)
 
     def setMode(self, mode):
         self.mode = mode
@@ -580,8 +568,6 @@ class MissionNewWin(QMainWindow):
     def saveMission(self):
         print("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
-        self.newMission = EBMISSION(self.parent)
-
 
         if self.manual_rb.isChecked():
             if int(self.bid_edit.text()) != self.newMission.getBid():
@@ -604,12 +590,12 @@ class MissionNewWin(QMainWindow):
                 self.newMission.pubAttributes.setType("manual", "Sell")
 
 
-        self.newMission.privateAttributes.setBuyType(self.buy_mission_type_sel.currentText())
-        self.newMission.privateAttributes.setSellType(self.sell_mission_type_sel.currentText())
+        self.newMission.setBuyType(self.buy_mission_type_sel.currentText())
+        self.newMission.setSellType(self.sell_mission_type_sel.currentText())
 
         self.newMission.privateAttributes.setItem(self.asin_edit.text(), self.seller_edit.text(), self.title_edit.text(), self.product_image_edit.text(), self.rating_edit.text(), self.feedbacks_edit.text(), self.price_edit.text())
 
-        self.newMission.setCustomer(self.cus_email_edit.text())
+        self.newMission.setCustomerID(self.cus_email_edit.text())
         self.newMission.setCustomerSMID(self.cus_sm_id_edit.text())
         self.newMission.setCustomerSMPlatform(self.cus_alt_sm_type_sel.currentText())
 
@@ -630,7 +616,8 @@ class MissionNewWin(QMainWindow):
         self.newMission.setPseudoASIN(self.pseudo_asin_edit.text())
 
         platform_text = self.mission_platform_sel.currentText()
-        platform_sh = platform_text
+        platform_sh = self.parent.translatePlatform(platform_text)
+        self.newMission.setPlatform(platform_text)
 
         if self.mission_app_sel.currentText() == 'Custom':
             app_text = self.missionCustomAppNameEdit.text()
@@ -638,6 +625,7 @@ class MissionNewWin(QMainWindow):
             app_text = self.mission_app_sel.currentText()
 
         app_sh = app_text
+        self.newMission.setApp(app_text)
 
         if self.mission_site_sel.currentText() == 'Custom':
             site_text = self.missionCustomSiteNameEdit.text()
@@ -645,7 +633,9 @@ class MissionNewWin(QMainWindow):
             site_text = self.mission_site_sel.currentText()
 
         site_sh = self.parent.translateSiteName(site_text)
+        self.newMission.setSite(site_text)
 
+        print("Setting CusPAS:", platform_sh+","+app_sh+","+site_sh)
         self.newMission.setCusPAS(platform_sh+","+app_sh+","+site_sh)
         self.fillSkills()
 
@@ -701,13 +691,12 @@ class MissionNewWin(QMainWindow):
 
     def setMission(self, mission):
         self.newMission = mission
+        print("setting mission id:", str(self.newMission.getMid()))
         self.mid_edit.setText(str(self.newMission.getMid()))
         self.ticket_edit.setText(str(self.newMission.getTicket()))
-
         self.bid_edit.setText(str(self.newMission.getBid()))
-        self.est_edit.setText(self.newMission.getEstimatedStartTime())
-        self.ert_edit.setText(self.newMission.getEstimatedRunTime())
-
+        self.est_edit.setText(str(self.newMission.getEstimatedStartTime()))
+        self.ert_edit.setText(str(self.newMission.getEstimatedRunTime()))
 
         self.repeat_edit.setText(str(self.newMission.getRetry()))
 
@@ -721,28 +710,35 @@ class MissionNewWin(QMainWindow):
         else:
             self.manual_rb.setChecked(True)
 
+        if self.newMission.getBuyType() in self.parent.getBUYTYPES():
+            self.buy_mission_type_sel.setCurrentText(self.newMission.getBuyType())
+        else:
+            self.buy_mission_type_sel.setCurrentText("buy")
 
-        self.buy_mission_type_sel.setCurrentText(self.newMission.privateAttributes.getBuyType())
-        self.sell_mission_type_sel.setCurrentText(self.newMission.privateAttributes.getSellType())
+        if self.newMission.getSellType() in self.parent.getSELLTYPES():
+            self.sell_mission_type_sel.setCurrentText(self.newMission.getSellType())
+        else:
+            self.sell_mission_type_sel.setCurrentText("sell")
 
         self.asin_edit.setText(self.newMission.getASIN())
         self.seller_edit.setText(self.newMission.getStore())
         self.title_edit.setText(self.newMission.getTitle())
         self.product_image_edit.setText(self.newMission.getImagePath())
-        self.rating_edit.setText(self.newMission.getRating())
-        self.feedbacks_edit.setText(self.newMission.getFeedbacks())
-        self.price_edit.setText(self.newMission.getPrice())
-
-        self.cus_email_edit.setText(self.newMission.getCustomer())
+        self.rating_edit.setText(str(self.newMission.getRating()))
+        self.feedbacks_edit.setText(str(self.newMission.getFeedbacks()))
+        self.price_edit.setText(str(self.newMission.getPrice()))
+        self.cus_email_edit.setText(self.newMission.getCustomerID())
         self.cus_sm_id_edit.setText(self.newMission.getCustomerSMID())
-        self.cus_alt_sm_type_sel.currentText(self.newMission.getCustomerSMPlatform())
 
-
+        if self.newMission.getCustomerSMPlatform() in self.parent.getSMPLATFORMS():
+            self.cus_alt_sm_type_sel.setCurrentText(self.newMission.getCustomerSMPlatform())
+        else:
+            self.cus_alt_sm_type_sel.setCurrentText("Custom")
 
         if self.newMission.getStatus() == "reviewed":
             self.fb_reviewed_cb.setChecked(True)
         elif self.newMission.getStatus() == "rated":
-            self.fb_rated_cb_cb.setChecked(True)
+            self.fb_rated_cb.setChecked(True)
         elif self.newMission.getStatus() == "received":
             self.received_cb.setChecked(True)
         elif self.newMission.getStatus() == "bought":
@@ -750,7 +746,6 @@ class MissionNewWin(QMainWindow):
 
         self.search_kw_edit.setText(self.newMission.getSearchKW())
         self.search_cat_edit.setText(self.newMission.getSearchCat())
-
         self.pseudo_store_edit.setText(self.newMission.getPseudoStore())
         self.pseudo_brand_edit.setText(self.newMission.getPseudoBrand())
         self.pseudo_asin_edit.setText(self.newMission.getPseudoASIN())
@@ -773,14 +768,14 @@ class MissionNewWin(QMainWindow):
         self.loadSkills(mission)
 
 
-    def skillPlatformSel_changed(self):
-        self.missionCustomAppLinkEdit = self.skill_platform_sel.currentText()
+    def missionPlatformSel_changed(self):
+        self.missionCustomAppLinkEdit = self.mission_platform_sel.currentText()
 
 
-    def skillAppSel_changed(self):
+    def missionAppSel_changed(self):
         print("app changed....")
         if self.mission_app_sel.currentText() != 'Custom':
-            self.hide_skill_custom_app()
+            self.hide_mission_custom_app()
             self.selected_mission_app = self.mission_app_sel.currentText()
             self.selected_mission_app_link = ""
 
@@ -789,12 +784,11 @@ class MissionNewWin(QMainWindow):
             self.selected_mission_app = self.missionCustomAppNameEdit.text()
             self.selected_mission_app_link = self.missionCustomAppLinkEdit.text()
 
-    def skillSiteSel_changed(self):
+    def missionSiteSel_changed(self):
         if self.mission_site_sel.currentText() != 'Custom':
             self.hide_mission_custom_site()
-            self.selected_skill_site = self.mission_site_sel.currentText()
-            self.selected_skill_site_link = ""
-
+            self.selected_mission_site = self.mission_site_sel.currentText()
+            self.selected_mission_site_link = ""
         else:
             self.show_mission_custom_site()
             self.selected_mission_site = self.missionCustomSiteNameEdit.text()
@@ -807,8 +801,6 @@ class MissionNewWin(QMainWindow):
         else:
             self.show_skill_custom_action()
             self.selected_skill_action = self.skillCustomActionEdit.text()
-
-
 
 
     def hide_mission_custom_app(self):
@@ -955,3 +947,91 @@ class MissionNewWin(QMainWindow):
         for sk in self.parent.skills:
             self.skill_action_sel.addItem(QApplication.translate("QComboBox", sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSite()+"_"+sk.getPage()+"_"+sk.getName()))
 
+    def buy_rb_checked_state_changed(self):
+        if self.buy_rb.isChecked():
+            print("buy mission is selected....")
+            self.show_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.show_sell_attributes()
+            self.hide_buy_attributes()
+
+    def show_buy_attributes(self):
+        self.pseudo_store_label.setVisible(True)
+        self.pseudo_store_edit.setVisible(True)
+        self.pseudo_brand_label.setVisible(True)
+        self.pseudo_brand_edit.setVisible(True)
+        self.pseudo_asin_label.setVisible(True)
+        self.pseudo_asin_edit.setVisible(True)
+        self.seller_label.setVisible(True)
+        self.seller_edit.setVisible(True)
+        self.rating_label.setVisible(True)
+        self.rating_edit.setVisible(True)
+        self.feedbacks_label.setVisible(True)
+        self.feedbacks_edit.setVisible(True)
+        self.price_label.setVisible(True)
+        self.price_edit.setVisible(True)
+        self.title_label.setVisible(True)
+        self.title_edit.setVisible(True)
+        self.search_kw_label.setVisible(True)
+        self.search_kw_edit.setVisible(True)
+        self.search_cat_label.setVisible(True)
+        self.search_cat_edit.setVisible(True)
+        self.buy_mission_type_label.setVisible(True)
+        self.buy_mission_type_sel.setVisible(True)
+        self.asin_label.setVisible(True)
+        self.asin_edit.setVisible(True)
+        self.product_image_label.setVisible(True)
+        self.product_image_edit.setVisible(True)
+        self.bought_label.setVisible(True)
+        self.bought_cb.setVisible(True)
+        self.received_label.setVisible(True)
+        self.received_cb.setVisible(True)
+        self.fb_rated_label.setVisible(True)
+        self.fb_rated_cb.setVisible(True)
+        self.fb_reviewed_label.setVisible(True)
+        self.fb_reviewed_cb.setVisible(True)
+
+    def hide_buy_attributes(self):
+        self.pseudo_store_label.setVisible(False)
+        self.pseudo_store_edit.setVisible(False)
+        self.pseudo_brand_label.setVisible(False)
+        self.pseudo_brand_edit.setVisible(False)
+        self.pseudo_asin_label.setVisible(False)
+        self.pseudo_asin_edit.setVisible(False)
+        self.seller_label.setVisible(False)
+        self.seller_edit.setVisible(False)
+        self.rating_label.setVisible(False)
+        self.rating_edit.setVisible(False)
+        self.feedbacks_label.setVisible(False)
+        self.feedbacks_edit.setVisible(False)
+        self.price_label.setVisible(False)
+        self.price_edit.setVisible(False)
+        self.title_label.setVisible(False)
+        self.title_edit.setVisible(False)
+        self.search_kw_label.setVisible(False)
+        self.search_kw_edit.setVisible(False)
+        self.search_cat_label.setVisible(False)
+        self.search_cat_edit.setVisible(False)
+        self.buy_mission_type_label.setVisible(False)
+        self.buy_mission_type_sel.setVisible(False)
+        self.asin_label.setVisible(False)
+        self.asin_edit.setVisible(False)
+        self.product_image_label.setVisible(False)
+        self.product_image_edit.setVisible(False)
+        self.bought_label.setVisible(False)
+        self.bought_cb.setVisible(False)
+        self.received_label.setVisible(False)
+        self.received_cb.setVisible(False)
+        self.fb_rated_label.setVisible(False)
+        self.fb_rated_cb.setVisible(False)
+        self.fb_reviewed_label.setVisible(False)
+        self.fb_reviewed_cb.setVisible(False)
+
+    def show_sell_attributes(self):
+        self.sell_mission_type_label.setVisible(True)
+        self.sell_mission_type_sel.setVisible(True)
+
+    def hide_sell_attributes(self):
+        self.sell_mission_type_label.setVisible(False)
+        self.sell_mission_type_sel.setVisible(False)

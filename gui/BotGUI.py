@@ -800,6 +800,7 @@ class BotNewWin(QMainWindow):
         self.ln_edit.setText(bot.getLn())
         self.pln_edit.setText(bot.getPseudoLastName())
         self.pfn_edit.setText(bot.getPseudoFirstName())
+        print("hihii???")
         # self.pnn_edit.setText(bot.getNickName())
         self.phone_edit.setText(bot.getPhone())
         # self.icon_path_edit.setText(bot.getIconLink())
@@ -815,13 +816,11 @@ class BotNewWin(QMainWindow):
         self.os_sel.setCurrentText(bot.getOS())
         self.browser_sel.setCurrentText(bot.getBrowser())
         self.machine_sel.setCurrentText(bot.getMachine())
-
         self.addr_l1_edit.setText(bot.getAddrStreet1())
         self.addr_l2_edit.setText(bot.getAddrStreet2())
         self.addr_city_edit.setText(bot.getAddrCity())
         self.addr_state_edit.setText(bot.getAddrState())
         self.addr_zip_edit.setText(bot.getAddrZip())
-
         if bot.getAddrShippingAddrSame():
             self.shipaddr_same_checkbox.setChecked(True)
         else:
@@ -882,12 +881,18 @@ class BotNewWin(QMainWindow):
         isc1_options = ['Any']
         isc2_options = ['Any']
         isc3_options = ['Any']
+        print("bot intests:", bot.getInterests())
         all_ints = bot.getInterests()
+
         if all_ints != "":
             ints = all_ints.split("|")
 
             if len(ints) > 0:
-                int_parts = ints[0].split(",")
+                if ints[0] == "":
+                    top_int = ints[1]
+                else:
+                    top_int = ints[0]
+                int_parts = top_int.split(",")
                 int_platform = int_parts[0]
                 int_mc = int_parts[1]
                 int_sc1 = int_parts[2]
@@ -992,7 +997,10 @@ class BotNewWin(QMainWindow):
             self.selected_interest_item = self.interestModel.item(i)
             intd = self.selected_interest_item.getData()
             int_words = intd[0] + "," + intd[1] + "," + intd[2] + "," + intd[3] + "," + intd[4]
-            self.newBot.setInterests(self.newBot.getInterests() + "|" + int_words)
+            if i == 0:
+                self.newBot.setInterests(self.newBot.getInterests() + int_words)
+            else:
+                self.newBot.setInterests(self.newBot.getInterests() + "|" + int_words)
             print("interests>>>>>", self.newBot.getInterests())
 
     def selFile(self):
