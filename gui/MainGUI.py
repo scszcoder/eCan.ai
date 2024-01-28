@@ -410,9 +410,9 @@ class MainWindow(QMainWindow):
         # self.skillListView.setViewMode(QListView.IconMode)
         # self.skillListView.setMovement(QListView.Snap)
 
-        self.mission0 = EBMISSION(self)
-        self.missionModel.appendRow(self.mission0)
-        self.missions.append(self.mission0)
+        # self.mission0 = EBMISSION(self)
+        # self.missionModel.appendRow(self.mission0)
+        # self.missions.append(self.mission0)
 
         self.missionListView.setModel(self.missionModel)
         self.missionListView.setViewMode(QListView.ListMode)
@@ -2203,10 +2203,10 @@ class MainWindow(QMainWindow):
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
         else:
-            jbody = json.loads(jresp["body"])
+            jbody = jresp["body"]
 
-            #update local DB
-            for updatedbot in jbody:
+            if jbody['numberOfRecordsUpdated'] == 1:
+
                 sql = ''' UPDATE bots SET owner = ?, levels = ?, gender = ?, birthday = ?, interests = ?, location = ?, roles = ?,
                         status = ?, delDate = ?, name = ?, pseudoname = ?, nickname = ?, addr = ?, shipaddr = ?, phone = ?, 
                         email = ?,  epw = ?, backemail = ?, ebpw = ? WHERE botid = ?; '''
@@ -2223,6 +2223,8 @@ class MainWindow(QMainWindow):
                     self.dbcon.commit()
                 else:
                     print("No rows were updated.")
+            else:
+                print("WARNING: bot NOT updated in Cloud!")
 
             #now that add is successfull, update local file as well.
             # self.saveBotJsonFile()
@@ -3461,7 +3463,6 @@ class MainWindow(QMainWindow):
 
     def cuspas_to_diaplayable(self, a_mission):
         cuspas_parts = a_mission.getCusPAS().split(",")
-        print("CUSPAS::::::::", a_mission.getCusPAS())
         a_mission.setPlatform(self.translateShortPlatform(cuspas_parts[0]))
         a_mission.setApp(cuspas_parts[1])
         a_mission.setSite(self.translateShortSiteName(cuspas_parts[2]))
