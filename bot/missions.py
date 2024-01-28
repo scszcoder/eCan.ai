@@ -45,8 +45,6 @@ class M_Private_Attributes():
         self.rating = ""
         self.rank = 0
         self.feedbacks = 0
-        self.buy_type = "NA"
-        self.sell_type = "NA"
         self.customer_id = ""
         self.customer_sm_id = ""
         self.customer_sm_platform = ""
@@ -74,12 +72,6 @@ class M_Private_Attributes():
     def getPrice(self):
         return self.price
 
-    def setBuyType(self, buy_type):
-        self.buy_type = buy_type
-
-    def setSellType(self, stype):
-        self.sell_type = stype
-
     def loadJson(self, dj):
         self.item_number = dj["item_number"]
         self.seller = dj["seller"]
@@ -88,7 +80,6 @@ class M_Private_Attributes():
         self.price = dj["price"]
         self.rank = dj["rank"]
         self.feedbacks = dj["feedbacks"]
-        self.buy_type = dj["buy_type"]
 
     def genJson(self):
         jd = {
@@ -98,9 +89,7 @@ class M_Private_Attributes():
                 "imglink": self.imglink,
                 "price": self.price,
                 "rank": self.rank,
-                "feedbacks": self.feedbacks,
-                "buy_type": self.buy_type,
-                "sell_type": self.sell_type
+                "feedbacks": self.feedbacks
             }
         return jd
 
@@ -119,7 +108,6 @@ class M_Pub_Attributes():
         self.ms_type = "sell"             # buy/sell type of mission.
         self.config = ""
         self.bot_id = 0                   # the bot associated with a mission.
-        self.esttime = 0                    # estimated start time.
         self.esd = ""
         self.ecd = ""
         self.asd = ""
@@ -127,6 +115,7 @@ class M_Pub_Attributes():
         self.abd = ""
         self.afd = ""
         self.acd = ""
+        self.esttime = 0                    # estimated start time.
         self.run_time = 0               #estimated run time.
         self.actual_run_time = 0
         self.createon = ""
@@ -137,7 +126,7 @@ class M_Pub_Attributes():
         self.cuspas = "win,chrome,amz"
         self.app_exe = ""
         self.platform = "Windows"
-        self.app = "Chrome"
+        self.app = "chrome"
         self.site = "Amazon"
         self.site_html = "https://www.amazon.com"
         self.pseudo_store = ""
@@ -147,6 +136,8 @@ class M_Pub_Attributes():
         self.skills = []
         self.current_sk_idx = 0
         self.platoon_id = ""
+        self.buy_type = ""
+        self.sell_type = ""
 
 
     def setType(self, atype, mtype):
@@ -226,7 +217,7 @@ class M_Pub_Attributes():
         self.afd = dj["afd"]
         self.acd = dj["acd"]
         self.run_time = dj["est_run_time"]
-        self.esttime = dj["esttime"]
+        self.esttime = dj["est_start_time"]
         self.del_date = dj["delDate"]
         self.pseudo_store = dj["pseudoStore"]
         self.pseudo_brand = dj["pseudoBrand"]
@@ -362,6 +353,18 @@ class EBMISSION(QStandardItem):
     def setMtype(self, mtype):
         self.pubAttributes.ms_type = mtype
 
+    def setBuyType(self, buy_type):
+        self.pubAttributes.buy_type = buy_type
+
+    def setSellType(self, stype):
+        self.pubAttributes.sell_type = stype
+
+    def getBuyType(self):
+        return self.pubAttributes.buy_type
+
+    def getSellType(self):
+        return self.pubAttributes.sell_type
+
     def getAssignmentType(self):
         return self.pubAttributes.assign_type
 
@@ -446,11 +449,16 @@ class EBMISSION(QStandardItem):
             self.pubAttributes.actual_start_time = aws_datetime_str
         elif type(ast) == str:
             self.pubAttributes.actual_start_time = ast
-            datetime_obj = datetime.strptime(ast, "%Y-%m-%dT%H:%M:%S.%fZ")
-            # Convert the datetime object to epoch time in seconds
-            epoch_time = int(datetime_obj.timestamp())
-            self.pubAttributes.actual_start_time_in_ms = epoch_time
-
+            try:
+                datetime_obj = datetime.strptime(ast, "%Y-%m-%dT%H:%M:%S.%fZ")
+                # Convert the datetime object to epoch time in seconds
+                epoch_time = int(datetime_obj.timestamp())
+                self.pubAttributes.actual_start_time_in_ms = epoch_time
+            except ValueError:
+                datetime_obj = datetime.strptime("2050-01-01T00:00:00.00Z", "%Y-%m-%dT%H:%M:%S.%fZ")
+                # Convert the datetime object to epoch time in seconds
+                epoch_time = int(datetime_obj.timestamp())
+                self.pubAttributes.actual_start_time_in_ms = epoch_time
 
     def getActualEndTime(self):
         return self.pubAttributes.actual_end_time
@@ -464,11 +472,16 @@ class EBMISSION(QStandardItem):
             self.pubAttributes.actual_end_time = aws_datetime_str
         elif type(aet) == str:
             self.pubAttributes.actual_end_time = aet
-            datetime_obj = datetime.strptime(aet, "%Y-%m-%dT%H:%M:%S.%fZ")
-            # Convert the datetime object to epoch time in seconds
-            epoch_time = int(datetime_obj.timestamp())
-            self.pubAttributes.actual_end_time_in_ms = epoch_time
-
+            try:
+                datetime_obj = datetime.strptime(aet, "%Y-%m-%dT%H:%M:%S.%fZ")
+                # Convert the datetime object to epoch time in seconds
+                epoch_time = int(datetime_obj.timestamp())
+                self.pubAttributes.actual_end_time_in_ms = epoch_time
+            except ValueError:
+                datetime_obj = datetime.strptime("2050-01-01T00:00:00.00Z", "%Y-%m-%dT%H:%M:%S.%fZ")
+                # Convert the datetime object to epoch time in seconds
+                epoch_time = int(datetime_obj.timestamp())
+                self.pubAttributes.actual_end_time_in_ms = epoch_time
 
     def getActualRunTime(self):
         return self.pubAttributes.actual_run_time
@@ -477,26 +490,17 @@ class EBMISSION(QStandardItem):
         self.actual_run_time = art
 
     def getEstimatedStartTime(self):
-        return self.pubAttributes.eststartt
+        return self.pubAttributes.esttime
 
     def setEstimatedStartTime(self, est):
-        self.pubAttributes.eststartt = est
+        self.pubAttributes.esttime = est
 
-    def setEstimatedEndTime(self, est):
-        self.pubAttributes.eststartt = est
 
     def getEstimatedRunTime(self):
         return self.pubAttributes.run_time
 
     def setEstimatedRunTime(self, ert):
         self.pubAttributes.run_time = ert
-
-    # estimated run time.
-    def getEstStartTime(self):
-        return self.pubAttributes.esttime
-
-    def setEstStartTime(self, ert):
-        self.pubAttributes.esttime = ert
 
     def getCusPAS(self):
         return self.pubAttributes.cuspas
@@ -513,8 +517,14 @@ class EBMISSION(QStandardItem):
     def getPlatform(self):
         return self.pubAttributes.platform
 
+    def setPlatform(self, platform):
+        self.pubAttributes.platform = platform
+
     def getApp(self):
         return self.pubAttributes.app
+
+    def setApp(self, app):
+        self.pubAttributes.app = app
 
     def getSite(self):
         return self.pubAttributes.site
@@ -658,7 +668,7 @@ class EBMISSION(QStandardItem):
     def getCustomerID(self):
         return self.privateAttributes.customer_id
 
-    def setCustomer(self, cid):
+    def setCustomerID(self, cid):
         self.privateAttributes.customer_id = cid
 
     def getCustomerSMID(self):
@@ -681,11 +691,13 @@ class EBMISSION(QStandardItem):
         self.pubAttributes.platoon_id = pid
 
     def getNRetries(self):
-        return self.n_retries
+        return self.pubAttributes.n_retries
 
     def setNRetries(self, nrt):
-        self.n_retries = nrt
+        self.pubAttributes.n_retries = nrt
 
+    def updateDisplay(self):
+        self.setText('mission' + str(self.getMid()))
 
     # self.
     def setJsonData(self, ppJson):
@@ -770,10 +782,10 @@ class EBMISSION(QStandardItem):
         self.setAad(dbd[10])
         self.setAfd(dbd[11])
         self.setAcd(dbd[12])
-        self.setEstimatedStartTime(dbd[13])
-        self.setActualStartTime(dbd[14])
-        self.setEstimatedRunTime(dbd[15])
-        self.setActualRunTime(dbd[16])
+        self.setActualStartTime(dbd[13])
+        self.setEstimatedStartTime(dbd[14])
+        self.setActualRunTime(dbd[15])
+        self.setEstimatedRunTime(dbd[16])
         self.setNRetries((dbd[16]))
         self.setCusPAS(dbd[17])
         self.setSearchCat(dbd[18])
@@ -781,20 +793,20 @@ class EBMISSION(QStandardItem):
         self.setPseudoStore(dbd[20])
         self.setPseudoBrand(dbd[21])
         self.setPseudoASIN(dbd[22])
-        self.setRepeat(dbd[23])
-        self.setMtype(dbd[24])
-        self.setConfig(dbd[25])
-        self.setSkills(dbd[26])
-        self.setDelDate(dbd[27])
-        self.setASIN(dbd[28])
-        self.setStore(dbd[29])
-        self.setBrand(dbd[30])
-        self.setImage(dbd[31])
-        self.setTitle(dbd[32])
-        self.setRating(dbd[33])
-        self.setFeedbacks(dbd[34])
-        self.setCustomer(dbd[35])
-        self.setPlatoon(dbd[36])
+        self.setMtype(dbd[23])
+        self.setConfig(dbd[24])
+        self.setSkills(dbd[25])
+        self.setDelDate(dbd[26])
+        self.setASIN(dbd[27])
+        self.setStore(dbd[28])
+        self.setBrand(dbd[29])
+        self.setImagePath(dbd[30])
+        self.setTitle(dbd[31])
+        self.setRating(dbd[32])
+        self.setFeedbacks(dbd[33])
+        self.setCustomerID(dbd[34])
+        self.setPlatoon(dbd[35])
+
 
     async def run(self):
         run_result = None
