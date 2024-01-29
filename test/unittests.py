@@ -465,27 +465,27 @@ def test_sqlite3(mw):
     print("DB Data:", db_data)
 
 
-    new_fb = 'feedbacks'
-    fb_type = 'INTEGER'  # Change this to the desired data type
-    rt_col = 'rating'
+    # new_fb = 'feedbacks'
+    # fb_type = 'INTEGER'  # Change this to the desired data type
+    # rt_col = 'rating'
+    #
+    # new_rrt = 'price'
+    # rrt_type = 'REAL'  # Change this to the desired data type
+    # est_col = 'feedbacks'
 
-    new_rrt = 'realruntime'
-    rrt_type = 'INTEGER'  # Change this to the desired data type
-    est_col = 'esttime'
-
-    sql = f"ALTER TABLE missions ADD COLUMN {new_fb} {fb_type} AFTER {rt_col};"
-    # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
+    # sql = f"ALTER TABLE missions ADD COLUMN {new_fb} {fb_type} AFTER {rt_col};"
+    # # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
 
-    sql = f"ALTER TABLE missions ADD COLUMN {new_rrt} {rrt_type} AFTER {est_col};"
+    # sql = f"ALTER TABLE missions ADD COLUMN {new_rrt} {rrt_type} AFTER {est_col};"
     # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
 
     # mw.dbcon.commit()
-    # table_name = 'missions'
-    # mw.dbCursor.execute(f"DROP TABLE {table_name};")
+    table_name = 'missions'
+    mw.dbCursor.execute(f"DROP TABLE {table_name};")
 
-    mw.dbCursor.execute("PRAGMA table_info(products);")
+    mw.dbCursor.execute("PRAGMA table_info(missions);")
 
     # Fetch all the rows (each row represents a column)
     db_data = mw.dbCursor.fetchall()

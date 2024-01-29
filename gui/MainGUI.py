@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
             for column in res.description:
                 print(column[0])
             #
-            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating REAL, feedbacks INTEGER, customer TEXT, platoon TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
+            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating REAL, feedbacks INTEGER, price REAL, customer TEXT, platoon TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
             self.dbCursor.execute(sql)
 
             sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, runtime TEXT, price_model TEXT, price INTEGER, privacy TEXT)'
@@ -292,6 +292,30 @@ class MainWindow(QMainWindow):
         self.east0Scroll = QScrollArea()
         self.east1Scroll = QScrollArea()
 
+        self.search_mission_button = QPushButton(QApplication.translate("QPushButton", "Search"))
+        self.search_mission_button.clicked.connect(self.searchLocalMissions)
+
+        self.mission_from_date_label = QLabel(QApplication.translate("QLabel", "From:"), alignment=Qt.AlignLeft)
+        self.mission_from_date_edit = QLineEdit()
+        self.mission_from_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
+        self.mission_to_date_label = QLabel(QApplication.translate("QLabel", "To:"), alignment=Qt.AlignLeft)
+        self.mission_to_date_edit = QLineEdit()
+        self.mission_to_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
+
+        self.mission_search_layout = QHBoxLayout(self)
+        self.mission_search_edit = QLineEdit()
+        self.mission_search_edit.setClearButtonEnabled(True)
+        self.mission_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
+        self.mission_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
+        self.mission_search_edit.returnPressed.connect(self.search_mission_button.click)
+        self.mission_search_layout.addWidget(self.mission_from_date_label)
+        self.mission_search_layout.addWidget(self.mission_from_date_edit)
+        self.mission_search_layout.addWidget(self.mission_to_date_label)
+        self.mission_search_layout.addWidget(self.mission_to_date_edit)
+        self.mission_search_layout.addWidget(self.mission_search_edit)
+        self.mission_search_layout.addWidget(self.search_mission_button)
+
+        self.westScrollLayout.addLayout(self.mission_search_layout)
         self.westScrollLayout.addWidget(self.westScrollLabel)
         self.westScrollLayout.addWidget(self.westScroll)
         self.westScrollArea.setLayout(self.westScrollLayout)
@@ -1317,6 +1341,7 @@ class MainWindow(QMainWindow):
             new_mission = EBMISSION(self)
             self.fill_mission(new_mission, m, task_groups)
             self.missions.append(new_mission)
+            self.missionModel.appendRow(new_mission)
             print("adding mission....")
 
     def getBotByID(self, bid):
@@ -2268,6 +2293,7 @@ class MainWindow(QMainWindow):
             "title": new_mission.getTitle(),
             "rating": new_mission.getRating(),
             "feedbacks": new_mission.getFeedbacks(),
+            "price": new_mission.getPrice(),
             "customer": new_mission.getCustomerID(),
             "platoon": new_mission.getPlatoonID()
         }]
@@ -2292,14 +2318,14 @@ class MainWindow(QMainWindow):
             # add to local DB
             sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, actual_start_time, est_start_time, actual_runtime,
                     est_runtime, n_retries, cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
-                    title, rating, feedbacks, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                    title, rating, feedbacks, price, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
             data_tuple = (jbody[0]["mid"], jbody[0]["ticket"], jbody[0]["botid"], jbody[0]["status"], jbody[0]["createon"], \
                           jbody[0]["esd"], jbody[0]["ecd"], jbody[0]["asd"], jbody[0]["abd"], jbody[0]["aad"], \
                           jbody[0]["afd"], jbody[0]["acd"], api_missions[0]["actual_start_time"], jbody[0]["esttime"], api_missions[0]["actual_run_time"], jbody[0]["runtime"], \
                           api_missions[0]["n_retries"], jbody[0]["cuspas"], jbody[0]["category"], jbody[0]["phrase"], jbody[0]["pseudoStore"], \
                           jbody[0]["pseudoBrand"], jbody[0]["pseudoASIN"], jbody[0]["type"], jbody[0]["config"], \
                           jbody[0]["skills"], jbody[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
-                          api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], api_missions[0]["customer"], api_missions[0]["platoon"])
+                          api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], api_missions[0]["platoon"])
             self.dbCursor.execute(sql, data_tuple)
             # Check if the INSERT query was successful
             if self.dbCursor.rowcount == 1:
@@ -2347,6 +2373,7 @@ class MainWindow(QMainWindow):
             "title": amission.getTitle(),
             "rating": amission.getRating(),
             "feedbacks": amission.getFeedbacks(),
+            "price": amission.getPrice(),
             "customer": amission.getCustomerID(),
             "platoon": amission.getPlatoonID()
         }]
@@ -2364,7 +2391,7 @@ class MainWindow(QMainWindow):
                         aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
                         n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
                         pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
-                        img = ?, title = ?, rating = ?, feedbacks = ?, customer = ?, platoon = ? WHERE mid = ?; '''
+                        img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ? WHERE mid = ?; '''
                 data_tuple = (
                 api_missions[0]["ticket"], api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
                 api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], api_missions[0]["abd"], api_missions[0]["aad"], \
@@ -2372,7 +2399,7 @@ class MainWindow(QMainWindow):
                 api_missions[0]["n_retries"], api_missions[0]["cuspas"], api_missions[0]["search_cat"], api_missions[0]["search_kw"], api_missions[0]["pseudo_store"], \
                 api_missions[0]["pseudo_brand"], api_missions[0]["pseudo_asin"], api_missions[0]["type"], api_missions[0]["config"], \
                 api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
-                api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], api_missions[0]["customer"], api_missions[0]["platoon"], api_missions[0]["mid"])
+                api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], api_missions[0]["platoon"], api_missions[0]["mid"])
                 self.dbCursor.execute(sql, data_tuple)
                 # Check if the UPDATE query was successful
                 print("data_tuple:", data_tuple)
@@ -3202,6 +3229,7 @@ class MainWindow(QMainWindow):
                             "title": new_mission.getTitle(),
                             "rating": new_mission.getRating(),
                             "feedbacks": new_mission.getFeedbacks(),
+                            "price": new_mission.getPrice(),
                             "customer": new_mission.getCustomerID(),
                             "platoon": new_mission.getPlatoonID()
                         })
@@ -3209,8 +3237,8 @@ class MainWindow(QMainWindow):
                         sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, 
                                     acd, actual_start_time, est_start_time, actual_runtime, est_runtime, n_retries, 
                                     cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, 
-                                    skills, delDate, asin, store, brand, img,  title, rating, feedbacks, customer, 
-                                    platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                                    skills, delDate, asin, store, brand, img,  title, rating, feedbacks, price, customer, 
+                                    platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
                         data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], \
                                       api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
                                       api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], \
@@ -3223,8 +3251,8 @@ class MainWindow(QMainWindow):
                                       api_missions[0]["type"], api_missions[0]["config"], \
                                       api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], \
                                       api_missions[0]["store"], api_missions[0]["brand"], \
-                                      api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], \
-                                      api_missions[0]["feedbacks"], api_missions[0]["customer"], api_missions[0]["platoon"])
+                                      api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], \
+                                      api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], api_missions[0]["platoon"])
 
                         self.dbCursor.execute(sql, data_tuple)
 
@@ -3437,17 +3465,18 @@ class MainWindow(QMainWindow):
 
 
     # load locally stored skills
-    def loadLocalMissions(self):
+    def loadLocalMissions(self, sql='SELECT * FROM missions', tuple=()):
         skill_def_files = []
 
-        sql = 'SELECT * FROM missions'
-        res = self.dbCursor.execute(sql)
+        res = self.dbCursor.execute(sql, tuple)
 
         db_data = res.fetchall()
 
         print("get local missions from db::", db_data)
         if len(db_data) != 0:
             print("mission fetchall", db_data)
+            self.missions = []
+            self.missionModel.clear()
             for row in db_data:
                 print("loading a mission: ", row)
                 new_mission = EBMISSION(self)
@@ -3459,7 +3488,8 @@ class MainWindow(QMainWindow):
                 self.selected_mission_row = self.missionModel.rowCount() - 1
                 self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
         else:
-            self.newMissionFromFile()
+            print("local DB empty")
+            # self.newMissionFromFile()
 
     def cuspas_to_diaplayable(self, a_mission):
         cuspas_parts = a_mission.getCusPAS().split(",")
@@ -3693,6 +3723,9 @@ class MainWindow(QMainWindow):
                 print("finising a task....", task_idx)
                 finished = self.todays_work["tbd"].pop(task_idx)
                 self.todays_completed.append(finished)
+
+                # Here need to update completed mission display subwindows.
+                # self.completedMissionModel.appendRow( completed mission..)
 
             print("len todays's reports:", len(self.todaysPlatoonReports), "len todays's completed:", len(self.todays_completed))
             print("completd：", self.todays_completed)
@@ -4007,3 +4040,53 @@ class MainWindow(QMainWindow):
             return m
         else:
             return None
+
+    def searchLocalMissions(self):
+        mcols = ['botid', 'status', 'acd', 'n_retries', 'cuspas', 'category', 'phrase', 'pseudoStore', 'pseudoBrand', 'pseudoASIN', 'asin', 'store', 'customer', 'type', 'config', 'delDate', 'platoon']
+        print("Searching local missions based on createdon date range and field parameters....")
+        date_valid = False
+        pattern = r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD pattern
+
+        search_cols = []
+        sql = "SELECT * FROM missions WHERE "
+        vals = []
+        fromDateString = self.mission_from_date_edit.text()
+        toDateString = self.mission_to_date_edit.text()
+        from_matches = re.findall(pattern, fromDateString)
+        to_matches = re.findall(pattern, toDateString)
+        if len(from_matches) > 0 and len(to_matches) > 0:
+            sql = sql + "createon BETWEEN ? AND ?"
+            vals.append(fromDateString.strip())
+            vals.append(toDateString.strip())
+            date_valid = True
+
+        if self.mission_search_edit.text() != "":
+            search_words = self.mission_search_edit.text().split(",")
+            i = 0
+            for sw in search_words:
+                print("search word:", sw)
+                sw_words = sw.split(":")
+                col_name = sw_words[0].strip()
+                col_txt = sw_words[1].strip()
+                if col_name in mcols:
+                    if i == 0 and not date_valid:
+                        sql = sql + col_name + " = ?"
+                    else:
+                        sql = sql + " AND " + col_name + " = ?"
+
+                    if col_name == "botid" or col_name == "n_retries":
+                        col_val = int(col_txt)
+                    else:
+                        col_val = col_txt
+
+                    vals.append(col_val)
+
+                i = i + 1
+
+        vals_tuple = tuple(vals)
+        print("MISSION QUERY SQL", sql, "TUPLE:", vals_tuple)
+        # self.loadLocalMissions(sql, vals_tuple)
+
+
+
+

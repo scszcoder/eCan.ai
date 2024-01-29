@@ -58,6 +58,11 @@ class M_Private_Attributes():
         self.imglink = imglink
         self.rank = rank
         self.price = price
+        # if price.replace(".", "").isnumeric():
+        #     self.price = float(price)
+        # else:
+        #     self.price = 0.0
+
         self.feedbacks = feedbacks
 
     def setFeedbacks(self, fbs):
@@ -696,6 +701,9 @@ class EBMISSION(QStandardItem):
     def setNRetries(self, nrt):
         self.pubAttributes.n_retries = nrt
 
+    def setPrice(self, price):
+        self.privateAttributes.price = price
+
     def updateDisplay(self):
         self.setText('mission' + str(self.getMid()))
 
@@ -804,8 +812,9 @@ class EBMISSION(QStandardItem):
         self.setTitle(dbd[31])
         self.setRating(dbd[32])
         self.setFeedbacks(dbd[33])
-        self.setCustomerID(dbd[34])
-        self.setPlatoon(dbd[35])
+        self.setPrice(dbd[34])
+        self.setCustomerID(dbd[35])
+        self.setPlatoon(dbd[36])
 
 
     async def run(self):
