@@ -6,7 +6,7 @@ from PySide6.QtGui import QPainter, QPen, QColor, QPolygonF, QPainterPath, QBrus
 from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsItem, QMenu, QGraphicsSceneMouseEvent,
                                QGraphicsDropShadowEffect, QGraphicsTextItem, QApplication)
 import math
-import datetime
+from datetime import datetime
 from typing import List
 
 from gui.skfc.diagram_item_normal import EnumPortDir, DiagramItemGroup, DiagramNormalItem

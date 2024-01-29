@@ -596,14 +596,15 @@ class MainWindow(QMainWindow):
             # this will handle all skill bundled into software itself.
             # self.loadLocalSkills()
             db_skills_results = self.SkillManagerWin.fetchMySkills()
-            db_skills = json.loads(db_skills_results["body"])
-            for db_skill in db_skills:
-                # print("db skill:", db_skill)
-                db = WORKSKILL(self, db_skill["name"])
-                db.loadJson(db_skill)
-                self.skills.append(db)
-            # self.skills =
-            self.SkillManagerWin.updateSkills(self.skills)
+            if 'body' in db_skills_results:
+                db_skills = json.loads(db_skills_results["body"])
+                for db_skill in db_skills:
+                    # print("db skill:", db_skill)
+                    db = WORKSKILL(self, db_skill["name"])
+                    db.loadJson(db_skill)
+                    self.skills.append(db)
+                # self.skills =
+                self.SkillManagerWin.updateSkills(self.skills)
 
         # Done with all UI s
         # tuff, now do the instruction set extension work.

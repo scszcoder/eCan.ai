@@ -1,10 +1,7 @@
-from typing import List
-
 from PySide6.QtCore import (QPointF, QRectF, Qt)
-from PySide6.QtGui import (QPainterPath, QColor, QFont, QPen, QPolygonF)
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsEllipseItem, QMenu
+from PySide6.QtGui import (QPainterPath, QColor, QFont, QPen, QPolygonF, QFocusEvent, QTextCursor)
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsEllipseItem, QMenu, QGraphicsTextItem
 
-from gui.skfc.diagram_item_text import DiagramTextItem
 from gui.skfc.skfc_base import EnumItemType, SkFCBase
 from enum import Enum
 
@@ -87,12 +84,98 @@ class DiagramSubItemPort(QGraphicsEllipseItem):
     #     return super().mousePressEvent(event)
 
 
+class DiagramNormalSubTextItem(QGraphicsTextItem):
+    def __init__(self, plain_text: str, font: QFont, color: QColor, position: QPointF, parent=None):
+        super().__init__(parent)
+        # self.parent = parent
+
+        self.setPlainText(plain_text)
+        self.setFont(font)
+        self.setDefaultTextColor(color)
+        self.setPos(position)
+
+        # self.setTextInteractionFlags(Qt.TextEditable)
+        self.setFlag(QGraphicsTextItem.ItemIsSelectable)
+        self.setTextInteractionFlags(Qt.NoTextInteraction)
+
+    def boundingRect(self):
+        # 确保返回的矩形表示项的实际边界
+        rect = super().boundingRect()
+        if rect.width() < 50:
+            # 如果文字宽度小于最小宽度，则扩展边界
+            return QRectF(rect.x(), rect.y(), 50, rect.height())
+        return rect
+
+    def shape(self):
+        path = QPainterPath()
+        rect = self.boundingRect()
+        path.addRect(rect)
+        return path
+
+    def mouseDoubleClickEvent(self, event):
+        if self.textInteractionFlags() == Qt.NoTextInteraction:
+            self.setTextInteractionFlags(Qt.TextEditorInteraction)
+            self.setPositionCursor(event.pos())
+        super().mouseDoubleClickEvent(event)
+
+    def setPositionCursor(self, pos):
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(self.document().documentLayout().hitTest(pos, Qt.ExactHit))
+        self.setTextCursor(cursor)
+
+    def focusOutEvent(self, event: QFocusEvent):
+        self.setTextInteractionFlags(Qt.NoTextInteraction)
+        super().focusOutEvent(event)
+
+    def mousePressEvent(self, event):
+        print("diagram item sub text item mouse press")
+        if self.textInteractionFlags() == Qt.TextEditorInteraction:
+            self.setPositionCursor(event.pos())
+        elif self.textInteractionFlags() == Qt.NoTextInteraction and self.parentItem():
+            self.parentItem().setSelected(True)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        print("sub item mouse move")
+        if self.textInteractionFlags() == Qt.NoTextInteraction and self.parentItem():
+            # 移动父组件
+            # parent_pos = self.parentItem().pos()
+            # parent_pos += event.pos() - event.lastPos()
+            # self.parentItem().setPos(parent_pos)
+            self.parentItem().mouseMoveEvent(event)
+        super().mouseMoveEvent(event)
+
+    def set_font(self, font: QFont):
+        self.setFont(font)
+
+    def to_dict(self):
+        obj_dict = {
+            "plain_text": self.toPlainText(),
+            "position": SkFCBase.position_encode(self.pos()),
+            "font": SkFCBase.font_encode(self.font()),
+            "color": SkFCBase.color_encode(self.defaultTextColor()),
+        }
+
+        return obj_dict
+
+    @classmethod
+    def from_dict(cls, obj_dict):
+        plain_text = obj_dict["plain_text"]
+        position = SkFCBase.position_decode(obj_dict["position"])
+        font = SkFCBase.font_decode(obj_dict["font"])
+        color = QColor(SkFCBase.color_decode(obj_dict["color"]))
+
+        text_item = DiagramNormalSubTextItem(plain_text=plain_text, font=font, color=color, position=position)
+
+        return text_item
+
+
 class DiagramNormalItem(QGraphicsPolygonItem):
     Step, Conditional, StartEnd, Io = range(4)
 
     def __init__(self, diagram_type, context_menu: QMenu, text_color: QColor,
                  item_color: QColor, font: QFont, position: QPointF, uuid=None,
-                 name_text_item: DiagramTextItem=None, tag_text_item: DiagramTextItem=None, step=None,
+                 name_text_item: DiagramNormalSubTextItem=None, tag_text_item: DiagramNormalSubTextItem=None, step=None,
                  parent=None):
         super(DiagramNormalItem, self).__init__(parent)
 
@@ -109,13 +192,11 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         self.setBrush(item_color)
         self.setPos(position)
 
-        self.name_text_item = DiagramTextItem(name_text_item.toPlainText() if name_text_item is not None else "hello",
+        self.name_text_item = DiagramNormalSubTextItem(name_text_item.toPlainText() if name_text_item is not None else "hello",
                                               self.font, self.text_color, QPointF(-18, 18), parent=self)
-        self.name_text_item.setTextInteractionFlags(Qt.TextEditable)
 
-        self.tag_text_item = DiagramTextItem(tag_text_item.toPlainText() if tag_text_item is not None else "tag here",
+        self.tag_text_item = DiagramNormalSubTextItem(tag_text_item.toPlainText() if tag_text_item is not None else "tag here",
                                              self.font, self.text_color, QPointF(-30, -12.5), parent=self)
-        self.tag_text_item.setTextInteractionFlags(Qt.TextEditable)
 
         radius = ITEM_PORT_RADIUS
         self.port_bottom = DiagramSubItemPort(0 - radius, 15 - radius, 2 * radius, 2 * radius, EnumPortDir.BOTTOM, self)
@@ -212,6 +293,10 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         self.scene().clearSelection()
         self.setSelected(True)
         self.context_menu.exec_(event.screenPos())
+
+    def mousePressEvent(self, event):
+        print("diagram normal item mouse press")
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
@@ -316,8 +401,8 @@ class DiagramNormalItem(QGraphicsPolygonItem):
 
         step = StepBase.from_dict(obj_dict["step"])
 
-        name_text_item = DiagramTextItem.from_dict(name_text_item_dict, context_menu)
-        tag_text_item = DiagramTextItem.from_dict(tag_text_item_dict, context_menu)
+        name_text_item = DiagramNormalSubTextItem.from_dict(name_text_item_dict)
+        tag_text_item = DiagramNormalSubTextItem.from_dict(tag_text_item_dict)
 
         diagram_normal_item = DiagramNormalItem(diagram_type=diagram_type, context_menu=context_menu, text_color=text_color,
                                                 item_color=item_color, font=font, uuid=uuid, name_text_item=name_text_item,

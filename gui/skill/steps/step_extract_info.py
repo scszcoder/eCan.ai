@@ -5,8 +5,8 @@ from enum import Enum
 class StepExtractInfo(StepBase):
     TYPE_KEY = "Extract Info"
 
-    def __init__(self, stepN=0, template="", settings=None, sink="screen_info", page=None, sect="top", theme=None,
-                 page_data=None, option=""):
+    def __init__(self, stepN=0, template="", settings="", sink="screen_info", page="", sect="top", theme="",
+                 page_data="", option=""):
         super().__init__(stepN)
 
         self.type = self.TYPE_KEY

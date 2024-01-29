@@ -327,6 +327,56 @@ class Login(QDialog):
         self.buttonLogin.clicked.disconnect(self.handleLogin)
         self.buttonLogin.clicked.connect(self.handleForgotPassword)
 
+    def set_or_replace_env_variable_macos(self, var_name, var_value, shell=None):
+        """
+        Sets or replaces a permanent environment variable for the user on macOS.
+        The variable will be set or updated for the default shell of the user (Bash or Zsh).
+
+        :param var_name: Name of the environment variable
+        :param var_value: Value of the environment variable
+        :param shell: Optional, specify the shell (bash or zsh), otherwise auto-detect
+        :return: Status message
+        """
+        # Auto-detect the shell if not specified
+        if not shell:
+            shell = os.path.basename(os.environ.get('SHELL', ''))
+
+        # Determine the appropriate config file based on the shell
+        if shell == 'bash':
+            config_file = os.path.join(os.path.expanduser('~'), '.bash_profile')
+            if not os.path.exists(config_file):
+                # Fallback to .bashrc if .bash_profile does not exist
+                config_file = os.path.join(os.path.expanduser('~'), '.bashrc')
+        elif shell == 'zsh':
+            config_file = os.path.join(os.path.expanduser('~'), '.zshrc')
+        else:
+            return "Unsupported shell. Please use Bash or Zsh."
+
+        # Construct the command to add or update the environment variable
+        env_var_command = f'export {var_name}="{var_value}"'
+        variable_updated = False
+
+        # Check if the variable is already in the file
+        try:
+            with open(config_file, 'r') as file:
+                lines = file.readlines()
+
+            with open(config_file, 'w') as file:
+                for line in lines:
+                    # If the variable exists, replace its value
+                    if line.strip().startswith(f'export {var_name}='):
+                        file.write(f'{env_var_command}\n')
+                        variable_updated = True
+                    else:
+                        file.write(line)
+
+                # If the variable was not found, add it to the file
+                if not variable_updated:
+                    file.write(f'\n{env_var_command}\n')
+
+            print(f"Environment variable {var_name} {'updated' if variable_updated else 'set'} successfully in {config_file}.")
+        except IOError as e:
+            print(f"Error: Unable to open or write to {config_file} - {e}")
 
     def handleLogin(self):
         print("logging in....")
@@ -358,7 +408,10 @@ class Login(QDialog):
             # print(user)
             print("timezone:", datetime.now().astimezone().tzinfo)
             # now make this window dissappear and bring out the main windows.
-            os.environ["SCECBOTPW"] = self.scramble(self.textPass.text())
+            if platform.system() == 'Darwin':
+                self.set_or_replace_env_variable_macos("SCECBOTPW", self.scramble(self.textPass.text()))
+            else:
+                os.environ["SCECBOTPW"] = self.scramble(self.textPass.text())
             data = {"mem_cb": True, "user": self.textName.text(), "pw": "SCECBOTPW", "lan": "EN"}
             if self.mempw_cb.checkState() == Qt.Unchecked:
                 data["mem_cb"] = False
