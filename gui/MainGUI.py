@@ -170,7 +170,10 @@ class MainWindow(QMainWindow):
         self.products = []
         self.zipper = lzstring.LZString()
         self.threadPool = QThreadPool()
-        self.selected_row = -1
+        self.selected_bot_row = -1
+        self.selected_mission_row = -1
+        self.selected_bot_item = None
+        self.selected_mission_item = None
         self.BotNewWin = None
         self.missionWin = None
         self.trainNewSkillWin = None
@@ -2192,7 +2195,7 @@ class MainWindow(QMainWindow):
 
             self.bots.append(new_bot)
             self.botModel.appendRow(new_bot)
-            self.selected_row = self.botModel.rowCount() - 1
+            self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
             sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
@@ -2851,8 +2854,8 @@ class MainWindow(QMainWindow):
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
-                self.selected_cus_mission_row = source.indexAt(event.pos()).row()
-                self.selected_cus_mission_item = self.missionModel.item(self.selected_cus_mission_row)
+                self.selected_mission_row = source.indexAt(event.pos()).row()
+                self.selected_cus_mission_item = self.missionModel.item(self.selected_mission_row)
                 if selected_act == self.cusMissionEditAction:
                     self.editCusMission()
                 elif selected_act == self.cusMissionCloneAction:
@@ -2904,7 +2907,7 @@ class MainWindow(QMainWindow):
 
         self.missionWin.setMode("update")
         self.missionWin.show()
-        print("edit mission" + str(self.selected_cus_mission_row))
+        print("edit mission" + str(self.selected_mission_row))
 
 
     def cloneCusMission(self):
@@ -3107,7 +3110,7 @@ class MainWindow(QMainWindow):
                     self.fillNewBotFullInfo(fb, new_bot)
                     self.bots.append(new_bot)
                     self.botModel.appendRow(new_bot)
-                    self.selected_row = self.botModel.rowCount()-1
+                    self.selected_bot_row = self.botModel.rowCount()-1
                     self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
                 # jresp = send_add_bots_request_to_cloud(self.session, filebbots,
