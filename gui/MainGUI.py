@@ -3652,16 +3652,16 @@ class MainWindow(QMainWindow):
             "status": "completed",
             "error": "",
         },
-            {
-                "mid": 2,
-                "botid": 2,
-                "sst": "2023-10-22 12:11:12",
-                "sd": 600,
-                "ast": "2023-10-22 12:12:12",
-                "aet": "2023-10-22 12:22:12",
-                "status": "running",
-                "error": "",
-            }])
+        {
+            "mid": 2,
+            "botid": 2,
+            "sst": "2023-10-22 12:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 12:12:12",
+            "aet": "2023-10-22 12:22:12",
+            "status": "running",
+            "error": "",
+        }])
         self.parent.vehicles.append(newV)
 
         newV = VEHICLE(self)
