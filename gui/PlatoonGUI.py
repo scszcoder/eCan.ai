@@ -139,7 +139,10 @@ class PlatoonWindow(QMainWindow):
         else:
             # need to add a new tab.
             print("adding a new tab....")
-
+            # find vehicle based on IP address.
+            found_v = next((v  for v in self.parent.vehicles if v.getIP().split(".")[len(v.getIP().split(".")) - 1] == ip_last), None)
+            if found_v:
+                self.tabs.addTab(self._createVehicleTab(found_v.getMStats()), "Platoon" + ip_last)
 
         vmodel = self.platoonTableViews[tab_index].model()
         rx_jd = json.loads(rx_data["content"])

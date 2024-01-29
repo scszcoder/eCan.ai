@@ -318,6 +318,9 @@ class EBMISSION(QStandardItem):
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
 
+    def setIcon(self, icon):
+        self.icon = icon
+
     def getMid(self):
         return self.pubAttributes.missionId
 
@@ -739,43 +742,6 @@ class EBMISSION(QStandardItem):
         # self.parent_settings["uid"] = jd["parent_settings"]["uid"]
 
     # load data from a row in sqlite DB.
-    # "mid": [0]
-    # "ticket": [1]
-    # "botid": [2]
-    # "owner": [3]
-    # "status": [4]
-    # "createon": [5]
-    # "esd": [6]
-    # "ecd": [7]
-    # "asd": [8]
-    # "abd": [9]
-    # "aad": [10]
-    # "afd": [11]
-    # "acd": [12]
-    # "eststartt": [13]
-    # "startt": [14]
-    # "esttime": [15]
-    # "runtime": [16]
-    # "cuspas": [17]
-    # "search_cat": [18]
-    # "search_kw": [19]
-    # "pseudo_store": [20]
-    # "pseudo_brand": [21]
-    # "pseudo_asin": [22]
-    # "repeat": [23]
-    # "mtype": [24]
-    # "mconfig": [25]
-    # "skills": [26]
-    # "delDate": [27]
-    # "asin": [28]
-    # "store": [29]
-    # "brand": [30]
-    # "image": [31]
-    # "title": [32]
-    # "rating": [33]
-    # "feedbacks": [34]
-    # "customer": [35]
-    # "platoon": [36]
     def loadDBData(self, dbd):
         self.setMid(dbd[0])
         self.setTicket(dbd[1])
