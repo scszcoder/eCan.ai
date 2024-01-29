@@ -170,7 +170,10 @@ class MainWindow(QMainWindow):
         self.products = []
         self.zipper = lzstring.LZString()
         self.threadPool = QThreadPool()
-        self.selected_row = -1
+        self.selected_bot_row = -1
+        self.selected_mission_row = -1
+        self.selected_bot_item = None
+        self.selected_mission_item = None
         self.BotNewWin = None
         self.missionWin = None
         self.trainNewSkillWin = None
@@ -1462,7 +1465,7 @@ class MainWindow(QMainWindow):
                 if i == 0 and not self.hostrole == "CommanderOnly":
                     # if commander participate work, give work to here.
                     print("arranged for today on this machine....")
-                    self.todays_work["tbd"].append({"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
+                    self.todays_work["tbd"].append({"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
                 else:
                     #otherwise, send work to platoons in the field.
                     if self.hostrole == "CommanderOnly":
@@ -1471,7 +1474,7 @@ class MainWindow(QMainWindow):
                         self.todays_work["tbd"].append(
                             {"name": "automation", "works": task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
                              "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
-                             "current oidx": 0, "competed": [], "aborted": []})
+                             "current oidx": 0, "completed": [], "aborted": []})
 
                     else:
                         print("cmd sending to platoon: ", i)
@@ -1479,7 +1482,7 @@ class MainWindow(QMainWindow):
                         self.todays_work["tbd"].append(
                             {"name": "automation", "works": task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
                              "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
-                             "current oidx": 0, "competed": [], "aborted": []})
+                             "current oidx": 0, "completed": [], "aborted": []})
 
                     # now need to fetch this task associated bots, mission, skills
                     # get all bots IDs involved. get all mission IDs involved.
@@ -2193,7 +2196,7 @@ class MainWindow(QMainWindow):
 
             self.bots.append(new_bot)
             self.botModel.appendRow(new_bot)
-            self.selected_row = self.botModel.rowCount() - 1
+            self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
             sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
@@ -2852,8 +2855,8 @@ class MainWindow(QMainWindow):
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
-                self.selected_cus_mission_row = source.indexAt(event.pos()).row()
-                self.selected_cus_mission_item = self.missionModel.item(self.selected_cus_mission_row)
+                self.selected_mission_row = source.indexAt(event.pos()).row()
+                self.selected_cus_mission_item = self.missionModel.item(self.selected_mission_row)
                 if selected_act == self.cusMissionEditAction:
                     self.editCusMission()
                 elif selected_act == self.cusMissionCloneAction:
@@ -2905,7 +2908,7 @@ class MainWindow(QMainWindow):
 
         self.missionWin.setMode("update")
         self.missionWin.show()
-        print("edit mission" + str(self.selected_cus_mission_row))
+        print("edit mission" + str(self.selected_mission_row))
 
 
     def cloneCusMission(self):
@@ -3108,7 +3111,7 @@ class MainWindow(QMainWindow):
                     self.fillNewBotFullInfo(fb, new_bot)
                     self.bots.append(new_bot)
                     self.botModel.appendRow(new_bot)
-                    self.selected_row = self.botModel.rowCount()-1
+                    self.selected_bot_row = self.botModel.rowCount()-1
                     self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
                 # jresp = send_add_bots_request_to_cloud(self.session, filebbots,
@@ -3488,7 +3491,8 @@ class MainWindow(QMainWindow):
                 self.selected_bot_row = self.botModel.rowCount() - 1
                 self.selected_bot_item = self.botModel.item(self.selected_bot_row)
         else:
-            self.newBotFromFile()
+            print("WARNING: local bots DB empty!")
+            # self.newBotFromFile()
 
 
 
@@ -3516,7 +3520,7 @@ class MainWindow(QMainWindow):
                 self.selected_mission_row = self.missionModel.rowCount() - 1
                 self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
         else:
-            print("local DB empty")
+            print("WARNING: local mission DB empty!")
             # self.newMissionFromFile()
 
     def cuspas_to_diaplayable(self, a_mission):
@@ -3524,7 +3528,6 @@ class MainWindow(QMainWindow):
         a_mission.setPlatform(self.translateShortPlatform(cuspas_parts[0]))
         a_mission.setApp(cuspas_parts[1])
         a_mission.setSite(self.translateShortSiteName(cuspas_parts[2]))
-
 
 
     # fetch all bots stored in the cloud.
@@ -3654,16 +3657,16 @@ class MainWindow(QMainWindow):
             "status": "completed",
             "error": "",
         },
-            {
-                "mid": 2,
-                "botid": 2,
-                "sst": "2023-10-22 12:11:12",
-                "sd": 600,
-                "ast": "2023-10-22 12:12:12",
-                "aet": "2023-10-22 12:22:12",
-                "status": "running",
-                "error": "",
-            }])
+        {
+            "mid": 2,
+            "botid": 2,
+            "sst": "2023-10-22 12:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 12:12:12",
+            "aet": "2023-10-22 12:22:12",
+            "status": "running",
+            "error": "",
+        }])
         self.parent.vehicles.append(newV)
 
         newV = VEHICLE(self)
@@ -3753,7 +3756,7 @@ class MainWindow(QMainWindow):
                 self.todays_completed.append(finished)
 
                 # Here need to update completed mission display subwindows.
-                # self.completedMissionModel.appendRow( completed mission..)
+                self.updateCompletedMission(finished)
 
             print("len todays's reports:", len(self.todaysPlatoonReports), "len todays's completed:", len(self.todays_completed))
             print("completd：", self.todays_completed)
@@ -3763,6 +3766,26 @@ class MainWindow(QMainWindow):
                 # check = all(item in List1 for item in List2)
                 # this means all reports are collected, ready to send to cloud.
                 self.doneWithToday()
+
+    def updateCompletedMissions(self, finished):
+        finished_works = finished["works"]
+        finished_mids = []
+        finished_missions = []
+
+        for tzi in Tzs:
+            if len(finished_works[tzi]) > 0:
+                for bi in range(len(finished_works[tzi])):
+                    if len(finished_works[tzi][bi]["other_works"]) > 0:
+                        for oi in range(len(finished_works[tzi][bi]["other_works"])):
+                            finished_mids.append(finished_works[tzi][bi]["other_works"][oi]["mid"])
+
+                    if len(finished_works[tzi][bi]["bw_works"]) > 0:
+                        for oi in range(len(finished_works[tzi][bi]["bw_works"])):
+                            finished_mids.append(finished_works[tzi][bi]["bw_works"][oi]["mid"])
+
+        for mid in finished_mids:
+            found_i, found_mission = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mid), -1)
+            self.completedMissionModel.appendRow(found_mission)
 
     def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
@@ -3848,7 +3871,7 @@ class MainWindow(QMainWindow):
                     else:
                         current_group = "other_works"
                     break
-            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0, "current oidx": 0, "competed": [], "aborted": []})
+            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
             print("after assigned work, ", len(self.todays_work["tbd"]), "todos exists in the queue.", self.todays_work["tbd"])
             # clean up the reports on this vehicle....
             self.todaysReports = []

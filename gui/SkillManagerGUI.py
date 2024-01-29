@@ -529,8 +529,6 @@ class SkillManagerWindow(QMainWindow):
         return new_action
 
 
-
-
     def copySelectedSkill(self, row):
         self.selected_Skill_row = row
         self.selected_role_item = self.roleModel.item(self.selected_Skill_row)

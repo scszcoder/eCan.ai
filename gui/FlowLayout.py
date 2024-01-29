@@ -23,8 +23,8 @@ class MissionListView(QListView):
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
-            self.parent.selected_cus_mission_row = self.indexAt(event.pos()).row()
-            self.parent.selected_cus_mission_item = self.parent.missionModel.item(self.parent.selected_cus_mission_row)
+            self.parent.selected_mission_row = self.indexAt(event.pos()).row()
+            self.parent.selected_mission_row = self.parent.missionModel.item(self.parent.selected_mission_row)
         super().mousePressEvent(event)
 
 class VehicleListView(QListView):
