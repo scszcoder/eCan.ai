@@ -55,7 +55,7 @@ class MissionNewWin(QMainWindow):
         self.text = QApplication.translate("QMainWindow", "new mission")
         self.parent = parent
         self.homepath = parent.homepath
-        self.newMission = None
+        self.newMission = EBMISSION(parent)
         self.owner = None
         self.mode = "new"
         self.selected_skill_row = None
@@ -580,14 +580,14 @@ class MissionNewWin(QMainWindow):
 
         if self.buy_rb.isChecked():
             if self.auto_rb.isChecked():
-                self.newMission.pubAttributes.setType("auto", "Buy")
+                self.newMission.pubAttributes.setType("auto", "buy")
             else:
-                self.newMission.pubAttributes.setType("manual", "Buy")
+                self.newMission.pubAttributes.setType("manual", "buy")
         elif self.sell_rb.isChecked():
             if self.auto_rb.isChecked():
-                self.newMission.pubAttributes.setType("auto", "Sell")
+                self.newMission.pubAttributes.setType("auto", "sell")
             else:
-                self.newMission.pubAttributes.setType("manual", "Sell")
+                self.newMission.pubAttributes.setType("manual", "sell")
 
 
         self.newMission.setBuyType(self.buy_mission_type_sel.currentText())
@@ -688,6 +688,7 @@ class MissionNewWin(QMainWindow):
 
     def setOwner(self, owner):
         self.owner = owner
+        self.newMission.setOwner(owner)
 
     def setMission(self, mission):
         self.newMission = mission
