@@ -3519,7 +3519,7 @@ class MainWindow(QMainWindow):
                 self.selected_mission_row = self.missionModel.rowCount() - 1
                 self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
         else:
-            print("local DB empty")
+            print("WARNING: local mission DB empty!")
             # self.newMissionFromFile()
 
     def cuspas_to_diaplayable(self, a_mission):
