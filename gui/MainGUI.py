@@ -3791,7 +3791,7 @@ class MainWindow(QMainWindow):
             found_i = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mid), -1)
             if found_i >= 0:
                 found_mission = self.missions[found_i]
-                if found_mission.getStatus() == "Completed":
+                if "Completed" in found_mission.getStatus():
                     found_mission.setIcon(QIcon(self.mission_success_icon_path))
                 else:
                     found_mission.setIcon(QIcon(self.mission_failed_icon_path))
