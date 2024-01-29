@@ -3490,7 +3490,8 @@ class MainWindow(QMainWindow):
                 self.selected_bot_row = self.botModel.rowCount() - 1
                 self.selected_bot_item = self.botModel.item(self.selected_bot_row)
         else:
-            self.newBotFromFile()
+            print("WARNING: local bots DB empty!")
+            # self.newBotFromFile()
 
 
 
