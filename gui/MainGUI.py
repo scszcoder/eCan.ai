@@ -320,9 +320,34 @@ class MainWindow(QMainWindow):
         self.westScrollLayout.addWidget(self.westScroll)
         self.westScrollArea.setLayout(self.westScrollLayout)
 
+        self.search_bot_button = QPushButton(QApplication.translate("QPushButton", "Search"))
+        self.search_bot_button.clicked.connect(self.searchLocalBots)
+
+        self.bot_from_date_label = QLabel(QApplication.translate("QLabel", "From:"), alignment=Qt.AlignLeft)
+        self.bot_from_date_edit = QLineEdit()
+        self.bot_from_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
+        self.bot_to_date_label = QLabel(QApplication.translate("QLabel", "To:"), alignment=Qt.AlignLeft)
+        self.bot_to_date_edit = QLineEdit()
+        self.bot_to_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
+
+        self.bot_search_layout = QHBoxLayout(self)
+        self.bot_search_edit = QLineEdit()
+        self.bot_search_edit.setClearButtonEnabled(True)
+        self.bot_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
+        self.bot_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
+        self.bot_search_edit.returnPressed.connect(self.search_bot_button.click)
+        self.bot_search_layout.addWidget(self.bot_from_date_label)
+        self.bot_search_layout.addWidget(self.bot_from_date_edit)
+        self.bot_search_layout.addWidget(self.bot_to_date_label)
+        self.bot_search_layout.addWidget(self.bot_to_date_edit)
+        self.bot_search_layout.addWidget(self.bot_search_edit)
+        self.bot_search_layout.addWidget(self.search_bot_button)
+
+        self.centralScrollLayout.addLayout(self.bot_search_layout)
         self.centralScrollLayout.addWidget(self.centralScrollLabel)
         self.centralScrollLayout.addWidget(self.centralScroll)
         self.centralScrollArea.setLayout(self.centralScrollLayout)
+
 
         self.east0ScrollLayout.addWidget(self.east0ScrollLabel)
         self.east0ScrollLayout.addWidget(self.east0Scroll)
@@ -3430,9 +3455,9 @@ class MainWindow(QMainWindow):
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
-    def loadLocalBots(self):
+    def loadLocalBots(self, sql='SELECT * FROM bots', tuple=()):
         skill_def_files = []
-        sql = 'SELECT * FROM bots'
+        # sql = 'SELECT * FROM bots'
 
         # column_name = 'your_column_name'
         # column_value = 'your_column_value'
@@ -3443,13 +3468,15 @@ class MainWindow(QMainWindow):
         # # Execute the query and fetch the results
         # cursor.execute(query, (column_value,))
 
-        res = self.dbCursor.execute(sql)
+        res = self.dbCursor.execute(sql, tuple)
 
         db_data = self.dbCursor.fetchall()
 
         print("get local bots from DB::", db_data)
         if len(db_data) != 0:
             print("bot fetchall", db_data)
+            self.bots = []
+            self.botModel.clear()
             for row in db_data:
                 print("loading a bot: ", row)
                 new_bot = EBBOT(self)
@@ -4082,10 +4109,55 @@ class MainWindow(QMainWindow):
                     vals.append(col_val)
 
                 i = i + 1
-
         vals_tuple = tuple(vals)
         print("MISSION QUERY SQL", sql, "TUPLE:", vals_tuple)
         # self.loadLocalMissions(sql, vals_tuple)
+
+
+    def searchLocalBots(self):
+        bcols = ['birthday', 'levels', 'roles', 'status', 'location', 'interests', 'gender']
+        print("Searching local bots based on createdon date range and field parameters....")
+        date_valid = False
+        pattern = r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD pattern
+
+        search_cols = []
+        sql = "SELECT * FROM bots WHERE "
+        vals = []
+        fromDateString = self.bot_from_date_edit.text()
+        toDateString = self.bot_to_date_edit.text()
+        from_matches = re.findall(pattern, fromDateString)
+        to_matches = re.findall(pattern, toDateString)
+        if len(from_matches) > 0 and len(to_matches) > 0:
+            sql = sql + "birthday BETWEEN ? AND ?"
+            vals.append(fromDateString.strip())
+            vals.append(toDateString.strip())
+            date_valid = True
+
+        if self.bot_search_edit.text() != "":
+            search_words = self.bot_search_edit.text().split(",")
+            i = 0
+            for sw in search_words:
+                print("search word:", sw)
+                sw_words = sw.split(":")
+                col_name = sw_words[0].strip()
+                col_txt = sw_words[1].strip()
+                if col_name in bcols:
+                    if i == 0 and not date_valid:
+                        sql = sql + col_name + " = ?"
+                    else:
+                        sql = sql + " AND " + col_name + " = ?"
+
+                    col_val = col_txt
+
+                    vals.append(col_val)
+
+                i = i + 1
+
+        vals_tuple = tuple(vals)
+        print("MISSION QUERY SQL", sql, "TUPLE:", vals_tuple)
+        # self.loadLocalBots(sql, vals_tuple)
+
+
 
 
 
