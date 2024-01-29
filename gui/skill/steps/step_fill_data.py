@@ -10,6 +10,7 @@ class EnumFillDataType(Enum):
     Merge = "merge"
     Clear = "clear"
     Pop = "pop"
+    Blank = ""
 
 
 class StepFillData(StepBase):

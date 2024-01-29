@@ -23,7 +23,7 @@ class StepBase(ABC):
     def __init__(self, stepN=0):
         self.stepN = stepN
         self.type = None
-        self.description = None
+        self.description = ""
 
     def get_dict_attrs(self):
         obj = self.__dict__.copy()
