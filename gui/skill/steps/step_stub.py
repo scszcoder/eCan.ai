@@ -6,10 +6,12 @@ class EnumStubName(Enum):
     StartSkill = "start skill"
     Function = "function"
     Else = "else"
+    Break = "break"
     EndSkill = "end skill"
     EndFunction = "end function"
     EndLoop = "end loop"
     EndCondition = "end condition"
+    DefFunction = "def function"
 
 
 class StepStub(StepBase):
