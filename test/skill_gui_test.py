@@ -52,7 +52,7 @@ class SkillWindow(QMainWindow):
                 print(f'JSON data saved to {file_path}')
 
     def open_json(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, 'Open SKD File', '', 'SKD Files (*.sdk)')
+        file_path, _ = QFileDialog.getOpenFileName(self, 'Open SKD File', '', 'SKD Files (*.skd)')
         if file_path:
             with open(file_path, 'r') as file:
                 data = json.load(file)
