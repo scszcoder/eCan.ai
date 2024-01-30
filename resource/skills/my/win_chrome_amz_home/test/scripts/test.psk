@@ -40,7 +40,7 @@
         "midx": 0,
         "run_config": null,
         "root_path": "/Users/liuqiang02/Desktop/workspace/ecbot",
-        "log_path_prefix": "/Users/liuqiang02/Desktop/workspace/ecbot/runlogs/20240129/b1m20231225/",
+        "log_path_prefix": "/Users/liuqiang02/Desktop/workspace/ecbot/runlogs/20240130/b1m20231225/",
         "log_path": "",
         "platform": "Windows",
         "site": "Amazon",
@@ -499,14 +499,6 @@
 },
 "step 25":
 {
-    "type": "Stub",
-    "description": "",
-    "stub_name": "else",
-    "func_name": null,
-    "fargs": null
-},
-"step 30":
-{
     "type": "App Open",
     "description": "",
     "action": "cmd",
@@ -519,7 +511,7 @@
     "cargs": "",
     "wait": 0.0
 },
-"step 35":
+"step 30":
 {
     "type": "Wait",
     "description": "",
@@ -527,7 +519,7 @@
     "random_max": 0,
     "time": 5.0
 },
-"step 40":
+"step 35":
 {
     "type": "Stub",
     "description": "",
@@ -535,7 +527,35 @@
     "func_name": null,
     "fargs": null
 },
+"step 40":
+{
+    "type": "Stub",
+    "description": "",
+    "stub_name": "else",
+    "func_name": null,
+    "fargs": null
+},
 "step 45":
+{
+    "type": "App Open",
+    "description": "",
+    "action": "cmd",
+    "save_rb": true,
+    "target_type": "browser",
+    "target_link": "https://www.jd.com",
+    "anchor_type": "text",
+    "anchor_value": "",
+    "cargs_type": "direct",
+    "cargs": "",
+    "wait": 0.0
+},
+"step 50":
+{
+    "type": "Goto",
+    "description": "",
+    "goto": 35
+},
+"step 55":
 {
     "type": "Stub",
     "description": "",

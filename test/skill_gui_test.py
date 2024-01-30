@@ -37,6 +37,11 @@ class SkillWindow(QMainWindow):
         open_action.triggered.connect(self.open_json)
         file_menu.addAction(open_action)
 
+        # 创建Run动作
+        run_action = QAction('Run', self)
+        run_action.triggered.connect(self.run_psk)
+        file_menu.addAction(run_action)
+
     def save_json(self):
         data = self.skill_gui.skFCWidget.encode_json(indent=4)
         file_path, _ = QFileDialog.getSaveFileName(self, 'Save JSON File', 'skill_gui_test.skd', 'SKD Files (*.skd)')
@@ -63,6 +68,9 @@ class SkillWindow(QMainWindow):
             print(f'SKD data loaded from {file_path}: {data}')
 
             self.skill_gui.skFCWidget.decode_json(json.dumps(data))
+
+    def run_psk(self):
+        self.skill_gui.skFCWidget.skfc_scene.gen_psk_words(None)
 
 
 if __name__ == "__main__":

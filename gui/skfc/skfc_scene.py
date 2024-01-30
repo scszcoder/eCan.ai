@@ -390,10 +390,10 @@ class SkFCScene(QGraphicsScene):
         sorted_steps_stack = []
         this_step = stepN
 
+        self.diagram_item_map_stepN[this_step] = diagram_item
         step = diagram_item.step
         this_step, step_words = step.gen_step(this_step, settings=self.worksettings)
         sorted_steps_stack.append(step_words)
-        self.diagram_item_map_stepN[this_step] = diagram_item
         # print(f"gen step {step.type}; {this_step}")
 
         if diagram_item.diagram_type == DiagramNormalItem.Conditional:
@@ -402,7 +402,7 @@ class SkFCScene(QGraphicsScene):
                 this_step, steps_stack = self.get_next_item_steps(this_step, true_next_item)
                 sorted_steps_stack.extend(steps_stack)
             else:
-                print(f"{diagram_item} true next item is none")
+                print(f"condition {diagram_item} true next item is none")
 
             this_step, step_words = StepStub(sname=EnumStubName.Else).gen_step(this_step)
             sorted_steps_stack.append(step_words)
@@ -412,7 +412,7 @@ class SkFCScene(QGraphicsScene):
                 this_step, steps_stack = self.get_next_item_steps(this_step, false_next_item)
                 sorted_steps_stack.extend(steps_stack)
             else:
-                print(f"{diagram_item} false next item is none")
+                print(f"condition {diagram_item} false next item is none")
         else:
             next_item = diagram_item.get_next_diagram_item()
             if next_item:

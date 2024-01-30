@@ -303,8 +303,8 @@
                 "type": "Extract Info",
                 "description": "",
                 "settings": {
-                    "skname": "test",
-                    "skfname": "/Users/liuqiang02/Desktop/workspace/ecbot//resource/skills/public/win_chrome_amz_home/test.psk",
+                    "skname": "",
+                    "skfname": "",
                     "cargs": "",
                     "botid": 1,
                     "seller": {
@@ -322,13 +322,13 @@
                     "midx": 0,
                     "run_config": null,
                     "root_path": "/Users/liuqiang02/Desktop/workspace/ecbot",
-                    "log_path_prefix": "/Users/liuqiang02/Desktop/workspace/ecbot/runlogs/20240129/b1m20231225/",
-                    "log_path": "/Users/liuqiang02/Desktop/workspace/ecbot/runlogs/20240129/b1m20231225/win_chrome_amz_home/skills/test/",
-                    "platform": "win",
-                    "site": "amz",
+                    "log_path_prefix": "/Users/liuqiang02/Desktop/workspace/ecbot/runlogs/20240130/b1m20231225/",
+                    "log_path": "",
+                    "platform": "Windows",
+                    "site": "Amazon",
                     "app": "chrome",
                     "app_exe": "",
-                    "page": "home",
+                    "page": "",
                     "products": [
                         {
                             "name": "default",
@@ -752,7 +752,7 @@
                     "rpaName": "automation",
                     "wifis": [],
                     "options": "{}",
-                    "name_space": "B1M20231225!win_chrome_amz_home!test!"
+                    "name_space": "B1M20231225!!"
                 },
                 "template": "",
                 "option": "",
@@ -1068,7 +1068,7 @@
                 "action": "cmd",
                 "save_rb": true,
                 "target_type": "browser",
-                "target_link": "www.jd.com",
+                "target_link": "https://www.jd.com",
                 "anchor_type": "text",
                 "anchor_value": "",
                 "cargs_type": "direct",
