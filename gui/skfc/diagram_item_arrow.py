@@ -72,8 +72,8 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
 
 
 class DiagramArrowItem(QGraphicsPathItem):
-    def __init__(self, start_point: QPointF, line_color, context_menu: QMenu, path_points: List[QPointF] = None,
-                 target_item_group: DiagramItemGroup = None, uuid=None, parent=None, scene=None):
+    def __init__(self, start_point: QPointF, line_color, context_menu: QMenu, condition_text="",
+                 path_points: List[QPointF] = None, target_item_group: DiagramItemGroup = None, uuid=None, parent=None, scene=None):
         super(DiagramArrowItem, self).__init__(parent, scene)
 
         print(f"build new arrow item with {target_item_group.diagram_normal_item if target_item_group is not None else None};"
@@ -97,7 +97,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.arrow_head: QPolygonF = None
         self.old_start_item: DiagramNormalItem = None
         self.old_end_item: DiagramNormalItem = None
-        self.condition_text_item: DiagramArrowConditionTextItem = DiagramArrowConditionTextItem("", self)
+        self.condition_text_item: DiagramArrowConditionTextItem = DiagramArrowConditionTextItem(condition_text, self)
 
         self.pen = QPen(self.line_color, ARROW_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         self.setPen(self.pen)
@@ -151,6 +151,7 @@ class DiagramArrowItem(QGraphicsPathItem):
                                                                 if self.start_item_port_direction is not None else None,
             "end_item_port_direction": EnumPortDir.enum_name(self.end_item_port_direction)
                                                                 if self.end_item_port_direction is not None else None,
+            "condition_text": self.condition_text_item.toPlainText()
         }
 
         return obj_dict
@@ -164,10 +165,11 @@ class DiagramArrowItem(QGraphicsPathItem):
         end_item_uuid = obj_dict["end_item_uuid"]
         start_item_port_direction = EnumPortDir.enum_name_to_item_port(obj_dict["start_item_port_direction"])
         end_item_port_direction = EnumPortDir.enum_name_to_item_port(obj_dict["end_item_port_direction"])
+        condition_text = obj_dict["condition_text"] if "condition_text" in obj_dict else ""
 
         start_point: QPointF = path_points[0]
         diagram_arrow_item = DiagramArrowItem(start_point=start_point, line_color=line_color, context_menu=context_menu,
-                                              uuid=uuid, path_points=path_points)
+                                              condition_text=condition_text, uuid=uuid, path_points=path_points)
         diagram_arrow_item.start_item_uuid = start_item_uuid
         diagram_arrow_item.start_item_port_direction = start_item_port_direction
         diagram_arrow_item.end_item_uuid = end_item_uuid
@@ -267,7 +269,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         # self.click_timer.stop()
         if self.start_item is not None and self.start_item.diagram_type == DiagramNormalItem.Conditional:
             self.condition_text_item.handle_double_click_event()
-        self.condition_text_item.handle_double_click_event()
+        # self.condition_text_item.handle_double_click_event()
         super().mouseDoubleClickEvent(event)
 
     # def handle_click_timeout(self):
