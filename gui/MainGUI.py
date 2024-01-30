@@ -113,6 +113,8 @@ class MainWindow(QMainWindow):
         self.tz = self.obtainTZ()
         self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_0.png'
         self.mission_icon_path = self.homepath + '/resource/images/icons/c_mission96_1.png'
+        self.mission_success_icon_path = self.homepath + '/resource/images/icons/successful_launch0_48.png'
+        self.mission_failed_icon_path = self.homepath + '/resource/images/icons/failed_launch0_48.png'
         self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
         self.product_icon_path = self.homepath + '/resource/images/icons/product80_0.png'
         self.vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
@@ -3602,6 +3604,8 @@ class MainWindow(QMainWindow):
 
                         finished = self.todays_work["tbd"].pop(0)
                         self.todays_completed.append(finished)
+                        self.updateCompletedMission(finished)
+
 
                         if len(self.todays_work["tbd"]) == 0:
                             if self.hostrole == "Platoon":
@@ -3784,8 +3788,15 @@ class MainWindow(QMainWindow):
                             finished_mids.append(finished_works[tzi][bi]["bw_works"][oi]["mid"])
 
         for mid in finished_mids:
-            found_i, found_mission = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mid), -1)
-            self.completedMissionModel.appendRow(found_mission)
+            found_i = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mid), -1)
+            if found_i >= 0:
+                found_mission = self.missions[found_i]
+                if "Completed" in found_mission.getStatus():
+                    found_mission.setIcon(QIcon(self.mission_success_icon_path))
+                else:
+                    found_mission.setIcon(QIcon(self.mission_failed_icon_path))
+
+                self.completedMissionModel.appendRow(found_mission)
 
     def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
