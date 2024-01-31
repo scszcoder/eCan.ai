@@ -689,6 +689,12 @@ def gen_addresses(stepcodes, nth_pass):
                 elif stepcodes[stepName]["stub_name"] == "end skill":
                     # add function name and address pair to stepcodes - kind of a symbal table here.
                     print("END OF SKILL - do nothing...", stepcodes[stepName]["func_name"])
+                elif stepcodes[stepName]["stub_name"] == "tag":
+                    # this is for Goto statement, so that goto doesn't have to goto an explicict address,
+                    # but can goto a String name instead. if any step is the goto target, just add
+                    # a stub step with "tag" and "whatever you like to name the tag name"
+                    # simply add tag and previous step address to the hash address space
+                    symTab[stepcodes[stepName]["func_name"]] = prevStepName
             elif stepcodes[stepName]["type"] == "Check Condition":
                 # push ont stack
                 temp_stack.append(stepName)

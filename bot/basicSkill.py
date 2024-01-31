@@ -1910,7 +1910,7 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
 def processGoto(step, i,  step_keys):
     ex_stat = "success:0"
     try:
-        step_keys.index(step["goto"])
+        step_keys.index(symTab[step["goto"]])
 
     except:
         ex_stat = "ErrorGoTo:" + str(i)
