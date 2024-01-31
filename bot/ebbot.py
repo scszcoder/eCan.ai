@@ -426,8 +426,9 @@ class EBBOT(QStandardItem):
 
         self.seller_inventories = []
 
-    def setIcon(self, icon):
+    def setBotIcon(self, icon):
         self.icon = icon
+        self.setIcon(self.icon)
 
     def getBid(self):
         return self.pubProfile.bid
