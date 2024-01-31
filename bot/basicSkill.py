@@ -307,7 +307,7 @@ def genStepCheckCondition(condition, ifelse, ifend, stepN):
 
 
 # this is equivalent to jump in assembley, but is this really usefull? I suppose could be used to implement "break" like statement in a loop.
-def genStepGoto(gotostep, inpipe, returnstep, stepN):
+def genStepGoto(gotostep, stepN):
     stepjson = {
         "type": "Goto",
         "goto": gotostep
