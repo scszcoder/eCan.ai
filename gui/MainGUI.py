@@ -3792,9 +3792,9 @@ class MainWindow(QMainWindow):
             if found_i >= 0:
                 found_mission = self.missions[found_i]
                 if "Completed" in found_mission.getStatus():
-                    found_mission.setIcon(QIcon(self.mission_success_icon_path))
+                    found_mission.setMissionIcon(QIcon(self.mission_success_icon_path))
                 else:
-                    found_mission.setIcon(QIcon(self.mission_failed_icon_path))
+                    found_mission.setMissionIcon(QIcon(self.mission_failed_icon_path))
 
                 self.completedMissionModel.appendRow(found_mission)
 
