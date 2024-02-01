@@ -946,7 +946,7 @@ class MissionNewWin(QMainWindow):
 
     def buildSkillSelList(self):
         for sk in self.parent.skills:
-            self.skill_action_sel.addItem(QApplication.translate("QComboBox", sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSite()+"_"+sk.getPage()+"_"+sk.getName()))
+            self.skill_action_sel.addItem(QApplication.translate("QComboBox", sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()))
 
     def buy_rb_checked_state_changed(self):
         if self.buy_rb.isChecked():

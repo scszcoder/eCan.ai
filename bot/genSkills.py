@@ -60,8 +60,8 @@ def getWorkSettings(lieutenant, bot_works):
         print("no inventory found")
         products = []
 
-    for b in lieutenant.bots:
-        print("BID:", b.getBid())
+    # for b in lieutenant.bots:
+    #     print("BID:", b.getBid())
     bot_idx = next((i for i, bot in enumerate(lieutenant.bots) if str(bot.getBid()) == str(bot_id)), -1)
     if bot_idx < 0 or bot_idx >= len(lieutenant.bots):
         print("ERROR: Designated BOT " + str(bot_id) + "(out of "+str(len(lieutenant.bots))+" bots) not found!!!!")
@@ -150,6 +150,7 @@ def setWorkSettingsSkill(worksettings, sk):
 # generate pubilc skills on windows platform.
 def genWinSkillCode(worksettings, start_step, theme):
     print("opening skill file: ", worksettings["skfname"], worksettings["app"], worksettings["site"])
+
     skf = open(worksettings["skfname"], "w+")
     skf.write("\n")
     psk_words = ""
@@ -194,11 +195,18 @@ def genWinSkillCode(worksettings, start_step, theme):
     skf.write(psk_words)
     skf.close()
 
+    return this_step
+
 
 # generate pubilc skills on Mac platform.
 def genMacSkillCode(worksettings, start_step, theme):
-    print("hello")
+    print("No Mac Skills Found.")
 
+def genLinuxSkillCode(worksettings, start_step, theme):
+    print("No Linux Skills Found.")
+
+def genChromeOSSkillCode(worksettings, start_step, theme):
+    print("No ChromeOS Skills Found.")
 
 # nothing to return. (skname, skfname,  worksTBD, first_step, "light")
 def genSkillCode(worksettings, start_step, theme):
@@ -207,7 +215,10 @@ def genSkillCode(worksettings, start_step, theme):
         genWinSkillCode(worksettings, start_step, theme)
     elif worksettings["platform"] == "mac":
         # genMacSkillCode(worksettings, start_step, theme)
-        genWinSkillCode(worksettings, start_step, theme)
+        genMacSkillCode(worksettings, start_step, theme)
+    elif worksettings["platform"] == "linux":
+        # genMacSkillCode(worksettings, start_step, theme)
+        genLinuxSkillCode(worksettings, start_step, theme)
 
 
 

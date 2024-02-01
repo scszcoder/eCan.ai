@@ -225,6 +225,7 @@ class WORKSKILL(QStandardItem):
         self.site_name = ""
         self.site = "amz"
         self.page = "home"
+        self.main = "F"
         self.runtime = 1
         self.private_skill = PROCEDURAL_SKILL(parent)
         self.cloud_skill = CLOUD_SKILL(parent)
@@ -357,6 +358,21 @@ class WORKSKILL(QStandardItem):
     def setDescription(self, ds):
         self.desription = ds
 
+    def setMain(self, ismain):
+        if ismain:
+            self.main = "T"
+        else:
+            self.main = "F"
+
+    def getMain(self):
+        return self.main
+
+    def getIsMain(self):
+        if self.main == "T":
+            return True
+        else:
+            return False
+
     def setPlatform(self, platform):
         self.platform = platform
         self.setText(self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page + "_" + self.name + "(" + str(self.skid) + ")")
@@ -389,6 +405,7 @@ class WORKSKILL(QStandardItem):
         self.site_name = jd["site"]
         self.page = jd["page"]
         self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
+        self.main = jd["main"]
         self.privacy = jd["privacy"]
         self.price_model = jd["price_model"]
         self.price = jd["price"]

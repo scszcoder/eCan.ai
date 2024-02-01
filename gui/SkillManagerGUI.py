@@ -387,7 +387,7 @@ class SkillManagerWindow(QMainWindow):
                 if (sphrase in self.parent.skills[skidx].getName()) or \
                     (sphrase in self.parent.skills[skidx].getPlatform()) or \
                     (sphrase in self.parent.skills[skidx].getApp()) or \
-                    (sphrase in self.parent.skills[skidx].getSite()) or \
+                    (sphrase in self.parent.skills[skidx].getSiteName()) or \
                     (sphrase in self.parent.skills[skidx].getPage()) or \
                     (sphrase in self.parent.skills[skidx].getDescription()):
                     matched_idxs.append(skidx)
@@ -462,7 +462,7 @@ class SkillManagerWindow(QMainWindow):
         model.setItem(rowIdx, 5, text_item)
         items.append(text_item)
 
-        pasp = rowData[rowIdx].getPlatform() + "_" + rowData[rowIdx].getApp() + "_" + rowData[rowIdx].getSite() + "_" + rowData[rowIdx].getPage()
+        pasp = rowData[rowIdx].getPlatform() + "_" + rowData[rowIdx].getApp() + "_" + rowData[rowIdx].getSiteName() + "_" + rowData[rowIdx].getPage()
         text_item = QStandardItem(pasp)
         model.setItem(rowIdx, 6, text_item)
         items.append(text_item)
@@ -504,7 +504,7 @@ class SkillManagerWindow(QMainWindow):
         self.skillModel.addRow(new_data)
 
     def add1TableRow(self, rowIdx, rowData):
-        new_data = [str(rowData[rowIdx].getSkid()), rowData[rowIdx].getName(), rowData[rowIdx].getOwner(), rowData[rowIdx].getOwner(), rowData[rowIdx].getCreatedOn(), rowData[rowIdx].getPrivacy(), rowData[rowIdx].getPlatform()+"/"+rowData[rowIdx].getApp()+"/"+rowData[rowIdx].getSite()+"/"+rowData[rowIdx].getPage()]
+        new_data = [str(rowData[rowIdx].getSkid()), rowData[rowIdx].getName(), rowData[rowIdx].getOwner(), rowData[rowIdx].getOwner(), rowData[rowIdx].getCreatedOn(), rowData[rowIdx].getPrivacy(), rowData[rowIdx].getPlatform()+"/"+rowData[rowIdx].getApp()+"/"+rowData[rowIdx].getSiteName()+"/"+rowData[rowIdx].getPage()]
         print("New ROW:", new_data)
         self.skillModel.addRow(new_data)
 
