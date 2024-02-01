@@ -52,15 +52,37 @@ class SkillCellDelegate(QItemDelegate):
         else:
             return super().createEditor(parent, option, index)
 
+    # def paint(self, painter, option, index):
+    # # def initStyleOption(self, option, index):
+    # #     super().initStyleOption(option, index)
+    #     # Check if the item is not editable
+    #     # this_sk = index.model().itemFromIndex(index)
+    #     # if not this_sk.isEditable():
+    #     #     option.state &= ~QStyle.State_Enabled
+    #     #     option.state &= ~QStyle.State_ReadOnly
+    #
+    #     # if this_sk.getIsMain():
+    #     option.font.setBold(True)
+    #     option.palette.setColor(QPalette.Text, QColor(0, 0, 255))  # Blue color
+
+
+
 class NonEditableItemDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.parent = parent
 
     def paint(self, painter, option, index):
         # Check if the item is not editable
-        if not index.model().itemFromIndex(index).isEditable():
+        this_sk = index.model().itemFromIndex(index)
+        if not this_sk.isEditable():
             option.state &= ~QStyle.State_Enabled
             option.state &= ~QStyle.State_ReadOnly
+
+        # if this_sk.getIsMain():
+        #     option.font.setBold(True)
+        #     option.palette.setColor(QPalette.Text, QColor(0, 0, 255))  # Blue color
+
 
         super().paint(painter, option, index)
 
@@ -79,22 +101,36 @@ class SkillTableModel(QAbstractTableModel):
         return 0
 
     def data(self, index, role):
-        if not index.isValid():
-            return None
-        elif role == Qt.DisplayRole:
-            return self.data[index.row()][index.column()]
-        elif role == Qt.DecorationRole and index.column() == 7:
-            # Set an icon for the 7th column based on the value in the 2nd column
-            column_2_value = self.data[index.row()][2]
-            if column_2_value == "PUB":
-                pixmap = QPixmap(self.parent.getHomePath() + '/resource/images/icons/skills_78.png')  # Replace with the path to your icon image
-            elif column_2_value == "PRV":
-                pixmap = QPixmap(self.parent.getHomePath() + '/resource/images/icons/private_skills_78.png')  # Replace with the path to another icon image
-            elif column_2_value == "PPU":
-                pixmap = QPixmap(self.parent.getHomePath() + '/resource/images/icons/private_usable_skills_78.png')  # No icon if no match
-            else:
-                pixmap = QPixmap()  # No icon if no match
-            return pixmap
+        if role == Qt.FontRole:
+            # Check the row number for customization (e.g., row 2 and row 4)
+            if index.row() == 2 or index.row() == 4:
+                font = QFont()
+                font.setBold(True)
+                return font
+
+        if role == Qt.TextColorRole:
+            # Check the row number for customization (e.g., row 2 and row 4)
+            if index.row() == 2 or index.row() == 4:
+                return QColor(0, 0, 255)  # Blue color
+
+        # if not index.isValid():
+        #     return None
+        # elif role == Qt.DisplayRole:
+        #     return self.data[index.row()][index.column()]
+        # elif role == Qt.DecorationRole and index.column() == 7:
+        #     # Set an icon for the 7th column based on the value in the 2nd column
+        #     column_2_value = self.data[index.row()][2]
+        #     if column_2_value == "PUB":
+        #         pixmap = QPixmap(self.parent.getHomePath() + '/resource/images/icons/skills_78.png')  # Replace with the path to your icon image
+        #     elif column_2_value == "PRV":
+        #         pixmap = QPixmap(self.parent.getHomePath() + '/resource/images/icons/private_skills_78.png')  # Replace with the path to another icon image
+        #     elif column_2_value == "PPU":
+        #         pixmap = QPixmap(self.parent.getHomePath() + '/resource/images/icons/private_usable_skills_78.png')  # No icon if no match
+        #     else:
+        #         pixmap = QPixmap()  # No icon if no match
+        #     return pixmap
+
+        return self.data[index.row()][index.column()]
 
 
     def flags(self, index):
@@ -270,6 +306,27 @@ class SkillTableView(QTableView):
                     painter.fillRect(rect, highlight_color)
 
 
+class CustomItemModel(QStandardItemModel):
+    def __init__(self, rows, columns, sks, parent=None):
+        super().__init__(rows, columns, parent)
+        self.sks = sks
+
+    def data(self, index, role=Qt.DisplayRole):
+        if role == Qt.FontRole or role == Qt.TextColorRole:
+            row = index.row()
+            column0_value = self.item(row, 0).text()  # Value in column 1 of the current row
+
+            # Compare column1_value with the parent's skills skids
+            found_sk = next((x for x in self.sks if x.getSkid() == int(column0_value)), None)
+            if found_sk:
+                if found_sk.getIsMain():
+                    font = QFont()
+                    font.setBold(True)
+                    color = QColor(0, 0, 255)  # Blue color
+                    return font if role == Qt.FontRole else color
+
+        return super().data(index, role)
+
 # class MainWindow(QWidget):
 class SkillManagerWindow(QMainWindow):
     def __init__(self, parent, entrance="msg"):
@@ -317,7 +374,8 @@ class SkillManagerWindow(QMainWindow):
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
 
         # self.skillModel = SkillTableModel(self.parent)
-        self.skillModel = QStandardItemModel(0, 8)
+        # self.skillModel = QStandardItemModel(0, 8)
+        self.skillModel = CustomItemModel(0, 8, self.parent.skills)
         self.skillModel.setHorizontalHeaderLabels(['Skill ID', 'Name', 'Owner', 'Users', 'Created On', 'Privacy', 'Platform_App_Site_page', ''])
         self.skillTableView.setModel(self.skillModel)
 
@@ -337,8 +395,8 @@ class SkillManagerWindow(QMainWindow):
         self.skillTableView.doubleClicked.connect(self.handleRowDoubleClick)
 
 
-        delegate = SkillCellDelegate(self.parent)
-        self.skillTableView.setItemDelegate(delegate)
+        self.delegate = SkillCellDelegate(self.parent)
+        # self.skillTableView.setItemDelegate(delegate)
 
         self.infoConsoleBox = Expander(self, QApplication.translate("QWidget", "Skill Info Console:"))
         self.skillInfoConsole = QTextEdit()
@@ -509,6 +567,9 @@ class SkillManagerWindow(QMainWindow):
             self.add1TableRow(i, self.parent.skills)
             self.skillTableView.setRowHeight(i, 32)
             i = i + 1
+
+        # self.skillTableView.setItemDelegate(self.delegate)
+
 
     def addColTitleRow(self):
         new_data = ['Skill ID', 'Name', 'Owner', 'Users', 'Created On', 'Privacy', 'Platform/App/Site/page', '']
