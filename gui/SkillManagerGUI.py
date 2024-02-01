@@ -28,6 +28,16 @@ class IconDelegate(QStyledItemDelegate):
             painter.drawPixmap(option.rect, pixmap)
 
 
+class StyledItemDelegate(QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+
+        # Check if the item should be styled differently (e.g., based on some condition)
+        if index.row() == 1:  # Customize the appearance of the second item
+            option.font.setBold(True)
+            option.palette.setColor(option.palette.Text, QColor(0, 0, 255))  # Blue color
+
+
 class SkillCellDelegate(QItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -371,6 +381,7 @@ class SkillManagerWindow(QMainWindow):
         self.setCentralWidget(self.mainWidget)
 
         self.setWindowTitle(QApplication.translate("QtWidget", "Skill Manager"))
+
 
     def handleRowDoubleClick(self, index):
         this_skill = next((x for x in self.parent.skills if x.getSkid() == int(self.skillModel.item(index.row(), 0).text())), None)
