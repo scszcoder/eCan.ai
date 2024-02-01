@@ -601,7 +601,7 @@ def gen_addresses(stepcodes, nth_pass):
             if stepcodes[stepName]["type"] == "Stub":
                 # code block
                 # build up function table, and skill table.
-                if stepcodes[stepName]["stub_name"] == "start skill":
+                if "start skill" in stepcodes[stepName]["stub_name"]:
                     # this effectively includes the skill overload function. - SC
                     print("ADDING TO SKILL TABLE: ", stepcodes[stepName]["func_name"], nextStepName)
                     skill_table[stepcodes[stepName]["func_name"]] = nextStepName
@@ -749,7 +749,8 @@ def prepRunSkill(all_skill_codes):
         print("READING SKILL CODE:", sk["ns"], sk["skfile"], skidx)
         run_steps = readSkillFile(sk["ns"], sk["skfile"], skidx)
         if skill_code:
-            skill_code.update(run_steps)         # merge run steps.
+            # skill_code.update(run_steps)         # merge run steps.
+            skill_code = skill_code + run_steps
         else:
             skill_code = run_steps
 

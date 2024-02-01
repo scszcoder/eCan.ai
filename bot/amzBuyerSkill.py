@@ -27,7 +27,7 @@ def genWinChromeAMZWalkSkill(worksettings, stepN, theme):
                                           "Amazon Browsing On Windows Chrome.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "public/win_chrome_amz_home/browse_search", "", this_step)
+    this_step, step_words = genStepStub("start skill main", "public/win_chrome_amz_home/browse_search", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genWinChromeAMZWalkSteps(worksettings, this_step, theme)

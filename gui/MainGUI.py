@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         self.commander_icon_path = self.homepath + '/resource/images/icons/general1_4.png'
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
-        self.SELLER_INVENTORY_FILE = self.homepath+"/resource/inventory.json"
+        self.SELLER_INVENTORY_FILE = ecb_data_homepath+"/resource/inventory.json"
         self.PLATFORMS = ['windows', 'mac', 'linux']
         self.APPS = ['chrome', 'edge','firefox','ads','multilogin','safari','Custom']
         self.SITES = ['Amazon','Etsy','Ebay','Temu','Shein','Walmart','Wayfair','Tiktok','Facebook','Google', 'AliExpress','Custom']
@@ -599,6 +599,7 @@ class MainWindow(QMainWindow):
             # self.loadLocalSkills()
             db_skills_results = self.SkillManagerWin.fetchMySkills()
             if 'body' in db_skills_results:
+                # print("db_skills_results:::::", db_skills_results)
                 db_skills = json.loads(db_skills_results["body"])
                 for db_skill in db_skills:
                     # print("db skill:", db_skill)
@@ -1649,13 +1650,18 @@ class MainWindow(QMainWindow):
             ordered_relevant_skills = sorted(relevant_skills, key=lambda x: rpaSkillIds.index(x.getSkid()))
 
         all_skill_codes = []
+        sk_idx = 0
         for sk in ordered_relevant_skills:
             print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
             # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
-            genSkillCode(worksettings, first_step, "light")
+            if sk_idx == 0:
+                next_step = genSkillCode(worksettings, first_step, "light")
+            else:
+                next_step = genSkillCode(worksettings, next_step, "light")
 
             all_skill_codes.append({"ns": worksettings["name_space"], "skfile": worksettings["skfname"]})
+            sk_idx = sk_idx + 1
 
         print("all_skill_codes: ", all_skill_codes)
 

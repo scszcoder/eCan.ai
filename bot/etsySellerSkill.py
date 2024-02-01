@@ -24,7 +24,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, page, sect, stepN, theme):
                                           "Etsy Fullfill New Orders On Windows.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/fullfill_orders", "", this_step)
+    this_step, step_words = genStepStub("start skill main", "public/win_chrome_etsy_orders/fullfill_orders", "", this_step)
     psk_words = psk_words + step_words
 
 
