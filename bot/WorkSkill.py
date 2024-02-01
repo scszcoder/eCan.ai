@@ -395,6 +395,11 @@ class WORKSKILL(QStandardItem):
         self.pubAttributes.loadNetRespJson(nrjd)
         self.setText('mission' + str(self.getMid()))
 
+    def setAppearance(self, qcolor, qfont):
+        if self.main == "T":
+            self.setForeground(qcolor)  # Blue color
+            self.setFont(qfont)
+
     def loadJson(self, jd):
         self.name = jd["name"]
         self.skid = jd["skid"]
@@ -406,6 +411,7 @@ class WORKSKILL(QStandardItem):
         self.page = jd["page"]
         self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
         self.main = jd["main"]
+
         self.privacy = jd["privacy"]
         self.price_model = jd["price_model"]
         self.price = jd["price"]

@@ -2,9 +2,9 @@ import sys
 import random
 
 from PySide6.QtCore import QEvent, QStringListModel
-from PySide6.QtGui import QStandardItemModel
+from PySide6.QtGui import QStandardItemModel, QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QTabWidget, QVBoxLayout, QLineEdit, \
-    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QCheckBox, QFileDialog, QButtonGroup
+    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QCheckBox, QFileDialog, QButtonGroup, QStyledItemDelegate, QFontComboBox
 from ebbot import *
 from locale import getdefaultlocale
 from FlowLayout import *
@@ -47,6 +47,20 @@ class MWORKSKILL(QStandardItem):
     def getData(self):
         return self.platform, self.app, self.applink, self.site, self.sitelink, self.action
 
+
+class CustomDelegate(QStyledItemDelegate):
+    def __init__(self, parent):
+        super(CustomDelegate, self).__init__(parent)
+        self.parent = parent
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # Check the item's text for customization
+        item_text = index.data(Qt.DisplayRole)
+        # if item_text == "5" or item_text == "11":
+        if self.parent.checkIsMain(item_text):
+            option.font.setBold(True)
+            option.palette.setColor(QPalette.Text, QColor(0, 0, 255))  # Blue color
 
 class MissionNewWin(QMainWindow):
     def __init__(self, parent):
@@ -128,9 +142,15 @@ class MissionNewWin(QMainWindow):
         self.missionCustomSiteLinkLabel = QLabel(QApplication.translate("QLabel", "Custom Site Html:"), alignment=Qt.AlignLeft)
         self.missionCustomSiteLinkEdit = QLineEdit("")
 
+
         self.skillActionLabel = QLabel(QApplication.translate("QLabel", "Skill Action:"), alignment=Qt.AlignLeft)
         self.skill_action_sel = QComboBox()
+        # self.skill_action_sel.setModel(self.parent.SkillManagerWin.skillModel)
+        self.styleDelegate = CustomDelegate(self.parent)
+
         self.buildSkillSelList()
+        self.skill_action_sel.setItemDelegate(self.styleDelegate)
+
         self.skill_action_sel.currentTextChanged.connect(self.skillActionSel_changed)
 
 
@@ -558,6 +578,8 @@ class MissionNewWin(QMainWindow):
 
         self.buy_rb.setChecked(True)
 
+
+
     def setMode(self, mode):
         self.mode = mode
         if self.mode == "new":
@@ -947,6 +969,7 @@ class MissionNewWin(QMainWindow):
     def buildSkillSelList(self):
         for sk in self.parent.skills:
             self.skill_action_sel.addItem(QApplication.translate("QComboBox", sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()))
+
 
     def buy_rb_checked_state_changed(self):
         if self.buy_rb.isChecked():

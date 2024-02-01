@@ -601,6 +601,7 @@ class MainWindow(QMainWindow):
             if 'body' in db_skills_results:
                 # print("db_skills_results:::::", db_skills_results)
                 db_skills = json.loads(db_skills_results["body"])
+
                 for db_skill in db_skills:
                     # print("db skill:", db_skill)
                     db = WORKSKILL(self, db_skill["name"])
@@ -3430,6 +3431,26 @@ class MainWindow(QMainWindow):
                 self.skills.append(new_skill)
 
         print("total skill files loaded: ", len(self.skills))
+
+    def matchSkill(self, sk_long_name, sk):
+        sk_words = sk_long_name.split("_")
+        sk_name = "_".join(sk_words[4:])
+        if sk.getPlatform() == sk_words[0] and sk.getApp() == sk_words[1] and sk.getSiteName() == sk_words[2] and sk.getName() == sk_name:
+            return True
+        else:
+            return False
+
+
+    def checkIsMain(self, sk_long_name):
+        is_main = False
+        # first find out the skill based on sk_long_name.
+        sk = next((x for x in self.skills if self.matchSkill(sk_long_name, x)), None)
+        # then check whether this is a main skill
+        if sk:
+            if sk.getIsMain():
+                is_main = True
+
+        return is_main
 
     def newProductsFromFile(self):
 
