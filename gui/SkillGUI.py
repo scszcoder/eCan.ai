@@ -2009,7 +2009,7 @@ class SkillGUI(QMainWindow):
             self.stepListModel.appendRow(new_step)
 
     def ia_save(self):
-        print("save anchors to files....")
+        print("save images to files....")
         # save the json
         privacy = "public"
         if privacy == "public":
@@ -2082,7 +2082,7 @@ class SkillGUI(QMainWindow):
                 anchor_image.save(aname, "PNG")
 
 
-        # save info and anchors to csk file.
+        # save info and images to csk file.
         model = self.pbskDataListView.model()
         for index in range(model.rowCount()):
             info_item = model.item(index)

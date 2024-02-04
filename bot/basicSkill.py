@@ -2224,7 +2224,7 @@ def processSearchScroll(step, i):
         target_loc_v = int(screensize[0]*target_loc)
         print(" target_loc_V: ", target_loc_v, "at_loc_top_v: ", at_loc_top_v, "at_loc_bottom_v: ", at_loc_bottom_v)
 
-        # find all anchors matches the name and above the at_loc
+        # find all images matches the name and above the at_loc
         print("finding....:", anchor)
         anyancs = [element for index, element in enumerate(scrn) if element["name"] == anchor]
         print("found any anchorss: ", anyancs)
