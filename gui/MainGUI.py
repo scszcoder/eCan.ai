@@ -1578,8 +1578,8 @@ class MainWindow(QMainWindow):
                         print("next run is now set up......")
                         nextrun = self.todays_work["tbd"][0]
 
-
         return nextrun
+
 
     def findMissonsToBeRetried(self, todos):
         retryies = copy.deepcopy(todos)
