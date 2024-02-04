@@ -607,11 +607,14 @@ class MainWindow(QMainWindow):
                     db = WORKSKILL(self, db_skill["name"])
                     db.loadJson(db_skill)
                     self.skills.append(db)
-                # self.skills =
+                # update skill manager display...
                 self.SkillManagerWin.updateSkills(self.skills)
 
-        # Done with all UI s
-        # tuff, now do the instruction set extension work.
+                # now immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
+                # when a skill is selected, its dependencies will added to mission's skills list.
+                self.regenSkillPSKs()
+
+        # Done with all UI stuff, now do the instruction set extension work.
         sk_extension_file = self.homepath + "/resource/skills/my/skill_extension.json"
         if os.path.isfile(sk_extension_file):
             with open(sk_extension_file, 'r') as sk_extension:
@@ -630,6 +633,17 @@ class MainWindow(QMainWindow):
             self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
             # point to the 1st task to run for the day.
             self.updateRunStatus(self.todays_work["tbd"][0], 0)
+
+    def regenSkillPSKs(self):
+        for sk in self.skills:
+            # next_step is not used,
+            sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
+            next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
+
+            sk.setPskFileName(psk_file)
+            # fill out each skill's depencies attribute
+            sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
+
 
     def getHomePath(self):
         return self.homepath
@@ -3353,8 +3367,8 @@ class MainWindow(QMainWindow):
                 filebskill = json.load(new_skill_file)
                 if len(filebskill) > 0:
                     #add bots to the relavant data structure and add these bots to the cloud and local DB.
-
-                    jresp = send_add_skills_to_cloud(self.session, filebskill, self.tokens['AuthenticationResult']['IdToken'])
+                    send_add_skills_to_cloud
+                    jresp = (self.session, filebskill, self.tokens['AuthenticationResult']['IdToken'])
 
                     if "errorType" in jresp:
                         screen_error = True
@@ -3407,6 +3421,65 @@ class MainWindow(QMainWindow):
                     self.warn(QApplication.translate("QMainWindow", "Warning: NO skills in the file."))
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: no test skill file."))
+
+    def find_dependencies(self, main_file, visited, dependencies):
+        if main_file in visited:
+            return
+
+        visited.add(main_file)
+
+        # "type": "Use Skill",
+        # "skill_name": "update_tracking",
+        # "skill_path": "public/win_chrome_etsy_orders",
+        # "skill_args": "gs_input",
+        # "output": "total_label_cost"
+
+        with open(main_file, 'r') as psk_file:
+            code_jsons = json.load(psk_file)
+
+            # go thru all steps.
+            for key in code_jsons.keys():
+                if code_jsons[key]["type"] == "Use Skill":
+
+                    dependency_file = code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"]
+                    if dependency_file not in dependencies:
+                        dependencies.add(dependency_file)
+                        self.find_dependencies(dependency_file, visited, dependencies)
+
+
+
+        # self.platform+"_"+self.App()+"_"+self.site_name+"_"+self.page+"_"+self.name is the output string format
+
+    def analyzeMainSkillDependencies(self, main_psk):
+        dependencies = set()
+        visited = set()
+        dependencies = self.find_dependencies(main_psk, visited, dependencies)
+        dep_list = list(dependencies)
+
+        dep_ids = []
+        for dep in dep_list:
+            skid = self.findSkillIDWithSkillFileName(dep)
+            dep_ids.append((skid, dep))
+
+        existing_skill_ids = []
+        for dp in dep_ids:
+            if dp[0] == -1:
+                print("ERROR: missing skill dependent skills file:", dp[1])
+            else:
+                existing_skill_ids.append(dp[0])
+        # existing_skill_ids = filter(lambda x: x == -1, dep_ids)
+
+        return existing_skill_ids
+
+
+    def findSkillIDWithSkillFileName(self, skill_file_name):
+        skidx = next((i for i, x in enumerate(self.skills) if x.matchPskFileName(skill_file_name)), -1)
+        if skidx >= 0:
+            return self.skills[skidx].getSkid()
+        else:
+            return -1
+
+
 
     # load locally stored skills
     def loadLocalSkills(self):
