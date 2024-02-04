@@ -303,3 +303,17 @@ potential roll-back point, in the event of an exception and recover, we can then
 from this roll-back point. 
 In case of a persistent outage, if a designated timeout is reached, the bot will claim failure on executing
 the current RPA mission.
+
+### Seller Inventory
+For sellers, one could create an inventory json file so that it can be loaded and then when seller needs to calculate 
+shipping label costs, for example:
+- one can search the ordered products, and retrieve product weight and dimension will be needed to calculate the the shipping label cost.
+
+the inventory file is located in "installation data directory +"/resource/inventory.json"
+
+
+### Mission Skill match
+Each mission has a "skills" attributes, it's a string in the format of comma separated skill IDs, for example "1,5,6 ..."
+means this mission requires skill # 1, 5, 6 and so on. It's very important to make sure the main skill is the FIRST one 
+in the list. (for example for skills "72,18,33", skill#72 has to be the main skill which will in turn uses skill#18 and
+skill #33)

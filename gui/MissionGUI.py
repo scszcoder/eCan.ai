@@ -2,9 +2,9 @@ import sys
 import random
 
 from PySide6.QtCore import QEvent, QStringListModel
-from PySide6.QtGui import QStandardItemModel
+from PySide6.QtGui import QStandardItemModel, QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QTabWidget, QVBoxLayout, QLineEdit, \
-    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QCheckBox, QFileDialog, QButtonGroup
+    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QCheckBox, QFileDialog, QButtonGroup, QStyledItemDelegate, QFontComboBox
 from ebbot import *
 from locale import getdefaultlocale
 from FlowLayout import *
@@ -47,6 +47,20 @@ class MWORKSKILL(QStandardItem):
     def getData(self):
         return self.platform, self.app, self.applink, self.site, self.sitelink, self.action
 
+
+class CustomDelegate(QStyledItemDelegate):
+    def __init__(self, parent):
+        super(CustomDelegate, self).__init__(parent)
+        self.parent = parent
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # Check the item's text for customization
+        item_text = index.data(Qt.DisplayRole)
+        # if item_text == "5" or item_text == "11":
+        if self.parent.checkIsMain(item_text):
+            option.font.setBold(True)
+            option.palette.setColor(QPalette.Text, QColor(0, 0, 255))  # Blue color
 
 class MissionNewWin(QMainWindow):
     def __init__(self, parent):
@@ -128,9 +142,15 @@ class MissionNewWin(QMainWindow):
         self.missionCustomSiteLinkLabel = QLabel(QApplication.translate("QLabel", "Custom Site Html:"), alignment=Qt.AlignLeft)
         self.missionCustomSiteLinkEdit = QLineEdit("")
 
+
         self.skillActionLabel = QLabel(QApplication.translate("QLabel", "Skill Action:"), alignment=Qt.AlignLeft)
         self.skill_action_sel = QComboBox()
+        # self.skill_action_sel.setModel(self.parent.SkillManagerWin.skillModel)
+        self.styleDelegate = CustomDelegate(self.parent)
+
         self.buildSkillSelList()
+        self.skill_action_sel.setItemDelegate(self.styleDelegate)
+
         self.skill_action_sel.currentTextChanged.connect(self.skillActionSel_changed)
 
 
@@ -558,6 +578,8 @@ class MissionNewWin(QMainWindow):
 
         self.buy_rb.setChecked(True)
 
+
+
     def setMode(self, mode):
         self.mode = mode
         if self.mode == "new":
@@ -861,8 +883,42 @@ class MissionNewWin(QMainWindow):
 
         self.skillModel.appendRow(this_skill)
 
+        # automatically add dependency skills to the list as well
+        sk_dep = this_skill.getDependencies()
+        if len(sk_dep) > 0:
+            for skid in sk_dep:
+                dep_skill = next((x for x in self.parent.skills if x.getSkid() == skid ), None)
+                self.skillModel.appendRow(dep_skill)
+
+
     def removeSkill(self):
-        self.skillModel.removeRow(self.skillListView.selected_row)
+        # a bit complicated here, need to make sure if the skill is a dependent skill, then it's not removable.
+        # if it's a main skill, then removing it will remove all of its dependency , and even more tricky is
+        # if one of this main skill's dependency is also another main skill's dependency, then this item is also
+        # not removable.
+        rows_to_be_removed = [self.skillListView.selected_row]
+        all_mission_skills = [self.skillModel.item(row) for row in range(self.skillModel.rowCount())]
+        other_main_skills = list(filter(lambda sk: sk.getIsMain() and sk.getSkid() != self.selected_skill_item.getSkid(), all_mission_skills))
+
+        if self.selected_skill_item.getIsMain():
+            # first go thru its dependencies and check whether a skill is
+            deps = self.selected_skill_item.getDependencies()
+            for dep in deps:
+                dependent_to_others = False
+                for other in other_main_skills:
+                    if dep in other.getDependencies():
+                        dependent_to_others = True
+                        break
+
+                if not dependent_to_others:
+                    dep_row = next((i for i, item in enumerate(all_mission_skills) if item.getSkid() == dep), -1)
+                    rows_to_be_removed.append(dep_row)
+                    break
+
+            sorted_rows_to_be_removed = rows_to_be_removed.sort(reverse=True)
+            # finally remove items from bottom to top.
+            for row in sorted_rows_to_be_removed:
+                self.skillModel.removeRow(row)
 
 
     def _createSkillDeleteAction(self):
@@ -946,7 +1002,8 @@ class MissionNewWin(QMainWindow):
 
     def buildSkillSelList(self):
         for sk in self.parent.skills:
-            self.skill_action_sel.addItem(QApplication.translate("QComboBox", sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSite()+"_"+sk.getPage()+"_"+sk.getName()))
+            self.skill_action_sel.addItem(QApplication.translate("QComboBox", sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()))
+
 
     def buy_rb_checked_state_changed(self):
         if self.buy_rb.isChecked():

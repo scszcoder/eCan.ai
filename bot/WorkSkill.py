@@ -217,6 +217,8 @@ class WORKSKILL(QStandardItem):
         self.homepath = parent.homepath
         self.price_model = ""
         self.path = "/resource/skills/public/"
+        self.psk_file = ""
+        self.csk_file = ""
         self.privacy = "PRV"
         self.platform = "win"
         self.app = "chrome"
@@ -225,6 +227,7 @@ class WORKSKILL(QStandardItem):
         self.site_name = ""
         self.site = "amz"
         self.page = "home"
+        self.main = "F"
         self.runtime = 1
         self.private_skill = PROCEDURAL_SKILL(parent)
         self.cloud_skill = CLOUD_SKILL(parent)
@@ -237,6 +240,13 @@ class WORKSKILL(QStandardItem):
         self.setText(self.name)
         self.icon = QIcon(self.homepath + '/resource/images/icons/skills_78.png')
         self.setIcon(self.icon)
+        self.dependencies = []
+
+    def getDependencies(self):
+        return self.dependencies
+
+    def setDependencies(self, deps):
+        self.dependencies = deps
 
     def add_private_skill(self, procedural_skill):
         self.private_skill = procedural_skill
@@ -273,8 +283,14 @@ class WORKSKILL(QStandardItem):
     def getPskFileName(self):
         return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".psk"
 
+    def setPskFileName(self, pskFile):
+        self.psk_file = pskFile
+
     def getCskFileName(self):
         return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".csk"
+
+    def setCskFileName(self, cskFile):
+        self.csk_file = cskFile
 
     def getNameSapcePrefix(self):
         return self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page
@@ -357,6 +373,21 @@ class WORKSKILL(QStandardItem):
     def setDescription(self, ds):
         self.desription = ds
 
+    def setMain(self, ismain):
+        if ismain:
+            self.main = "T"
+        else:
+            self.main = "F"
+
+    def getMain(self):
+        return self.main
+
+    def getIsMain(self):
+        if self.main == "T":
+            return True
+        else:
+            return False
+
     def setPlatform(self, platform):
         self.platform = platform
         self.setText(self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page + "_" + self.name + "(" + str(self.skid) + ")")
@@ -379,6 +410,11 @@ class WORKSKILL(QStandardItem):
         self.pubAttributes.loadNetRespJson(nrjd)
         self.setText('mission' + str(self.getMid()))
 
+    def setAppearance(self, qcolor, qfont):
+        if self.main == "T":
+            self.setForeground(qcolor)  # Blue color
+            self.setFont(qfont)
+
     def loadJson(self, jd):
         self.name = jd["name"]
         self.skid = jd["skid"]
@@ -389,6 +425,8 @@ class WORKSKILL(QStandardItem):
         self.site_name = jd["site"]
         self.page = jd["page"]
         self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
+        self.main = jd["main"]
+
         self.privacy = jd["privacy"]
         self.price_model = jd["price_model"]
         self.price = jd["price"]
@@ -416,4 +454,17 @@ class WORKSKILL(QStandardItem):
             upload_file(session, ankf, token, "anchor")
 
         upload_file(session, self.cloud_skill.get_csk_file(), token, "csk")
+
+    def matchPskFileName(self, skill_file_name):
+        # return true only when platform, app, site, page, skill name all matched.
+        # skill_file_name is in this full path format: public/" + sk_prefix + "/" + sk_name + ".psk"
+        sk_name = os.path.basename(skill_file_name).split(".")[0]
+        sk_prefix = os.path.basename(os.path.dirname(skill_file_name))
+        input_skill_file_name = sk_prefix+"_"+sk_name
+        correct_name = self.platform+"_"+self.App()+"_"+self.site_name+"_"+self.page+"_"+self.name
+
+        if correct_name == input_skill_file_name:
+            return True
+        else:
+            return False
 

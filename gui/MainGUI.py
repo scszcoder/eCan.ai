@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         self.commander_icon_path = self.homepath + '/resource/images/icons/general1_4.png'
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
-        self.SELLER_INVENTORY_FILE = self.homepath+"/resource/inventory.json"
+        self.SELLER_INVENTORY_FILE = ecb_data_homepath+"/resource/inventory.json"
         self.PLATFORMS = ['windows', 'mac', 'linux']
         self.APPS = ['chrome', 'edge','firefox','ads','multilogin','safari','Custom']
         self.SITES = ['Amazon','Etsy','Ebay','Temu','Shein','Walmart','Wayfair','Tiktok','Facebook','Google', 'AliExpress','Custom']
@@ -599,17 +599,22 @@ class MainWindow(QMainWindow):
             # self.loadLocalSkills()
             db_skills_results = self.SkillManagerWin.fetchMySkills()
             if 'body' in db_skills_results:
+                # print("db_skills_results:::::", db_skills_results)
                 db_skills = json.loads(db_skills_results["body"])
+
                 for db_skill in db_skills:
                     # print("db skill:", db_skill)
                     db = WORKSKILL(self, db_skill["name"])
                     db.loadJson(db_skill)
                     self.skills.append(db)
-                # self.skills =
+                # update skill manager display...
                 self.SkillManagerWin.updateSkills(self.skills)
 
-        # Done with all UI s
-        # tuff, now do the instruction set extension work.
+                # now immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
+                # when a skill is selected, its dependencies will added to mission's skills list.
+                self.regenSkillPSKs()
+
+        # Done with all UI stuff, now do the instruction set extension work.
         sk_extension_file = self.homepath + "/resource/skills/my/skill_extension.json"
         if os.path.isfile(sk_extension_file):
             with open(sk_extension_file, 'r') as sk_extension:
@@ -628,6 +633,17 @@ class MainWindow(QMainWindow):
             self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
             # point to the 1st task to run for the day.
             self.updateRunStatus(self.todays_work["tbd"][0], 0)
+
+    def regenSkillPSKs(self):
+        for sk in self.skills:
+            # next_step is not used,
+            sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
+            next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
+
+            sk.setPskFileName(psk_file)
+            # fill out each skill's depencies attribute
+            sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
+
 
     def getHomePath(self):
         return self.homepath
@@ -1649,13 +1665,18 @@ class MainWindow(QMainWindow):
             ordered_relevant_skills = sorted(relevant_skills, key=lambda x: rpaSkillIds.index(x.getSkid()))
 
         all_skill_codes = []
+        sk_idx = 0
         for sk in ordered_relevant_skills:
             print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
             # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
-            genSkillCode(worksettings, first_step, "light")
+            if sk_idx == 0:
+                next_step = genSkillCode(worksettings, first_step, "light")
+            else:
+                next_step = genSkillCode(worksettings, next_step, "light")
 
             all_skill_codes.append({"ns": worksettings["name_space"], "skfile": worksettings["skfname"]})
+            sk_idx = sk_idx + 1
 
         print("all_skill_codes: ", all_skill_codes)
 
@@ -3346,8 +3367,8 @@ class MainWindow(QMainWindow):
                 filebskill = json.load(new_skill_file)
                 if len(filebskill) > 0:
                     #add bots to the relavant data structure and add these bots to the cloud and local DB.
-
-                    jresp = send_add_skills_to_cloud(self.session, filebskill, self.tokens['AuthenticationResult']['IdToken'])
+                    send_add_skills_to_cloud
+                    jresp = (self.session, filebskill, self.tokens['AuthenticationResult']['IdToken'])
 
                     if "errorType" in jresp:
                         screen_error = True
@@ -3401,6 +3422,65 @@ class MainWindow(QMainWindow):
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: no test skill file."))
 
+    def find_dependencies(self, main_file, visited, dependencies):
+        if main_file in visited:
+            return
+
+        visited.add(main_file)
+
+        # "type": "Use Skill",
+        # "skill_name": "update_tracking",
+        # "skill_path": "public/win_chrome_etsy_orders",
+        # "skill_args": "gs_input",
+        # "output": "total_label_cost"
+
+        with open(main_file, 'r') as psk_file:
+            code_jsons = json.load(psk_file)
+
+            # go thru all steps.
+            for key in code_jsons.keys():
+                if code_jsons[key]["type"] == "Use Skill":
+
+                    dependency_file = code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"]
+                    if dependency_file not in dependencies:
+                        dependencies.add(dependency_file)
+                        self.find_dependencies(dependency_file, visited, dependencies)
+
+
+
+        # self.platform+"_"+self.App()+"_"+self.site_name+"_"+self.page+"_"+self.name is the output string format
+
+    def analyzeMainSkillDependencies(self, main_psk):
+        dependencies = set()
+        visited = set()
+        dependencies = self.find_dependencies(main_psk, visited, dependencies)
+        dep_list = list(dependencies)
+
+        dep_ids = []
+        for dep in dep_list:
+            skid = self.findSkillIDWithSkillFileName(dep)
+            dep_ids.append((skid, dep))
+
+        existing_skill_ids = []
+        for dp in dep_ids:
+            if dp[0] == -1:
+                print("ERROR: missing skill dependent skills file:", dp[1])
+            else:
+                existing_skill_ids.append(dp[0])
+        # existing_skill_ids = filter(lambda x: x == -1, dep_ids)
+
+        return existing_skill_ids
+
+
+    def findSkillIDWithSkillFileName(self, skill_file_name):
+        skidx = next((i for i, x in enumerate(self.skills) if x.matchPskFileName(skill_file_name)), -1)
+        if skidx >= 0:
+            return self.skills[skidx].getSkid()
+        else:
+            return -1
+
+
+
     # load locally stored skills
     def loadLocalSkills(self):
         skill_def_files = []
@@ -3424,6 +3504,26 @@ class MainWindow(QMainWindow):
                 self.skills.append(new_skill)
 
         print("total skill files loaded: ", len(self.skills))
+
+    def matchSkill(self, sk_long_name, sk):
+        sk_words = sk_long_name.split("_")
+        sk_name = "_".join(sk_words[4:])
+        if sk.getPlatform() == sk_words[0] and sk.getApp() == sk_words[1] and sk.getSiteName() == sk_words[2] and sk.getName() == sk_name:
+            return True
+        else:
+            return False
+
+
+    def checkIsMain(self, sk_long_name):
+        is_main = False
+        # first find out the skill based on sk_long_name.
+        sk = next((x for x in self.skills if self.matchSkill(sk_long_name, x)), None)
+        # then check whether this is a main skill
+        if sk:
+            if sk.getIsMain():
+                is_main = True
+
+        return is_main
 
     def newProductsFromFile(self):
 
@@ -3792,9 +3892,9 @@ class MainWindow(QMainWindow):
             if found_i >= 0:
                 found_mission = self.missions[found_i]
                 if "Completed" in found_mission.getStatus():
-                    found_mission.setIcon(QIcon(self.mission_success_icon_path))
+                    found_mission.setMissionIcon(QIcon(self.mission_success_icon_path))
                 else:
-                    found_mission.setIcon(QIcon(self.mission_failed_icon_path))
+                    found_mission.setMissionIcon(QIcon(self.mission_failed_icon_path))
 
                 self.completedMissionModel.appendRow(found_mission)
 
