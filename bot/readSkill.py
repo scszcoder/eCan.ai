@@ -805,7 +805,7 @@ def genNextStepNumber(currentN, steps=1):
 #           click on all positive reviews, this will take us to the all positive review page.
 #           for i in range(nPosPages):
 #               while not reached bottom:
-#                   view all review, (tricky, could have long reviews which span multiple screen without anchors)
+#                   view all review, (tricky, could have long reviews which span multiple screen without images)
 #                   scroll down
 #                   check whether reached bottom
 #           whether we have reached the last page
@@ -820,7 +820,7 @@ def genNextStepNumber(currentN, steps=1):
 #            if there is expand mark,
 #                if  nPosExand > 0:
 #                   click on "read more",
-#                   view expanded review, (tricky, could span multiple screen without anchors)
+#                   view expanded review, (tricky, could span multiple screen without images)
 #                   scroll till the end of this review.
 #                   nPosExand = nPosExand - 1
 #            are we at the bottom of the page.

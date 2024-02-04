@@ -108,7 +108,7 @@
         }
     },
     "cloud_skill": {
-        "path": "pubilc/win_chrmoe_amz_home/browse_search"
+        "path": "pubilc/win_chrome_amz_home/browse_search"
     },
     "description": "a skill automatically searches and browses amazon web site."
 }
