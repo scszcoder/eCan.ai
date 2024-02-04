@@ -1031,7 +1031,7 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     psk_words = psk_words + step_words
 
     # go thru each entry path.this will be the only loop that we unroll, all other loops within the session will be generated
-    # as part of the psk.
+    # as part of the psk. do we have to unroll??????
     run_config = worksettings["run_config"]
     for run in run_config["searches"]:
         if run["entry_paths"]["type"] == "Top main menu":
