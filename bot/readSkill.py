@@ -143,50 +143,63 @@ vicrop = {
 # output: None (sort of in step already)
 # step name should be in the form of "B"+BotID+"M" + MissionID + "!" + skillname + "!" + level # + step number
 # Note:
-def readSkillFile(name_space, skill_file, lvl = 0):
+def readPSkillFile(name_space, skill_file, lvl = 0):
     global steps
     step_keys = []
     global skill_code
+    this_skill_code = None
+    try:
+        with open(skill_file, "r") as json_as_string:
+        # inj = json.load(json_as_string)
+        # Call this as a recursive function if your json is highly nested
 
-    json_as_string = open(skill_file, 'r')
-    # inj = json.load(json_as_string)
-    # Call this as a recursive function if your json is highly nested
+        # get rid of comments.
+        lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+        json_as_string.close()
 
-    # get rid of comments.
-    lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
-    json_as_string.close()
+        # get rid of empty lines.
+        #new_list = list(filter(lambda x: x != '', list_with_empty_strings))
+        useful_lines = list(filter(lambda x: x.rstrip(), lines))
+        slines = ""
+        key = ""
+        # reg = re.compile("step +[0-9]")
+        # reg = re.compile(r'"([^"]*)"')
+        # #if reg.match('aaa"step 123":'):
+        # if len(re.findall(r'"([^"]*)"', 'aaa"step 123":')) > 0:
+        #     print("FOUND MATCH")
+        # else:
+        #     print("NO MATCH")
+        print("NUM USEFUL:", str(len(useful_lines)))
+        for l in useful_lines:
+            #need to create prefix and add the step name.
+            # l = adressAddNameSpace(l, name_space, lvl)            # will do this later.
 
-    # get rid of empty lines.
-    #new_list = list(filter(lambda x: x != '', list_with_empty_strings))
-    useful_lines = list(filter(lambda x: x.rstrip(), lines))
-    slines = ""
-    key = ""
-    # reg = re.compile("step +[0-9]")
-    # reg = re.compile(r'"([^"]*)"')
-    # #if reg.match('aaa"step 123":'):
-    # if len(re.findall(r'"([^"]*)"', 'aaa"step 123":')) > 0:
-    #     print("FOUND MATCH")
-    # else:
-    #     print("NO MATCH")
-    print("NUM USEFUL:", str(len(useful_lines)))
-    for l in useful_lines:
-        #need to create prefix and add the step name.
-        l = adressAddNameSpace(l, name_space, lvl)
+            #print("USEFUL: ", l)
+            slines = slines + l + "\n"
 
-        #print("USEFUL: ", l)
-        slines = slines + l + "\n"
+        # print("SLINES:", slines)
+        this_skill_code = json.loads(slines)
 
-    # print("SLINES:", slines)
-    this_skill_code = json.loads(slines)
+        # call the sub skills
+        step_keys = list(this_skill_code.keys())
+        for key in step_keys:
+            if key == "header" or key == "dummy":
+                del this_skill_code[key]
+        # print("=============================================================")
+        # print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
+    except OSError as err:
+        print("ERROR: Read PSK Error!", err)
 
-    # call the sub skills
-    step_keys = list(this_skill_code.keys())
-    for key in step_keys:
-        if key == "header" or key == "dummy":
-            del this_skill_code[key]
-    # print("=============================================================")
-    # print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
     return this_skill_code
+
+
+def addNameSpaceToAddress(stepsJson, name_space, lvl):
+    # add name space to json step names.
+    steps_keys = stepsJson.keys()
+    for old_key in steps_keys:
+        new_key = adressAddNameSpace(old_key, name_space, lvl)
+        stepsJson[new_key] = stepsJson[old_key]
+        stepsJson.pop(old_key)
 
 
 def adressAddNameSpace(l, name_space, lvl):
@@ -728,7 +741,7 @@ def gen_addresses(stepcodes, nth_pass):
 def prepRun1Skill(name_space, skill_file, lvl = 0):
     global skill_code
     global function_table
-    run_steps = readSkillFile(name_space, skill_file, lvl)
+    run_steps = readPSkillFile(name_space, skill_file, lvl)
     print("DONE reading skill file...")
 
     # generate real address for stubs and functions. (essentially update the addresses or the closing brackets...)
@@ -741,20 +754,23 @@ def prepRun1Skill(name_space, skill_file, lvl = 0):
     print("function table:", function_table)
     return run_steps
 
+
+# load all runnable skill files into memeory space, and start to assemble them into runnable instructions.
 def prepRunSkill(all_skill_codes):
     global skill_code
 
-    skidx = 0
     for sk in all_skill_codes:
-        print("READING SKILL CODE:", sk["ns"], sk["skfile"], skidx)
-        run_steps = readSkillFile(sk["ns"], sk["skfile"], skidx)
+        print("READING SKILL CODE:", sk["ns"], sk["skfile"])
+
+        f = open(sk["skfile"])
+        run_steps = json.load(f)
+        f.close()
+
         if skill_code:
             # skill_code.update(run_steps)         # merge run steps.
             skill_code = skill_code + run_steps
         else:
             skill_code = run_steps
-
-        skidx = skidx + 1
 
     # 1st pass: get obvious addresses defined. if else end-if, loop end-loop,
     gen_addresses(skill_code, 1)

@@ -1,8 +1,8 @@
 {
     "name": "browse_search",
-    "skid": 0,
+    "skid": 3,
     "owner": "public",
-    "createdOn": "2023-05-05",
+    "createdOn": "2023-12-25",
     "price": 0,
     "price_model": "free",
     "path": "resource/skills/public/",

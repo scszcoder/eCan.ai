@@ -1628,9 +1628,25 @@ class MainWindow(QMainWindow):
             skill_file = self.homepath + "resource/skills/my/" + skname + "/scripts/" + skname + ".psk"
 
         print("loadSKILLFILE: ", skill_file)
-        stepKeys = readSkillFile(skname, skill_file, lvl=0)
+        stepKeys = readPSkillFile(skname, skill_file, lvl=0)
 
         return stepKeys
+
+    def reAddrAndUpdateSteps(self, pskJson, init_step_idx, work_settings):
+        new_idx = init_step_idx
+        old_keys = list(pskJson.keys())
+        for key in old_keys:
+            if "step" in key:
+                new_key = "step "+str(new_idx)
+                pskJson[new_key] = pskJson[key]
+                pskJson.pop(key)
+                new_idx = new_idx + STEP_GAP
+
+                if "settings" in pskJson[new_key]:
+                    pskJson[new_key]["settings"] == work_settings
+
+        return new_idx
+
 
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
@@ -1661,22 +1677,31 @@ class MainWindow(QMainWindow):
             s = set(relevant_skill_ids)
             missing = [x for x in rpaSkillIds if x not in s]
             print("ERROR: Required Skills not found:", missing)
-        else:
-            ordered_relevant_skills = sorted(relevant_skills, key=lambda x: rpaSkillIds.index(x.getSkid()))
+
 
         all_skill_codes = []
-        sk_idx = 0
-        for sk in ordered_relevant_skills:
+        step_idx = 0
+        for sk in relevant_skills:
             print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
             # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
-            if sk_idx == 0:
-                next_step = genSkillCode(worksettings, first_step, "light")
-            else:
-                next_step = genSkillCode(worksettings, next_step, "light")
 
-            all_skill_codes.append({"ns": worksettings["name_space"], "skfile": worksettings["skfname"]})
-            sk_idx = sk_idx + 1
+            # readPSkillFile will remove comments. from the file
+            pskJson = readPSkillFile(worksettings["name_space"], sk.getPskFileName(), lvl=0)
+
+            # now regen address and update settings, after running, pskJson will be updated.
+            step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+
+            addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
+
+            # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
+            rskFileName = sk.getPskFileName().split(".")[0] + "rsk"
+            print("rskFileName:", rskFileName, "step_idx:", step_idx)
+            with open(rskFileName, "w") as outfile:
+                json.dump(pskJson, outfile)
+            outfile.close()
+
+            all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
 
         print("all_skill_codes: ", all_skill_codes)
 
