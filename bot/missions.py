@@ -314,12 +314,14 @@ class EBMISSION(QStandardItem):
                                 "token": self.parent.tokens['AuthenticationResult']['IdToken'],
                                 "uid": self.parent.uid}
         self.setText('mission' + str(self.getMid()))
+        print("What??????????", parent.mission_icon_path)
         self.icon = QIcon(parent.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
 
-    def setIcon(self, icon):
+    def setMissionIcon(self, icon):
         self.icon = icon
+        self.setIcon(self.icon)
 
     def getMid(self):
         return self.pubAttributes.missionId

@@ -171,17 +171,7 @@ def readSkillFile(name_space, skill_file, lvl = 0):
     print("NUM USEFUL:", str(len(useful_lines)))
     for l in useful_lines:
         #need to create prefix and add the step name.
-        if len(re.findall(r'"step [0-9]+"', l)) > 0:
-            # need to handle "Use Skill" calling to sub-skill files.
-            #print("STEP line:", l)
-            step_word = re.findall(r'"([^"]*)"', l)[0]
-            #print("STEP word:", step_word)
-            sn = step_word.split(' ')[1]
-            global_sn = name_space + str(lvl) + "!" + sn
-            #print("GLOBAL NS:", global_sn)
-            #re.sub(r'"([^"]*)"', global_sn, l)
-            l = re.sub(r'"step [0-9]+"', '"'+global_sn+'"', l)
-            #print("After Replacement:", l)
+        l = adressAddNameSpace(l, name_space, lvl)
 
         #print("USEFUL: ", l)
         slines = slines + l + "\n"
@@ -197,6 +187,21 @@ def readSkillFile(name_space, skill_file, lvl = 0):
     # print("=============================================================")
     # print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
     return this_skill_code
+
+
+def adressAddNameSpace(l, name_space, lvl):
+    if len(re.findall(r'"step [0-9]+"', l)) > 0:
+        # need to handle "Use Skill" calling to sub-skill files.
+        # print("STEP line:", l)
+        step_word = re.findall(r'"([^"]*)"', l)[0]
+        # print("STEP word:", step_word)
+        sn = step_word.split(' ')[1]
+        global_sn = name_space + str(lvl) + "!" + sn
+        # print("GLOBAL NS:", global_sn)
+        # re.sub(r'"([^"]*)"', global_sn, l)
+        l = re.sub(r'"step [0-9]+"', '"' + global_sn + '"', l)
+
+    return l
 
 # settings contains the following info:
 # reading_speed - words per minute
@@ -596,7 +601,7 @@ def gen_addresses(stepcodes, nth_pass):
             if stepcodes[stepName]["type"] == "Stub":
                 # code block
                 # build up function table, and skill table.
-                if stepcodes[stepName]["stub_name"] == "start skill":
+                if "start skill" in stepcodes[stepName]["stub_name"]:
                     # this effectively includes the skill overload function. - SC
                     print("ADDING TO SKILL TABLE: ", stepcodes[stepName]["func_name"], nextStepName)
                     skill_table[stepcodes[stepName]["func_name"]] = nextStepName
@@ -684,6 +689,12 @@ def gen_addresses(stepcodes, nth_pass):
                 elif stepcodes[stepName]["stub_name"] == "end skill":
                     # add function name and address pair to stepcodes - kind of a symbal table here.
                     print("END OF SKILL - do nothing...", stepcodes[stepName]["func_name"])
+                elif stepcodes[stepName]["stub_name"] == "tag":
+                    # this is for Goto statement, so that goto doesn't have to goto an explicict address,
+                    # but can goto a String name instead. if any step is the goto target, just add
+                    # a stub step with "tag" and "whatever you like to name the tag name"
+                    # simply add tag and previous step address to the hash address space
+                    symTab[stepcodes[stepName]["func_name"]] = prevStepName
             elif stepcodes[stepName]["type"] == "Check Condition":
                 # push ont stack
                 temp_stack.append(stepName)
@@ -738,7 +749,8 @@ def prepRunSkill(all_skill_codes):
         print("READING SKILL CODE:", sk["ns"], sk["skfile"], skidx)
         run_steps = readSkillFile(sk["ns"], sk["skfile"], skidx)
         if skill_code:
-            skill_code.update(run_steps)         # merge run steps.
+            # skill_code.update(run_steps)         # merge run steps.
+            skill_code = skill_code + run_steps
         else:
             skill_code = run_steps
 
