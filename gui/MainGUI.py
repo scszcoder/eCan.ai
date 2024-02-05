@@ -117,7 +117,9 @@ class MainWindow(QMainWindow):
         self.mission_failed_icon_path = self.homepath + '/resource/images/icons/failed_launch0_48.png'
         self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
         self.product_icon_path = self.homepath + '/resource/images/icons/product80_0.png'
-        self.vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.win_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.mac_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.linux_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
         self.commander_icon_path = self.homepath + '/resource/images/icons/general1_4.png'
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
@@ -978,7 +980,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Fetch Schedules"))
-        new_action.triggered.connect(lambda: self.fetchSchedule("", None))
+        new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings()))
         return new_action
 
 
@@ -3695,6 +3697,14 @@ class MainWindow(QMainWindow):
         for m in self.missions:
             status = m.run()
 
+    def get_vehicle_settings(self):
+        vsettings = {
+            "vwins": len([v for v in self.vehicles if v.getOS() == "win"]),
+            "vmacs": len([v for v in self.vehicles if v.getOS() == "mac"]),
+            "vlnxs": len([v for v in self.vehicles if v.getOS() == "linux"])
+        }
+        return vsettings
+
     def runbotworks(self):
         # run all the work
         botTodos = None
@@ -3707,7 +3717,8 @@ class MainWindow(QMainWindow):
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
                     last_start = int(datetime.now().timestamp()*1)
-                    botTodos["status"] = self.fetchSchedule("", None)
+
+                    botTodos["status"] = self.fetchSchedule("", self.get_vehicle_settings())
                     last_end = int(datetime.now().timestamp()*1)
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
@@ -3850,7 +3861,14 @@ class MainWindow(QMainWindow):
         # first, check ip and make sure this from a know vehicle.
         if msg["type"] == "intro":
             if found:
-                found["name"] = msg["content"]["name"]
+                print("recevied a vehicle introduction:")
+                found_vehicle = next((x for x in self.vehicles if x.getIP() == msg["ip"]), None)
+                if found_vehicle:
+                    found_vehicle.setName(msg["contents"]["name"])
+                    if "Windows" in msg["contents"]["os"]:
+                        found_vehicle.setOs("win")
+
+            #now
         elif msg["type"] == "status":
             # update vehicle status display.
             self.showMsg(msg["content"])
