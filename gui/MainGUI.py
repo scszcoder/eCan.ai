@@ -155,7 +155,7 @@ class MainWindow(QMainWindow):
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
-        self.platform = platform.system().lower()[0:2]
+        self.platform = platform.system().lower()[0:3]
         self.std_item_font = QFont('Arial', 10)
 
         self.sellerInventoryJsonData = None
@@ -1457,61 +1457,107 @@ class MainWindow(QMainWindow):
         print("mids in the task group::", mids)
         return bids, mids
 
+    # assumption, tg will not be empty.
+    def getTaskGroupOS(self, tg):
+        # get the 1st mission, and get its cuspas and extract platform part of the cuspas.
+        found = False
+        for tz in tg.keys():
+            if len(tg[tz]) > 0:
+                if len(tg[tz][0]["bw_works"]) > 0:
+                    mission_id = tg[tz][0]["bw_works"][0]["mid"]
+
+                else:
+                    mission_id = tg[tz][0]["other_works"][0]["mid"]
+
+                midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
+                platform = self.missions[midx].getPlatform()
+
+        return platform
+
+
+    def groupTaskGroupsByOS(self, tgs):
+        result = {
+            "win": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "win"],
+            "mac": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "mac"],
+            "linux": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "lin"]
+        }
+        return result
+
+    def groupVehiclesByOS(self):
+        result = {
+            "win": [v for v in self.vehicles if v.getOS() == "Windows"],
+            "mac": [v for v in self.vehicles if v.getOS() == "Mac"],
+            "linux": [v for v in self.vehicles if v.getOS() == "linux"]
+        }
+
+        if self.hostrole == "Commander":
+            nsites = len(fieldLinks)
+            if self.platform == "win":
+                result["win"].append(self)
+            elif self.platform == "mac":
+                result["mac"].append(self)
+            else:
+                result["linux"].append(self)
+
+
+        return result
+
     # assign work, if this commander runs, assign works for commander,
     # otherwise, send works to platoons to execute.
     def assignWork(self, task_groups):
         # tasks should already be sorted by botid,
         nsites = 0
-        if len(task_groups) > 0:
-            if self.hostrole == "CommanderOnly":
-                nsites = len(fieldLinks)
-                print("commander only machine [", nsites, "]")
-            else:
-                nsites = 1 + len(fieldLinks)
-                print("commander can run.....[", nsites, "]")
 
-            tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[0])
-            resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
-            print("test code here.....", resource_string)
+        v_task_groups = self.groupTaskGroupsByOS(task_groups)    #result will {"win": win_tgs, "mac": mac_tgs, "linux": linux_tgs}
+        v_groups = self.groupVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
 
-        if len(task_groups) > nsites:
-            # there will be unserved tasks due to over capacity
-            print("Run Capacity Spilled, some tasks will NOT be served!!!")
-            self.netLogWin.appendLogs("Run Capacity Spilled, some tasks will NOT be served!!!")
+        for platform in v_task_groups.keys():
+            p_task_groups = v_task_groups[platform]
+            p_nsites = len(v_groups[platform])
 
-        # distribute work to all available sites, which is the limit for the total capacity.
-        if nsites > 0:
-            for i in range(nsites):
-                if i == 0 and not self.hostrole == "CommanderOnly":
-                    # if commander participate work, give work to here.
-                    print("arranged for today on this machine....")
-                    self.todays_work["tbd"].append({"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
-                else:
-                    #otherwise, send work to platoons in the field.
-                    if self.hostrole == "CommanderOnly":
-                        print("cmd only sending to platoon: ", i)
-                        task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
-                        self.todays_work["tbd"].append(
-                            {"name": "automation", "works": task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
-                             "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
-                             "current oidx": 0, "completed": [], "aborted": []})
+            if len(p_task_groups) > 0:
+                tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(p_task_groups[0])
+                resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+                print("test code here.....", resource_string)
 
+            if len(p_task_groups) > p_nsites:
+                # there will be unserved tasks due to over capacity
+                print("Run Capacity Spilled, some tasks will NOT be served!!!")
+                self.netLogWin.appendLogs("Run Capacity Spilled, some tasks will NOT be served!!!")
+
+            # distribute work to all available sites, which is the limit for the total capacity.
+            if p_nsites > 0:
+                for i in range(p_nsites):
+                    if i == 0 and not self.hostrole == "CommanderOnly":
+                        # if commander participate work, give work to here.
+                        print("arranged for today on this machine....")
+                        self.todays_work["tbd"].append({"name": "automation", "works": p_task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
                     else:
-                        print("cmd sending to platoon: ", i)
-                        task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
-                        self.todays_work["tbd"].append(
-                            {"name": "automation", "works": task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
-                             "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
-                             "current oidx": 0, "completed": [], "aborted": []})
+                        #otherwise, send work to platoons in the field.
+                        if self.hostrole == "CommanderOnly":
+                            print("cmd only sending to platoon: ", i)
+                            task_group_string = json.dumps(p_task_groups[i]).replace('"', '\\"')
+                            self.todays_work["tbd"].append(
+                                {"name": "automation", "works": p_task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                                 "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                                 "current oidx": 0, "completed": [], "aborted": []})
 
-                    # now need to fetch this task associated bots, mission, skills
-                    # get all bots IDs involved. get all mission IDs involved.
-                    tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[i])
-                    resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
-                    schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
-                    print("SCHEDULE:::", schedule)
+                        else:
+                            print("cmd sending to platoon: ", i)
+                            task_group_string = json.dumps(p_task_groups[i+1]).replace('"', '\\"')
+                            self.todays_work["tbd"].append(
+                                {"name": "automation", "works": p_task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                                 "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                                 "current oidx": 0, "completed": [], "aborted": []})
 
-                    fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
+                        # now need to fetch this task associated bots, mission, skills
+                        # get all bots IDs involved. get all mission IDs involved.
+                        tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(p_task_groups[i])
+                        resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+                        schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
+                        print("SCHEDULE:::", schedule)
+
+                        fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
         # now that a new day starts, clear all reports data structure
         self.todaysReports = []
@@ -3703,6 +3749,14 @@ class MainWindow(QMainWindow):
             "vmacs": len([v for v in self.vehicles if v.getOS() == "mac"]),
             "vlnxs": len([v for v in self.vehicles if v.getOS() == "linux"])
         }
+        # add self to the compute resource pool
+        if self.hostrole == "Commander":
+            if self.platform == "win":
+                vsettings["vwins"] = vsettings["vwins"] + 1
+            elif self.platform == "mac":
+                vsettings["vmacs"] = vsettings["vmacs"] + 1
+            else:
+                vsettings["vlnxs"] = vsettings["vlnxs"] + 1
         return vsettings
 
     def runbotworks(self):
@@ -3866,7 +3920,7 @@ class MainWindow(QMainWindow):
                 if found_vehicle:
                     found_vehicle.setName(msg["contents"]["name"])
                     if "Windows" in msg["contents"]["os"]:
-                        found_vehicle.setOs("win")
+                        found_vehicle.setOS("win")
 
             #now
         elif msg["type"] == "status":
