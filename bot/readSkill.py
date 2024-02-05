@@ -150,43 +150,43 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
     this_skill_code = None
     try:
         with open(skill_file, "r") as json_as_string:
-        # inj = json.load(json_as_string)
-        # Call this as a recursive function if your json is highly nested
+            # inj = json.load(json_as_string)
+            # Call this as a recursive function if your json is highly nested
 
-        # get rid of comments.
-        lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
-        json_as_string.close()
+            # get rid of comments.
+            lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+            json_as_string.close()
 
-        # get rid of empty lines.
-        #new_list = list(filter(lambda x: x != '', list_with_empty_strings))
-        useful_lines = list(filter(lambda x: x.rstrip(), lines))
-        slines = ""
-        key = ""
-        # reg = re.compile("step +[0-9]")
-        # reg = re.compile(r'"([^"]*)"')
-        # #if reg.match('aaa"step 123":'):
-        # if len(re.findall(r'"([^"]*)"', 'aaa"step 123":')) > 0:
-        #     print("FOUND MATCH")
-        # else:
-        #     print("NO MATCH")
-        print("NUM USEFUL:", str(len(useful_lines)))
-        for l in useful_lines:
-            #need to create prefix and add the step name.
-            # l = adressAddNameSpace(l, name_space, lvl)            # will do this later.
+            # get rid of empty lines.
+            #new_list = list(filter(lambda x: x != '', list_with_empty_strings))
+            useful_lines = list(filter(lambda x: x.rstrip(), lines))
+            slines = ""
+            key = ""
+            # reg = re.compile("step +[0-9]")
+            # reg = re.compile(r'"([^"]*)"')
+            # #if reg.match('aaa"step 123":'):
+            # if len(re.findall(r'"([^"]*)"', 'aaa"step 123":')) > 0:
+            #     print("FOUND MATCH")
+            # else:
+            #     print("NO MATCH")
+            print("NUM USEFUL:", str(len(useful_lines)))
+            for l in useful_lines:
+                #need to create prefix and add the step name.
+                # l = adressAddNameSpace(l, name_space, lvl)            # will do this later.
 
-            #print("USEFUL: ", l)
-            slines = slines + l + "\n"
+                #print("USEFUL: ", l)
+                slines = slines + l + "\n"
 
-        # print("SLINES:", slines)
-        this_skill_code = json.loads(slines)
+            # print("SLINES:", slines)
+            this_skill_code = json.loads(slines)
 
-        # call the sub skills
-        step_keys = list(this_skill_code.keys())
-        for key in step_keys:
-            if key == "header" or key == "dummy":
-                del this_skill_code[key]
-        # print("=============================================================")
-        # print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
+            # call the sub skills
+            step_keys = list(this_skill_code.keys())
+            for key in step_keys:
+                if key == "header" or key == "dummy":
+                    del this_skill_code[key]
+            # print("=============================================================")
+            # print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
     except OSError as err:
         print("ERROR: Read PSK Error!", err)
 

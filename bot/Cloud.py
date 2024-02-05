@@ -322,7 +322,7 @@ def gen_schedule_request_string(test_name, schedule_settings):
     if test_name != "":
         query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": true, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
     else:
-        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
+        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"vwins\\\": \\\""+schedule_settings["vwins"]+"\\\", \\\"vmacs\\\": \\\""+schedule_settings["vmacs"]+"\\\", \\\"vlnxs\\\": \\\""+schedule_settings["vlnxs"]+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
