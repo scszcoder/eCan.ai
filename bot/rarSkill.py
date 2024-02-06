@@ -27,7 +27,7 @@ unziped_path = ""
 # this skill assumes the following input "fin": [file full path, result_path]
 # the caller skill must get these ready. There will be no error handling here.
 # input [ zipped files,  output path ]
-def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
+def genWinRARLocalUnzipSkill(worksettings, stepN, theme):
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_file_all_op", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001",
@@ -80,10 +80,10 @@ def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "expired_notification", "anchor text", "any", "useless", "rar_trial_end_popped", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "expired_notification", "direct", "anchor text", "any", "useless", "rar_trial_end_popped", "amz", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "buy_license", "anchor text", "any", "useless", "rar_license_popped", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "buy_license", "direct", "anchor text", "any", "useless", "rar_license_popped", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     # and click on upper right corner to close the pop up or click on Close button to close the pop-up window depends on which popup it is.
@@ -126,7 +126,7 @@ def genWinRARLocalUnzipSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # fill in the to be extracted dir
-    this_step, step_words = genStepTextInput("var", False, "unzipped_path", 1, "enter", 2, this_step)
+    this_step, step_words = genStepTextInput("var", False, "unzipped_path", "direct", 1, "enter", 2, this_step)
     psk_words = psk_words + step_words
 
     # no need on OK click, double <enter> did the job

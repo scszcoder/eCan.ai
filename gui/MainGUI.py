@@ -1757,6 +1757,11 @@ class MainWindow(QMainWindow):
         rpa_script = prepRunSkill(all_skill_codes)
         print("generated psk:", rpa_script)
 
+        # doing this just so that the code below can run multiple codes if needed. but in reality
+        # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
+        # this has to be corrected because, the following append would just have multiple same
+        # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
+        # forseaable future.
         rpaScripts.append(rpa_script)
         print("rpaScripts:[", len(rpaScripts), "] ", rpaScripts)
 
@@ -3512,12 +3517,13 @@ class MainWindow(QMainWindow):
 
             # go thru all steps.
             for key in code_jsons.keys():
-                if code_jsons[key]["type"] == "Use Skill":
+                if "type" in code_jsons[key]:
+                    if code_jsons[key]["type"] == "Use Skill":
 
-                    dependency_file = code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"]
-                    if dependency_file not in dependencies:
-                        dependencies.add(dependency_file)
-                        self.find_dependencies(dependency_file, visited, dependencies)
+                        dependency_file = code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"]
+                        if dependency_file not in dependencies:
+                            dependencies.add(dependency_file)
+                            self.find_dependencies(dependency_file, visited, dependencies)
 
 
 
@@ -3526,8 +3532,12 @@ class MainWindow(QMainWindow):
     def analyzeMainSkillDependencies(self, main_psk):
         dependencies = set()
         visited = set()
-        dependencies = self.find_dependencies(main_psk, visited, dependencies)
-        dep_list = list(dependencies)
+        self.find_dependencies(main_psk, visited, dependencies)
+        if len(dependencies) > 0:
+            dep_list = list(dependencies)
+        else:
+            dep_list = []
+        print("found dependency:", dep_list)
 
         dep_ids = []
         for dep in dep_list:
@@ -3541,7 +3551,7 @@ class MainWindow(QMainWindow):
             else:
                 existing_skill_ids.append(dp[0])
         # existing_skill_ids = filter(lambda x: x == -1, dep_ids)
-
+        print("existing_skill_ids:", existing_skill_ids)
         return existing_skill_ids
 
 
