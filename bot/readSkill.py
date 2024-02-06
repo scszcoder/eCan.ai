@@ -114,7 +114,7 @@ vicrop = {
     "Create Dir": lambda x, y: processCreateDir(x, y),
     "Print Label": lambda x,y: processPrintLabel(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
-    "AMZ Scrape PL Html": lambda x, y, z, w: processAMZScrapePLHtml(x, y, z, w),
+    "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
     "AMZ Scrape Details Html": lambda x, y: processAMZScrapeDetailsHtml(x, y),
     "AMZ Browse Reviews": lambda x,y: processAMZBrowseReviews(x, y),
@@ -879,7 +879,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, worksettings, page, sect,
         psk_words = psk_words + step_words
 
         # check whether there is any match of this page's product, if matched, click into it.
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", detail_cfg.products, "text", "any", "matchedProducts", "expandable", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", detail_cfg.products, "direct", "text", "any", "matchedProducts", "expandable", False, this_step)
         psk_words = psk_words + step_words
 
         if detail_cfg.nExpand > 0:
@@ -911,7 +911,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, worksettings, page, sect,
     psk_words = psk_words + step_words
 
     # here, if need to click open half hidden long reviews.....
-    this_step, step_words = genStepSearchAnchorInfo("screen_info","See all details", "screen_info", "any", "eop_review", "reviews_eop", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info","See all details", "direct", "screen_info", "any", "eop_review", "reviews_eop", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
