@@ -637,6 +637,9 @@ class MainWindow(QMainWindow):
             # point to the 1st task to run for the day.
             self.updateRunStatus(self.todays_work["tbd"][0], 0)
 
+    def addSkillRowsToSkillManager(self):
+        self.skillManagerWin.addSkillRows(self.skills)
+
     def regenSkillPSKs(self):
         for sk in self.skills:
             # next_step is not used,

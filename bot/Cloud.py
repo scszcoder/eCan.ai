@@ -1016,9 +1016,9 @@ def send_remove_missions_request_to_cloud(session, removes, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_skills_request_to_cloud(session, bots, token):
+def send_add_skills_request_to_cloud(session, skills, token):
 
-    mutationInfo = gen_add_skills_string(bots)
+    mutationInfo = gen_add_skills_string(skills)
 
     jresp = appsync_http_request(mutationInfo, session, token)
 
