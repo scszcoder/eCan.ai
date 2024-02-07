@@ -25,6 +25,9 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_file_local_op/open_save_as", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCallExtern("global f_op\nf_op = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -38,7 +41,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     print("fopen_f_path: ", fopen_f_path, "fopen_f_name: ", fopen_f_name)
 
     # readn screen
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "op", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "op", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # click on path input win

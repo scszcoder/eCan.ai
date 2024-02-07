@@ -34,6 +34,9 @@ def genWinRARLocalUnzipSkill(worksettings, stepN, theme):
                                           "File Open Dialog Handling for Windows.", stepN)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepStub("start skill", "public/win_rar_local_unzip/unzip_archive", "", this_step)
     psk_words = psk_words + step_words
 
@@ -77,7 +80,7 @@ def genWinRARLocalUnzipSkill(worksettings, stepN, theme):
     # verify the popup,
 
     # extract screen info,
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "expired_notification", "direct", "anchor text", "any", "useless", "rar_trial_end_popped", "amz", False, this_step)
@@ -107,14 +110,14 @@ def genWinRARLocalUnzipSkill(worksettings, stepN, theme):
     # now that the pops are closed. do the real work .....
 
     # click on "Extract to"
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "extract_to", "anchor text", "Extract To", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # read the file dialog
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "winrar", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)

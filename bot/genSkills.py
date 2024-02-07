@@ -9,6 +9,7 @@ from labelSkill import *
 from wifiSkill import *
 from printLabel import *
 from envi import *
+import os
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -170,7 +171,7 @@ def setWorkSettingsSkill(worksettings, sk):
 
 # generate pubilc skills on windows platform.
 def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
-
+    this_step = start_step
     sk_parts = sk_full_name.split("_")
     sk_prefix = "_".join(sk_parts[:4])
     sk_name = "_".join(sk_parts[4:])
@@ -181,22 +182,26 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
         sk_file_name = root_path + "/resource/skills/my/" + sk_prefix + "/" + sk_name + ".psk"
 
 
-    print("opening skill file: ", sk_prefix+"/"+sk_name)
+    print("opening skill file: ", sk_file_name)
 
     try:
-        skf = open(sk_file_name, "w+")
-        skf.write("\n")
-        psk_words = ""
+        if os.path.exists(sk_file_name):
+            skf = open(sk_file_name, "w+")
+            skf.write("\n")
+            psk_words = ""
 
-        this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
+            if sk_full_name in SkillGeneratorTable:
+                this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
 
-        psk_words = psk_words + step_words
+                psk_words = psk_words + step_words
 
-        # generate addresses for all subroutines.
-        # print("DEBUG", "Created PSK: " + psk_words)
+                # generate addresses for all subroutines.
+                # print("DEBUG", "Created PSK: " + psk_words)
 
-        skf.write(psk_words)
-        skf.close()
+                skf.write(psk_words)
+                skf.close()
+        else:
+            print("WARNING:::: skill file not found")
     except ValueError:
         print("ERROR: PSK file operation write error!!!")
 
