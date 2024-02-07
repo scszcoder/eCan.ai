@@ -557,6 +557,7 @@ class SkillGUI(QMainWindow):
         self.session = None
         self.cog = None
         self.rects = []
+        self.edit_mode = "new"
 
         self.pb_mode = "quiet"
         # ------- widgets ------------
@@ -1394,6 +1395,12 @@ class SkillGUI(QMainWindow):
 
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
+
+    def set_edit_mode(self, edmode):
+        self.edit_mode = edmode
+
+    def get_edit_mode(self):
+        return self.edit_mode
 
     def add_items_of_combobox(self, combobox: QComboBox, items: []):
         for item in items:
@@ -2293,6 +2300,7 @@ class SkillGUI(QMainWindow):
 
                 print(f'JSON data loaded from {file_name}: {data}')
                 self.skFCWidget.decode_json(json.dumps(data))
+                self.edit_mode = "edit"
 
     def save_skill_file(self):
         # bring out the load file dialog
@@ -2334,16 +2342,26 @@ class SkillGUI(QMainWindow):
                 for anchor_file in anchor_files:
                     upload_file(self.session, anchor_file, self.cog.id_token, "skill")
 
-                #add to cloud DB
-                new_skill = WORKSKILL(self.parent, skname)
-                # populate ts_skill here with these parameters:
-                # platform,app,site,page,name,path,main,descriptio,runtime
+                # add/update  to cloud DB
+                if self.edit_mode == "new":
+                    # add to cloud DB
+                    new_skill = WORKSKILL(self.parent, skname)
+                    # populate ts_skill here with these parameters:
+                    # platform,app,site,page,name,path,main,descriptio,runtime
 
-                result = send_add_skills_request_to_cloud(self.session, [new_skill], self.cog.id_token)
+                    result = send_add_skills_request_to_cloud(self.session, [new_skill], self.cog.id_token)
 
-                # add skillManagerWin
-                self.parent.skills.add(new_skill)
-                self.parent.addSkillRowsToSkillManager()
+                    # add skillManagerWin
+                    self.parent.skills.add(new_skill)
+                    self.parent.addSkillRowsToSkillManager()
+                else:
+                    this_skid = int(skd_data["sk_info"].get_skid())
+                    this_skill = next((x for x in self.parent.skills if x.getSkid() == this_skid), None)
+                    if this_skill:
+                        result = send_update_skills_request_to_cloud(self.session, [this_skill], self.cog.id_token)
+                    else:
+                        print("WARNING: SKILL TO BE UPDATED NOT FOUND!")
+
 
 
     def cancel_run(self):
