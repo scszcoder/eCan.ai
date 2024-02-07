@@ -30,6 +30,9 @@ def genWinChromeAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill main", "public/win_chrome_amz_home/browse_search", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genWinChromeAMZWalkSteps(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
@@ -59,7 +62,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    # print("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -836,10 +839,10 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     # ("", lieutenant.homepath, "screen_info", "amazon_home", "top", this_step, None)
     dtnow = datetime.now()
     dt_string = str(int(dtnow.timestamp()))
-    hfname = hfname + dt_string + ".html"
+    hfname = dt_string + ".html"
 
 
-    this_step, step_words = genStepCreateData("str", "hf_name", "NA", hfname, stepN)
+    this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "sk_work_settings['log_path']/"+hfname, stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', sk_work_settings['log_path'], hf_name]", this_step)
@@ -1005,11 +1008,9 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
     site_url = "https://www.amazon.com"
 
-    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, start_step)
-    psk_words = psk_words + step_words
 
     # open the order page again.
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, start_step)
     psk_words = psk_words + step_words
 
 

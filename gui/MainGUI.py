@@ -13,6 +13,7 @@ import importlib
 from vehicles import *
 from unittests import *
 from SkillManagerGUI import *
+import os
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -640,8 +641,9 @@ class MainWindow(QMainWindow):
         for sk in self.skills:
             # next_step is not used,
             sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
+            print("PSK FILE NAME:::::::::::::::::::::", sk_full_name)
             next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
-
+            print("PSK FILE:::::::::::::::::::::::::", psk_file)
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
@@ -1690,8 +1692,8 @@ class MainWindow(QMainWindow):
                 pskJson.pop(key)
                 new_idx = new_idx + STEP_GAP
 
-                if "settings" in pskJson[new_key]:
-                    pskJson[new_key]["settings"] == work_settings
+                if "Create Data" in pskJson[new_key]:
+                    pskJson[new_key]["key_value"] == work_settings
 
         return new_idx
 
@@ -3511,19 +3513,21 @@ class MainWindow(QMainWindow):
         # "skill_path": "public/win_chrome_etsy_orders",
         # "skill_args": "gs_input",
         # "output": "total_label_cost"
+        print("TRYING....", main_file)
+        if os.path.exists(main_file):
+            print("OPENING....", main_file)
+            with open(main_file, 'r') as psk_file:
+                code_jsons = json.load(psk_file)
 
-        with open(main_file, 'r') as psk_file:
-            code_jsons = json.load(psk_file)
+                # go thru all steps.
+                for key in code_jsons.keys():
+                    if "type" in code_jsons[key]:
+                        if code_jsons[key]["type"] == "Use Skill":
 
-            # go thru all steps.
-            for key in code_jsons.keys():
-                if "type" in code_jsons[key]:
-                    if code_jsons[key]["type"] == "Use Skill":
-
-                        dependency_file = code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"]
-                        if dependency_file not in dependencies:
-                            dependencies.add(dependency_file)
-                            self.find_dependencies(dependency_file, visited, dependencies)
+                            dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+                            if dependency_file not in dependencies:
+                                dependencies.add(dependency_file)
+                                self.find_dependencies(dependency_file, visited, dependencies)
 
 
 

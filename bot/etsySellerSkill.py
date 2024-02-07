@@ -3,7 +3,7 @@ from scraperEtsy import *
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-import datetime
+from datetime import datetime
 from envi import *
 from config.app_info import app_info
 
@@ -221,7 +221,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
@@ -479,7 +479,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "completion", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
@@ -526,7 +526,7 @@ def genWinEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "orders", "completion", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # click and type USPS in carrier pull down menu

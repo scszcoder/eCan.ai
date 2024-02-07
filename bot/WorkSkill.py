@@ -461,7 +461,7 @@ class WORKSKILL(QStandardItem):
         sk_name = os.path.basename(skill_file_name).split(".")[0]
         sk_prefix = os.path.basename(os.path.dirname(skill_file_name))
         input_skill_file_name = sk_prefix+"_"+sk_name
-        correct_name = self.platform+"_"+self.App()+"_"+self.site_name+"_"+self.page+"_"+self.name
+        correct_name = self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name
 
         if correct_name == input_skill_file_name:
             return True

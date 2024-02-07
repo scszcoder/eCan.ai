@@ -17,6 +17,14 @@
 },
 "step 10":
 {
+    "type": "Create Data",
+    "data_type": "obj",
+    "data_name": "sk_work_settings",
+    "key_name": "NA",
+    "key_value": null
+},
+"step 15":
+{
     "type": "App Open",
     "action": "cmd",
     "save_rb": true,
@@ -24,18 +32,18 @@
     "target_link": "https://www.etsy.com/your/orders/sold",
     "anchor_type": "",
     "anchor_value": "",
-    "cargs_type": "direct",
-    "cargs": "",
+    "cargs_type": "expr",
+    "settings": "sk_work_settings['cargs']",
     "wait": 5
 },
-"step 15":
+"step 20":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 1
 },
-"step 20":
+"step 25":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -43,7 +51,7 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 25":
+"step 30":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -51,7 +59,7 @@
     "key_name": "NA",
     "key_value": "None"
 },
-"step 30":
+"step 35":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -59,7 +67,7 @@
     "key_name": "NA",
     "key_value": "None"
 },
-"step 35":
+"step 40":
 {
     "type": "Call Extern",
     "file": "global pageOfOrders\nprint('PAGE OF ORDERS:', pageOfOrders)",
@@ -67,7 +75,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 40":
+"step 45":
 {
     "type": "Create Data",
     "data_type": "bool",
@@ -75,7 +83,7 @@
     "key_name": "NA",
     "key_value": false
 },
-"step 45":
+"step 50":
 {
     "type": "Create Data",
     "data_type": "bool",
@@ -83,7 +91,7 @@
     "key_name": "NA",
     "key_value": false
 },
-"step 50":
+"step 55":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -91,7 +99,7 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 55":
+"step 60":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -99,14 +107,14 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 60":
+"step 65":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 3
 },
-"step 65":
+"step 70":
 {
     "type": "Repeat",
     "lc_name": "browseEtsyOL0",
@@ -114,7 +122,7 @@
     "count": "",
     "end": ""
 },
-"step 70":
+"step 75":
 {
     "type": "Call Extern",
     "file": "global endOfOrdersPage\nendOfOrdersPage = False",
@@ -122,473 +130,18 @@
     "entity": "in_line",
     "output": ""
 },
-"step 75":
+"step 80":
 {
     "type": "Repeat",
-    "lc_name": "browseEtsyOrderPage75",
+    "lc_name": "browseEtsyOrderPage80",
     "until": "endOfOrdersPage != True",
     "count": "",
     "end": ""
 },
-"step 80":
+"step 85":
 {
     "type": "Extract Info",
-    "settings": {
-        "skname": "collect_orders",
-        "skfname": "C:/Users/songc/PycharmProjects/ecbot//resource/skills/public/win_chrome_etsy_orders/collect_orders.psk",
-        "cargs": "",
-        "botid": 3,
-        "seller": {
-            "No": "1",
-            "FromName": "Sam Chen",
-            "PhoneFrom": "925-601-1002",
-            "Address1From": "2610 Laramie Gate Cir",
-            "CompanyFrom": "",
-            "Address2From": "",
-            "CityFrom": "Pleasanton",
-            "StateFrom": "CA",
-            "ZipCodeFrom": "94566"
-        },
-        "mid": 3,
-        "midx": -1,
-        "run_config": {
-            "estRunTime": 1
-        },
-        "root_path": "C:/Users/songc/PycharmProjects/ecbot/",
-        "log_path_prefix": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/",
-        "log_path": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
-        "platform": "win",
-        "site": "etsy",
-        "app": "chrome",
-        "app_exe": "C:/Program Files/Google/Chrome/Application/chrome.exe",
-        "page": "orders",
-        "products": [
-            {
-                "name": "default",
-                "title": "neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "michigan state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "osu",
-                "title": "OSU Buckeyes Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "iowa",
-                "title": "Iowa Hawkeyes Neon Sign For Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoratio",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "indiana",
-                "title": "Indiana Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "penn state",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wisconsin",
-                "title": "Badgers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "minnesota",
-                "title": "U Minnesota Golden Gophers Neon Sign For March Madness Wall Decoration, Room Decoration, Dorm Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "florida",
-                "title": "Florida Gators Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "alabama",
-                "title": "Alabama Big Al Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "georgia",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "duke",
-                "title": "Duke Blue Devil Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "wake forrest",
-                "title": "Wake Forest Demon Deacons Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "kansas",
-                "title": "Jayhawk Neon Sign For March Madness Wall Decoration, Room Decoration, Bar Decoration, Dorm Decoration",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "christmas tree",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "coffee",
-                "title": "Christmas Themed Christmas Tree LED Neon Light",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "among us",
-                "title": "Among Us Imposter Neon Light (Mono-Colored, 6 color choices), perfect for wall decor for Children's party decor",
-                "asin": "",
-                "variation": {},
-                "weight": 0.6,
-                "dimension": [
-                    8,
-                    8,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open",
-                "title": "Michigan State MSU Spartans LED Neon Sign For Party Decor, Dorm Decor and Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open1",
-                "title": "OPEN LED Neon Sign For Businesses of All Kinds",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "open2",
-                "title": "OPEN LED Neon Sign For Stores And Shops",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "beer3",
-                "title": "Cold Beer Neon Sign For Wall Decor, Window Decor, Room Decor, kitchen neon sign",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            },
-            {
-                "name": "bastketball",
-                "title": "Basketball Neon Sign, NBA College Basketball LED Neon Lights for Home Decor, Wall Decor, Party Decor, Room Decor",
-                "asin": "",
-                "variation": {},
-                "weight": 2.2,
-                "dimension": [
-                    18,
-                    14,
-                    2
-                ],
-                "state": "new",
-                "inventory": [
-                    {
-                        "loc": "USCA0",
-                        "quantity": 1
-                    }
-                ]
-            }
-        ],
-        "rpaName": "sell",
-        "wifis": [
-            "OrbiSongChenHome"
-        ],
-        "options": "{}",
-        "name_space": "B3M3!win_chrome_etsy_orders!collect_orders!"
-    },
+    "settings": "sk_work_settings",
     "template": "",
     "option": "",
     "data_sink": "screen_info",
@@ -597,13 +150,14 @@
     "theme": "light",
     "section": "top"
 },
-"step 85":
+"step 90":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "ship_to_summery"
     ],
+    "name_type": "direct",
     "target_types": [
         "info 2"
     ],
@@ -613,13 +167,14 @@
     "breakpoint": false,
     "status": "useless"
 },
-"step 90":
+"step 95":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "ship_to"
     ],
+    "name_type": "direct",
     "target_types": [
         "anchor text"
     ],
@@ -629,7 +184,7 @@
     "breakpoint": false,
     "status": "useless"
 },
-"step 95":
+"step 100":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -637,13 +192,13 @@
     "key_name": "NA",
     "key_value": "len(shipTos)-1"
 },
-"step 100":
+"step 105":
 {
     "type": "Etsy Remove Expanded",
     "shipTos": "shipTos",
     "shipToSummeries": "shipToSummeries"
 },
-"step 105":
+"step 110":
 {
     "type": "Call Extern",
     "file": "global shipTos\nprint('SHIP TOS:', shipTos)",
@@ -651,7 +206,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 110":
+"step 115":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -659,7 +214,7 @@
     "key_name": "NA",
     "key_value": "len(shipTos)-1"
 },
-"step 115":
+"step 120":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -667,7 +222,7 @@
     "key_name": "NA",
     "key_value": "numShipTos - nthShipTo"
 },
-"step 120":
+"step 125":
 {
     "type": "Call Extern",
     "file": "global nthShipTo\nnthShipTo = numShipTos",
@@ -675,7 +230,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 125":
+"step 130":
 {
     "type": "Repeat",
     "lc_name": "dummy0",
@@ -683,7 +238,7 @@
     "count": "",
     "end": ""
 },
-"step 130":
+"step 135":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -707,14 +262,14 @@
     ],
     "post_wait": 2
 },
-"step 135":
+"step 140":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 1
 },
-"step 140":
+"step 145":
 {
     "type": "Call Extern",
     "file": "global nthShipTo\nnthShipTo = nthShipTo - 1",
@@ -722,27 +277,28 @@
     "entity": "in_line",
     "output": ""
 },
-"step 145":
+"step 150":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 150":
+"step 155":
 {
     "type": "Check Condition",
     "condition": "len(shipTos) == 0",
     "if_else": "",
     "if_end": ""
 },
-"step 155":
+"step 160":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
     "names": [
         "etsy_inc"
     ],
+    "name_type": "direct",
     "target_types": [
         "anchor text"
     ],
@@ -752,14 +308,14 @@
     "breakpoint": false,
     "status": "endOfOrdersPage"
 },
-"step 160":
+"step 165":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 165":
+"step 170":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -772,27 +328,28 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 170":
+"step 175":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 1
 },
-"step 175":
+"step 180":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 180":
+"step 185":
 {
     "type": "Create Dir",
-    "dir": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/collect_orders/",
+    "dir": "sk_work_settings['log_path']",
+    "name_type": "expr",
     "result": "fileStatus"
 },
-"step 185":
+"step 190":
 {
     "type": "Key Input",
     "action": "",
@@ -801,15 +358,23 @@
     "location": "",
     "wait_after": 4
 },
-"step 190":
+"step 195":
+{
+    "type": "Create Data",
+    "data_type": "str",
+    "data_name": "hf_name",
+    "key_name": "NA",
+    "key_value": "etsyOrders1707287939.html"
+},
+"step 200":
 {
     "type": "Create Data",
     "data_type": "expr",
     "data_name": "file_save_input",
     "key_name": "NA",
-    "key_value": "['save', 'C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/collect_orders/', 'etsyOrders1700428540.html']"
+    "key_value": "['save', sk_work_settings['log_path'], hf_name]"
 },
-"step 195":
+"step 205":
 {
     "type": "Use Skill",
     "skill_name": "open_save_as",
@@ -817,35 +382,37 @@
     "skill_args": "file_save_input",
     "output": "fileStatus"
 },
-"step 200":
+"step 210":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 18
 },
-"step 205":
+"step 215":
 {
     "type": "ETSY Scrape Orders",
     "pidx": "currentPage",
-    "html_file": "C:/Users/songc/PycharmProjects/ecbot//runlogs/20231119/b3m3/win_chrome_etsy_orders/skills/collect_orders/etsyOrders1700428540.html",
+    "html_dir": "sk_work_settings['log_path']",
+    "html_dir_type": "expr",
+    "html_file": "etsyOrders1707287939.html",
     "result": "pageOfOrders",
     "status": ""
 },
-"step 210":
+"step 220":
 {
     "type": "Etsy Add Page Of Order",
     "fullOrders": "etsy_orders",
     "pageOfOrders": "pageOfOrders"
 },
-"step 215":
+"step 225":
 {
     "type": "Check Condition",
     "condition": "pageOfOrders['num_pages'] == pageOfOrders['page']",
     "if_else": "",
     "if_end": ""
 },
-"step 220":
+"step 230":
 {
     "type": "Call Extern",
     "file": "global endOfOrderList\nendOfOrderList = True",
@@ -853,14 +420,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 225":
+"step 235":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 230":
+"step 240":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -887,21 +454,21 @@
     ],
     "post_wait": 0
 },
-"step 235":
+"step 245":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 240":
+"step 245":
 {
     "type": "Stub",
-    "stub_name": "end loop",
+    "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 245":
+"step 250":
 {
     "type": "Stub",
     "stub_name": "end skill",
