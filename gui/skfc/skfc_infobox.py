@@ -36,6 +36,9 @@ class SKInfo:
 
         return sk_info
 
+    def get_skid(self):
+        return self.skid
+
 
 # class SwitchButton(QWidget):
 #     stateChanged = Signal(bool)
