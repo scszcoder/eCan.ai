@@ -15,7 +15,7 @@ fopen_f_name = ""
 
 # this skill assumes the following input "fin": [file path, file name, file operation name ("open"/"save")]
 # the caller skill must get these ready. There will be no error handling here.
-def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
+def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_file_local_open_save_as", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001",
@@ -23,6 +23,9 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("start skill", "public/win_file_local_op/open_save_as", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global f_op\nf_op = fin[0]", "", "in_line", "", this_step)
@@ -38,7 +41,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     print("fopen_f_path: ", fopen_f_path, "fopen_f_name: ", fopen_f_name)
 
     # readn screen
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "op", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "op", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # click on path input win
@@ -62,7 +65,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
 
     # type in the path
     #action, saverb, txt, speed, key_after, wait_after, stepN
-    this_step, step_words = genStepTextInput("var", False, "fopen_f_path", 1, "enter", 5, this_step)
+    this_step, step_words = genStepTextInput("var", False, "fopen_f_path", "direct", 1, "enter", 5, this_step)
     psk_words = psk_words + step_words
 
     # click on file name input win
@@ -86,7 +89,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # type in the path
-    this_step, step_words = genStepTextInput("var", False, "fopen_f_name", 1, "", 2, this_step)
+    this_step, step_words = genStepTextInput("var", False, "fopen_f_name", "direct", 1, "", 2, this_step)
     psk_words = psk_words + step_words
 
 

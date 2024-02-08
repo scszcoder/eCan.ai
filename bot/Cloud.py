@@ -322,7 +322,7 @@ def gen_schedule_request_string(test_name, schedule_settings):
     if test_name != "":
         query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": true, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
     else:
-        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
+        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"vwins\\\": \\\""+schedule_settings["vwins"]+"\\\", \\\"vmacs\\\": \\\""+schedule_settings["vmacs"]+"\\\", \\\"vlnxs\\\": \\\""+schedule_settings["vlnxs"]+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
@@ -1016,9 +1016,9 @@ def send_remove_missions_request_to_cloud(session, removes, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_skills_request_to_cloud(session, bots, token):
+def send_add_skills_request_to_cloud(session, skills, token):
 
-    mutationInfo = gen_add_skills_string(bots)
+    mutationInfo = gen_add_skills_string(skills)
 
     jresp = appsync_http_request(mutationInfo, session, token)
 

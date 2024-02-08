@@ -476,6 +476,16 @@ class SkillManagerWindow(QMainWindow):
             self.skillTableView.setRowHeight(i, 32)
             i = i + 1
 
+    def addSkillRows(self, skillData):
+        rows = self.skillModel.rowCount()
+        nskills = len(skillData)
+
+        if nskills > rows:
+            for i in range(rows, nskills):
+                self.fill1TableRow(i, skillData, self.skillModel)
+                self.skillTableView.setRowHeight(i, 32)
+
+
     def showAllLocalSkills(self):
         self.skillModel.clear()
         self.updateSkills(self.parent.skills)

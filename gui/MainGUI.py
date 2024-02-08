@@ -13,6 +13,7 @@ import importlib
 from vehicles import *
 from unittests import *
 from SkillManagerGUI import *
+import os
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -117,7 +118,9 @@ class MainWindow(QMainWindow):
         self.mission_failed_icon_path = self.homepath + '/resource/images/icons/failed_launch0_48.png'
         self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
         self.product_icon_path = self.homepath + '/resource/images/icons/product80_0.png'
-        self.vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.win_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.mac_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.linux_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
         self.commander_icon_path = self.homepath + '/resource/images/icons/general1_4.png'
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
@@ -153,7 +156,7 @@ class MainWindow(QMainWindow):
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
-        self.platform = platform.system().lower()[0:2]
+        self.platform = platform.system().lower()[0:3]
         self.std_item_font = QFont('Arial', 10)
 
         self.sellerInventoryJsonData = None
@@ -634,12 +637,16 @@ class MainWindow(QMainWindow):
             # point to the 1st task to run for the day.
             self.updateRunStatus(self.todays_work["tbd"][0], 0)
 
+    def addSkillRowsToSkillManager(self):
+        self.skillManagerWin.addSkillRows(self.skills)
+
     def regenSkillPSKs(self):
         for sk in self.skills:
             # next_step is not used,
             sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
+            print("PSK FILE NAME:::::::::::::::::::::", sk_full_name)
             next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
-
+            print("PSK FILE:::::::::::::::::::::::::", psk_file)
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
@@ -978,7 +985,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Fetch Schedules"))
-        new_action.triggered.connect(lambda: self.fetchSchedule("", None))
+        new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings()))
         return new_action
 
 
@@ -1455,61 +1462,107 @@ class MainWindow(QMainWindow):
         print("mids in the task group::", mids)
         return bids, mids
 
+    # assumption, tg will not be empty.
+    def getTaskGroupOS(self, tg):
+        # get the 1st mission, and get its cuspas and extract platform part of the cuspas.
+        found = False
+        for tz in tg.keys():
+            if len(tg[tz]) > 0:
+                if len(tg[tz][0]["bw_works"]) > 0:
+                    mission_id = tg[tz][0]["bw_works"][0]["mid"]
+
+                else:
+                    mission_id = tg[tz][0]["other_works"][0]["mid"]
+
+                midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
+                platform = self.missions[midx].getPlatform()
+
+        return platform
+
+
+    def groupTaskGroupsByOS(self, tgs):
+        result = {
+            "win": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "win"],
+            "mac": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "mac"],
+            "linux": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "lin"]
+        }
+        return result
+
+    def groupVehiclesByOS(self):
+        result = {
+            "win": [v for v in self.vehicles if v.getOS() == "Windows"],
+            "mac": [v for v in self.vehicles if v.getOS() == "Mac"],
+            "linux": [v for v in self.vehicles if v.getOS() == "linux"]
+        }
+
+        if self.hostrole == "Commander":
+            nsites = len(fieldLinks)
+            if self.platform == "win":
+                result["win"].append(self)
+            elif self.platform == "mac":
+                result["mac"].append(self)
+            else:
+                result["linux"].append(self)
+
+
+        return result
+
     # assign work, if this commander runs, assign works for commander,
     # otherwise, send works to platoons to execute.
     def assignWork(self, task_groups):
         # tasks should already be sorted by botid,
         nsites = 0
-        if len(task_groups) > 0:
-            if self.hostrole == "CommanderOnly":
-                nsites = len(fieldLinks)
-                print("commander only machine [", nsites, "]")
-            else:
-                nsites = 1 + len(fieldLinks)
-                print("commander can run.....[", nsites, "]")
 
-            tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[0])
-            resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
-            print("test code here.....", resource_string)
+        v_task_groups = self.groupTaskGroupsByOS(task_groups)    #result will {"win": win_tgs, "mac": mac_tgs, "linux": linux_tgs}
+        v_groups = self.groupVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
 
-        if len(task_groups) > nsites:
-            # there will be unserved tasks due to over capacity
-            print("Run Capacity Spilled, some tasks will NOT be served!!!")
-            self.netLogWin.appendLogs("Run Capacity Spilled, some tasks will NOT be served!!!")
+        for platform in v_task_groups.keys():
+            p_task_groups = v_task_groups[platform]
+            p_nsites = len(v_groups[platform])
 
-        # distribute work to all available sites, which is the limit for the total capacity.
-        if nsites > 0:
-            for i in range(nsites):
-                if i == 0 and not self.hostrole == "CommanderOnly":
-                    # if commander participate work, give work to here.
-                    print("arranged for today on this machine....")
-                    self.todays_work["tbd"].append({"name": "automation", "works": task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
-                else:
-                    #otherwise, send work to platoons in the field.
-                    if self.hostrole == "CommanderOnly":
-                        print("cmd only sending to platoon: ", i)
-                        task_group_string = json.dumps(task_groups[i]).replace('"', '\\"')
-                        self.todays_work["tbd"].append(
-                            {"name": "automation", "works": task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
-                             "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
-                             "current oidx": 0, "completed": [], "aborted": []})
+            if len(p_task_groups) > 0:
+                tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(p_task_groups[0])
+                resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+                print("test code here.....", resource_string)
 
+            if len(p_task_groups) > p_nsites:
+                # there will be unserved tasks due to over capacity
+                print("Run Capacity Spilled, some tasks will NOT be served!!!")
+                self.netLogWin.appendLogs("Run Capacity Spilled, some tasks will NOT be served!!!")
+
+            # distribute work to all available sites, which is the limit for the total capacity.
+            if p_nsites > 0:
+                for i in range(p_nsites):
+                    if i == 0 and not self.hostrole == "CommanderOnly":
+                        # if commander participate work, give work to here.
+                        print("arranged for today on this machine....")
+                        self.todays_work["tbd"].append({"name": "automation", "works": p_task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
                     else:
-                        print("cmd sending to platoon: ", i)
-                        task_group_string = json.dumps(task_groups[i+1]).replace('"', '\\"')
-                        self.todays_work["tbd"].append(
-                            {"name": "automation", "works": task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
-                             "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
-                             "current oidx": 0, "completed": [], "aborted": []})
+                        #otherwise, send work to platoons in the field.
+                        if self.hostrole == "CommanderOnly":
+                            print("cmd only sending to platoon: ", i)
+                            task_group_string = json.dumps(p_task_groups[i]).replace('"', '\\"')
+                            self.todays_work["tbd"].append(
+                                {"name": "automation", "works": p_task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                                 "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                                 "current oidx": 0, "completed": [], "aborted": []})
 
-                    # now need to fetch this task associated bots, mission, skills
-                    # get all bots IDs involved. get all mission IDs involved.
-                    tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(task_groups[i])
-                    resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
-                    schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
-                    print("SCHEDULE:::", schedule)
+                        else:
+                            print("cmd sending to platoon: ", i)
+                            task_group_string = json.dumps(p_task_groups[i+1]).replace('"', '\\"')
+                            self.todays_work["tbd"].append(
+                                {"name": "automation", "works": p_task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                                 "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                                 "current oidx": 0, "completed": [], "aborted": []})
 
-                    fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
+                        # now need to fetch this task associated bots, mission, skills
+                        # get all bots IDs involved. get all mission IDs involved.
+                        tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(p_task_groups[i])
+                        resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
+                        schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
+                        print("SCHEDULE:::", schedule)
+
+                        fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
 
         # now that a new day starts, clear all reports data structure
         self.todaysReports = []
@@ -1578,8 +1631,8 @@ class MainWindow(QMainWindow):
                         print("next run is now set up......")
                         nextrun = self.todays_work["tbd"][0]
 
-
         return nextrun
+
 
     def findMissonsToBeRetried(self, todos):
         retryies = copy.deepcopy(todos)
@@ -1628,9 +1681,25 @@ class MainWindow(QMainWindow):
             skill_file = self.homepath + "resource/skills/my/" + skname + "/scripts/" + skname + ".psk"
 
         print("loadSKILLFILE: ", skill_file)
-        stepKeys = readSkillFile(skname, skill_file, lvl=0)
+        stepKeys = readPSkillFile(skname, skill_file, lvl=0)
 
         return stepKeys
+
+    def reAddrAndUpdateSteps(self, pskJson, init_step_idx, work_settings):
+        new_idx = init_step_idx
+        old_keys = list(pskJson.keys())
+        for key in old_keys:
+            if "step" in key:
+                new_key = "step "+str(new_idx)
+                pskJson[new_key] = pskJson[key]
+                pskJson.pop(key)
+                new_idx = new_idx + STEP_GAP
+
+                if "Create Data" in pskJson[new_key]:
+                    pskJson[new_key]["key_value"] == work_settings
+
+        return new_idx
+
 
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
@@ -1661,22 +1730,31 @@ class MainWindow(QMainWindow):
             s = set(relevant_skill_ids)
             missing = [x for x in rpaSkillIds if x not in s]
             print("ERROR: Required Skills not found:", missing)
-        else:
-            ordered_relevant_skills = sorted(relevant_skills, key=lambda x: rpaSkillIds.index(x.getSkid()))
+
 
         all_skill_codes = []
-        sk_idx = 0
-        for sk in ordered_relevant_skills:
+        step_idx = 0
+        for sk in relevant_skills:
             print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
             setWorkSettingsSkill(worksettings, sk)
             # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
-            if sk_idx == 0:
-                next_step = genSkillCode(worksettings, first_step, "light")
-            else:
-                next_step = genSkillCode(worksettings, next_step, "light")
 
-            all_skill_codes.append({"ns": worksettings["name_space"], "skfile": worksettings["skfname"]})
-            sk_idx = sk_idx + 1
+            # readPSkillFile will remove comments. from the file
+            pskJson = readPSkillFile(worksettings["name_space"], sk.getPskFileName(), lvl=0)
+
+            # now regen address and update settings, after running, pskJson will be updated.
+            step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+
+            addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
+
+            # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
+            rskFileName = sk.getPskFileName().split(".")[0] + "rsk"
+            print("rskFileName:", rskFileName, "step_idx:", step_idx)
+            with open(rskFileName, "w") as outfile:
+                json.dump(pskJson, outfile)
+            outfile.close()
+
+            all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
 
         print("all_skill_codes: ", all_skill_codes)
 
@@ -1684,6 +1762,11 @@ class MainWindow(QMainWindow):
         rpa_script = prepRunSkill(all_skill_codes)
         print("generated psk:", rpa_script)
 
+        # doing this just so that the code below can run multiple codes if needed. but in reality
+        # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
+        # this has to be corrected because, the following append would just have multiple same
+        # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
+        # forseaable future.
         rpaScripts.append(rpa_script)
         print("rpaScripts:[", len(rpaScripts), "] ", rpaScripts)
 
@@ -3433,18 +3516,21 @@ class MainWindow(QMainWindow):
         # "skill_path": "public/win_chrome_etsy_orders",
         # "skill_args": "gs_input",
         # "output": "total_label_cost"
+        print("TRYING....", main_file)
+        if os.path.exists(main_file):
+            print("OPENING....", main_file)
+            with open(main_file, 'r') as psk_file:
+                code_jsons = json.load(psk_file)
 
-        with open(main_file, 'r') as psk_file:
-            code_jsons = json.load(psk_file)
+                # go thru all steps.
+                for key in code_jsons.keys():
+                    if "type" in code_jsons[key]:
+                        if code_jsons[key]["type"] == "Use Skill":
 
-            # go thru all steps.
-            for key in code_jsons.keys():
-                if code_jsons[key]["type"] == "Use Skill":
-
-                    dependency_file = code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"]
-                    if dependency_file not in dependencies:
-                        dependencies.add(dependency_file)
-                        self.find_dependencies(dependency_file, visited, dependencies)
+                            dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+                            if dependency_file not in dependencies:
+                                dependencies.add(dependency_file)
+                                self.find_dependencies(dependency_file, visited, dependencies)
 
 
 
@@ -3453,8 +3539,12 @@ class MainWindow(QMainWindow):
     def analyzeMainSkillDependencies(self, main_psk):
         dependencies = set()
         visited = set()
-        dependencies = self.find_dependencies(main_psk, visited, dependencies)
-        dep_list = list(dependencies)
+        self.find_dependencies(main_psk, visited, dependencies)
+        if len(dependencies) > 0:
+            dep_list = list(dependencies)
+        else:
+            dep_list = []
+        print("found dependency:", dep_list)
 
         dep_ids = []
         for dep in dep_list:
@@ -3468,7 +3558,7 @@ class MainWindow(QMainWindow):
             else:
                 existing_skill_ids.append(dp[0])
         # existing_skill_ids = filter(lambda x: x == -1, dep_ids)
-
+        print("existing_skill_ids:", existing_skill_ids)
         return existing_skill_ids
 
 
@@ -3670,6 +3760,22 @@ class MainWindow(QMainWindow):
         for m in self.missions:
             status = m.run()
 
+    def get_vehicle_settings(self):
+        vsettings = {
+            "vwins": len([v for v in self.vehicles if v.getOS() == "win"]),
+            "vmacs": len([v for v in self.vehicles if v.getOS() == "mac"]),
+            "vlnxs": len([v for v in self.vehicles if v.getOS() == "linux"])
+        }
+        # add self to the compute resource pool
+        if self.hostrole == "Commander":
+            if self.platform == "win":
+                vsettings["vwins"] = vsettings["vwins"] + 1
+            elif self.platform == "mac":
+                vsettings["vmacs"] = vsettings["vmacs"] + 1
+            else:
+                vsettings["vlnxs"] = vsettings["vlnxs"] + 1
+        return vsettings
+
     def runbotworks(self):
         # run all the work
         botTodos = None
@@ -3682,7 +3788,8 @@ class MainWindow(QMainWindow):
                 if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
                     last_start = int(datetime.now().timestamp()*1)
-                    botTodos["status"] = self.fetchSchedule("", None)
+
+                    botTodos["status"] = self.fetchSchedule("", self.get_vehicle_settings())
                     last_end = int(datetime.now().timestamp()*1)
                     # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                     # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
@@ -3825,7 +3932,14 @@ class MainWindow(QMainWindow):
         # first, check ip and make sure this from a know vehicle.
         if msg["type"] == "intro":
             if found:
-                found["name"] = msg["content"]["name"]
+                print("recevied a vehicle introduction:")
+                found_vehicle = next((x for x in self.vehicles if x.getIP() == msg["ip"]), None)
+                if found_vehicle:
+                    found_vehicle.setName(msg["contents"]["name"])
+                    if "Windows" in msg["contents"]["os"]:
+                        found_vehicle.setOS("win")
+
+            #now
         elif msg["type"] == "status":
             # update vehicle status display.
             self.showMsg(msg["content"])

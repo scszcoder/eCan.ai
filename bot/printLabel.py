@@ -13,7 +13,7 @@ import datetime
 from basicSkill import *
 
 
-def genWinPrinterLocalReformatPrintSkill(worksettings, page, sect, stepN, theme):
+def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_printer_local_print", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEETSY001",

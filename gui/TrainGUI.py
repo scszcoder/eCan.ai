@@ -258,6 +258,7 @@ class TrainNewWin(QMainWindow):
 
     def start_skill(self):
         self.skillGUI.set_cloud(self.session, self.cog)
+        self.skillGUI.set_edit_mode("new")
         self.skillGUI.show()
         # self.skillGUI.skFCDiagram.show()
 

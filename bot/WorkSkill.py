@@ -5,7 +5,7 @@ from PySide6.QtGui import QStandardItem, QIcon
 from readSkill import *
 
 # valid refMethod: "Absolute", "Anchor Offset"
-#  in case of "Anchor Offset", can list x/y relationship with up to 4 other anchors
+#  in case of "Anchor Offset", can list x/y relationship with up to 4 other images
 #  described in json format, [{ "name" : anchor_name, "constraints" : {}...]
 #    special anchor_name: ulc, urc, llc, lrc, lb, rb, tb, bb which represent "upper left corner" "left bound" etc.
 #  constraints : { "xdir" : "within/beyond", "xtype" : "absolute/signed/abs percent/signed percent", "xval" : "10", "xunit":"pix/char height/char width/img size/win size/" .. y***
@@ -461,7 +461,7 @@ class WORKSKILL(QStandardItem):
         sk_name = os.path.basename(skill_file_name).split(".")[0]
         sk_prefix = os.path.basename(os.path.dirname(skill_file_name))
         input_skill_file_name = sk_prefix+"_"+sk_name
-        correct_name = self.platform+"_"+self.App()+"_"+self.site_name+"_"+self.page+"_"+self.name
+        correct_name = self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name
 
         if correct_name == input_skill_file_name:
             return True
