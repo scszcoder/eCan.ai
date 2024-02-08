@@ -15,11 +15,13 @@ global symTab
 global STEP_GAP
 
 # html: html file name, pidx: page index,
-def genStepEtsyScrapeOrders(html, pidx, outvar, statusvar, stepN):
+def genStepEtsyScrapeOrders(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
     stepjson = {
         "type": "ETSY Scrape Orders",
         "pidx": pidx,
-        "html_file": html,
+        "html_dir": html_dir,
+        "html_dir_type": dir_name_type,
+        "html_file": html_file,
         "result": outvar,
         "status": statusvar
     }
@@ -36,7 +38,13 @@ def processEtsyScrapeOrders(step, i):
     try:
         next_i = i + 1
         pidx = step["pidx"]
-        html_file = step["html_file"]
+
+        if step["html_dir_type"] == "direct":
+            html_dir = step["html_dir"]
+        else:
+            exec("html_dir = "+step["html_dir"])
+
+        html_file = html_dir + "/" + step["html_file"]
         pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
         orders = []
         option_tags = []

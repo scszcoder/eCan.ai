@@ -40,6 +40,7 @@ def convWeeklySales(ws_txt):
 
 #idx - which page out of all pages of search result.
 def amz_buyer_fetch_product_list(html_file, idx):
+
     pagefull_of_pl = {"layout": "grid", "index": idx, "pl": None}
     products = []
     with open(html_file, 'rb') as fp:

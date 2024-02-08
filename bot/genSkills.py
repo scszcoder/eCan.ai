@@ -9,6 +9,7 @@ from labelSkill import *
 from wifiSkill import *
 from printLabel import *
 from envi import *
+import os
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -17,19 +18,17 @@ ecb_data_homepath = getECBotDataHome()
 SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
     "win_ads_amz_home_browse_search": lambda x,y,z: genWinADSAMZWalkSkill(x, y, z),
-    "win_ads_local_open_open_profile": lambda x,y,z: genWinADSOpenSkill(x, y, z),
-    "win_ads_local_load_batch_import": lambda x,y,z: genWinADSBatchImportSkill(x, y),
-    "win_chrome_etsy_orders_fullfill_orders": lambda x,y,z: genWinChromeEtsyFullfillOrdersSkill(x, y),
-    "win_chrome_etsy_orders_collect_orders": lambda x,y,z: genWinEtsyCollectOrderListSkill(x, y, z, k),
-    "win_chrome_etsy_orders_update_tracking": lambda x,y,z: genWinEtsyUpdateShipmentTrackingSkill(x, y),
-    "win_chrome_goodsupply_label_bulk_buy": lambda x,y,z: genWinChromeGSLabelBulkBuySkill(x, y),
-    "win_file_local_op_open_save_as": lambda x,y,z: genWinFileLocalOpenSaveSkill(x, y),
-    "win_printer_local_print_reformat_print": lambda x,y,z: genWinPrinterLocalReformatPrintSkill(x, y),
-    "win_rar_local_unzip_unzip_archive": lambda x,y,z: genWinRARLocalUnzipSkill(x, y),
+    "win_ads_local_open_open_profile": lambda x,y,z: genWinADSOpenProfileSkill(x, y, z),
+    "win_ads_local_load_batch_import": lambda x,y,z: genWinADSBatchImportSkill(x, y, z),
+    "win_chrome_etsy_orders_fullfill_orders": lambda x,y,z: genWinChromeEtsyFullfillOrdersSkill(x, y, z),
+    "win_chrome_etsy_orders_collect_orders": lambda x,y,z: genWinEtsyCollectOrderListSkill(x, y, z),
+    "win_chrome_etsy_orders_update_tracking": lambda x,y,z: genWinEtsyUpdateShipmentTrackingSkill(x, y, z),
+    "win_chrome_goodsupply_label_bulk_buy": lambda x,y,z: genWinChromeGSLabelBulkBuySkill(x, y, z),
+    "win_file_local_op_open_save_as": lambda x,y,z: genWinFileLocalOpenSaveSkill(x, y, z),
+    "win_printer_local_print_reformat_print": lambda x,y,z: genWinPrinterLocalReformatPrintSkill(x, y, z),
+    "win_rar_local_unzip_unzip_archive": lambda x,y,z: genWinRARLocalUnzipSkill(x, y, z),
     "win_wifi_local_list_reconnect_lan": lambda x,y,z: genWinWiFiLocalReconnectLanSkill(x, y, z),
-    "win_test_local_loop_run_simple_loop": lambda x,y,z: genTestRunSimpleLoopSkill(x, y),
-    "Create Data": lambda x,y: processCreateData(x, y),
-    "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
+    "win_test_local_loop_run_simple_loop": lambda x,y,z: genTestRunSimpleLoopSkill(x, y, z)
 }
 
 
@@ -172,33 +171,37 @@ def setWorkSettingsSkill(worksettings, sk):
 
 # generate pubilc skills on windows platform.
 def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
-
+    this_step = start_step
     sk_parts = sk_full_name.split("_")
     sk_prefix = "_".join(sk_parts[:4])
     sk_name = "_".join(sk_parts[4:])
 
     if privacy == "public":
-        sk_file_name = root_path + "resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
+        sk_file_name = root_path + "/resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
     else:
-        sk_file_name = root_path + "resource/skills/my/" + sk_prefix + "/" + sk_name + ".psk"
+        sk_file_name = root_path + "/resource/skills/my/" + sk_prefix + "/" + sk_name + ".psk"
 
 
-    print("opening skill file: ", sk_prefix+"/"+sk_name)
+    print("opening skill file: ", sk_file_name)
 
     try:
-        skf = open(sk_file_name, "w+")
-        skf.write("\n")
-        psk_words = ""
+        if os.path.exists(sk_file_name):
+            skf = open(sk_file_name, "w+")
+            skf.write("\n")
+            psk_words = ""
 
-        this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
+            if sk_full_name in SkillGeneratorTable:
+                this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
 
-        psk_words = psk_words + step_words
+                psk_words = psk_words + step_words
 
-        # generate addresses for all subroutines.
-        # print("DEBUG", "Created PSK: " + psk_words)
+                # generate addresses for all subroutines.
+                # print("DEBUG", "Created PSK: " + psk_words)
 
-        skf.write(psk_words)
-        skf.close()
+                skf.write(psk_words)
+                skf.close()
+        else:
+            print("WARNING:::: skill file not found")
     except ValueError:
         print("ERROR: PSK file operation write error!!!")
 
@@ -340,7 +343,7 @@ def genWinTestSkill2(worksettings, start_step):
     skf.close()
 
 
-def genTestRunSimpleLoopSkill(stepN):
+def genTestRunSimpleLoopSkill(worksettings, stepN, theme):
 
     psk_words = "{"
 
@@ -372,6 +375,6 @@ def genTestRunSimpleLoopSkill(stepN):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows loop test...." + psk_words)
+    # print("DEBUG", "generated skill for windows loop test...." + psk_words)
 
     return this_step, psk_words

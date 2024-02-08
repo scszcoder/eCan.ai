@@ -5,6 +5,7 @@ import threading
 import selectors
 import aioconsole
 from PlatoonGUI import *
+import platform
 
 UDP_IP = "127.0.0.1"
 
@@ -37,7 +38,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.peername = transport.get_extra_info('peername')
         print('Connection from Platoon {}'.format(self.peername))
         self.transport = transport
-        fieldLinks.append({"ip": self.peername, "name": "nyk", "link": self})
+        fieldLinks.append({"ip": self.peername, "name": platform.node(), "link": self})
         if not self.topgui.mainwin == None:
             if self.topgui.mainwin.platoonWin == None:
                 self.topgui.mainwin.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
@@ -198,6 +199,12 @@ async def commanderFinder(topgui, thisloop, waitwin):
             topgui.set_xport(commanderXport)
             topgui.set_ip(myip)
             print("commanderXport created::", commanderXport)
+
+            # tell commander about self.
+            msg = {"ip": myip, "type": "intro", "contents": {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}}
+            # send to commander
+            commanderXport.write(str.encode(json.dumps(msg)))
+
             try:
                 await on_con_lost
             finally:

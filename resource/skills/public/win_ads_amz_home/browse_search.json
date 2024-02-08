@@ -1,6 +1,6 @@
 {
     "name": "browse_search",
-    "skid": 3,
+    "skid": 4,
     "owner": "public",
     "createdOn": "2023-12-25",
     "price": 0,
@@ -8,7 +8,7 @@
     "path": "resource/skills/public/",
     "privacy": "public",
     "platform": "win",
-    "app": "chrome",
+    "app": "ads",
     "app_link": "C:/Program Files/Google/Chrome/Application/chrome.exe",
     "app_args": "",
     "site_name": "amz",
@@ -108,7 +108,7 @@
         }
     },
     "cloud_skill": {
-        "path": "pubilc/win_chrome_amz_home/browse_search"
+        "path": "pubilc/win_ads_amz_home/browse_search"
     },
     "description": "a skill automatically searches and browses amazon web site."
 }

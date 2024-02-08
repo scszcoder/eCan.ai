@@ -1,8 +1,8 @@
 {
     "name": "run_simple_loop",
-    "skid": 101,
-    "createdOn": "2023-05-05",
-    "owner": "public",
+    "skid": 2,
+    "createdOn": "2024-01-13",
+    "owner": "dbadmin@maipps.com",
     "price": 0,
     "price_model": "free",
     "path": "resource/skills/public/",

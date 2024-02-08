@@ -75,7 +75,7 @@ def genStepHeader(skillname, los, ver, author, skid, description, stepN):
 
 
 
-def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, args, wait, stepN):
+def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, settings, wait, stepN):
     stepjson = {
         "type": "App Open",
         "action": action,
@@ -85,7 +85,7 @@ def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor
         "anchor_type": anchor_type,
         "anchor_value": anchor_value,
         "cargs_type": cargs_type,
-        "cargs": args,
+        "settings": settings,
         "wait":wait
     }
 
@@ -147,11 +147,12 @@ def genStepFillRecipients(texts_var, orders_var, site, stepN, option=""):
 
 
 # search information on a screen with a given name and type.
-def genStepSearchAnchorInfo(screen, names, target_types, logic, result, flag, site, break_here, stepN):
+def genStepSearchAnchorInfo(screen, names, name_type, target_types, logic, result, flag, site, break_here, stepN):
     stepjson = {
         "type": "Search Anchor Info",
         "screen": screen,
         "names": names,
+        "name_type": name_type,
         "target_types": target_types,
         "logic": logic,
         "result": result,
@@ -280,12 +281,13 @@ def genStepKeyInput(action, saverb, val, loc, wait_after, stepN):
 #  speed: type speed.
 #  key_after: key to hit after textinput. (could be "", "enter",
 #  wait_after: number of seconds to wait after key_after action.
-def genStepTextInput(txt_type, saverb, txt, speed, key_after, wait_after, stepN):
+def genStepTextInput(txt_type, saverb, txt, txt_ref_type, speed, key_after, wait_after, stepN):
     stepjson = {
         "type": "Text Input",
-        "txt_type": txt_type,
+        "txt_ref_type": txt_ref_type,
         "save_rb": saverb,
         "text": txt,
+        "text_type": txt_type,
         "speed": speed,
         "key_after": key_after,
         "wait_after":  wait_after
@@ -384,10 +386,11 @@ def genStepCheckExistence(fntype, fname, result_var, stepN):
 
 
 
-def genStepCreateDir(dirname, result_var, stepN):
+def genStepCreateDir(dirname, nametype, result_var, stepN):
     stepjson = {
         "type": "Create Dir",
         "dir": dirname,
+        "name_type": nametype,
         "result": result_var
     }
 
@@ -900,43 +903,21 @@ def processTextInput(step, i):
     ex_stat = "success:0"
     try:
         print("Keyboard typing......")
-        names = []
-        #sd = symTab[step["screen"]]
-        #obj_box = find_clickable_object(sd, step["target"], step["target_type"], step["nth"])
-        #loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"])
 
-        # def winEnumHandler(hwnd, ctx):
-        #     if win32gui.IsWindowVisible(hwnd):
-        #         n = win32gui.GetWindowText(hwnd)
-        #         if n:
-        #             names.append(n)
-        #
-        # win32gui.EnumWindows(winEnumHandler, None)
-        #
-        # window_handle = win32gui.FindWindow(None, names[0])
-        # window_rect = win32gui.GetWindowRect(window_handle)
-        #
-        # txt_boxes = list(filter(lambda x: x["name"] == "text_input_box" and x["type"] == "info", symTab["last_screen"]))
-        # print("found input locations:", len(txt_boxes))
-        # if len(txt_boxes) > 0:
-        #     loc = txt_boxes[0]["loc"]
-        #     print("loc @ ", loc)
-        # print("global loc@ ", int(loc[0])+window_rect[0], " ,  ", int(loc[1])+window_rect[1])
-        #
-        # pyautogui.moveTo(int(loc[0])+window_rect[0], int(loc[1])+window_rect[1])
+        if step["text_ref_type"] == "direct":
+            txt_to_be_input = step["text"]
+        else:
+            exec("txt_to_be_input = "+step["text"])
 
-        #pyautogui.moveTo(loc[0], loc[1])
-        #pyautogui.click()          # 0th position is X, 1st position is Y
-        # pyautogui.doubleClick()
-        print("typing.....", step["text"][0])
+        print("typing.....", txt_to_be_input[0])
         time.sleep(2)
         # pyautogui.click()
         if step["txt_type"] == "var":
-            print("about to TYPE in:", symTab[step["text"]])
-            pyautogui.write(symTab[step["text"]])
+            print("about to TYPE in:", symTab[txt_to_be_input])
+            pyautogui.write(symTab[txt_to_be_input])
         else:
-            print("direct type in:", step["text"][0])
-            pyautogui.write(step["text"][0])
+            print("direct type in:", txt_to_be_input[0])
+            pyautogui.write(txt_to_be_input[0])
 
         time.sleep(1)
         pyautogui.press(step['key_after'])
@@ -1181,10 +1162,14 @@ def processMouseClick(step, i):
     ex_stat = "success:0"
     try:
         if step["target_type"] != "direct" and step["target_type"] != "expr":
+            if step["target_type"] == "var name":
+                target_name = symTab[step["target_name"]]
+            else:
+                target_name = step["target_name"]
             sd = symTab[step["screen"]]
-            print("finding: ", step["text"], " target name: ", step["target_name"])
+            print("finding: ", step["text"], " target name: ", target_name)
             # print("from data: ", sd)
-            obj_box = find_clickable_object(sd, step["target_name"], step["text"], step["target_type"], step["nth"])
+            obj_box = find_clickable_object(sd, target_name, step["text"], step["target_type"], step["nth"])
             print("obj_box: ", obj_box)
             loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
             post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
@@ -1372,11 +1357,13 @@ def processOpenApp(step, i):
             url = step["target_link"]
             webbrowser.open(url, new=0, autoraise=True)
         else:
+            exec("oa_exe = "+step["target_link"])
             if step["cargs_type"] == "direct":
-                subprocess.call(step["target_link"] + " " + step["cargs"])
+                subprocess.call(symTab["oa_exe"] + " " + step["settings"]["cargs"])
             else:
                 print("running shell on :", symTab[step["cargs"]])
-                subprocess.Popen([symTab[step["target_link"]], symTab[step["cargs"]]])
+                exec("oa_args = " + step["cargs"])
+                subprocess.Popen([symTab["oa_exe"], symTab["oa_args"]])
         time.sleep(step["wait"])
 
     except:
@@ -1954,11 +1941,16 @@ def processCheckExistence(step, i):
 def processCreateDir(step, i):
     ex_stat = "success:0"
     try:
-        subds = step["dir"].split("/")
-        if len(subds) == 1:
-            newdir = symTab[step["dir"]]
+        if step["name_type"] == "direct":
+            dir_tbc = step["dir"]
         else:
-            newdir = step["dir"]
+            exec("dir_tbc = " + step["dir"])
+
+        subds = dir_tbc.split("/")
+        if len(subds) == 1:
+            newdir = symTab[dir_tbc]
+        else:
+            newdir = dir_tbc
 
         print("Creating dir:", newdir)
         if not os.path.exists(newdir):
@@ -2029,7 +2021,11 @@ def processSearchAnchorInfo(step, i):
     ex_stat = "success:0"
     try:
         scrn = symTab[step["screen"]]
-        target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
+        if step["name_type"] == "direct":
+            target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
+        else:
+            exec("target_names = " + step["names"])
+
         target_types = step["target_types"]
         logic = step["logic"]
 
@@ -2224,7 +2220,7 @@ def processSearchScroll(step, i):
         target_loc_v = int(screensize[0]*target_loc)
         print(" target_loc_V: ", target_loc_v, "at_loc_top_v: ", at_loc_top_v, "at_loc_bottom_v: ", at_loc_bottom_v)
 
-        # find all anchors matches the name and above the at_loc
+        # find all images matches the name and above the at_loc
         print("finding....:", anchor)
         anyancs = [element for index, element in enumerate(scrn) if element["name"] == anchor]
         print("found any anchorss: ", anyancs)
@@ -2256,7 +2252,8 @@ def processSearchScroll(step, i):
 # for grid based layout, it's be enough to do only 1 row, for row based layout, it could be multple rows captured.
 # target_anchor: to anchor to adjust postion to
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
-def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, page, sect, site, theme):
+def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
+    psk_words = ""
     ex_stat = "success:0"
     print("DEBUG", "gen_psk_for_scroll_down_until...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)

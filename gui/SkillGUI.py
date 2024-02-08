@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog, QListView, \
-    QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QHBoxLayout, \
-    QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, QMenu
+    QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QRadioButton, QCheckBox, QHBoxLayout, \
+    QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, QDialogButtonBox, QMenu
 from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
 from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter, QTransform, QStandardItemModel, QImage, \
     QAction
@@ -557,6 +557,7 @@ class SkillGUI(QMainWindow):
         self.session = None
         self.cog = None
         self.rects = []
+        self.edit_mode = "new"
 
         self.pb_mode = "quiet"
         # ------- widgets ------------
@@ -1361,6 +1362,31 @@ class SkillGUI(QMainWindow):
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
 
+
+        self.saveSkillMessageBox = QMessageBox()
+
+        # Set the title and text of the message box
+        self.saveSkillMessageBox.setWindowTitle("Save Skill Dialog")
+
+        # Create widgets to add to the layout
+        self.saveSkMBCheckboxLocal = QCheckBox("Save To Local")
+        self.saveSkMBCheckboxCloud = QCheckBox("Save To Cloud")
+        self.saveSkMBCheckboxLocal.setChecked(True)
+        self.saveSkMBCheckboxCloud.setChecked(False)
+
+        # Add layout to the message box
+        self.saveSkillMessageBox.setCheckBox(self.saveSkMBCheckboxLocal)
+        # self.saveSkillMessageBox.setCheckBox(self.saveSkMBCheckboxCloud)
+        self.saveSkillMessageBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Ok)
+        self.saveSkillMessageBox.setDefaultButton(QMessageBox.Ok)
+
+        gridLayout =self.saveSkillMessageBox.layout()
+        gidx = gridLayout.indexOf(self.saveSkMBCheckboxLocal)
+        cbrow, cbcol, cbrow_span,cbcol_span = gridLayout.getItemPosition(gidx)
+
+        gridLayout.addWidget(self.saveSkMBCheckboxCloud, cbrow, cbcol+1, cbrow_span,cbcol_span)
+        self.saveSkMBCheckboxCloud.setVisible(True)
+
         # app = QApplication.instance()
         # screen = app.primaryScreen()
         # #print('Screen: %s' % screen.name())
@@ -1369,6 +1395,12 @@ class SkillGUI(QMainWindow):
 
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
+
+    def set_edit_mode(self, edmode):
+        self.edit_mode = edmode
+
+    def get_edit_mode(self):
+        return self.edit_mode
 
     def add_items_of_combobox(self, combobox: QComboBox, items: []):
         for item in items:
@@ -2009,7 +2041,7 @@ class SkillGUI(QMainWindow):
             self.stepListModel.appendRow(new_step)
 
     def ia_save(self):
-        print("save anchors to files....")
+        print("save images to files....")
         # save the json
         privacy = "public"
         if privacy == "public":
@@ -2082,7 +2114,7 @@ class SkillGUI(QMainWindow):
                 anchor_image.save(aname, "PNG")
 
 
-        # save info and anchors to csk file.
+        # save info and images to csk file.
         model = self.pbskDataListView.model()
         for index in range(model.rowCount()):
             info_item = model.item(index)
@@ -2268,31 +2300,69 @@ class SkillGUI(QMainWindow):
 
                 print(f'JSON data loaded from {file_name}: {data}')
                 self.skFCWidget.decode_json(json.dumps(data))
+                self.edit_mode = "edit"
 
     def save_skill_file(self):
         # bring out the load file dialog
-        sk_prefix = "win_chrome_amz_home"
-        skname = self.skFCWidget.skfc_infobox.get_skill_info().skname
-        my_skill_dir_path = app_info.app_home_path + "/resource/skills/my/" + sk_prefix + "/" + skname + "/scripts/"
-        if not os.path.exists(my_skill_dir_path):
-            os.makedirs(my_skill_dir_path)
-            print("Folder created:", my_skill_dir_path)
+        ret = self.saveSkillMessageBox.exec_()
+        if ret == QMessageBox.Yes:
+            sk_prefix = "win_chrome_amz_home"
+            skname = self.skFCWidget.skfc_infobox.get_skill_info().skname
+            my_skill_dir_path = app_info.app_home_path + "/resource/skills/my/" + sk_prefix + "/" + skname + "/scripts/"
+            my_skill_img_dir = app_info.app_home_path + "/resource/skills/my/" + sk_prefix + "/" + skname + "/images/"
+            if not os.path.exists(my_skill_dir_path):
+                os.makedirs(my_skill_dir_path)
+                print("Folder created:", my_skill_dir_path)
 
-        skd_file_path = my_skill_dir_path + skname + ".skd"
+            skd_file_path = my_skill_dir_path + skname + ".skd"
 
-        skd_data = self.skFCWidget.encode_json(indent=4)
-        if skd_file_path:
-            with open(skd_file_path, 'w') as file:
-                file.write(skd_data)
-                print(f'save skd file to {skd_file_path}')
+            skd_data = self.skFCWidget.encode_json(indent=4)
+            if skd_file_path:
+                with open(skd_file_path, 'w') as file:
+                    file.write(skd_data)
+                    print(f'save skd file to {skd_file_path}')
 
-        worksettings = self.get_work_settings()
-        psk_words = self.skFCWidget.skfc_scene.gen_psk_words(worksettings)
-        psk_file_path = my_skill_dir_path + skname + ".psk"
-        if psk_file_path:
-            with open(psk_file_path, 'w') as file:
-                file.write(psk_words)
-                print(f'save psk file to {psk_file_path}')
+            worksettings = self.get_work_settings()
+            psk_words = self.skFCWidget.skfc_scene.gen_psk_words(worksettings)
+            psk_file_path = my_skill_dir_path + skname + ".psk"
+            if psk_file_path:
+                with open(psk_file_path, 'w') as file:
+                    file.write(psk_words)
+                    print(f'save psk file to {psk_file_path}')
+
+            if self.saveSkMBCheckboxCloud.isChecked():
+                # save to cloud here.
+                print("saving this skill to cloud ")
+                upload_file(self.session, skd_file_path, self.cog.id_token, "skill")
+                upload_file(self.session, psk_file_path, self.cog.id_token, "skill")
+                # upload_file(self.session, csk_file_path, self.cog.id_token, "skill")
+
+                # upload
+                anchor_files = [f for f in os.listdir(my_skill_img_dir) if os.path.isfile(f)]
+                for anchor_file in anchor_files:
+                    upload_file(self.session, anchor_file, self.cog.id_token, "skill")
+
+                # add/update  to cloud DB
+                if self.edit_mode == "new":
+                    # add to cloud DB
+                    new_skill = WORKSKILL(self.parent, skname)
+                    # populate ts_skill here with these parameters:
+                    # platform,app,site,page,name,path,main,descriptio,runtime
+
+                    result = send_add_skills_request_to_cloud(self.session, [new_skill], self.cog.id_token)
+
+                    # add skillManagerWin
+                    self.parent.skills.add(new_skill)
+                    self.parent.addSkillRowsToSkillManager()
+                else:
+                    this_skid = int(skd_data["sk_info"].get_skid())
+                    this_skill = next((x for x in self.parent.skills if x.getSkid() == this_skid), None)
+                    if this_skill:
+                        result = send_update_skills_request_to_cloud(self.session, [this_skill], self.cog.id_token)
+                    else:
+                        print("WARNING: SKILL TO BE UPDATED NOT FOUND!")
+
+
 
     def cancel_run(self):
         #will add later a sure? dialog
