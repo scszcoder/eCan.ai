@@ -64,7 +64,7 @@
     "anchor_type": "",
     "anchor_value": "",
     "cargs_type": "expr",
-    "settings": "zipped_full_path",
+    "cargs": "zipped_full_path",
     "wait": 2
 },
 "step 40":
@@ -84,7 +84,7 @@
     "anchor_type": "",
     "anchor_value": "",
     "cargs_type": "expr",
-    "settings": "zipped_full_path",
+    "cargs": "zipped_full_path",
     "wait": 2
 },
 "step 50":

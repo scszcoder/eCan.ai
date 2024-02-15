@@ -33,7 +33,7 @@
     "anchor_type": "",
     "anchor_value": "",
     "cargs_type": "expr",
-    "settings": "sk_work_settings['cargs']",
+    "cargs": "sk_work_settings['cargs']",
     "wait": 5
 },
 "step 20":

@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
         self.platform = platform.system().lower()[0:3]
+        print("self.platform==================================================>", self.platform)
         self.std_item_font = QFont('Arial', 10)
 
         self.sellerInventoryJsonData = None
@@ -584,7 +585,7 @@ class MainWindow(QMainWindow):
 
         # get current wifi ssid and store it.
         print("OS platform: ", self.platform)
-        if  self.platform=="win":
+        if self.platform=="win":
             wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
             wifi_data = wifi_info.decode('utf-8')
             wifi_lines = wifi_data.split("\n")
@@ -1465,30 +1466,31 @@ class MainWindow(QMainWindow):
     # assumption, tg will not be empty.
     def getTaskGroupOS(self, tg):
         # get the 1st mission, and get its cuspas and extract platform part of the cuspas.
-        found = False
         for tz in tg.keys():
             if len(tg[tz]) > 0:
-                if len(tg[tz][0]["bw_works"]) > 0:
-                    mission_id = tg[tz][0]["bw_works"][0]["mid"]
-
-                else:
-                    mission_id = tg[tz][0]["other_works"][0]["mid"]
-
-                midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
-                platform = self.missions[midx].getPlatform()
-
+                # if len(tg[tz][0]["bw_works"]) > 0:
+                #     mission_id = tg[tz][0]["bw_works"][0]["mid"]
+                # else:
+                #     mission_id = tg[tz][0]["other_works"][0]["mid"]
+                #
+                # midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
+                # platform = self.missions[midx].getPlatform()
+                platform = tg[tz][0]["cuspas"]
+                break
+        print("Platform of the group::", platform)
         return platform
 
 
     def groupTaskGroupsByOS(self, tgs):
         result = {
-            "win": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "win"],
-            "mac": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "mac"],
-            "linux": [tg for tg in self.tgs if self.getTaskGroupOS(tg) == "lin"]
+            "win": [tg for tg in tgs if "win" in self.getTaskGroupOS(tg)],
+            "mac": [tg for tg in tgs if "mac" in self.getTaskGroupOS(tg)],
+            "linux": [tg for tg in tgs if "linux" in self.getTaskGroupOS(tg)]
         }
         return result
 
     def groupVehiclesByOS(self):
+        print("groupVehiclesByOS>>>>>>>>>>>>", self.hostrole)
         result = {
             "win": [v for v in self.vehicles if v.getOS() == "Windows"],
             "mac": [v for v in self.vehicles if v.getOS() == "Mac"],
@@ -1496,13 +1498,13 @@ class MainWindow(QMainWindow):
         }
 
         if self.hostrole == "Commander":
-            nsites = len(fieldLinks)
+            print("checking commander>>>>>>>>>>>>>>>>>>>>>>>>>", self.ip)
             if self.platform == "win":
-                result["win"].append(self)
+                result["win"].append(self.ip)
             elif self.platform == "mac":
-                result["mac"].append(self)
+                result["mac"].append(self.ip)
             else:
-                result["linux"].append(self)
+                result["linux"].append(self.ip)
 
 
         return result
@@ -1512,9 +1514,11 @@ class MainWindow(QMainWindow):
     def assignWork(self, task_groups):
         # tasks should already be sorted by botid,
         nsites = 0
-
+        print("task_groups::::::", task_groups)
         v_task_groups = self.groupTaskGroupsByOS(task_groups)    #result will {"win": win_tgs, "mac": mac_tgs, "linux": linux_tgs}
         v_groups = self.groupVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
+        print("v task_groups::::::", v_task_groups)
+        print("Vehicle groups::::::", v_groups)
 
         for platform in v_task_groups.keys():
             p_task_groups = v_task_groups[platform]
@@ -1536,23 +1540,26 @@ class MainWindow(QMainWindow):
                     if i == 0 and not self.hostrole == "CommanderOnly":
                         # if commander participate work, give work to here.
                         print("arranged for today on this machine....")
-                        self.todays_work["tbd"].append({"name": "automation", "works": p_task_groups[0], "status": "yet to start", "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
+                        current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
+                        self.todays_work["tbd"].append({"name": "automation", "works": p_task_groups[0], "status": "yet to start", "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
                     else:
                         #otherwise, send work to platoons in the field.
                         if self.hostrole == "CommanderOnly":
                             print("cmd only sending to platoon: ", i)
                             task_group_string = json.dumps(p_task_groups[i]).replace('"', '\\"')
+                            current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[i])
                             self.todays_work["tbd"].append(
                                 {"name": "automation", "works": p_task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
-                                 "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                                 "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0,
                                  "current oidx": 0, "completed": [], "aborted": []})
 
                         else:
                             print("cmd sending to platoon: ", i)
                             task_group_string = json.dumps(p_task_groups[i+1]).replace('"', '\\"')
+                            current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[i+1])
                             self.todays_work["tbd"].append(
                                 {"name": "automation", "works": p_task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
-                                 "current tz": "pacific", "current grp": "bw_works", "current bidx": 0, "current widx": 0,
+                                 "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0,
                                  "current oidx": 0, "completed": [], "aborted": []})
 
                         # now need to fetch this task associated bots, mission, skills
@@ -1566,6 +1573,20 @@ class MainWindow(QMainWindow):
 
         # now that a new day starts, clear all reports data structure
         self.todaysReports = []
+
+    def setTaskGroupInitialState(self, tg):
+        initial_tz = ""
+        initial_group = ""
+        for tz_key in tg:
+            if len(tg[tz_key]) > 0:
+                initial_tz = tz_key
+                if len(tg[tz_key][0]['bw_works']) > 0:
+                    initial_group = 'bw_works'
+                else:
+                    initial_group = 'other_works'
+            break
+        return initial_tz, initial_group
+
 
     # find to todos.,
     # 1) check whether need to fetch schedules,
@@ -1686,18 +1707,23 @@ class MainWindow(QMainWindow):
         return stepKeys
 
     def reAddrAndUpdateSteps(self, pskJson, init_step_idx, work_settings):
+        print("PSK JSON:::::", pskJson)
         new_idx = init_step_idx
         old_keys = list(pskJson.keys())
         for key in old_keys:
             if "step" in key:
                 new_key = "step "+str(new_idx)
                 pskJson[new_key] = pskJson[key]
-                pskJson.pop(key)
                 new_idx = new_idx + STEP_GAP
 
-                if "Create Data" in pskJson[new_key]:
-                    pskJson[new_key]["key_value"] == work_settings
+                if "Create Data" in pskJson[new_key]['type']:
+                    if pskJson[new_key]['data_name'] == "sk_work_settings":
+                        pskJson[new_key]["key_value"] = work_settings
+                        print("REPLACED WORKSETTINGS HERE:", new_key, "::::", pskJson[new_key])
 
+                pskJson.pop(key)
+
+        print("PSK JSON after address and update step:::::", pskJson)
         return new_idx
 
 
@@ -1715,6 +1741,7 @@ class MainWindow(QMainWindow):
 
         # generate walk skills on the fly.
         running_mission = self.missions[worksettings["midx"]]
+        print("current RUNNING MISSION:", running_mission.genJson())
         rpaSkillIdWords = running_mission.getSkills().split(",")
         rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
@@ -1725,6 +1752,14 @@ class MainWindow(QMainWindow):
         relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
         relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
         print("relevant skills ids:", relevant_skill_ids)
+        dependent_skids=[]
+        for sk in relevant_skills:
+            dependent_skids = dependent_skids + sk.getDependencies()
+        print("all dependencies:", dependent_skids)
+
+        dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
+        relevant_skills = relevant_skills + dependent_skills
+        relevant_skill_ids = relevant_skill_ids + dependent_skids
 
         if len(relevant_skill_ids) < len(rpaSkillIds):
             s = set(relevant_skill_ids)
@@ -1740,15 +1775,17 @@ class MainWindow(QMainWindow):
             # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
 
             # readPSkillFile will remove comments. from the file
-            pskJson = readPSkillFile(worksettings["name_space"], sk.getPskFileName(), lvl=0)
+            pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
 
             # now regen address and update settings, after running, pskJson will be updated.
             step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
 
             addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
 
+            print("RUNNABLE PSK JSON::::", pskJson)
+
             # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
-            rskFileName = sk.getPskFileName().split(".")[0] + "rsk"
+            rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + "rsk"
             print("rskFileName:", rskFileName, "step_idx:", step_idx)
             with open(rskFileName, "w") as outfile:
                 json.dump(pskJson, outfile)

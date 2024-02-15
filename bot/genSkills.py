@@ -10,10 +10,9 @@ from wifiSkill import *
 from printLabel import *
 from envi import *
 import os
+import traceback
 
 ecb_data_homepath = getECBotDataHome()
-
-
 
 SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
@@ -99,8 +98,8 @@ def getWorkSettings(lieutenant, bot_works):
 
     date_word = dtnow.strftime("%Y%m%d")
     print("date word:", date_word)
-
-    fdir = ecb_data_homepath + "/runlogs/" + date_word + "/"
+    fdir = ecb_data_homepath.replace("\\", "/")
+    fdir = fdir + "/runlogs/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     bot = lieutenant.bots[bot_idx]
@@ -202,8 +201,21 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
                 skf.close()
         else:
             print("WARNING:::: skill file not found")
-    except ValueError:
-        print("ERROR: PSK file operation write error!!!")
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            file_name, line_number, _, _ = traceback_info[-1]
+            print("TraceBack:", traceback_info)
+
+            # Print the file name and line number
+            ex_stat = "ErrorWritePSK:" + file_name + " " + str(line_number) + " " + str(e)
+        else:
+            ex_stat = "ErrorWritePSK traceback information not available"
+
+        print(ex_stat)
 
     return this_step, sk_file_name
 

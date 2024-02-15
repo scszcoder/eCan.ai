@@ -98,6 +98,7 @@ class PRODUCT_SUMMERY:
         self.image = ''
         self.bs = False
         self.ac = False
+        self.op = False
         self.score = 0
         self.feedbacks = 0
         self.price = 0
@@ -172,6 +173,7 @@ class PRODUCT_SUMMERY:
             "image": self.image,
             "ac": self.ac,
             "bs": self.bs,
+            "op": self.op,
             "score": self.score,
             "feedbacks": self.feedbacks,
             "price": self.price,

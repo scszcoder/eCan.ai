@@ -145,7 +145,8 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
         print("# of orders:", len(orders))
         print([o.toJson() for o in orders])
         print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
-    except:
-        ex_stat = "ErrorEbaySellerFetchPageOfOrderList:"
+    except Exception as e:
+        print(f"Exception info:{e}")
+        ex_stat = "ErrorEbaySellerFetchPageOfOrderList:" + str(pidx)
 
     return pagefull_of_orders

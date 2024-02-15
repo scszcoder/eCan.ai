@@ -74,13 +74,13 @@ class INTEREST(QStandardItem):
         self.sub_category4 = subcat4
         self.sub_category5 = subcat5
         self.name = platform+"|"+maincat+"|"+subcat1
-        if subcat2 != "" and subcat2 != "ANY":
+        if subcat2 != "" and subcat2 != "any":
             self.name = self.name + "|" + subcat2
-        if subcat3 != "" and subcat3 != "ANY":
+        if subcat3 != "" and subcat3 != "any":
             self.name = self.name + "|" + subcat3
-        if subcat4 != "" and subcat4 != "ANY":
+        if subcat4 != "" and subcat4 != "any":
             self.name = self.name + "|" + subcat4
-        if subcat5 != "" and subcat5 != "ANY":
+        if subcat5 != "" and subcat5 != "any":
             self.name = self.name + "|" + subcat5
 
         self.setText(self.name)
@@ -116,12 +116,12 @@ class BotNewWin(QMainWindow):
         self.actionFrame = QFrame()
 
         self.selected_interest_platform = "Amazon"
-        self.selected_interest_main_category = "Any"
-        self.selected_interest_sub_category1 = "Any"
-        self.selected_interest_sub_category2 = "Any"
-        self.selected_interest_sub_category3 = "Any"
-        self.selected_interest_sub_category4 = "Any"
-        self.selected_interest_sub_category5 = "Any"
+        self.selected_interest_main_category = "any"
+        self.selected_interest_sub_category1 = "any"
+        self.selected_interest_sub_category2 = "any"
+        self.selected_interest_sub_category3 = "any"
+        self.selected_interest_sub_category4 = "any"
+        self.selected_interest_sub_category5 = "any"
 
 
 
@@ -241,48 +241,48 @@ class BotNewWin(QMainWindow):
         self.interest_area_label = QLabel(QApplication.translate("QLabel", "Interests Area:"), alignment=Qt.AlignLeft)
         self.interest_platform_label = QLabel(QApplication.translate("QLabel", "Interests platform:"), alignment=Qt.AlignLeft)
         self.interest_platform_sel = QComboBox()
-        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "Any"))
+        self.interest_platform_sel.addItem(QApplication.translate("QComboBox", "any"))
         for p in self.parent.getSITES():
             self.interest_platform_sel.addItem(QApplication.translate("QComboBox", p))
         self.interest_platform_sel.currentTextChanged.connect(self.interestPlatformSel_changed)
         self.interest_main_category_label = QLabel(QApplication.translate("QLabel", "Interest Main Category:"), alignment=Qt.AlignLeft)
         self.interest_main_category_sel = QComboBox()
-        self.interest_main_category_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        self.interest_main_category_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        self.interest_main_category_sel.addItem(QApplication.translate("QComboBox", "any"))
+        self.interest_main_category_sel.addItem(QApplication.translate("QComboBox", "custom"))
         self.interest_main_category_sel.currentTextChanged.connect(self.interestMainCategorySel_changed)
 
 
         self.interest_sub_category1_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category1:"), alignment=Qt.AlignLeft)
         self.interest_sub_category1_sel = QComboBox()
-        self.interest_sub_category1_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        self.interest_sub_category1_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        self.interest_sub_category1_sel.addItem(QApplication.translate("QComboBox", "any"))
+        self.interest_sub_category1_sel.addItem(QApplication.translate("QComboBox", "custom"))
         self.interest_sub_category1_sel.currentTextChanged.connect(self.interestSubCategory1Sel_changed)
 
 
         self.interest_sub_category2_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category2:"), alignment=Qt.AlignLeft)
         self.interest_sub_category2_sel = QComboBox()
-        self.interest_sub_category2_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        self.interest_sub_category2_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        self.interest_sub_category2_sel.addItem(QApplication.translate("QComboBox", "any"))
+        self.interest_sub_category2_sel.addItem(QApplication.translate("QComboBox", "custom"))
         self.interest_sub_category2_sel.currentTextChanged.connect(self.interestSubCategory2Sel_changed)
 
         self.interest_sub_category3_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category3:"), alignment=Qt.AlignLeft)
         self.interest_sub_category3_sel = QComboBox()
-        self.interest_sub_category3_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        self.interest_sub_category3_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        self.interest_sub_category3_sel.addItem(QApplication.translate("QComboBox", "any"))
+        self.interest_sub_category3_sel.addItem(QApplication.translate("QComboBox", "custom"))
         self.interest_sub_category3_sel.currentTextChanged.connect(self.interestSubCategory3Sel_changed)
 
 
         # self.interest_sub_category4_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category4:"), alignment=Qt.AlignLeft)
         # self.interest_sub_category4_sel = QComboBox()
-        # self.interest_sub_category4_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        # self.interest_sub_category4_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        # self.interest_sub_category4_sel.addItem(QApplication.translate("QComboBox", "any"))
+        # self.interest_sub_category4_sel.addItem(QApplication.translate("QComboBox", "custom"))
         # self.interest_sub_category4_sel.currentTextChanged.connect(self.interestSubCategory4Sel_changed)
         #
         #
         # self.interest_sub_category5_label = QLabel(QApplication.translate("QLabel", "Interest Sub Category5:"), alignment=Qt.AlignLeft)
         # self.interest_sub_category5_sel = QComboBox()
-        # self.interest_sub_category5_sel.addItem(QApplication.translate("QComboBox", "Any"))
-        # self.interest_sub_category5_sel.addItem(QApplication.translate("QComboBox", "Custom"))
+        # self.interest_sub_category5_sel.addItem(QApplication.translate("QComboBox", "any"))
+        # self.interest_sub_category5_sel.addItem(QApplication.translate("QComboBox", "custom"))
         # self.interest_sub_category5_sel.currentTextChanged.connect(self.interestSubCategory5Sel_changed)
 
         QApplication.translate("QLabel", "Interest Custom Main Sub Category1:")
@@ -876,57 +876,75 @@ class BotNewWin(QMainWindow):
 
 
     def loadInterests(self, bot):
-        intp_options = ['Amazon', 'Etsy', 'Ebay', 'Any']
-        imc_options = ['Any']
-        isc1_options = ['Any']
-        isc2_options = ['Any']
-        isc3_options = ['Any']
+        intp_options = ['Amazon', 'Etsy', 'Ebay', 'any']
+        imc_options = ['any']
+        isc1_options = ['any']
+        isc2_options = ['any']
+        isc3_options = ['any']
         print("bot intests:", bot.getInterests())
         all_ints = bot.getInterests()
 
         if all_ints != "":
-            ints = all_ints.split("|")
+            ints = all_ints.split(",")
+            print("ints:", ints)
 
             if len(ints) > 0:
                 if ints[0] == "":
                     top_int = ints[1]
                 else:
                     top_int = ints[0]
-                int_parts = top_int.split(",")
+                int_parts = top_int.split("|")
+                print("int_parts:", int_parts)
                 int_platform = int_parts[0]
-                int_mc = int_parts[1]
-                int_sc1 = int_parts[2]
-                int_sc2 = int_parts[3]
-                int_sc3 = int_parts[4]
-
+                print("int_platform:", int_platform)
+                if len(int_parts)>1:
+                    int_mc = int_parts[1]
+                else:
+                    int_mc = "any"
+                print("int_mc:", int_mc)
+                if len(int_parts)>2:
+                    int_sc1 = int_parts[2]
+                else:
+                    int_sc1 = "any"
+                print("int_sc1:", int_sc1)
+                if len(int_parts)>3:
+                    int_sc2 = int_parts[3]
+                else:
+                    int_sc2 = "any"
+                print("int_sc2:", int_sc2)
+                if len(int_parts)>4:
+                    int_sc3 = int_parts[4]
+                else:
+                    int_sc3 = "any"
+                print("getting all int parts.", int_sc3)
                 if int_platform in intp_options:
                     self.interest_platform_sel.setCurrentText(int_platform)
                 else:
-                    self.interest_platform_sel.setCurrentText('Custom')
+                    self.interest_platform_sel.setCurrentText('custom')
                     self.interest_custom_platform_edit.setText(int_platform)
 
                 if int_mc in imc_options:
                     self.interest_main_category_sel.setCurrentText(int_mc)
                 else:
-                    self.interest_main_category_sel.setCurrentText('Custom')
+                    self.interest_main_category_sel.setCurrentText('custom')
                     self.interest_custom_main_category_edit.setText(int_mc)
 
                 if int_sc1 in isc1_options:
                     self.interest_sub_category1_sel.setCurrentText(int_sc1)
                 else:
-                    self.interest_sub_category1_sel.setCurrentText('Custom')
+                    self.interest_sub_category1_sel.setCurrentText('custom')
                     self.interest_custom_sub_category1_edit.setText(int_sc1)
 
                 if int_sc2 in isc2_options:
                     self.interest_sub_category2_sel.setCurrentText(int_sc2)
                 else:
-                    self.interest_sub_category2_sel.setCurrentText('Custom')
+                    self.interest_sub_category2_sel.setCurrentText('custom')
                     self.interest_custom_sub_category2_edit.setText(int_sc2)
 
                 if int_sc3 in isc3_options:
                     self.interest_sub_category3_sel.setCurrentText(int_sc3)
                 else:
-                    self.interest_sub_category3_sel.setCurrentText('Custom')
+                    self.interest_sub_category3_sel.setCurrentText('custom')
                     self.interest_custom_sub_category3_edit.setText(int_sc3)
 
             for aint in ints:
@@ -936,6 +954,7 @@ class BotNewWin(QMainWindow):
             self.selected_interest_row = 0
             self.selected_interest_item = self.interestModel.item(self.selected_interest_row)
 
+        print("bot intests loaded......")
 
 
     def setOwner(self, owner):
@@ -996,11 +1015,11 @@ class BotNewWin(QMainWindow):
         for i in range(self.interestModel.rowCount()):
             self.selected_interest_item = self.interestModel.item(i)
             intd = self.selected_interest_item.getData()
-            int_words = intd[0] + "," + intd[1] + "," + intd[2] + "," + intd[3] + "," + intd[4]
+            int_words = intd[0] + "|" + intd[1] + "|" + intd[2] + "|" + intd[3] + "|" + intd[4]
             if i == 0:
                 self.newBot.setInterests(self.newBot.getInterests() + int_words)
             else:
-                self.newBot.setInterests(self.newBot.getInterests() + "|" + int_words)
+                self.newBot.setInterests(self.newBot.getInterests() + "," + int_words)
             print("interests>>>>>", self.newBot.getInterests())
 
     def selFile(self):

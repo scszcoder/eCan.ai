@@ -453,16 +453,12 @@ def test_sqlite3(mw):
     #
     # mw.dbcon.commit()
     #
-    # sql = 'SELECT * FROM bots'
-    # res = mw.dbCursor.execute(sql)
+    # mw.dbCursor.execute("PRAGMA table_info(missions);")
     #
-    # db_data = res.fetchall()
-    mw.dbCursor.execute("PRAGMA table_info(missions);")
+    # # Fetch all the rows (each row represents a column)
+    # db_data = mw.dbCursor.fetchall()
 
-    # Fetch all the rows (each row represents a column)
-    db_data = mw.dbCursor.fetchall()
-
-    print("DB Data:", db_data)
+    # print("DB Data:", db_data)
 
 
     # new_fb = 'feedbacks'
@@ -481,13 +477,23 @@ def test_sqlite3(mw):
     # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
 
+    # sql ="UPDATE bots SET delDate = '2345-01-01' WHERE botid > 20"
+    # mw.dbCursor.execute(sql)
+    # print("update bots")
     # mw.dbcon.commit()
-    table_name = 'missions'
-    mw.dbCursor.execute(f"DROP TABLE {table_name};")
-
-    mw.dbCursor.execute("PRAGMA table_info(missions);")
+    # table_name = 'missions'
+    # db_data = mw.dbCursor.fetchall()
+    # print("DB Data:", db_data)
+    # mw.dbCursor.execute(f"DROP TABLE {table_name};")
+    #
+    # mw.dbCursor.execute("PRAGMA table_info(missions);")
 
     # Fetch all the rows (each row represents a column)
-    db_data = mw.dbCursor.fetchall()
+    # db_data = mw.dbCursor.fetchall()
+    # print("DB Data:", db_data)
 
+    sql = 'SELECT * FROM bots'
+    res = mw.dbCursor.execute(sql)
+
+    db_data = res.fetchall()
     print("DB Data:", db_data)

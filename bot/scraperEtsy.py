@@ -242,7 +242,9 @@ def processEtsyScrapeOrders(step, i):
 
         symTab[step["result"]] = pagefull_of_orders
 
-    except:
+
+    except Exception as e:
+        print(f"Exception info:{e}")
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
 
     return next_i, ex_stat

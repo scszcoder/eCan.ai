@@ -195,24 +195,28 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
 
 def addNameSpaceToAddress(stepsJson, name_space, lvl):
     # add name space to json step names.
-    steps_keys = stepsJson.keys()
+    steps_keys = list(stepsJson.keys())
+    print("name space:", name_space)
+    print("STEP KEYS::::", steps_keys)
     for old_key in steps_keys:
         new_key = adressAddNameSpace(old_key, name_space, lvl)
+        print("New Key:", new_key)
         stepsJson[new_key] = stepsJson[old_key]
         stepsJson.pop(old_key)
 
 
 def adressAddNameSpace(l, name_space, lvl):
-    if len(re.findall(r'"step [0-9]+"', l)) > 0:
+    if len(re.findall(r'step [0-9]+', l)) > 0:
+
         # need to handle "Use Skill" calling to sub-skill files.
         # print("STEP line:", l)
-        step_word = re.findall(r'"([^"]*)"', l)[0]
+        step_word = re.findall(r'([^"]*)', l)[0]
         # print("STEP word:", step_word)
         sn = step_word.split(' ')[1]
         global_sn = name_space + str(lvl) + "!" + sn
-        # print("GLOBAL NS:", global_sn)
+        print("GLOBAL NS:", global_sn)
         # re.sub(r'"([^"]*)"', global_sn, l)
-        l = re.sub(r'"step [0-9]+"', '"' + global_sn + '"', l)
+        l = re.sub(r'[0-9]+', global_sn, l)
 
     return l
 
@@ -312,8 +316,10 @@ def run1step(steps, si, mission, skill, stack):
         elif step["type"] == "Goto" or step["type"] == "Check Condition" or step["type"] == "Repeat":
             # run step using the funcion look up table.
             si,isat = vicrop[step["type"]](step, si, stepKeys)
-        elif step["type"] == "Extract Info" or step["type"] == "Save Html" or step["type"] == "AMZ Scrape PL Html":
+        elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = vicrop[step["type"]](step, si, mission, skill)
+        elif step["type"] == "AMZ Scrape PL Html":
+            si,isat = vicrop[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si,isat = vicrop[step["type"]](step, si, stack, stepKeys)
         elif step["type"] == "Stub" or step["type"] == "Use Skill":
@@ -767,8 +773,8 @@ def prepRunSkill(all_skill_codes):
         f.close()
 
         if skill_code:
-            # skill_code.update(run_steps)         # merge run steps.
-            skill_code = skill_code + run_steps
+            skill_code.update(run_steps)         # merge run steps.
+            # skill_code = skill_code + run_steps
         else:
             skill_code = run_steps
 

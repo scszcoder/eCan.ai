@@ -14,6 +14,7 @@ import subprocess
 import random
 import socket
 import sys
+import traceback
 from ping3 import ping, verbose_ping
 if sys.platform == 'win32':
     import win32gui
@@ -75,7 +76,7 @@ def genStepHeader(skillname, los, ver, author, skid, description, stepN):
 
 
 
-def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, settings, wait, stepN):
+def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, cargs, wait, stepN):
     stepjson = {
         "type": "App Open",
         "action": action,
@@ -85,7 +86,7 @@ def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor
         "anchor_type": anchor_type,
         "anchor_value": anchor_value,
         "cargs_type": cargs_type,
-        "settings": settings,
+        "cargs": cargs,
         "wait":wait
     }
 
@@ -661,12 +662,12 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         "page": site_page,
         "layout": layout,
         "skill_name": m_skill_names[0],
-        "psk": m_psk_names[0],
-        "csk": m_csk_names[0],
+        "psk": m_psk_names[0].replace("\\", "\\\\"),
+        "csk": m_csk_names[0].replace("\\", "\\\\"),
         "lastMove": page_sect,
         "options": sk_settings["options"],
         "theme": page_theme,
-        "imageFile": sfile,
+        "imageFile": sfile.replace("\\", "\\\\"),
         "factor": "{}"
     }]
 
@@ -804,7 +805,7 @@ def processExtractInfo(step, i, mission, skill):
         else:
             ppword = mission.parent_settings["uid"]
 
-        print("mission[", mission.getMid(), "] cuspas: ", mission.getCusPAS())
+        print("mission[", mission.getMid(), "] cuspas: ", mission.getCusPAS(), "step settings:", step["settings"])
 
         if type(step["settings"]) == str:
             step_settings = symTab[step["settings"]]
@@ -812,9 +813,11 @@ def processExtractInfo(step, i, mission, skill):
         else:
             step_settings = step["settings"]
 
+        print("STEP SETTINGS", step_settings)
         platform = step_settings["platform"]
         app = step_settings["app"]
         site = step_settings["site"]
+        page = step_settings["page"]
 
         if step_settings["root_path"][len(step_settings["root_path"])-1]=="/":
             step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"])-1]
@@ -824,8 +827,8 @@ def processExtractInfo(step, i, mission, skill):
 
         fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
         # fdir = fdir + ppword + "/"
-        fdir = fdir + platform + "_" + app + "_" + site + "_" + step["page"] + "/skills/"
-        fdir = fdir + step_settings["skname"] + "images/"
+        fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
+        fdir = fdir + step_settings["skname"] + "/images/"
         sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
         print("sfile: ", sfile)
 
@@ -902,22 +905,29 @@ def processTextInput(step, i):
     global current_context
     ex_stat = "success:0"
     try:
-        print("Keyboard typing......")
+        # print("Keyboard typing......", nthSearch, type(nthSearch), type(run_config), run_config, list(run_config.keys()))
 
-        if step["text_ref_type"] == "direct":
+        if step["txt_ref_type"] == "direct":
             txt_to_be_input = step["text"]
         else:
-            exec("txt_to_be_input = "+step["text"])
+            print("assign expression:", "txt_to_be_input = "+step["text"])
+            exec("global input_texts\ninput_texts = "+step["text"])
+            txt_to_be_input = input_texts
+            print("after assignment:", txt_to_be_input)
+            exec("global txt_to_be_input\ntxt_to_be_input = "+step["text"])
 
-        print("typing.....", txt_to_be_input[0])
+        print("typing.....", txt_to_be_input)
         time.sleep(2)
         # pyautogui.click()
-        if step["txt_type"] == "var":
+        if step["text_type"] == "var":
             print("about to TYPE in:", symTab[txt_to_be_input])
             pyautogui.write(symTab[txt_to_be_input])
         else:
-            print("direct type in:", txt_to_be_input[0])
-            pyautogui.write(txt_to_be_input[0])
+            if len(txt_to_be_input) > 0:
+                print("direct type in:", txt_to_be_input[0])
+                pyautogui.write(txt_to_be_input[0], interval=step["speed"])
+            else:
+                pyautogui.write("Do not know", interval=step["speed"])
 
         time.sleep(1)
         pyautogui.press(step['key_after'])
@@ -937,8 +947,9 @@ def processTextInput(step, i):
         current_context = build_current_context()
         page_stack.append({"pc": i, "context": current_context})
 
-    except:
-        ex_stat = "ErrorTextInput:" + str(i)
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return (i+1), ex_stat
 
@@ -1359,8 +1370,9 @@ def processOpenApp(step, i):
         else:
             exec("oa_exe = "+step["target_link"])
             if step["cargs_type"] == "direct":
-                subprocess.call(symTab["oa_exe"] + " " + step["settings"]["cargs"])
+                subprocess.call(symTab["oa_exe"] + " " + step["cargs"])
             else:
+                # in case of "expr" type.
                 print("running shell on :", symTab[step["cargs"]])
                 exec("oa_args = " + step["cargs"])
                 subprocess.Popen([symTab["oa_exe"], symTab["oa_args"]])
@@ -1370,6 +1382,24 @@ def processOpenApp(step, i):
         ex_stat = "ErrorOpenApp:" + str(i)
 
     return (i + 1), ex_stat
+
+
+def extract_variable_names(code_line):
+    # Parse the code line into an abstract syntax tree (AST)
+    try:
+        # Wrap the code in a valid Python expression using eval()
+        tree = ast.parse(code_line)
+    except Exception as e:
+        print("Error:", e)
+        return []  # Return empty list if parsing fails
+
+    # Traverse the AST and extract variable names
+    variable_names = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            variable_names.append(node.id)
+
+    return variable_names
 
 # create a new variable in the name space and assign initial value to it.
 # data_name: name of the variable.
@@ -1381,12 +1411,25 @@ def processCreateData(step, i):
     try:
         if step["key_name"] == "NA":
             # this is the case of direct assignment.
+            # print("NOT AN DICT ENTRY ASSIGNMENT")
             if step["data_type"] == "expr":
-                print("TBEx: ", step["data_name"] + " = " + step["key_value"])
-                symTab[step["data_name"]] = None
-                exec("global " + step["data_name"] + "\n" + step["data_name"] + " = " + step["key_value"])
+                # print("TBEx: ", step["data_name"] + " = " + step["key_value"])
+                # symTab[step["data_name"]] = None
+                # exec("global sk_work_settings")
+                # exec("global "+step["data_name"])
+                simple_expression = step["data_name"] + " = " + step["key_value"]
+                expr_vars = extract_variable_names(simple_expression)
+                print("vars in the expression:", expr_vars)
+                executable = "global"
+                for expr_var in expr_vars:
+                    # print("woooooohahahahahah", executable)
+                    executable = executable + " " + expr_var
+                    if expr_vars.index(expr_var) != len(expr_vars) - 1:
+                        executable = executable + ","
+                executable = executable + "\n" + simple_expression
+                print("full executable statement:", executable)
+                exec(executable)
                 print(step["data_name"] + " is now: ", symTab[step["data_name"]])
-
             else:
                 symTab[step["data_name"]] = step["key_value"]
         else:
@@ -1397,8 +1440,9 @@ def processCreateData(step, i):
 
         mission_vars.append(step["data_name"])
 
-    except:
-        ex_stat = "ErrorCreateData:" + str(i)
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1417,8 +1461,9 @@ def processTextToNumber(step, i):
         if "%" in original:
             symTab[step["numvar"]] = symTab[step["numvar"]]/100
 
-    except:
-        ex_stat = "ErrorTextToNumber:" + str(i)
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1484,8 +1529,10 @@ def processFillData(step, i):
         print("Statement: ", statement)
         exec(statement)
 
-    except:
-        ex_stat = "ErrorFillData:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1506,8 +1553,10 @@ def processEndException(step, i, step_keys):
             # clear the exception flag.
             in_exception = False
 
-    except:
-        ex_stat = "ErrorFillData:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return idx, ex_stat
 
@@ -1543,8 +1592,10 @@ def processExceptionHandler(step, i, step_keys):
         else:
             print("MISSION failed...")
 
-    except:
-        ex_stat = "ErrorFillData:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1599,8 +1650,22 @@ def processCheckCondition(step, i, step_keys):
             idx = step_keys.index(step["if_else"])
             print("else: ", step["if_else"], "else idx: ", idx)
 
-    except:
-        ex_stat = "ErrorCheckCondition:" + str(i)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            file_name, line_number, _, _ = traceback_info[-1]
+
+            # Print the file name and line number
+            print(f"ErrorTextInput occurred in file '{file_name}', line {line_number}, , e {e}")
+        else:
+            print("ErrorTextInput traceback information not available")
+
+        ex_stat = "ErrorTextInput:" + file_name + " " + str(line_number) + " " + str(e)
+
 
     return idx, ex_stat
 
@@ -1644,8 +1709,10 @@ def processRepeat(step, i,  step_keys):
             if evalCondition(loop_condition):
                 end_idx = i + 1
 
-    except:
-        ex_stat = "ErrorCheckCondition:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return end_idx, ex_stat
 
@@ -1657,8 +1724,10 @@ def processLoadData(step, i):
         with open(step["file_link"], 'r') as f:
             symTab[step["data_name"]] = json.load(f)
 
-    except:
-        ex_stat = "ErrorLoadData:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return (i+1), ex_stat
 
@@ -1670,8 +1739,10 @@ def processSaveData(step, i):
         with open(step["file_link"], 'w') as f:
             json.dump(symTab[step["data_name"]], f)
 
-    except:
-        ex_stat = "ErrorSaveData:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return (i+1), ex_stat
 
@@ -1711,8 +1782,10 @@ def processCallExtern(step, i):
 
         symTab[step["output"]] = result
 
-    except:
-        ex_stat = "ErrorSaveData:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorTextInput:" + str(e)
+        print(ex_stat)
 
     return (i+1), ex_stat
 
@@ -1729,7 +1802,7 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         # push current address pointer onto stack,
         stack.append(i+1)
         sk_stack.append(step["skill_name"])
-
+        stack.append(symTab["sk_work_settings"])
         #save current fin, fout whatever that is.
         stack.append(symTab["fout"])
         stack.append(symTab["fin"])
@@ -1742,16 +1815,20 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
 
         fin_par = stack.pop()
         symTab["fin"] = symTab[fin_par]
-        print("geting skill call input parameter: ", fin_par, " [val: ", symTab[fin_par])
+        print("getting skill call input parameter: ", fin_par, " [val: ", symTab[fin_par])
         print("current skill table: ", sk_table)
 
         # start execuation on the function, find the function name's address, and set next pointer to it.
         # the function name address key value pair was created in gen_addresses
         skname = step["skill_path"] + "/" + step["skill_name"]
+        print("skname:", skname)
         idx = step_keys.index(sk_table[skname])
+        print("idx:", idx)
+        print("step_keys:", step_keys)
 
-    except:
-        ex_stat = "ErrorUseSkill:" + str(i)
+    except Exception as e:
+        ex_stat = "ErrorUseSkill:" + str(e)
+        print(ex_stat)
 
     return idx, ex_stat
 
@@ -1782,8 +1859,10 @@ def processOverloadSkill(step, i, stack, step_keys):
         # the function name address key value pair was created in gen_addresses
         idx = step_keys.index(skill_table[step["skill_name"]])
 
-    except:
-        ex_stat = "ErrorOverloadSkill:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorOverloadSkill:" + str(e)
+        print(ex_stat)
 
     return idx, ex_stat
 
@@ -1817,8 +1896,10 @@ def processCallFunction(step, i, stack, func_table, step_keys):
         # the function name address key value pair was created in gen_addresses
         idx = step_keys.index(func_table[step["fname"]])
 
-    except:
-        ex_stat = "ErrorCallFunction:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorCallFunction:" + str(e)
+        print(ex_stat)
 
     return idx, ex_stat
 
@@ -1843,8 +1924,10 @@ def processReturn(step, i, stack, step_keys):
         next_i = stack.pop()
         print("after return, will run @", next_i)
 
-    except:
-        ex_stat = "ErrorReturn:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorReturn:" + str(e)
+        print(ex_stat)
 
     return next_i, ex_stat
 
@@ -1884,12 +1967,14 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
 
                 symTab["fin"] = stack.pop()
                 symTab["fout"] = stack.pop()
-
+                symTab["sk_work_settings"] = stack.pop()
                 #  set the pointer to the return to pointer.
                 next_i = stack.pop()
 
-    except:
-        ex_stat = "ErrorStub:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorStub:" + str(e)
+        print(ex_stat)
 
     return next_i, ex_stat
 
@@ -1897,12 +1982,18 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
 def processGoto(step, i,  step_keys):
     ex_stat = "success:0"
     try:
-        step_keys.index(symTab[step["goto"]])
+        print("stepGOTO:", step["goto"])
+        if "step B" in step["goto"] and "!" in step["goto"] :
+            next_step_index = step_keys.index(step["goto"])
+        else:
+            next_step_index = step_keys.index(symTab[step["goto"]])
 
-    except:
-        ex_stat = "ErrorGoTo:" + str(i)
 
-    return step_keys.index(step["goto"]), ex_stat
+    except Exception as e:
+        ex_stat = "ErrorGoTo:" + str(e)
+        print(ex_stat)
+
+    return next_step_index, ex_stat
 
 
 def processListDir(step, i):
@@ -1911,8 +2002,10 @@ def processListDir(step, i):
         lof = os.listdir(step["dir"])
         symTab[step["result"]] = [f for f in lof if f.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
 
-    except:
-        ex_stat = "ErrorListDir:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorListDir:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1932,8 +2025,10 @@ def processCheckExistence(step, i):
 
         print("Existence is:", symTab[step["result"]])
 
-    except:
-        ex_stat = "ErrorListDir:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorCheckExistence:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1960,8 +2055,10 @@ def processCreateDir(step, i):
         else:
             print("Already existed.")
 
-    except:
-        ex_stat = "ErrorListDir:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorCreateDir:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2001,8 +2098,10 @@ def process7z(step, i):
             else:
                 symTab[step["result"]] = subprocess.call(exe + " e " + input)
 
-    except:
-        ex_stat = "Error7z:" + str(i)
+
+    except Exception as e:
+        ex_stat = "Error7z:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2082,8 +2181,10 @@ def processSearchAnchorInfo(step, i):
         if step["breakpoint"]:
             input("type any key to continuue")
 
-    except:
-        ex_stat = "ErrorSearchAnchorInfo:" + str(i)
+
+    except Exception as e:
+        ex_stat = "ErrorSearchAnchorInfo:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
