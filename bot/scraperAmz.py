@@ -67,7 +67,7 @@ def amz_buyer_fetch_product_list(html_file, idx):
                 # print(item.get('data-asin'))
 
                 sum_infos = item.findAll("span", attrs={"class": lambda t: t in ('a-size-base-plus a-color-base a-text-normal', 'a-size-medium a-color-base a-text-normal', 'a-size-base', 'a-icon-alt', 'a-size-base s-underline-text', 'a-price', 'a-color-base', 'a-badge-text', 'a-offscreen')})
-                print("SUM INFO::: ", sum_infos)
+                # print("SUM INFO::: ", sum_infos)
                 price_set = False
                 weekly_set = False
                 # print("LEN SUM_INFOS: ", len(sum_infos))

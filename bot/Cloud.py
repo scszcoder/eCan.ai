@@ -322,7 +322,7 @@ def gen_schedule_request_string(test_name, schedule_settings):
     if test_name != "":
         query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": true, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
     else:
-        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"vwins\\\": \\\""+schedule_settings["vwins"]+"\\\", \\\"vmacs\\\": \\\""+schedule_settings["vmacs"]+"\\\", \\\"vlnxs\\\": \\\""+schedule_settings["vlnxs"]+"\\\"}\") } "
+        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"vwins\\\": \\\""+str(schedule_settings["vwins"])+"\\\", \\\"vmacs\\\": \\\""+str(schedule_settings["vmacs"])+"\\\", \\\"vlnxs\\\": \\\""+str(schedule_settings["vlnxs"])+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
@@ -1235,7 +1235,7 @@ def upload_file(session, f2ul, token, ftype):
     fname = os.path.basename(f2ul)
     fwords = f2ul.split("/")
     relf2ul = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
-    prefix = ftype + "|" + os.path.dirname(f2ul)
+    prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
 
     fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
     print("fopreqs:", fopreqs)

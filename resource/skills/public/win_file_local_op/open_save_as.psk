@@ -71,7 +71,7 @@
     "text": "",
     "nth": [
         0,
-        0
+        -1
     ],
     "offset_from": "left",
     "offset_unit": "box",
@@ -133,9 +133,9 @@
     "save_rb": false,
     "text": "fopen_f_path",
     "text_type": "var",
-    "speed": 1,
+    "speed": 0.25,
     "key_after": "enter",
-    "wait_after": 5
+    "wait_after": 2
 },
 "step 70":
 {
@@ -211,7 +211,7 @@
     "save_rb": false,
     "text": "fopen_f_name",
     "text_type": "var",
-    "speed": 1,
+    "speed": 0.25,
     "key_after": "",
     "wait_after": 2
 },
