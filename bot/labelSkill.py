@@ -38,7 +38,7 @@ gs_unzipped_dir = ""
 # C:\Program Files\7-Zip\7z.exe e abc.zip -oC:\.....  will extract the zip file into C:\.... dir.
 #
 
-def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
+def genWinChromeGSLabelBulkBuySkill(worksettings, stepN, theme):
     psk_words = "{"
     site_url = "https://goodsupply.xyz/Dashboard/UploadBulk"
 
@@ -49,8 +49,13 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_chrome_goodsupply_label/bulk_buy", "", this_step)
     psk_words = psk_words + step_words
 
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+
     # open the web page.
-    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, this_step)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
     psk_words = psk_words + step_words
 
     # fin is the input, which contains usps service type, xls file name, and total price.
@@ -141,10 +146,10 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     #
-    # this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "winrar", "top", theme, this_step, None)
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "winrar", "top", theme, this_step, None)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "gs_sign_in", "anchor text", "any", "junk", "gs_not_signed_in", "goodsupply", False, this_step)
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "gs_sign_in", "direct", "anchor text", "any", "junk", "gs_not_signed_in", "goodsupply", False, this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCallExtern("global gs_not_signed_in, junk\nprint('gs_not_signed_in:', gs_not_signed_in, 'junk:', junk)", "", "in_line", "", this_step)
@@ -179,14 +184,14 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # open the web page again.
-    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "direct", worksettings["cargs"], 5, this_step)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "available_fund", "info 1", "any", "funds_left", "gs_signed_in", "gen_label_status", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "available_fund", "direct", "info 1", "any", "funds_left", "gs_signed_in", "gen_label_status", False, this_step)
     psk_words = psk_words + step_words
 
     # # check whether we have enough money in the account, if so, then proceed to purchasing labels....
@@ -221,13 +226,13 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
 
 
     # # now that we have enough fund to buy labels on this sheet. go and execute that.
-    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "export_template", "anchor text", "any", "junk", "page_load_status", "goodsupply", False, this_step)
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "export_template", "direct", "anchor text", "any", "junk", "page_load_status", "goodsupply", False, this_step)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "verify_data", "anchor text", "any", "vd_locs", "page_load_status", "goodsupply", False, this_step)
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "verify_data", "direct", "anchor text", "any", "vd_locs", "page_load_status", "goodsupply", False, this_step)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_template", "anchor text", "", [0, 0], "left", [2, 0], "box", 1, 3, [0, -3], this_step)
+    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "direct", "export_template", "anchor text", "", [0, 0], "left", [2, 0], "box", 1, 3, [0, -3], this_step)
     # psk_words = psk_words + step_words
     #
     #
@@ -238,7 +243,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     # psk_words = psk_words + step_words
     #
     # # type in the shipping service to be used.
-    # this_step, step_words = genStepTextInput("var", False, "shipping_service", 1, "enter", 2, this_step)
+    # this_step, step_words = genStepTextInput("var", False, "shipping_service", "direct", 1, "enter", 2, this_step)
     # psk_words = psk_words + step_words
     #
     # # bring up the file open dialog
@@ -260,13 +265,13 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     # psk_words = psk_words + step_words
     #
     # # readn screen again after verify data.
-    # this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     # psk_words = psk_words + step_words
     #
     # # GS site will NOT check for xls field content errors like , empty field, wrong field like, 3 letter state short-hands, or 7 digit zip,
     # # only missing weight colume will be checked, so it's really important to make sure xls is right.
     # # so no checking of error here..... directly search for import button.
-    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "import", "anchor text", "any", "import_buttons", "found_import", "goodsupply", False, this_step)
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "import", "direct", "anchor text", "any", "import_buttons", "found_import", "goodsupply", False, this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepLoop("found_import == False", "", "", "buyGSLabels" + str(stepN), this_step)
@@ -275,10 +280,10 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "import", "anchor text", "any", "import_buttons", "found_import", "goodsupply", False, this_step)
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "import", "direct", "anchor text", "any", "import_buttons", "found_import", "goodsupply", False, this_step)
     # psk_words = psk_words + step_words
     #
     # # end of find import button scroll down loop
@@ -295,7 +300,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_imported", "anchor text", "File Imported", [0, 0], "center", [0, 0], "box", 2, 3, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     dt_today_string = datetime.today().strftime('%m/%d/%Y')
@@ -317,7 +322,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
 
     #now type in the correct date range
     # fill in the to be extracted dir
-    this_step, step_words = genStepTextInput("var", False, "today_date_range", 1, "enter", 2, this_step)
+    this_step, step_words = genStepTextInput("var", False, "today_date_range", "direct", 1, "enter", 2, this_step)
     psk_words = psk_words + step_words
 
 
@@ -362,26 +367,20 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + tail", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("obj", "syn_settings", "NA", worksettings, this_step)
+    this_step, step_words = genStepCallExtern("sk_work_settings['options'] = file_wo_extension", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global syn_settings\nsyn_settings['options'] = file_wo_extension", "", "in_line", "", this_step)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "syn_settings", "screen_info", "label", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "zip_row", "info 1", "any", "zip_download_locs", "labels_ready", "goodsupply", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "zip_row", "direct", "info 1", "any", "zip_download_locs", "labels_ready", "goodsupply", False, this_step)
     psk_words = psk_words + step_words
 
 
     ######################## end of checking whether the zip/rar file is ready
 
     # check every 15 seconds.
-    this_step, step_words = genStepCreateData("obj", "syn_settings", "NA", worksettings, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global syn_settings\nsyn_settings['options'] = file_wo_extension", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("sk_work_settings['options'] = file_wo_extension", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_timeout\ngs_timeout = gs_timeout + 1", "", "in_line", "", this_step)
@@ -448,7 +447,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     # psk_words = psk_words + step_words
 
     # create the unzipped dir....
-    this_step, step_words = genStepCreateDir("in_files_dir", "fileStatus", this_step)
+    this_step, step_words = genStepCreateDir("in_files_dir", "direct", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
     # genStep7z(action, var_type, exe_var, in_var, out_path, out_var, result, stepN):
@@ -473,7 +472,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "transaction_usps", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     #now triple click and delete.
@@ -485,21 +484,21 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
 
     #now type in the correct date range
     # fill in the to be extracted dir
-    this_step, step_words = genStepTextInput("var", False, "today_date_range", 1, "enter", 2, this_step)
+    this_step, step_words = genStepTextInput("var", False, "today_date_range", "direct", 1, "enter", 2, this_step)
     psk_words = psk_words + step_words
 
     #now hit Apply again.
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "apply", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 5, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
 
     this_step, step_words = genStepLoop("more_to_update and pidx != '0'", "", "", "waitGSLabels" + str(stepN), this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "download_success", "anchor text", "any", "dl_successes", "labels_downloaded", "goodsupply", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "download_success", "direct", "anchor text", "any", "dl_successes", "labels_downloaded", "goodsupply", False, this_step)
     psk_words = psk_words + step_words
 
 
@@ -512,10 +511,10 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "download_success", "anchor text", "any", "dl_successes", "download_status", "goodsupply", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "download_success", "direct", "anchor text", "any", "dl_successes", "download_status", "goodsupply", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -524,7 +523,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     # now save and scrape html which is the easiest way to get all the necessary infomation.....
     # again, this could span many pages.... and a particular, note is that due to screen size, the location of that
     # customer service chat icon could be located just there to block the last page index
-    this_step, step_words = genStepCreateDir(worksettings["log_path"], "fileStatus", this_step)
+    this_step, step_words = genStepCreateDir("sk_work_settings['log_path']", "expr", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
 
@@ -536,8 +535,11 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     dt_string = str(int(dtnow.timestamp()))
     hfname = "etsyOrders" + dt_string + ".html"
 
+    this_step, step_words = genStepCreateData("str", "hfname", "NA", hfname, this_step)
+    psk_words = psk_words + step_words
+
     print("SAVE HTML FILE: ", hfname)
-    this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', '" + worksettings["log_path"] + "', '" + hfname +"']", this_step)
+    this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', sk_work_settings['log_path'], hfname]", this_step)
     psk_words = psk_words + step_words
 
 
@@ -549,7 +551,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     psk_words = psk_words + step_words
 
     # now html saved, scrape the html
-    this_step, step_words = genStepCreateData("str", "html_file", "NA", worksettings["log_path"] + hfname, this_step)
+    this_step, step_words = genStepCreateData("expr", "html_file", "NA", "sk_work_settings['log_path'] + hfname", this_step)
     psk_words = psk_words + step_words
 
     # after scraping the etsy_orders data will be updated and ready to update to Etsy or any other ecommerce store.....
@@ -572,16 +574,13 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepCallExtern("global ops_string\nops_string = ops_string + tail\nprint('ops_string', ops_string)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("obj", "syn_settings", "NA", worksettings, this_step)
+    this_step, step_words = genStepCallExtern("sk_work_settings['options'] = ops_string", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global syn_settings\nsyn_settings['options'] = ops_string", "", "in_line", "", this_step)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "syn_settings", "screen_info", "label", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "page_n_loc", "info 1", "any", "page_n_locs", "found_next_page", "goodsupply", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "page_n_loc", "direct", "info 1", "any", "page_n_locs", "found_next_page", "goodsupply", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("found_next_page", "", "", this_step)
@@ -590,7 +589,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, page, sect, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "page_n_loc", "info 1", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "label", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "label", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)

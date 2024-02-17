@@ -9,8 +9,29 @@ from labelSkill import *
 from wifiSkill import *
 from printLabel import *
 from envi import *
+import os
+import traceback
 
 ecb_data_homepath = getECBotDataHome()
+
+SkillGeneratorTable = {
+    "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
+    "win_ads_amz_home_browse_search": lambda x,y,z: genWinADSAMZWalkSkill(x, y, z),
+    "win_ads_local_open_open_profile": lambda x,y,z: genWinADSOpenProfileSkill(x, y, z),
+    "win_ads_local_load_batch_import": lambda x,y,z: genWinADSBatchImportSkill(x, y, z),
+    "win_chrome_etsy_orders_fullfill_orders": lambda x,y,z: genWinChromeEtsyFullfillOrdersSkill(x, y, z),
+    "win_chrome_etsy_orders_collect_orders": lambda x,y,z: genWinEtsyCollectOrderListSkill(x, y, z),
+    "win_chrome_etsy_orders_update_tracking": lambda x,y,z: genWinEtsyUpdateShipmentTrackingSkill(x, y, z),
+    "win_chrome_goodsupply_label_bulk_buy": lambda x,y,z: genWinChromeGSLabelBulkBuySkill(x, y, z),
+    "win_file_local_op_open_save_as": lambda x,y,z: genWinFileLocalOpenSaveSkill(x, y, z),
+    "win_printer_local_print_reformat_print": lambda x,y,z: genWinPrinterLocalReformatPrintSkill(x, y, z),
+    "win_rar_local_unzip_unzip_archive": lambda x,y,z: genWinRARLocalUnzipSkill(x, y, z),
+    "win_wifi_local_list_reconnect_lan": lambda x,y,z: genWinWiFiLocalReconnectLanSkill(x, y, z),
+    "win_test_local_loop_run_simple_loop": lambda x,y,z: genTestRunSimpleLoopSkill(x, y, z)
+}
+
+
+
 # locate the correct mission to work on....
 def getWorkSettings(lieutenant, bot_works):
     works = bot_works["works"]
@@ -60,8 +81,8 @@ def getWorkSettings(lieutenant, bot_works):
         print("no inventory found")
         products = []
 
-    for b in lieutenant.bots:
-        print("BID:", b.getBid())
+    # for b in lieutenant.bots:
+    #     print("BID:", b.getBid())
     bot_idx = next((i for i, bot in enumerate(lieutenant.bots) if str(bot.getBid()) == str(bot_id)), -1)
     if bot_idx < 0 or bot_idx >= len(lieutenant.bots):
         print("ERROR: Designated BOT " + str(bot_id) + "(out of "+str(len(lieutenant.bots))+" bots) not found!!!!")
@@ -77,8 +98,8 @@ def getWorkSettings(lieutenant, bot_works):
 
     date_word = dtnow.strftime("%Y%m%d")
     print("date word:", date_word)
-
-    fdir = ecb_data_homepath + "/runlogs/" + date_word + "/"
+    fdir = ecb_data_homepath.replace("\\", "/")
+    fdir = fdir + "/runlogs/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     bot = lieutenant.bots[bot_idx]
@@ -148,66 +169,67 @@ def setWorkSettingsSkill(worksettings, sk):
 
 
 # generate pubilc skills on windows platform.
-def genWinSkillCode(worksettings, start_step, theme):
-    print("opening skill file: ", worksettings["skfname"], worksettings["app"], worksettings["site"])
-    skf = open(worksettings["skfname"], "w+")
-    skf.write("\n")
-    psk_words = ""
+def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
+    this_step = start_step
+    sk_parts = sk_full_name.split("_")
+    sk_prefix = "_".join(sk_parts[:4])
+    sk_name = "_".join(sk_parts[4:])
 
-    if worksettings["app"] == "ads" and worksettings["site"] == "amz" and worksettings["skname"] == "browse_search":
-        this_step, step_words = genWinADSAMZWalkSkill(worksettings, start_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "amz" and worksettings["skname"] == "browse_search":
-        this_step, step_words = genWinChromeAMZWalkSkill(worksettings, start_step, theme)
-    elif worksettings["app"] == "ads" and worksettings["site"] == "ebay" and worksettings["skname"] == "sell":
-        this_step, step_words = genWinEbayHandleOrderSkill(worksettings, start_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "fullfill_orders":
-        this_step, step_words = genWinChromeEtsyFullfillOrdersSkill(worksettings, "orders", "top", start_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "collect_orders":
-        this_step, step_words = genWinEtsyCollectOrderListSkill(worksettings, "orders", "top", start_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "etsy" and worksettings["skname"] == "update_tracking":
-        this_step, step_words = genWinEtsyUpdateShipmentTrackingSkill(worksettings, "orders", "top", start_step, theme)
-    elif worksettings["app"] == "chrome" and worksettings["site"] == "goodsupply" and worksettings["skname"] == "bulk_buy":
-        this_step, step_words = genWinChromeGSLabelBulkBuySkill(worksettings, "label", "top", start_step, theme)
-    elif worksettings["app"] == "rar" and worksettings["site"] == "local" and worksettings["skname"] == "unzip_archive":
-        this_step, step_words = genWinRARLocalUnzipSkill(worksettings, "winrar", "top", start_step, theme)
-    elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["skname"] == "open_profile":
-        this_step, step_words = genWinADSOpenSkill(worksettings, "file_dialog", "top", start_step, theme)
-    elif worksettings["app"] == "ads" and worksettings["site"] == "local" and worksettings["skname"] == "batch_import":
-        this_step, step_words = genWinADSBatchImportSkill(worksettings, "file_dialog", "top", start_step, theme)
-    elif worksettings["app"] == "file" and worksettings["site"] == "local" and worksettings["skname"] == "open_save_as":
-        this_step, step_words = genWinFileLocalOpenSaveSkill(worksettings, "file_dialog", "top", start_step, theme)
-    elif worksettings["app"] == "printer" and worksettings["site"] == "local" and worksettings["skname"] == "reformat_print":
-        this_step, step_words = genWinPrinterLocalReformatPrintSkill(worksettings, "file_dialog", "top", start_step, theme)
-    elif worksettings["app"] == "wifi" and worksettings["site"] == "local" and worksettings["skname"] == "reconnect_lan":
-        this_step, step_words = genWinWiFiLocalReconnectLanSkill(worksettings, "wifi", "top", start_step, theme)
-    elif worksettings["app"] == "test" and worksettings["site"] == "local" and worksettings["skname"] == "run_simple_loop":
-        this_step, step_words = genTestRunSimpleLoopSkill(start_step)
+    if privacy == "public":
+        sk_file_name = root_path + "/resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
     else:
-        this_step, step_words = genWinCustomSkill(worksettings, "custom", "top", start_step, theme)
-
-    psk_words = psk_words + step_words
+        sk_file_name = root_path + "/resource/skills/my/" + sk_prefix + "/" + sk_name + ".psk"
 
 
-    # generate addresses for all subroutines.
-    # print("DEBUG", "Created PSK: " + psk_words)
+    print("opening skill file: ", sk_file_name)
 
-    skf.write(psk_words)
-    skf.close()
+    try:
+        if os.path.exists(sk_file_name):
+            skf = open(sk_file_name, "w+")
+            skf.write("\n")
+            psk_words = ""
+
+            if sk_full_name in SkillGeneratorTable:
+                this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
+
+                psk_words = psk_words + step_words
+
+                # generate addresses for all subroutines.
+                # print("DEBUG", "Created PSK: " + psk_words)
+
+                skf.write(psk_words)
+                skf.close()
+        else:
+            print("WARNING:::: skill file not found")
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            file_name, line_number, _, _ = traceback_info[-1]
+            print("TraceBack:", traceback_info)
+
+            # Print the file name and line number
+            ex_stat = "ErrorWritePSK:" + file_name + " " + str(line_number) + " " + str(e)
+        else:
+            ex_stat = "ErrorWritePSK traceback information not available"
+
+        print(ex_stat)
+
+    return this_step, sk_file_name
 
 
 # generate pubilc skills on Mac platform.
 def genMacSkillCode(worksettings, start_step, theme):
-    print("hello")
+    print("No Mac Skills Found.")
 
+def genLinuxSkillCode(worksettings, start_step, theme):
+    print("No Linux Skills Found.")
 
-# nothing to return. (skname, skfname,  worksTBD, first_step, "light")
-def genSkillCode(worksettings, start_step, theme):
+def genChromeOSSkillCode(worksettings, start_step, theme):
+    print("No ChromeOS Skills Found.")
 
-    if worksettings["platform"] == "win":
-        genWinSkillCode(worksettings, start_step, theme)
-    elif worksettings["platform"] == "mac":
-        # genMacSkillCode(worksettings, start_step, theme)
-        genWinSkillCode(worksettings, start_step, theme)
 
 
 
@@ -333,7 +355,7 @@ def genWinTestSkill2(worksettings, start_step):
     skf.close()
 
 
-def genTestRunSimpleLoopSkill(stepN):
+def genTestRunSimpleLoopSkill(worksettings, stepN, theme):
 
     psk_words = "{"
 
@@ -365,6 +387,6 @@ def genTestRunSimpleLoopSkill(stepN):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows loop test...." + psk_words)
+    # print("DEBUG", "generated skill for windows loop test...." + psk_words)
 
     return this_step, psk_words

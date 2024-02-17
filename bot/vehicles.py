@@ -17,7 +17,7 @@ class VEHICLE(QStandardItem):
         self.parent = parent
         self.bot_ids = []
         self.arch = ""
-        self.os = ""
+        self.os = "win"
         self.name = ""
         self.ip = ""
         self.id = ""
