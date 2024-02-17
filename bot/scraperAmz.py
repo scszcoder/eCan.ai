@@ -22,7 +22,7 @@ def convNFB(nfb_txt):
     return int(nfb_word)
 
 def convPrice(price_txt):
-    price_num_txt = price_txt.split("$")[1]
+    price_num_txt = price_txt.split("$")[1].replace(",", "")
     # print("converted price: " + price_num_txt)
     return float(price_num_txt)
 
@@ -73,8 +73,8 @@ def amz_buyer_fetch_product_list(html_file, idx):
                 # print("LEN SUM_INFOS: ", len(sum_infos))
                 summery = PRODUCT_SUMMERY()
                 for sum_info in sum_infos:
-                    # print("calss: ", sum_info.get('class'))
-                    if " ".join(sum_info.get('class')) == 'a-size-base-plus a-color-base a-text-normal':
+                    print("calss: ", sum_info.get('class'))
+                    if " ".join(sum_info.get('class')) == 'a-size-base-plus a-color-base a-text-normal' or " ".join(sum_info.get('class')) == 'a-size-medium a-color-base a-text-normal':
                         summery.setTitle(sum_info.text)
                         # print("Title: ", sum_info.text)
                     elif sum_info.get('class')[0] == 'a-icon-alt':

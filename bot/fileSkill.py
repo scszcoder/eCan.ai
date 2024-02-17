@@ -54,7 +54,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepLoop("", "50", "", lcvarname, this_step)
+    this_step, step_words = genStepLoop("", "20", "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)
@@ -65,7 +65,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
 
     # type in the path
     #action, saverb, txt, speed, key_after, wait_after, stepN
-    this_step, step_words = genStepTextInput("var", False, "fopen_f_path", "direct", 0.05, "enter", 2, this_step)
+    this_step, step_words = genStepTextInput("var", False, "fopen_f_path", "direct", 0.05, "enter", 1, this_step)
     psk_words = psk_words + step_words
 
     # click on file name input win
@@ -78,7 +78,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepLoop("", "30", "", lcvarname, this_step)
+    this_step, step_words = genStepLoop("", "10", "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)

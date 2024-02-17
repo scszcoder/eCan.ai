@@ -1124,7 +1124,8 @@ class MainWindow(QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        test_sqlite3(self)
+        # test_sqlite3(self)
+        test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         #the grand test,
@@ -1605,11 +1606,12 @@ class MainWindow(QMainWindow):
         if len(self.todays_work["tbd"]) > 0:
             if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
-                if self.ts2time(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]) < pt:
+                if self.ts2time(int(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]/1)) < pt:
                     nextrun = self.todays_work["tbd"][0]
             elif "Completed" not in self.todays_work["tbd"][0]["status"]:
                 # in case the 1st todos is an automation task.
                 print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
+                print("time right now is:", self.time2ts(pt))
                 tz = self.todays_work["tbd"][0]["current tz"]
 
                 bith = self.todays_work["tbd"][0]["current bidx"]
@@ -1623,12 +1625,14 @@ class MainWindow(QMainWindow):
                 else:
                     # just give it a huge number so that, this group won't get run
                     current_bw_start_time = 1000
+                print("current_bw_start_time:", current_bw_start_time)
 
                 if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
                     current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
                 else:
                     # in case, all just give it a huge number so that, this group won't get run
                     current_other_start_time = 1000
+                print("current_other_start_time:", current_other_start_time)
 
                 # if a buy-walk task is scheduled earlier than other tasks, arrange the buy-walk task, otherwise arrange other works.
                 if current_bw_start_time < current_other_start_time:
@@ -1643,15 +1647,13 @@ class MainWindow(QMainWindow):
                     wjth = -1
 
                 self.todays_work["tbd"][0]["current grp"] = grp
-
-
                 print("tz: ", tz, "bith: ", bith, "grp: ", grp, "wjth: ", wjth)
 
                 if wjth >= 0:
-                    if self.ts2time(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]) < pt:
+                    if self.ts2time(int(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]/3)) < pt:
                         print("next run is now set up......")
                         nextrun = self.todays_work["tbd"][0]
-
+                print("nextRUN>>>>>: ", nextrun)
         return nextrun
 
 
@@ -2227,6 +2229,14 @@ class MainWindow(QMainWindow):
         time_change = timedelta(minutes=20*ts)
         runtime = zerotime + time_change
         return runtime
+
+    def time2ts(self, pdt):
+        thistime = datetime.now()
+        zerotime = datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
+        # Get the time difference in seconds
+        ts = int((pdt - zerotime).total_seconds()/1200)         # computer time slot in 20minuts chunk
+
+        return ts
 
 
     def runBotTask(self, task):
