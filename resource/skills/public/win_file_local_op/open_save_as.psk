@@ -107,7 +107,7 @@
     "type": "Repeat",
     "lc_name": "fopen0",
     "until": "",
-    "count": "50",
+    "count": "20",
     "end": ""
 },
 "step 55":
@@ -133,9 +133,9 @@
     "save_rb": false,
     "text": "fopen_f_path",
     "text_type": "var",
-    "speed": 0.25,
+    "speed": 0.05,
     "key_after": "enter",
-    "wait_after": 2
+    "wait_after": 1
 },
 "step 70":
 {
@@ -185,7 +185,7 @@
     "type": "Repeat",
     "lc_name": "fopen0",
     "until": "",
-    "count": "30",
+    "count": "10",
     "end": ""
 },
 "step 90":
@@ -211,7 +211,7 @@
     "save_rb": false,
     "text": "fopen_f_name",
     "text_type": "var",
-    "speed": 0.25,
+    "speed": 0.05,
     "key_after": "",
     "wait_after": 2
 },

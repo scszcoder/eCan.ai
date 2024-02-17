@@ -841,8 +841,14 @@ def processExtractInfo(step, i, mission, skill):
         print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     except Exception as e:
-        print(f"Exception info:{e}")
-        ex_stat = "ErrorExtractInf:" + str(i)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorExtractInfo:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
+        print(ex_stat)
 
     return (i+1), ex_stat
 
@@ -889,8 +895,15 @@ def processFillRecipients(step, i):
                 print("ERROR, how could the name be not found?")
 
             # once found, update the relavant field. such as
-    except:
-        ex_stat = "ErrorFillRecipients:" + str(i)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorFillRecipients:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorFillRecipients traceback information not available:" + str(e)
+        print(ex_stat)
 
     return (i+1), ex_stat
 
@@ -947,8 +960,15 @@ def processTextInput(step, i):
         current_context = build_current_context()
         page_stack.append({"pc": i, "context": current_context})
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorTextInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorTextInput traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i+1), ex_stat
@@ -1252,8 +1272,18 @@ def processMouseClick(step, i):
         # now save the current juncture.
         current_context = build_current_context()
         page_stack.append({"pc": i, "context": current_context})
-    except:
-        ex_stat = "ErrorMouseClick:"+str(i)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorMouseClick:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorMouseClick: traceback information not available:" + str(e)
+        print(ex_stat)
+
     return (i + 1), ex_stat
 
 # max 4 combo key stroke
@@ -1284,8 +1314,16 @@ def processKeyInput(step, i):
 
         # wait after key action.
         time.sleep(step["wait_after"])
-    except:
-        ex_stat = "ErrorKeyInput:"+str(i)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorKeyInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1343,7 +1381,10 @@ def processMouseScroll(step, i):
             print("Calculated Scroll Amount: ", scroll_amount, "scroll resoution: NOT YET AVAILABLE")
 
         if step["random_max"] != step["random_min"]:
-            scroll_amount = scroll_amount - random.randrange(step["random_min"], step["random_max"])
+            if step["action"] == "Scroll Down":
+                scroll_amount = scroll_amount - random.randrange(step["random_min"], step["random_max"])
+            else:
+                scroll_amount = scroll_amount + random.randrange(step["random_min"], step["random_max"])
 
         print("after randomized Scroll Amount: ", scroll_amount)
         mouse.scroll(0, scroll_amount)
@@ -1354,8 +1395,16 @@ def processMouseScroll(step, i):
         if step["breakpoint"]:
             input("type any key to continue")
 
-    except:
-        ex_stat = "ErrorMouseScroll:" + str(i)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorMouseScroll:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorMouseScroll: traceback information not available:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1378,8 +1427,16 @@ def processOpenApp(step, i):
                 subprocess.Popen([symTab["oa_exe"], symTab["oa_args"]])
         time.sleep(step["wait"])
 
-    except:
-        ex_stat = "ErrorOpenApp:" + str(i)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorOpenApp:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorOpenApp: traceback information not available:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1440,8 +1497,15 @@ def processCreateData(step, i):
 
         mission_vars.append(step["data_name"])
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCreateData:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorCreateData: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -1461,8 +1525,15 @@ def processTextToNumber(step, i):
         if "%" in original:
             symTab[step["numvar"]] = symTab[step["numvar"]]/100
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorText2Number:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorText2Number: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -1530,8 +1601,15 @@ def processFillData(step, i):
         exec(statement)
 
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorFillData:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorFillData: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -1554,8 +1632,15 @@ def processEndException(step, i, step_keys):
             in_exception = False
 
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorException:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorException: traceback information not available:" + str(e)
         print(ex_stat)
 
     return idx, ex_stat
@@ -1593,8 +1678,15 @@ def processExceptionHandler(step, i, step_keys):
             print("MISSION failed...")
 
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorExceptionHandler:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorExceptionHandler: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -1654,17 +1746,12 @@ def processCheckCondition(step, i, step_keys):
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
-
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            file_name, line_number, _, _ = traceback_info[-1]
-
-            # Print the file name and line number
-            print(f"ErrorTextInput occurred in file '{file_name}', line {line_number}, , e {e}")
+            ex_stat = "ErrorCheckCondition:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
-            print("ErrorTextInput traceback information not available")
-
-        ex_stat = "ErrorTextInput:" + file_name + " " + str(line_number) + " " + str(e)
+            ex_stat = "ErrorCheckCondition: traceback information not available:" + str(e)
+        print(ex_stat)
 
 
     return idx, ex_stat
@@ -1710,8 +1797,15 @@ def processRepeat(step, i,  step_keys):
                 end_idx = i + 1
 
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorRepeat:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorRepeat: traceback information not available:" + str(e)
         print(ex_stat)
 
     return end_idx, ex_stat
@@ -1725,8 +1819,15 @@ def processLoadData(step, i):
             symTab[step["data_name"]] = json.load(f)
 
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorLoadData:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorLoadData: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i+1), ex_stat
@@ -1740,8 +1841,15 @@ def processSaveData(step, i):
             json.dump(symTab[step["data_name"]], f)
 
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSaveData:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorSaveData: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i+1), ex_stat
@@ -1783,8 +1891,15 @@ def processCallExtern(step, i):
         symTab[step["output"]] = result
 
 
+
     except Exception as e:
-        ex_stat = "ErrorTextInput:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallExtern:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorCallExtern: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i+1), ex_stat
@@ -1826,8 +1941,15 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         print("idx:", idx)
         print("step_keys:", step_keys)
 
+
     except Exception as e:
-        ex_stat = "ErrorUseSkill:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorUseSkill:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorUseSkill: traceback information not available:" + str(e)
         print(ex_stat)
 
     return idx, ex_stat
@@ -1860,8 +1982,15 @@ def processOverloadSkill(step, i, stack, step_keys):
         idx = step_keys.index(skill_table[step["skill_name"]])
 
 
+
     except Exception as e:
-        ex_stat = "ErrorOverloadSkill:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorOverloadSkill:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorOverloadSkill: traceback information not available:" + str(e)
         print(ex_stat)
 
     return idx, ex_stat
@@ -1897,8 +2026,15 @@ def processCallFunction(step, i, stack, func_table, step_keys):
         idx = step_keys.index(func_table[step["fname"]])
 
 
+
     except Exception as e:
-        ex_stat = "ErrorCallFunction:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallFunction:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorCallFunction: traceback information not available:" + str(e)
         print(ex_stat)
 
     return idx, ex_stat
@@ -1925,8 +2061,15 @@ def processReturn(step, i, stack, step_keys):
         print("after return, will run @", next_i)
 
 
+
     except Exception as e:
-        ex_stat = "ErrorReturn:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReturn:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorReturn: traceback information not available:" + str(e)
         print(ex_stat)
 
     return next_i, ex_stat
@@ -1972,8 +2115,15 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
                 next_i = stack.pop()
 
 
+
     except Exception as e:
-        ex_stat = "ErrorStub:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorStub:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorStub: traceback information not available:" + str(e)
         print(ex_stat)
 
     return next_i, ex_stat
@@ -1989,8 +2139,15 @@ def processGoto(step, i,  step_keys):
             next_step_index = step_keys.index(symTab[step["goto"]])
 
 
+
     except Exception as e:
-        ex_stat = "ErrorGoTo:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoTo:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorGoTo: traceback information not available:" + str(e)
         print(ex_stat)
 
     return next_step_index, ex_stat
@@ -2003,8 +2160,15 @@ def processListDir(step, i):
         symTab[step["result"]] = [f for f in lof if f.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
 
 
+
     except Exception as e:
-        ex_stat = "ErrorListDir:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorListDir:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorListDir: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -2026,8 +2190,15 @@ def processCheckExistence(step, i):
         print("Existence is:", symTab[step["result"]])
 
 
+
     except Exception as e:
-        ex_stat = "ErrorCheckExistence:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckExistence:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckExistence: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -2056,8 +2227,15 @@ def processCreateDir(step, i):
             print("Already existed.")
 
 
+
     except Exception as e:
-        ex_stat = "ErrorCreateDir:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCreateDir:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorCreateDir: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -2099,8 +2277,15 @@ def process7z(step, i):
                 symTab[step["result"]] = subprocess.call(exe + " e " + input)
 
 
+
     except Exception as e:
-        ex_stat = "Error7z:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "Error7z:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "Error7z: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -2120,14 +2305,7 @@ def processSearchAnchorInfo(step, i):
     ex_stat = "success:0"
     try:
         scrn = symTab[step["screen"]]
-        if step["name_type"] == "direct":
-            target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
-        else:
-            exec("target_names = " + step["names"])
-
-        target_types = step["target_types"]
         logic = step["logic"]
-
         fault_names = ["site_not_reached", "bad_request"]
         fault_found = []
 
@@ -2136,9 +2314,18 @@ def processSearchAnchorInfo(step, i):
 
         # print("Searching screen....", scrn)
 
-        if not (type(target_names) is list):
+        if not (type(step["names"]) is list):
             target_names = [step["names"]]  # make it a list.
             target_types = [step["target_types"]]
+        else:
+            target_names = step["names"]
+            target_types = step["target_types"]
+
+        for i in range(len(target_names)):
+            print("ith target:", i, target_types[i], target_names[i])
+            if step["name_type"] != "direct":
+                exec("global temp_target_name\ntemp_target_name= " + target_names[i])
+                target_names[i] = temp_target_name
 
         # now do the search
         for target_name, target_type in zip(target_names, target_types):
@@ -2181,9 +2368,14 @@ def processSearchAnchorInfo(step, i):
         if step["breakpoint"]:
             input("type any key to continuue")
 
-
     except Exception as e:
-        ex_stat = "ErrorSearchAnchorInfo:" + str(e)
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSearchAnchorInfo:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorSearchAnchorInfo: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -2283,8 +2475,16 @@ def processSearchWordLine(step, i):
         if step["breakpoint"]:
             input("type any key to continuue")
 
-    except:
-        ex_stat = "ErrorSearchWordLine:" + str(i)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSearchWordLine:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorSearchWordLine: traceback information not available:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2343,8 +2543,16 @@ def processSearchScroll(step, i):
         mouse.scroll(0, offset)
         time.sleep(step["postwait"])
 
-    except:
-        ex_stat = "ErrorSearchScroll:" + str(i)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSearchScroll:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorSearchScroll: traceback information not available:" + str(e)
+        print(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2568,36 +2776,15 @@ def processSaveHtml(step, i, mission, skill):
         time.sleep(65)
 
     # ni is already incremented by processExtract(), so simply return it.
-    except:
-        ex_stat = "ErrorSaveHtml:" + str(i)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSaveHtml:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorSaveHtml: traceback information not available:" + str(e)
+        print(ex_stat)
 
     return ni, ex_stat
 
-
-if __name__ == '__main__':
-    file = '/Users/liuqiang/MyDocuments/Workspace/scszcoder/ecbot/runlogs/20240109/b1m20231225/win_chrome_amz_home/skills/images/scrn249511118_qq_1704766171.png'
-    window_name, window_rect = get_top_visible_window()
-    # im0 = pyautogui.screenshot(imageFilename=file,
-    #                            region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
-
-    from PIL import Image
-
-    # file = '../screenshot.png'
-    # 截取屏幕并保存图像
-    image = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
-    image.save(file)
-
-    # 打开图像文件
-    im = Image.open(file)
-    im.show()
-
-    # screen_loc = (window_rect[0], window_rect[1])
-
-    # path = os.path.join(os.path.dirname(__file__), '', 'screenshot.png')
-    # if not os.path.exists(os.path.dirname(path)):
-    #     os.makedirs(os.path.dirname(path))
-    #
-    # # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-    # im0 = pyautogui.screenshot(imageFilename=path,
-    #                            region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
-    # screen_loc = (window_rect[0], window_rect[1])

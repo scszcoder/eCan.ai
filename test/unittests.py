@@ -118,6 +118,46 @@ def test_scrape_etsy_orders():
     }
     next_step = processEtsyScrapeOrders(step, 10)
 
+def test_scrape_amz_prod_list():
+
+    global test_html_file
+    test_html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240216/b15m323/win_chrome_amz_home/skills/browse_search/1708140221.html"
+    # test_html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240216/b15m322/win_chrome_amz_home/skills/browse_search/Amazon.com _ oil filter plier.html"
+    global test_page_num = 0
+
+    step = {
+        "type": "AMZ Scrape PL Html",
+        "action": "Scrape PL",
+        "html_var": "test_html_file",
+        "product_list": "plSearchResult",
+        "page_num": "test_page_num",
+        "page_cfg": "",
+    }
+
+    # amission = EBMISSION(parent)
+    # amission.setMid(30)    # MID
+    # amission.setTicket(0)
+    # amission.setOwner('songc@yahoo.com')
+    # amission.setBid(2)
+    # amission.setStatus('ASSIGNED')
+    # amission.setBD('2022-10-23 00:00:00')
+    #
+    # amission.setRetry("1")
+    # amission.setCusPAS('win,chrome,amz')
+    # amission.setSearchCat('')
+    # amission.setSearchKW('yoga mats')
+    # amission.setPseudoStore('')
+    # amission.setPseudoBrand('')
+    # amission.setPseudoASIN('')
+    # amission.setMtype('Browse')
+    # amission.setConfig('')
+    # amission.setSkills('2, 3')
+    # amission.setDelDate('3022-10-23 00:00:00')
+
+    next_step = processAMZScrapePLHtml(step, 10, mission)
+    # pl = amz_buyer_fetch_product_list(test_html_file, 0)
+    # print("scrape product list result: ", pl)
+
 
 def test_scrape_gs_labels():
     # html_file = "c:/temp/gsListLabels0000.html"
