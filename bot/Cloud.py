@@ -322,7 +322,7 @@ def gen_schedule_request_string(test_name, schedule_settings):
     if test_name != "":
         query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": true, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
     else:
-        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"test_name\\\": \\\""+test_name+"\\\"}\") } "
+        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"vwins\\\": \\\""+str(schedule_settings["vwins"])+"\\\", \\\"vmacs\\\": \\\""+str(schedule_settings["vmacs"])+"\\\", \\\"vlnxs\\\": \\\""+str(schedule_settings["vlnxs"])+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
@@ -671,6 +671,7 @@ def gen_add_skills_string(skills):
             rec_string = rec_string + "page: \"" + skills[i]["page"] + "\", "
             rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
             rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
+            rec_string = rec_string + "main: \"" + skills[i]["main"] + "\", "
             rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
             rec_string = rec_string + "runtime: " + str(skills[i]["runtime"]) + ", "
             rec_string = rec_string + "price_model: \"" + skills[i]["price_model"] + "\", "
@@ -686,6 +687,7 @@ def gen_add_skills_string(skills):
             rec_string = rec_string + "page: \"" + skills[i].getPage() + "\", "
             rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
             rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
+            rec_string = rec_string + "main: \"" + skills[i].getMain() + "\", "
             rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
             rec_string = rec_string + "runtime: " + str(skills[i].getRunTime()) + ", "
             rec_string = rec_string + "price_model: \"" + skills[i].getPriceModel() + "\", "
@@ -720,6 +722,7 @@ def gen_update_skills_string(skills):
             rec_string = rec_string + "page: \"" + skills[i]["page"] + "\", "
             rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
             rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
+            rec_string = rec_string + "main: \"" + skills[i]["main"] + "\", "
             rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
             rec_string = rec_string + "runtime: " + str(skills[i]["runtime"]) + ", "
             rec_string = rec_string + "price_model: \"" + skills[i]["price_model"] + "\", "
@@ -735,6 +738,7 @@ def gen_update_skills_string(skills):
             rec_string = rec_string + "page: \"" + skills[i].getPage() + "\", "
             rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
             rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
+            rec_string = rec_string + "main: \"" + skills[i].getMain() + "\", "
             rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
             rec_string = rec_string + "runtime: " + str(skills[i].getRunTime()) + ", "
             rec_string = rec_string + "price_model: \"" + skills[i].getPriceModel() + "\", "
@@ -1012,9 +1016,9 @@ def send_remove_missions_request_to_cloud(session, removes, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_skills_request_to_cloud(session, bots, token):
+def send_add_skills_request_to_cloud(session, skills, token):
 
-    mutationInfo = gen_add_skills_string(bots)
+    mutationInfo = gen_add_skills_string(skills)
 
     jresp = appsync_http_request(mutationInfo, session, token)
 
@@ -1231,7 +1235,7 @@ def upload_file(session, f2ul, token, ftype):
     fname = os.path.basename(f2ul)
     fwords = f2ul.split("/")
     relf2ul = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
-    prefix = ftype + "|" + os.path.dirname(f2ul)
+    prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
 
     fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
     print("fopreqs:", fopreqs)

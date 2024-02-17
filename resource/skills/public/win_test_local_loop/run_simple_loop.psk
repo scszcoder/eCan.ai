@@ -36,7 +36,7 @@
     "type": "Repeat",
     "lc_name": "test0",
     "until": "",
-    "count": "10",
+    "count": "15",
     "end": ""
 },
 "step 25":
@@ -44,7 +44,7 @@
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
-    "time": 1
+    "time": 2
 },
 "step 30":
 {
