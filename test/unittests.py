@@ -123,7 +123,8 @@ def test_scrape_amz_prod_list():
     global test_html_file
     test_html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240216/b15m323/win_chrome_amz_home/skills/browse_search/1708140221.html"
     # test_html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240216/b15m322/win_chrome_amz_home/skills/browse_search/Amazon.com _ oil filter plier.html"
-    global test_page_num = 0
+    global test_page_num
+    test_page_num = 0
 
     step = {
         "type": "AMZ Scrape PL Html",
