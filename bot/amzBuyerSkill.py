@@ -820,6 +820,8 @@ def genAMZBrowseAllReviewsPage(level, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
     # now scroll back to top, no need really
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
 
     # now simply go back to the previous browser page. by press alt-left
     this_step, step_words = genStepKeyInput("", True, "alt_left", "", 3, this_step)

@@ -126,6 +126,20 @@
                         "ref_constraints" : []
                     },
                     {
+                        "anchor_name"  : "your_account",
+                        "anchor_type"  : "text",
+                        "template"     : "Your Account",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
+                        "anchor_name"  : "search_go",
+                        "anchor_type"  : "text",
+                        "template"     : "Go",
+                        "ref_method"   : "0",
+                        "ref_constraints" : []
+                    },
+                    {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
