@@ -488,13 +488,13 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 1, False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 1, False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 1, False, this_step)
     psk_words = psk_words + step_words
 
 
@@ -1534,18 +1534,18 @@ def match_product(summery, screen_data):
                 eot = True
 
             match = SequenceMatcher(None, seg, ttbm, ).find_longest_match(alo=0, ahi=len(seg), blo=0, bhi=len(ttbm))
-            # print(match)
-            # print(seg, "(", seg[match[0]:match[0]+match[2]], ") and ", ttbm, " ((", ttbm[match[1]:match[1]+match[2]], "))")
+            print(match)
+            print(seg, "(", seg[match[0]:match[0]+match[2]], ") and ", ttbm, " ((", ttbm[match[1]:match[1]+match[2]], "))")
             matched_word = seg[match[0]:match[0]+match[2]]
-            if "(" in matched_word:
-                matched_word.replace("(", r"\(")
+            matched_word = re.sub(r'([()\[\].:!])', r'\\\1', matched_word)
+
             matched_words = seg[match[0]:match[0]+match[2]].split()
             print("matched_word:", matched_word, "<=>", ttbm)
             print("matched_words:[", matched_words, "]", len(matched_words))
 
             if len(matched_words) > 0:
                 if not eot:
-                    ttbm = re.sub(matched_word, '', ttbm)              # carve out the matched part.
+                    ttbm = re.sub(matched_word, '', ttbm)     # carve out the matched part.
                     ttbm = re.sub(" +", " ", ttbm)            # again remove redundant white spaces.
 
                     matched_lines.append(matched_word)
@@ -1742,7 +1742,7 @@ def found_match(p, pl):
         # amazon's choice.
         matches = [pr for index, pr in enumerate(pl) if pr["summery"]["ac"]]
     elif p["selType"] == "op":
-        # amazon's best seller.
+        # amazon's best overall pick.
         matches = [pr for index, pr in enumerate(pl) if pr["summery"]["op"]]
     elif p["selType"] == "bs":
         # amazon's best seller.
