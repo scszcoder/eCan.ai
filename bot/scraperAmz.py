@@ -73,12 +73,12 @@ def amz_buyer_fetch_product_list(html_file, idx):
                 # print("LEN SUM_INFOS: ", len(sum_infos))
                 summery = PRODUCT_SUMMERY()
                 for sum_info in sum_infos:
-                    print("calss: ", sum_info.get('class'))
+                    # print("class: ", sum_info.get('class'))
                     if " ".join(sum_info.get('class')) == 'a-size-base-plus a-color-base a-text-normal' or " ".join(sum_info.get('class')) == 'a-size-medium a-color-base a-text-normal':
                         summery.setTitle(sum_info.text)
                         # print("Title: ", sum_info.text)
                     elif sum_info.get('class')[0] == 'a-icon-alt':
-                        summery.setScore(sum_info.text)
+                        summery.setScore(float(sum_info.text.split(" ")[0]))
                         # print("Score: ", sum_info.text)
                     elif " ".join(sum_info.get('class')) == 'a-size-base s-underline-text':
                         summery.setFeedbacks(convNFB(sum_info.text))
@@ -98,11 +98,14 @@ def amz_buyer_fetch_product_list(html_file, idx):
                                 summery.setWeekSales(-1)
                             weekly_set = True
                     elif sum_info.get('class')[0] == 'a-badge-text':
-                            # print("Badge: ", sum_info.text)
+                            print("Found A Badge::: ", sum_info.text)
                             if sum_info.text == "Amazon's ":
                                 summery.addBadge("Amazon's Choice")
                             elif sum_info.text != "Choice":
-                                summery.addBadge(sum_info.text)
+                                if sum_info.text == "Best Seller":
+                                    summery.addBadge("Best Seller")
+                                elif "Overall Pick" in sum_info.text:
+                                    summery.addBadge("Overall Pick")
 
                     elif sum_info.get('class')[len(sum_info.get('class'))-1] == 'a-color-base':
                         if re.search('FREE', sum_info.text):

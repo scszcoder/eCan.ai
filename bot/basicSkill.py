@@ -2321,11 +2321,11 @@ def processSearchAnchorInfo(step, i):
             target_names = step["names"]
             target_types = step["target_types"]
 
-        for i in range(len(target_names)):
-            print("ith target:", i, target_types[i], target_names[i])
+        for idx in range(len(target_names)):
+            print("ith target:", idx, target_types[idx], target_names[idx])
             if step["name_type"] != "direct":
-                exec("global temp_target_name\ntemp_target_name= " + target_names[i])
-                target_names[i] = temp_target_name
+                exec("global temp_target_name\ntemp_target_name= " + target_names[idx])
+                target_names[idx] = temp_target_name
 
         # now do the search
         for target_name, target_type in zip(target_names, target_types):
@@ -2359,7 +2359,7 @@ def processSearchAnchorInfo(step, i):
 
         # didn't find anything, check fault situation.
         if symTab[step["status"]] == False:
-            fault_found = [e for i, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
+            fault_found = [e for j, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
             site_conn = ping(step["site"])
             if len(fault_found) > 0 or (not site_conn):
                 # exception has occured, flag it.
