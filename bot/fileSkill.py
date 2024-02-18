@@ -45,7 +45,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on path input win
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [3, 0], "box", 2, 0, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [3, 0], "box", 1, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # delete everything there
@@ -57,7 +57,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     this_step, step_words = genStepLoop("", "20", "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)
+    this_step, step_words = genStepKeyInput("", True, "backspace", "", 1, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -69,7 +69,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on file name input win
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_name", "anchor text", "", [0, 0], "right", [2, 0], "box", 2, 0, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_name", "anchor text", "", [0, 0], "right", [2, 0], "box", 3, 3, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # delete everything there
@@ -81,7 +81,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     this_step, step_words = genStepLoop("", "10", "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)
+    this_step, step_words = genStepKeyInput("", True, "backspace", "", 2, this_step)
 
     psk_words = psk_words + step_words
 

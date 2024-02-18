@@ -79,12 +79,12 @@
         3,
         0
     ],
-    "move_pause": 2,
+    "move_pause": 1,
     "post_move": [
         0,
         0
     ],
-    "post_wait": 0
+    "post_wait": 2
 },
 "step 40":
 {
@@ -117,7 +117,7 @@
     "action_value": "backspace",
     "save_rb": true,
     "location": "",
-    "wait_after": 0
+    "wait_after": 1
 },
 "step 60":
 {
@@ -157,12 +157,12 @@
         2,
         0
     ],
-    "move_pause": 2,
+    "move_pause": 3,
     "post_move": [
         0,
         0
     ],
-    "post_wait": 0
+    "post_wait": 3
 },
 "step 75":
 {
@@ -195,7 +195,7 @@
     "action_value": "backspace",
     "save_rb": true,
     "location": "",
-    "wait_after": 0
+    "wait_after": 2
 },
 "step 95":
 {
