@@ -677,9 +677,9 @@ def gen_addresses(stepcodes, nth_pass):
                     elif ( stepcodes[tempStepName]["type"] == "Check Condition"):
                         # in case that this is a check condition without else stub....
                         stepcodes[tempStepName]["if_else"] = nextStepName
-
+                        print("replace if_else to:", nextStepName)
                         # so stub "else" will be replaced by a "Goto" step instead.
-                        stepcodes[stepName] = {"type": "Goto", "goto": nextStepName}
+                        # stepcodes[stepName] = {"type": "Goto", "goto": nextStepName}
                 elif stepcodes[stepName]["stub_name"] == "break":
                     # push on to stack
                     temp_stack.append(stepName)
