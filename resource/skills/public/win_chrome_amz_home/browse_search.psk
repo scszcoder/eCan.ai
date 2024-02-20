@@ -310,7 +310,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'1708238417'+'_'+str(nthPLPage)+'.html'"
+    "key_value": "'1708381923'+'_'+str(nthPLPage)+'.html'"
 },
 "step 160":
 {
@@ -491,7 +491,7 @@
     "page": "product_list",
     "page_data_info": null,
     "theme": "light",
-    "section": "top"
+    "section": "body"
 },
 "step 270":
 {
@@ -533,7 +533,7 @@
     "page": "product_list",
     "page_data_info": "plSearchResult",
     "theme": "light",
-    "section": "top"
+    "section": "body"
 },
 "step 290":
 {
@@ -609,7 +609,7 @@
     "data_type": "bool",
     "data_name": "end_of_detail",
     "key_name": "NA",
-    "key_value": "False"
+    "key_value": false
 },
 "step 325":
 {
@@ -617,9 +617,17 @@
     "data_type": "bool",
     "data_name": "rv_expandable",
     "key_name": "NA",
-    "key_value": "False"
+    "key_value": false
 },
 "step 330":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "no_reviews",
+    "key_name": "NA",
+    "key_value": false
+},
+"step 335":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -627,7 +635,7 @@
     "key_name": "NA",
     "key_value": "pl_need_attention[att_count]['detailLvl']"
 },
-"step 335":
+"step 340":
 {
     "type": "Call Extern",
     "file": "global pl_need_attention, att_count, detail_level\nprint('attcnt: ', att_count, 'pl need att: ', pl_need_attention, 'detail_level: ', detail_level)",
@@ -635,7 +643,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 340":
+"step 345":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -643,7 +651,7 @@
     "key_name": "NA",
     "key_value": "pl_need_attention[att_count]['purchase']"
 },
-"step 345":
+"step 350":
 {
     "type": "Call Extern",
     "file": "global buy_ops\nprint('buy_ops: ', buy_ops)",
@@ -651,7 +659,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 350":
+"step 355":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -659,14 +667,14 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 355":
+"step 360":
 {
     "type": "Check Condition",
     "condition": "detail_level == 1",
     "if_else": "",
     "if_end": ""
 },
-"step 360":
+"step 365":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -674,14 +682,14 @@
     "key_name": "NA",
     "key_value": 3
 },
-"step 365":
+"step 370":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 370":
+"step 375":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -689,25 +697,12 @@
     "key_name": "NA",
     "key_value": 1
 },
-"step 375":
+"step 380":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
-},
-"step 380":
-{
-    "type": "Mouse Scroll",
-    "action": "Scroll Down",
-    "screen": "screen_info",
-    "amount": 100,
-    "resolution": "scroll_resolution",
-    "random_min": 0,
-    "random_max": 0,
-    "breakpoint": false,
-    "postwait": 1,
-    "unit": "screen"
 },
 "step 385":
 {
@@ -737,13 +732,26 @@
 },
 "step 395":
 {
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 100,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "postwait": 1,
+    "unit": "screen"
+},
+"step 400":
+{
     "type": "Repeat",
     "lc_name": "browseDetails321",
     "until": "end_of_detail != True",
     "count": "",
     "end": ""
 },
-"step 400":
+"step 405":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -756,14 +764,14 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 405":
+"step 410":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 1
 },
-"step 410":
+"step 415":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -775,7 +783,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 415":
+"step 420":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -788,7 +796,7 @@
     "breakpoint": false,
     "status": "rv_expandable"
 },
-"step 420":
+"step 425":
 {
     "type": "Repeat",
     "lc_name": "browseDetails321",
@@ -796,14 +804,14 @@
     "count": "",
     "end": ""
 },
-"step 425":
+"step 430":
 {
     "type": "Check Condition",
-    "condition": "rv_expandable == True and pl_need_attention[att_count]['detailLvl'] == 2",
+    "condition": "rv_expandable == True",
     "if_else": "",
     "if_end": ""
 },
-"step 430":
+"step 435":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -830,7 +838,7 @@
     ],
     "post_wait": 1
 },
-"step 435":
+"step 440":
 {
     "type": "Call Extern",
     "file": "global expandables_count\nexpandables_count = expandables_count + 1",
@@ -838,7 +846,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 440":
+"step 445":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -850,7 +858,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 445":
+"step 450":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -863,14 +871,14 @@
     "breakpoint": false,
     "status": "rv_expandable"
 },
-"step 450":
+"step 455":
 {
     "type": "Stub",
-    "stub_name": "else",
+    "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 455":
+"step 460":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -891,14 +899,14 @@
     "breakpoint": false,
     "status": "end_of_detail"
 },
-"step 460":
+"step 465":
 {
     "type": "Check Condition",
     "condition": "end_of_detail == True",
     "if_else": "",
     "if_end": ""
 },
-"step 465":
+"step 470":
 {
     "type": "Call Extern",
     "file": "global expandables_count, max_expandables\nexpandables_count = max_expandables",
@@ -906,14 +914,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 470":
+"step 475":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 475":
+"step 480":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -926,7 +934,7 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 480":
+"step 485":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -938,7 +946,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 485":
+"step 490":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -950,13 +958,6 @@
     "site": "amz",
     "breakpoint": false,
     "status": "rv_expandable"
-},
-"step 490":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
 },
 "step 495":
 {
@@ -995,19 +996,36 @@
 },
 "step 510":
 {
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": [
+        "no_customer_reviews"
+    ],
+    "name_type": "direct",
+    "target_types": [
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "see_no_reviews",
+    "site": "amz",
+    "breakpoint": false,
+    "status": "no_reviews"
+},
+"step 515":
+{
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 515":
+"step 520":
 {
     "type": "Check Condition",
-    "condition": "detail_level >= 2",
+    "condition": "detail_level >= 2 and not no_reviews",
     "if_else": "",
     "if_end": ""
 },
-"step 520":
+"step 525":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1031,31 +1049,31 @@
     ],
     "post_wait": 1
 },
-"step 525":
+"step 530":
 {
     "type": "Create Data",
     "data_type": "expr",
     "data_name": "nNRP",
     "key_name": "NA",
-    "key_value": "random.randint(7, 12)"
-},
-"step 530":
-{
-    "type": "Create Data",
-    "data_type": "expr",
-    "data_name": "nPRP",
-    "key_name": "NA",
-    "key_value": "random.randint(5, 10)"
+    "key_value": "random.randint(1, 5)"
 },
 "step 535":
 {
     "type": "Create Data",
     "data_type": "expr",
-    "data_name": "nPRP_up",
+    "data_name": "nPRP",
     "key_name": "NA",
-    "key_value": "nPRP"
+    "key_value": "random.randint(3, 7)"
 },
 "step 540":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "nPRP_up",
+    "key_name": "NA",
+    "key_value": "nPRP+3"
+},
+"step 545":
 {
     "type": "Call Extern",
     "file": "global nNRP, nPRP, nPRP_up\nprint('nNRP, nPRP, nPRP_up:', nNRP, nPRP, nPRP_up)",
@@ -1063,15 +1081,15 @@
     "entity": "in_line",
     "output": ""
 },
-"step 545":
+"step 550":
 {
     "type": "Call Extern",
-    "file": "print('LLlevel:', int('4')%2)",
+    "file": "print('LLlevel:', int(detail_level)%2)",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 550":
+"step 555":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1083,14 +1101,14 @@
     "theme": "light",
     "section": "top"
 },
-"step 555":
+"step 560":
 {
     "type": "Check Condition",
-    "condition": "int('4')%2 == 0",
+    "condition": "int(detail_level)%2 == 0",
     "if_else": "",
     "if_end": ""
 },
-"step 560":
+"step 565":
 {
     "type": "Repeat",
     "lc_name": "",
@@ -1098,7 +1116,7 @@
     "count": "",
     "end": ""
 },
-"step 565":
+"step 570":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1108,15 +1126,8 @@
     "random_min": 0,
     "random_max": 0,
     "breakpoint": false,
-    "postwait": 0.5,
+    "postwait": 2,
     "unit": "screen"
-},
-"step 570":
-{
-    "type": "Wait",
-    "random_min": 1,
-    "random_max": 3,
-    "time": 0
 },
 "step 575":
 {
@@ -1151,17 +1162,10 @@
     "random_min": 0,
     "random_max": 0,
     "breakpoint": false,
-    "postwait": 0.5,
+    "postwait": 2,
     "unit": "screen"
 },
 "step 595":
-{
-    "type": "Wait",
-    "random_min": 1,
-    "random_max": 3,
-    "time": 0
-},
-"step 600":
 {
     "type": "Call Extern",
     "file": "global nPRP_up\nnPRP_up = nPRP_up - 1",
@@ -1169,21 +1173,21 @@
     "entity": "in_line",
     "output": ""
 },
-"step 605":
+"step 600":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 610":
+"step 605":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 615":
+"step 610":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -1196,14 +1200,14 @@
     "breakpoint": false,
     "status": "hasNegativeReviews"
 },
-"step 620":
+"step 615":
 {
     "type": "Check Condition",
     "condition": "hasNegativeReviews",
     "if_else": "",
     "if_end": ""
 },
-"step 625":
+"step 620":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1230,7 +1234,7 @@
     ],
     "post_wait": 1
 },
-"step 630":
+"step 625":
 {
     "type": "Repeat",
     "lc_name": "",
@@ -1238,7 +1242,7 @@
     "count": "",
     "end": ""
 },
-"step 635":
+"step 630":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1251,14 +1255,14 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 640":
+"step 635":
 {
     "type": "Wait",
     "random_min": 1,
     "random_max": 3,
     "time": 0
 },
-"step 645":
+"step 640":
 {
     "type": "Call Extern",
     "file": "global nNRP\nnNRP = nNRP - 1",
@@ -1266,10 +1270,17 @@
     "entity": "in_line",
     "output": ""
 },
-"step 650":
+"step 645":
 {
     "type": "Stub",
     "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 650":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
@@ -1302,7 +1313,7 @@
     "data_type": "bool",
     "data_name": "at_pd_top",
     "key_name": "NA",
-    "key_value": "False"
+    "key_value": false
 },
 "step 675":
 {
@@ -1418,57 +1429,58 @@
 },
 "step 740":
 {
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": [
+        "previous",
+        "next"
+    ],
+    "name_type": "direct",
+    "target_types": [
+        "anchor text",
+        "anchor text"
+    ],
+    "logic": "and",
+    "result": "useless",
+    "site": "amz",
+    "breakpoint": false,
+    "status": "atbottom"
+},
+"step 745":
+{
+    "type": "Check Condition",
+    "condition": "atbottom == True",
+    "if_else": "",
+    "if_end": ""
+},
+"step 750":
+{
+    "type": "Call Extern",
+    "file": "nAttentions = 0",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 755":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 760":
+{
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 745":
+"step 765":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
-},
-"step 750":
-{
-    "type": "Mouse Scroll",
-    "action": "Scroll Down",
-    "screen": "screen_info",
-    "amount": 90,
-    "resolution": "scroll_resolution",
-    "random_min": 0,
-    "random_max": 0,
-    "breakpoint": false,
-    "postwait": 0.5,
-    "unit": "screen"
-},
-"step 755":
-{
-    "type": "Wait",
-    "random_min": 0,
-    "random_max": 0,
-    "time": 1
-},
-"step 760":
-{
-    "type": "Mouse Scroll",
-    "action": "Scroll Down",
-    "screen": "screen_info",
-    "amount": 90,
-    "resolution": "scroll_resolution",
-    "random_min": 0,
-    "random_max": 0,
-    "breakpoint": false,
-    "postwait": 0.5,
-    "unit": "screen"
-},
-"step 765":
-{
-    "type": "Wait",
-    "random_min": 0,
-    "random_max": 0,
-    "time": 1
 },
 "step 770":
 {
@@ -1532,27 +1544,67 @@
 },
 "step 800":
 {
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 90,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "screen"
+},
+"step 805":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 810":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 90,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "screen"
+},
+"step 815":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 820":
+{
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 805":
+"step 825":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 810":
+"step 830":
 {
     "type": "Create Data",
     "data_type": "bool",
     "data_name": "atbottom",
     "key_name": "NA",
-    "key_value": "False"
+    "key_value": false
 },
-"step 815":
+"step 835":
 {
     "type": "Fill Data",
     "fill_type": "direct",
@@ -1560,15 +1612,15 @@
     "to": "position_reached",
     "result": ""
 },
-"step 820":
+"step 840":
 {
     "type": "Repeat",
-    "lc_name": "scrollDown815",
+    "lc_name": "scrollDown835",
     "until": "position_reached != True",
     "count": "",
     "end": ""
 },
-"step 825":
+"step 845":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1578,9 +1630,9 @@
     "page": "product_list",
     "page_data_info": null,
     "theme": "light",
-    "section": "top"
+    "section": "body"
 },
-"step 830":
+"step 850":
 {
     "type": "Search Scroll",
     "action": "Search Scroll",
@@ -1596,14 +1648,14 @@
     "site": "amz",
     "flag": "position_reached"
 },
-"step 835":
+"step 855":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 840":
+"step 860":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1613,17 +1665,17 @@
     "page": "product_list",
     "page_data_info": "plSearchResult",
     "theme": "light",
-    "section": "top"
+    "section": "body"
 },
-"step 845":
+"step 865":
 {
     "type": "Repeat",
-    "lc_name": "browsePL2Bottom810",
+    "lc_name": "browsePL2Bottom830",
     "until": "atbottom != True",
     "count": "",
     "end": ""
 },
-"step 850":
+"step 870":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1636,14 +1688,14 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 855":
+"step 875":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 2
 },
-"step 860":
+"step 880":
 {
     "type": "Fill Data",
     "fill_type": "direct",
@@ -1651,15 +1703,15 @@
     "to": "position_reached",
     "result": ""
 },
-"step 865":
+"step 885":
 {
     "type": "Repeat",
-    "lc_name": "scrollDown860",
+    "lc_name": "scrollDown880",
     "until": "position_reached != True",
     "count": "",
     "end": ""
 },
-"step 870":
+"step 890":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1669,9 +1721,9 @@
     "page": "product_list",
     "page_data_info": null,
     "theme": "light",
-    "section": "top"
+    "section": "body"
 },
-"step 875":
+"step 895":
 {
     "type": "Search Scroll",
     "action": "Search Scroll",
@@ -1687,14 +1739,14 @@
     "site": "amz",
     "flag": "position_reached"
 },
-"step 880":
+"step 900":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 885":
+"step 905":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1704,9 +1756,9 @@
     "page": "product_list",
     "page_data_info": "plSearchResult",
     "theme": "light",
-    "section": "top"
+    "section": "body"
 },
-"step 890":
+"step 910":
 {
     "type": "AMZ Match Products",
     "action": "AMZ Match Products",
@@ -1715,7 +1767,7 @@
     "result": "pl_need_attention",
     "flag": "any_interesting"
 },
-"step 895":
+"step 915":
 {
     "type": "Call Extern",
     "file": "print('pl_need_attention===>',pl_need_attention)",
@@ -1723,7 +1775,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 900":
+"step 920":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -1731,7 +1783,7 @@
     "key_name": "NA",
     "key_value": "len(pl_need_attention)-1"
 },
-"step 905":
+"step 925":
 {
     "type": "Call Extern",
     "file": "print('att_count===>',att_count)",
@@ -1739,15 +1791,15 @@
     "entity": "in_line",
     "output": ""
 },
-"step 910":
+"step 930":
 {
     "type": "Repeat",
-    "lc_name": "browseAttens810",
+    "lc_name": "browseAttens830",
     "until": "att_count >= 0",
     "count": "",
     "end": ""
 },
-"step 915":
+"step 935":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1774,23 +1826,31 @@
     ],
     "post_wait": 2
 },
-"step 920":
+"step 940":
 {
     "type": "Create Data",
     "data_type": "bool",
     "data_name": "end_of_detail",
     "key_name": "NA",
-    "key_value": "False"
+    "key_value": false
 },
-"step 925":
+"step 945":
 {
     "type": "Create Data",
     "data_type": "bool",
     "data_name": "rv_expandable",
     "key_name": "NA",
-    "key_value": "False"
+    "key_value": false
 },
-"step 930":
+"step 950":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "no_reviews",
+    "key_name": "NA",
+    "key_value": false
+},
+"step 955":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -1798,7 +1858,7 @@
     "key_name": "NA",
     "key_value": "pl_need_attention[att_count]['detailLvl']"
 },
-"step 935":
+"step 960":
 {
     "type": "Call Extern",
     "file": "global pl_need_attention, att_count, detail_level\nprint('attcnt: ', att_count, 'pl need att: ', pl_need_attention, 'detail_level: ', detail_level)",
@@ -1806,7 +1866,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 940":
+"step 965":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -1814,7 +1874,7 @@
     "key_name": "NA",
     "key_value": "pl_need_attention[att_count]['purchase']"
 },
-"step 945":
+"step 970":
 {
     "type": "Call Extern",
     "file": "global buy_ops\nprint('buy_ops: ', buy_ops)",
@@ -1822,7 +1882,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 950":
+"step 975":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -1830,14 +1890,14 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 955":
+"step 980":
 {
     "type": "Check Condition",
     "condition": "detail_level == 1",
     "if_else": "",
     "if_end": ""
 },
-"step 960":
+"step 985":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -1845,14 +1905,14 @@
     "key_name": "NA",
     "key_value": 3
 },
-"step 965":
+"step 990":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 970":
+"step 995":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -1860,14 +1920,14 @@
     "key_name": "NA",
     "key_value": 1
 },
-"step 975":
+"step 1000":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 980":
+"step 1005":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1880,7 +1940,7 @@
     "postwait": 1,
     "unit": "screen"
 },
-"step 985":
+"step 1010":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1893,7 +1953,7 @@
     "postwait": 1,
     "unit": "screen"
 },
-"step 990":
+"step 1015":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1906,15 +1966,15 @@
     "postwait": 1,
     "unit": "screen"
 },
-"step 995":
+"step 1020":
 {
     "type": "Repeat",
-    "lc_name": "browseDetails921",
+    "lc_name": "browseDetails941",
     "until": "end_of_detail != True",
     "count": "",
     "end": ""
 },
-"step 1000":
+"step 1025":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1927,14 +1987,14 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 1005":
+"step 1030":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 1
 },
-"step 1010":
+"step 1035":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1946,7 +2006,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 1015":
+"step 1040":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -1959,22 +2019,22 @@
     "breakpoint": false,
     "status": "rv_expandable"
 },
-"step 1020":
+"step 1045":
 {
     "type": "Repeat",
-    "lc_name": "browseDetails921",
+    "lc_name": "browseDetails941",
     "until": "expandables_count < max_expandables",
     "count": "",
     "end": ""
 },
-"step 1025":
+"step 1050":
 {
     "type": "Check Condition",
-    "condition": "rv_expandable == True and pl_need_attention[att_count]['detailLvl'] == 2",
+    "condition": "rv_expandable == True",
     "if_else": "",
     "if_end": ""
 },
-"step 1030":
+"step 1055":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -2001,7 +2061,7 @@
     ],
     "post_wait": 1
 },
-"step 1035":
+"step 1060":
 {
     "type": "Call Extern",
     "file": "global expandables_count\nexpandables_count = expandables_count + 1",
@@ -2009,7 +2069,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1040":
+"step 1065":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -2021,7 +2081,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 1045":
+"step 1070":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2034,14 +2094,14 @@
     "breakpoint": false,
     "status": "rv_expandable"
 },
-"step 1050":
+"step 1075":
 {
     "type": "Stub",
-    "stub_name": "else",
+    "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 1055":
+"step 1080":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2062,14 +2122,14 @@
     "breakpoint": false,
     "status": "end_of_detail"
 },
-"step 1060":
+"step 1085":
 {
     "type": "Check Condition",
     "condition": "end_of_detail == True",
     "if_else": "",
     "if_end": ""
 },
-"step 1065":
+"step 1090":
 {
     "type": "Call Extern",
     "file": "global expandables_count, max_expandables\nexpandables_count = max_expandables",
@@ -2077,14 +2137,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1070":
+"step 1095":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 1075":
+"step 1100":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -2097,7 +2157,7 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 1080":
+"step 1105":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -2109,7 +2169,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 1085":
+"step 1110":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2122,28 +2182,21 @@
     "breakpoint": false,
     "status": "rv_expandable"
 },
-"step 1090":
+"step 1115":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 1095":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 1100":
+"step 1120":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1105":
+"step 1125":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2164,21 +2217,38 @@
     "breakpoint": false,
     "status": "end_of_detail"
 },
-"step 1110":
+"step 1130":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": [
+        "no_customer_reviews"
+    ],
+    "name_type": "direct",
+    "target_types": [
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "see_no_reviews",
+    "site": "amz",
+    "breakpoint": false,
+    "status": "no_reviews"
+},
+"step 1135":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1115":
+"step 1140":
 {
     "type": "Check Condition",
-    "condition": "detail_level >= 2",
+    "condition": "detail_level >= 2 and not no_reviews",
     "if_else": "",
     "if_end": ""
 },
-"step 1120":
+"step 1145":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -2202,31 +2272,31 @@
     ],
     "post_wait": 1
 },
-"step 1125":
+"step 1150":
 {
     "type": "Create Data",
     "data_type": "expr",
     "data_name": "nNRP",
     "key_name": "NA",
-    "key_value": "random.randint(7, 12)"
+    "key_value": "random.randint(1, 5)"
 },
-"step 1130":
+"step 1155":
 {
     "type": "Create Data",
     "data_type": "expr",
     "data_name": "nPRP",
     "key_name": "NA",
-    "key_value": "random.randint(5, 10)"
+    "key_value": "random.randint(3, 7)"
 },
-"step 1135":
+"step 1160":
 {
     "type": "Create Data",
     "data_type": "expr",
     "data_name": "nPRP_up",
     "key_name": "NA",
-    "key_value": "nPRP"
+    "key_value": "nPRP+3"
 },
-"step 1140":
+"step 1165":
 {
     "type": "Call Extern",
     "file": "global nNRP, nPRP, nPRP_up\nprint('nNRP, nPRP, nPRP_up:', nNRP, nPRP, nPRP_up)",
@@ -2234,15 +2304,15 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1145":
+"step 1170":
 {
     "type": "Call Extern",
-    "file": "print('LLlevel:', int('4')%2)",
+    "file": "print('LLlevel:', int(detail_level)%2)",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 1150":
+"step 1175":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -2254,14 +2324,14 @@
     "theme": "light",
     "section": "top"
 },
-"step 1155":
+"step 1180":
 {
     "type": "Check Condition",
-    "condition": "int('4')%2 == 0",
+    "condition": "int(detail_level)%2 == 0",
     "if_else": "",
     "if_end": ""
 },
-"step 1160":
+"step 1185":
 {
     "type": "Repeat",
     "lc_name": "",
@@ -2269,7 +2339,7 @@
     "count": "",
     "end": ""
 },
-"step 1165":
+"step 1190":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -2279,17 +2349,10 @@
     "random_min": 0,
     "random_max": 0,
     "breakpoint": false,
-    "postwait": 0.5,
+    "postwait": 2,
     "unit": "screen"
 },
-"step 1170":
-{
-    "type": "Wait",
-    "random_min": 1,
-    "random_max": 3,
-    "time": 0
-},
-"step 1175":
+"step 1195":
 {
     "type": "Call Extern",
     "file": "global nPRP\nnPRP = nPRP - 1",
@@ -2297,14 +2360,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1180":
+"step 1200":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1185":
+"step 1205":
 {
     "type": "Repeat",
     "lc_name": "",
@@ -2312,7 +2375,7 @@
     "count": "",
     "end": ""
 },
-"step 1190":
+"step 1210":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Up",
@@ -2322,17 +2385,10 @@
     "random_min": 0,
     "random_max": 0,
     "breakpoint": false,
-    "postwait": 0.5,
+    "postwait": 2,
     "unit": "screen"
 },
-"step 1195":
-{
-    "type": "Wait",
-    "random_min": 1,
-    "random_max": 3,
-    "time": 0
-},
-"step 1200":
+"step 1215":
 {
     "type": "Call Extern",
     "file": "global nPRP_up\nnPRP_up = nPRP_up - 1",
@@ -2340,21 +2396,21 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1205":
+"step 1220":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1210":
+"step 1225":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 1215":
+"step 1230":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2367,14 +2423,14 @@
     "breakpoint": false,
     "status": "hasNegativeReviews"
 },
-"step 1220":
+"step 1235":
 {
     "type": "Check Condition",
     "condition": "hasNegativeReviews",
     "if_else": "",
     "if_end": ""
 },
-"step 1225":
+"step 1240":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -2401,7 +2457,7 @@
     ],
     "post_wait": 1
 },
-"step 1230":
+"step 1245":
 {
     "type": "Repeat",
     "lc_name": "",
@@ -2409,7 +2465,7 @@
     "count": "",
     "end": ""
 },
-"step 1235":
+"step 1250":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -2422,14 +2478,14 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 1240":
+"step 1255":
 {
     "type": "Wait",
     "random_min": 1,
     "random_max": 3,
     "time": 0
 },
-"step 1245":
+"step 1260":
 {
     "type": "Call Extern",
     "file": "global nNRP\nnNRP = nNRP - 1",
@@ -2437,14 +2493,21 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1250":
+"step 1265":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1255":
+"step 1270":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 1275":
 {
     "type": "Key Input",
     "action": "",
@@ -2453,37 +2516,37 @@
     "location": "",
     "wait_after": 3
 },
-"step 1260":
+"step 1280":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 1265":
+"step 1285":
 {
     "type": "Check Condition",
     "condition": "len(buy_ops) >  0",
     "if_else": "",
     "if_end": ""
 },
-"step 1270":
+"step 1290":
 {
     "type": "Create Data",
     "data_type": "bool",
     "data_name": "at_pd_top",
     "key_name": "NA",
-    "key_value": "False"
+    "key_value": false
 },
-"step 1275":
+"step 1295":
 {
     "type": "Repeat",
-    "lc_name": "scrollUpProductDetails1270",
+    "lc_name": "scrollUpProductDetails1290",
     "until": "attop != True",
     "count": "",
     "end": ""
 },
-"step 1280":
+"step 1300":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Up",
@@ -2496,7 +2559,7 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 1285":
+"step 1305":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2513,49 +2576,19 @@
     "breakpoint": false,
     "status": "at_pd_top"
 },
-"step 1290":
+"step 1310":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1295":
+"step 1315":
 {
     "type": "Check Condition",
     "condition": "pl_need_attention[att_count]['purchase'][0] == 'add cart'",
     "if_else": "",
     "if_end": ""
-},
-"step 1300":
-{
-    "type": "Wait",
-    "random_min": 0,
-    "random_max": 0,
-    "time": 1
-},
-"step 1305":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 1310":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 1315":
-{
-    "type": "Key Input",
-    "action": "",
-    "action_value": "alt_left",
-    "save_rb": true,
-    "location": "",
-    "wait_after": 3
 },
 "step 1320":
 {
@@ -2566,20 +2599,50 @@
 },
 "step 1325":
 {
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 1330":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 1335":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "alt_left",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 3
+},
+"step 1340":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 1345":
+{
     "type": "Call Extern",
     "file": "att_count = att_count - 1",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 1330":
+"step 1350":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1335":
+"step 1355":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2598,60 +2661,60 @@
     "breakpoint": false,
     "status": "atbottom"
 },
-"step 1340":
+"step 1360":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1345":
+"step 1365":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 1350":
+"step 1370":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 1355":
+"step 1375":
 {
     "type": "Create Data",
     "data_type": "int",
-    "data_name": "scrollDownProductList1355",
+    "data_name": "scrollDownProductList1375",
     "key_name": "NA",
     "key_value": 0
 },
-"step 1360":
+"step 1380":
 {
     "type": "Create Data",
     "data_type": "int",
     "data_name": "down_cnt",
     "key_name": "NA",
-    "key_value": 15
+    "key_value": 17
 },
-"step 1365":
+"step 1385":
 {
     "type": "Fill Data",
     "fill_type": "direct",
     "from": 0,
-    "to": "scrollDownProductList1355",
+    "to": "scrollDownProductList1375",
     "result": ""
 },
-"step 1370":
+"step 1390":
 {
     "type": "Repeat",
-    "lc_name": "scrollDownProductList1355",
+    "lc_name": "scrollDownProductList1375",
     "until": "",
-    "count": "15",
+    "count": "17",
     "end": ""
 },
-"step 1375":
+"step 1395":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -2664,35 +2727,35 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 1380":
+"step 1400":
 {
     "type": "Wait",
     "random_min": 1,
     "random_max": 3,
     "time": 0
 },
-"step 1385":
+"step 1405":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1390":
+"step 1410":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 1395":
+"step 1415":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 1400":
+"step 1420":
 {
     "type": "Call Extern",
     "file": "global down_cnt, up_cnt\nup_cnt = int(down_cnt* 1.5)",
@@ -2700,15 +2763,15 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1405":
+"step 1425":
 {
     "type": "Repeat",
-    "lc_name": "scrollUpProductList1400",
+    "lc_name": "scrollUpProductList1420",
     "until": "up_cnt > 0",
     "count": "",
     "end": ""
 },
-"step 1410":
+"step 1430":
 {
     "type": "Mouse Scroll",
     "action": "Scroll up",
@@ -2721,14 +2784,14 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 1415":
+"step 1435":
 {
     "type": "Wait",
     "random_min": 1,
     "random_max": 3,
     "time": 0
 },
-"step 1420":
+"step 1440":
 {
     "type": "Call Extern",
     "file": "global up_cnt\nup_cnt = up_cnt-1\nprint('up_cnt:::::', up_cnt)",
@@ -2736,21 +2799,21 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1425":
+"step 1445":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1430":
+"step 1450":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 1435":
+"step 1455":
 {
     "type": "Call Extern",
     "file": "global nthFlow\nnthFlow = nthFlow + 1",
@@ -2758,14 +2821,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1440":
+"step 1460":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1445":
+"step 1465":
 {
     "type": "Call Extern",
     "file": "print('***********************************************************')",
@@ -2773,7 +2836,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1450":
+"step 1470":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -2781,14 +2844,14 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 1455":
+"step 1475":
 {
     "type": "Check Condition",
     "condition": "plPageCnt != len(run_config['searches'][nthSearch]['prodlist_pages'])-1",
     "if_else": "",
     "if_end": ""
 },
-"step 1460":
+"step 1480":
 {
     "type": "Call Extern",
     "file": "global plPageCnt\nplPageCnt = plPageCnt + 1",
@@ -2796,7 +2859,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1465":
+"step 1485":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -2823,14 +2886,14 @@
     ],
     "post_wait": 0
 },
-"step 1470":
+"step 1490":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 1475":
+"step 1495":
 {
     "type": "Call Extern",
     "file": "print('DEBUG', 'page count', plPageCnt, ' out of total [', len(run_config['searches'][nthSearch]['prodlist_pages']), '] of pages....')",
@@ -2838,7 +2901,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1480":
+"step 1500":
 {
     "type": "Call Extern",
     "file": "global nthPLPage\nnthPLPage = nthPLPage + 1",
@@ -2846,14 +2909,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1485":
+"step 1505":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1490":
+"step 1510":
 {
     "type": "Call Extern",
     "file": "global nthSearch\nnthSearch = nthSearch + 1",
@@ -2861,7 +2924,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1495":
+"step 1515":
 {
     "type": "Call Extern",
     "file": "global down_cnt\ndown_cnt = 20",
@@ -2869,7 +2932,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1500":
+"step 1520":
 {
     "type": "Call Extern",
     "file": "global down_cnt, up_cnt\nup_cnt = int(down_cnt* 1.5)",
@@ -2877,15 +2940,15 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1505":
+"step 1525":
 {
     "type": "Repeat",
-    "lc_name": "scrollUpProductList1500",
+    "lc_name": "scrollUpProductList1520",
     "until": "up_cnt > 0",
     "count": "",
     "end": ""
 },
-"step 1510":
+"step 1530":
 {
     "type": "Mouse Scroll",
     "action": "Scroll up",
@@ -2898,14 +2961,14 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 1515":
+"step 1535":
 {
     "type": "Wait",
     "random_min": 1,
     "random_max": 3,
     "time": 0
 },
-"step 1520":
+"step 1540":
 {
     "type": "Call Extern",
     "file": "global up_cnt\nup_cnt = up_cnt-1\nprint('up_cnt:::::', up_cnt)",
@@ -2913,14 +2976,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 1525":
+"step 1545":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1530":
+"step 1550":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -2932,14 +2995,14 @@
     "theme": "light",
     "section": "top"
 },
-"step 1535":
+"step 1555":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 1540":
+"step 1560":
 {
     "type": "Stub",
     "stub_name": "end skill",

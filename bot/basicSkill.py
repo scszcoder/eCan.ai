@@ -943,7 +943,6 @@ def processTextInput(step, i):
                 pyautogui.write("Do not know", interval=step["speed"])
 
         time.sleep(1)
-        pyautogui.press(step['key_after'])
         if step['key_after'] != "":
             print("after typing, pressing:", step['key_after'], "then wait for:", step['wait_after'])
             pyautogui.press(step['key_after'])
@@ -1290,11 +1289,11 @@ def processMouseClick(step, i):
 def processKeyInput(step, i):
     global page_stack
     global current_context
-    print("Keyboard Action..... hot keys")
+
     ex_stat = "success:0"
     try:
         keys = step["action_value"].split(',')
-
+        print("Keyboard Action..... hot keys", keys)
         if len(keys) == 4:
             pyautogui.hotkey(keys[0], keys[1], keys[2], keys[3])
         elif len(keys) == 3:
@@ -2576,7 +2575,7 @@ def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
     # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "product_list", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "product_list", "body", theme, this_step, None)
     psk_words = psk_words + step_words
 
 
