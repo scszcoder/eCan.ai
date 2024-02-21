@@ -1233,8 +1233,8 @@ class MainWindow(QMainWindow):
 
         # ni is already incremented by processExtract(), so simply return it.
         except:
-            print("ERROR EXCEPTION:")
-            fetch_stat = "ErrorFetchSchedule:" + jresp["errorType"]
+            print("ERROR EXCEPTION::::: ErrorFetchSchedule")
+            fetch_stat = "ErrorFetchSchedule:" + (jresp["errorType"] if "errorType" in jresp else "None")
 
         return fetch_stat
 
@@ -1393,12 +1393,15 @@ class MainWindow(QMainWindow):
         #                         new_mission.setSkills(skid)
         #                         self.missions.append(new_mission)
 
-        for m in added_missions:
-            new_mission = EBMISSION(self)
-            self.fill_mission(new_mission, m, task_groups)
-            self.missions.append(new_mission)
-            self.missionModel.appendRow(new_mission)
-            print("adding mission....")
+        if added_missions:
+            for m in added_missions:
+                new_mission = EBMISSION(self)
+                self.fill_mission(new_mission, m, task_groups)
+                self.missions.append(new_mission)
+                self.missionModel.appendRow(new_mission)
+                print("adding mission....")
+        else:
+            print("WARNING:::: update missions failed!!; added_missions is null")
 
     def getBotByID(self, bid):
         found_bot = None
