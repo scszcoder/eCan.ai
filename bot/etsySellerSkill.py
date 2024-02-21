@@ -322,7 +322,7 @@ def genWinEtsyCollectOrderListSkill(worksettings, stepN, theme):
     this_step, step_words = genStepWait(18, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    homepath = os.environ.get("ECBOT_HOME")
+    homepath = ecb_data_homepath # os.environ.get("ECBOT_HOME")
     if homepath[len(homepath)-1]=="/":
         homepath = homepath[:len(homepath)-1]
     # html, pidx, outvar, statusvar, stepN):
