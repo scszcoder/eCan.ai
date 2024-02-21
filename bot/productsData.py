@@ -99,6 +99,7 @@ class PRODUCT_SUMMERY:
         self.bs = False
         self.ac = False
         self.op = False
+        self.pbp = False
         self.score = 0
         self.feedbacks = 0
         self.price = 0
@@ -145,6 +146,8 @@ class PRODUCT_SUMMERY:
             self.ac = True
         elif badge == "Overall Pick":
             self.op = True
+        elif badge == "Popular Brand Pick":
+            self.pbp = True
 
     def getBadges(self):
         return self.badges
@@ -174,6 +177,7 @@ class PRODUCT_SUMMERY:
             "ac": self.ac,
             "bs": self.bs,
             "op": self.op,
+            "pbp": self.pbp,
             "score": self.score,
             "feedbacks": self.feedbacks,
             "price": self.price,

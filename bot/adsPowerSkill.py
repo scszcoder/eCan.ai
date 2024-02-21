@@ -18,8 +18,9 @@ def genADSPowerLaunchSteps(worksettings, theme, stepN):
     # some steps here to adjust window size and location here...
 
     # now read screen, if there is log in, then click on log in.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "open", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
+
 
     # check whether there is any match of this page's product, if matched, click into it.
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "login", "direct", "anchor text", "any", "useless", "loginwin", "ads", False, this_step)
@@ -32,7 +33,7 @@ def genADSPowerLaunchSteps(worksettings, theme, stepN):
     psk_words = psk_words + step_words
 
     # now that we have logged in, load profiles.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "open", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # close bracket
@@ -41,7 +42,7 @@ def genADSPowerLaunchSteps(worksettings, theme, stepN):
 
 
     # check whether there is any pop up ads, if so, close it .
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_os", "direct", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "new_profile", "direct", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("main_shown != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
@@ -50,7 +51,7 @@ def genADSPowerLaunchSteps(worksettings, theme, stepN):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "open", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_os", "direct", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)
@@ -66,7 +67,7 @@ def genADSPowerLaunchSteps(worksettings, theme, stepN):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "open", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
 
@@ -95,7 +96,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "new_profile", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "open", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "batch_import", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
@@ -108,7 +109,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "specified_url", "anchor text", "", 0, "left", [3, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "open", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_os", "direct", "anchor text", "any", "useless", "platform_found", "ads", False, this_step)
@@ -121,7 +122,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 2, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "open", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_os", "direct", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)

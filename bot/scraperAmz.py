@@ -106,6 +106,8 @@ def amz_buyer_fetch_product_list(html_file, idx):
                                     summery.addBadge("Best Seller")
                                 elif "Overall Pick" in sum_info.text:
                                     summery.addBadge("Overall Pick")
+                                elif "Popular Brand Pick" in sum_info.text:
+                                    summery.addBadge("Popular Brand Pick")
 
                     elif sum_info.get('class')[len(sum_info.get('class'))-1] == 'a-color-base':
                         if re.search('FREE', sum_info.text):

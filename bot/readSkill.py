@@ -874,7 +874,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, worksettings, page, sect,
 
     else:
         # now simply scroll down
-        this_step, step_words = genStepCreateData("bool", "endOfReviews", "NA", "False", this_step)
+        this_step, step_words = genStepCreateData("bool", "endOfReviews", "NA", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepLoop("endOfReviews != True", "", "", "browseReviews"+str(stepN), this_step)
