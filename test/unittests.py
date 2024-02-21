@@ -6,8 +6,9 @@ import time
 import pytz
 from ebbot import *
 from missions import *
-
+from adsPowerSkill import *
 global symTab
+import os
 
 
 def test_eb_orders_scraper():
@@ -538,3 +539,104 @@ def test_sqlite3(mw):
 
     db_data = res.fetchall()
     print("DB Data:", db_data)
+
+
+# test passed SC - 02/20/2024
+def test_ads_batch(parent):
+    test_dir = "C:/AmazonSeller/SelfSwipe/test_ads_batch"
+    # clean test dir first.
+    for filename in os.listdir(test_dir):
+        # Construct the full file path
+        file_path = os.path.join(test_dir, filename)
+        # Delete the file
+        os.remove(file_path)
+
+    allbots = []
+    # vTasks = {
+    #     "eastern": [],
+    #     "central": [],
+    #     "mountain": [],
+    #     "pacific": [],
+    #     "alaska": [],
+    #     "hawaii": [{ "bid" : 5, "bw_works" : [], "other_works" : [{ "start_time" : 3 }] }]
+    # }
+
+    # vTasks = {
+    #     "eastern": [{ "bid" : 0, "bw_works" : [{ "start_time" : 12 }], "other_works" : [] }],
+    #     "central": [],
+    #     "mountain": [],
+    #     "pacific": [],
+    #     "alaska": [],
+    #     "hawaii": [{ "bid" : 5, "bw_works" : [], "other_works" : [{ "start_time" : 3 }] }]
+    # }
+    #
+    # vTasks = {
+    #     "eastern": [{ "bid" : 0, "bw_works" : [{ "start_time" : 12 }], "other_works" : [] }],
+    #     "central": [{ "bid" : 3, "bw_works" : [{ "start_time" : 4 }], "other_works" : [] }],
+    #     "mountain": [{ "bid" : 6, "bw_works" : [{ "start_time" : 30 }], "other_works" : [] }],
+    #     "pacific": [{ "bid" : 9, "bw_works" : [{ "start_time" : 0 }], "other_works" : [] }],
+    #     "alaska": [{ "bid" : 12, "bw_works" : [{ "start_time" : 15 }], "other_works" : [] }],
+    #     "hawaii": [{ "bid" : 5, "bw_works" : [], "other_works" : [{ "start_time" : 3 }] }]
+    # }
+    vTasks = {
+        "eastern": [{ "bid" : 0, "bw_works" : [{ "start_time" : 12 }], "other_works" : [] }],
+        "central": [{ "bid" : 3, "bw_works" : [{ "start_time" : 4 }], "other_works" : [] }],
+        "mountain": [{ "bid" : 6, "bw_works" : [{ "start_time" : 30 }], "other_works" : [{ "start_time" : 26 }] }],
+        "pacific": [{ "bid" : 9, "bw_works" : [{ "start_time" : 0 }], "other_works" : [] }, { "bid" : 7, "bw_works" : [{ "start_time" : 21 }], "other_works" : [] }],
+        "alaska": [{ "bid" : 12, "bw_works" : [{ "start_time" : 15 }], "other_works" : [] }],
+        "hawaii": [{ "bid" : 5, "bw_works" : [], "other_works" : [{ "start_time" : 3 }] }]
+    }
+
+
+    all_emails = [  "jazminejefferysotp@gmail.com",
+                    "willjaylan859@gmail.com",
+                    "keshawnvalentino193@gmail.com",
+                    "paulmarquise676@gmail.com",
+                    "mayradestinee598@gmail.com",
+                    "alannahhaylieul69@gmail.com",
+                    "carlchance499@gmail.com",
+                    "jairgoldenvp89@gmail.com",
+                    "lynchjacobsja20@gmail.com",
+                    "seanbradfordugda@gmail.com",
+                    "jackmaddennyiq@gmail.com",
+                    "silastalan660@gmail.com",
+                    "brisafarmerdl74@gmail.com",
+                    "isabelalawrence48@gmail.com",
+                    "pottersimone282@gmail.com",
+                    "kiankonnor83@gmail.com",
+                    "marquiselivia743@gmail.com",
+                    "edgarcook7@gmail.com",
+                    "kyliehezekiah4@gmail.com",
+                    "jarvisaaliyah300@gmail.com",
+                    "alfonsomaribel4442@gmail.com",
+                    "kysonkeltonqbtb@gmail.com",
+                    "zandersarah97@gmail.com",
+                    "carrollmeyercs33@gmail.com",
+                    "kaidentrevon565@gmail.com",
+                    "elsakaiya34@gmail.com",
+                    "adamsericajeap@gmail.com",
+                    "ximenamccarthy98@gmail.com",
+                    "tyantonio792@gmail.com",
+                    "keatonemmett6@gmail.com",
+                    "arjuncelesteyg30@gmail.com",
+                    "aedandominick741@gmail.com",
+                    "cortezjace283@gmail.com",
+                    "travisstoutwmle@gmail.com",
+                    "carrollkevin4837@gmail.com",
+                    "mohammedpowellzzil@gmail.com",
+                    "cervantesmariam95@gmail.com",
+                    "meltonlucerotzpd@gmail.com",
+                    "briggsrileyhapp@gmail.com",
+                    "byronellen80@gmail.com",
+                    "skylarbrylee5603@gmail.com",
+                    "koltencarmelorgtt@gmail.com"
+                    ]
+    all_profiles_csv = "C:/AmazonSeller/SelfSwipe/test_all.xls"
+
+    for i in range(42):
+        new_bot = EBBOT(parent)
+        new_bot.setBid(i)
+        new_bot.setEmail(all_emails[i])
+        allbots.append(new_bot)
+
+    genBatchBasedOnADSSizeLimit(vTasks, allbots, all_profiles_csv, test_dir)

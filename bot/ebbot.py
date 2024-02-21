@@ -426,6 +426,9 @@ class EBBOT(QStandardItem):
 
         self.seller_inventories = []
 
+    def setEmail(self, em):
+            self.privateProfile.email = em
+
     def setBotIcon(self, icon):
         self.icon = icon
         self.setIcon(self.icon)
