@@ -7,6 +7,7 @@ from config.app_settings import app_settings
 import asyncio
 from qasync import QEventLoop
 from envi import *
+from setproctitle import setproctitle
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
@@ -85,6 +86,7 @@ def windowlauncher():
 
 
 if __name__ == '__main__':
+    setproctitle('ECBot')
     ecb_data_homepath = getECBotDataHome()
     runlogs_dir = ecb_data_homepath + "/runlogs"
     if not os.path.isdir(runlogs_dir):
