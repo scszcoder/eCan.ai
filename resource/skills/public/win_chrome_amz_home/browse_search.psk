@@ -310,7 +310,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'1708381923'+'_'+str(nthPLPage)+'.html'"
+    "key_value": "'1708491879'+'_'+str(nthPLPage)+'.html'"
 },
 "step 160":
 {
@@ -1288,7 +1288,7 @@
 {
     "type": "Key Input",
     "action": "",
-    "action_value": "alt_left",
+    "action_value": "alt,left",
     "save_rb": true,
     "location": "",
     "wait_after": 3
@@ -1392,7 +1392,7 @@
 {
     "type": "Key Input",
     "action": "",
-    "action_value": "alt_left",
+    "action_value": "alt,left",
     "save_rb": true,
     "location": "",
     "wait_after": 3
@@ -2511,7 +2511,7 @@
 {
     "type": "Key Input",
     "action": "",
-    "action_value": "alt_left",
+    "action_value": "alt,left",
     "save_rb": true,
     "location": "",
     "wait_after": 3
@@ -2615,7 +2615,7 @@
 {
     "type": "Key Input",
     "action": "",
-    "action_value": "alt_left",
+    "action_value": "alt,left",
     "save_rb": true,
     "location": "",
     "wait_after": 3
@@ -2696,7 +2696,7 @@
     "data_type": "int",
     "data_name": "down_cnt",
     "key_name": "NA",
-    "key_value": 17
+    "key_value": 19
 },
 "step 1385":
 {
@@ -2711,7 +2711,7 @@
     "type": "Repeat",
     "lc_name": "scrollDownProductList1375",
     "until": "",
-    "count": "17",
+    "count": "19",
     "end": ""
 },
 "step 1395":
