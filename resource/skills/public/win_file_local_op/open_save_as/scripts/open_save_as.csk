@@ -8,42 +8,42 @@
                         "anchor_type"  : "text",
                         "template"     : "File name:",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "file_open",
                         "anchor_type"  : "text",
                         "template"     : "Open",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "file_save",
                         "anchor_type"  : "text",
                         "template"     : "Save",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "refresh",
                         "anchor_type"  : "icon",
                         "template"     : "refresh0.png, file_refresh10.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "file_cancel",
                         "anchor_type"  : "text",
                         "template"     : "Cancel",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "save_as",
                         "anchor_type"  : "text",
                         "template"     : "Save as type",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     }
                 ], 
                 "info": [

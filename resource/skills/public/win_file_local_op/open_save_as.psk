@@ -117,7 +117,7 @@
     "action_value": "backspace",
     "save_rb": true,
     "location": "",
-    "wait_after": 1
+    "wait_after": 0.1
 },
 "step 60":
 {
@@ -157,12 +157,12 @@
         2,
         0
     ],
-    "move_pause": 3,
+    "move_pause": 2,
     "post_move": [
         0,
         0
     ],
-    "post_wait": 3
+    "post_wait": 2
 },
 "step 75":
 {
@@ -195,7 +195,7 @@
     "action_value": "backspace",
     "save_rb": true,
     "location": "",
-    "wait_after": 2
+    "wait_after": 1
 },
 "step 95":
 {
@@ -213,7 +213,7 @@
     "text_type": "var",
     "speed": 0.05,
     "key_after": "",
-    "wait_after": 2
+    "wait_after": 1
 },
 "step 105":
 {
