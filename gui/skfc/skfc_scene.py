@@ -371,17 +371,21 @@ class SkFCScene(QGraphicsScene):
 
         return None
 
-    def get_next_item_steps(self, stepN, next_item):
+    def get_next_item_steps(self, stepN, next_diagram_item):
         this_step = stepN
         temp_steps_stack = []
-        next_stepN = self.get_diagram_item_stepN(next_item)
+        existed_next_stepN = self.get_diagram_item_stepN(next_diagram_item)
 
         # 替换为goto，如果是已经执行过的step
-        if next_stepN:
-            this_step, step_words = StepGoto(gotostep=next_stepN).gen_step(this_step)
-            temp_steps_stack.append(step_words)
+        if existed_next_stepN:
+            step = next_diagram_item.step
+            if step.tag is not None and step.tag != "":
+                this_step, step_words = StepGoto(gotostep=step.tag).gen_step(this_step)
+                temp_steps_stack.append(step_words)
+            else:
+                print("ERROR::::: step->", step, " tag is null")
         else:
-            this_step, steps_stack = self.gen_skill_steps(next_item, this_step)
+            this_step, steps_stack = self.gen_skill_steps(next_diagram_item, this_step)
             temp_steps_stack.extend(steps_stack)
 
         return this_step, temp_steps_stack
@@ -394,6 +398,9 @@ class SkFCScene(QGraphicsScene):
         step = diagram_item.step
         this_step, step_words = step.gen_step(this_step, settings=self.worksettings)
         sorted_steps_stack.append(step_words)
+        if step.tag is not None and step.tag != "":
+            this_step, step_words = StepStub(sname=EnumStubName.Tag, fname=step.tag).gen_step(this_step)
+            sorted_steps_stack.append(step_words)
         # print(f"gen step {step.type}; {this_step}")
 
         if diagram_item.diagram_type == DiagramNormalItem.Conditional:
@@ -432,10 +439,10 @@ class SkFCScene(QGraphicsScene):
             elif step.type == EnumStepType.CallFunction.type_key():
                 this_step, step_words = StepStub(sname=EnumStubName.EndFunction).gen_step(this_step)
                 sorted_steps_stack.append(step_words)
-            # elif step.type == EnumStepType.Stub.type_key():
-            #     if step.stub_name == EnumStubName.StartSkill:
-            #         this_step, step_words = StepStub(sname=EnumStubName.EndSkill).gen_step(this_step)
-            #         sorted_steps_stack.append(step_words)
+            elif step.type == EnumStepType.Stub.type_key():
+                if step.stub_name == EnumStubName.StartSkill:
+                    this_step, step_words = StepStub(sname=EnumStubName.EndSkill).gen_step(this_step)
+                    sorted_steps_stack.append(step_words)
 
         # print(this_step, sorted_steps_stack)
         return this_step, sorted_steps_stack
