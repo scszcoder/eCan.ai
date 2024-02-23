@@ -4,6 +4,7 @@ import pandas as pd
 
 from basicSkill import *
 
+ADS_BATCH_SIZE = 3
 #input
 def genADSPowerLaunchSteps(worksettings, theme, stepN):
     psk_words = ""
@@ -234,3 +235,108 @@ def genStepSetupADS(all_fname, tbr_fname, exe_link, ver, stepN):
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+# all_profiles_csv is the csv file name containing all user profiles.
+# batch_csv is the resulting csv file name that will contain only bots associated profiles.
+def extractBatchOfProfiles(bots, all_profiles_xls, batch_xls):
+    try:
+        # df = pd.read_csv(all_profiles_csv)
+        df = pd.read_excel(all_profiles_xls)
+
+        # Filter rows based on user name key in each dictionary
+        this_batch_of_rows = []
+        for bot in bots:
+            this_batch_of_rows.append(df[df['username'].str.strip() == bot.getEmail()])
+
+        # Concatenate filtered rows into a new DataFrame
+        new_df = pd.concat(this_batch_of_rows)
+
+        # Save the new DataFrame to a CSV file
+        # new_df.to_csv(batch_xls, index=False)
+        new_df.to_excel(batch_xls, index=False)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorKeyInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)
+        print(ex_stat)
+
+
+# for All tasks, divide them into batches based on ADS batch limit, for example, low cost ADS supports
+# loading 10 profiles at a time only.
+# 1) flatten all tasks
+# 2) sort all tasks by earliest scheduled start time of all the assigned mission/tasks.
+# 3) group them into batches.
+def earliest_start(task):
+    # Example: Sorting based on the sum of attributes a and b
+    if len(task["other_works"]) > 0:
+        if len(task["bw_works"]) > 0:
+            return min(task["other_works"][0]["start_time"], task["bw_works"][0]["start_time"])
+        else:
+            return task["other_works"][0]["start_time"]
+    else:
+        return task["bw_works"][0]["start_time"]
+
+
+def genBatchBasedOnADSSizeLimit(vTasks, allbots, all_profiles_csv, run_data_dir):
+    try:
+        all_tasks = []
+        for tz in vTasks:
+            all_tasks = all_tasks + vTasks[tz]
+        print("all_tasks:", all_tasks)
+        sorted_tasks = sorted(all_tasks, key=earliest_start)
+        print("sorted_tasks:", sorted_tasks)
+        batch_idx = 0
+        start_idx = 0
+        end_idx = 0
+        ads_batches=[]
+        ads_batch = []
+        # about to fill 1 batch
+        while end_idx < len(sorted_tasks):
+            if (len(sorted_tasks) - start_idx) >= (ADS_BATCH_SIZE - len(ads_batch)):
+                end_idx = start_idx + (ADS_BATCH_SIZE - len(ads_batch))
+                ads_batch = ads_batch + sorted_tasks[start_idx:end_idx]
+                start_idx = end_idx
+                print("SSstart_idx:", start_idx, "end_idx:", end_idx)
+                #increment batch counter, finish the batch
+                ads_batches.append(ads_batch)
+                batch_idx = batch_idx + 1
+                ads_batch = []
+            else:
+                # down to the last batch.
+                ads_batch = ads_batch + sorted_tasks[start_idx:]
+                end_idx = len(sorted_tasks)
+                start_idx = end_idx
+                print("start_idx:", start_idx, "end_idx:", end_idx)
+
+        if len(ads_batch) > 0:
+            ads_batches.append(ads_batch)
+        print("ads_batches:", ads_batches)
+
+        for bi in range(len(ads_batches)):
+            for t in ads_batches[bi]:
+                t["batch_id"] = bi
+            allbids = [t["bid"] for t in ads_batches[bi]]
+            bots_in_batch = [b for b in allbots if b.getBid() in allbids]
+            ads_batch_file = run_data_dir + "/ads_profiles_" + str(bi)+".xls"
+            print("allbids:", allbids)
+            print("all_profiles_csv:", all_profiles_csv, "ads_batch_file:", ads_batch_file, "bots length:", len(bots_in_batch))
+            extractBatchOfProfiles(bots_in_batch, all_profiles_csv, ads_batch_file)
+
+        print("ads_batches:", ads_batches)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorKeyInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)
+        print(ex_stat)
