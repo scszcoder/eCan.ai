@@ -26,12 +26,6 @@ class StepStub(StepBase):
         self.func_name: str = fname
         self.fargs: str = fargs
 
-    def get_dict_attrs(self):
-        obj = super().get_dict_attrs()
-        del obj['tag']
-
-        return obj
-
     def to_obj(self, obj_dict):
         super().to_obj(obj_dict)
         self.stub_name = EnumStubName(self.stub_name)
