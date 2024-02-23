@@ -5,7 +5,9 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsElli
 from gui.skfc.skfc_base import EnumItemType, SkFCBase
 from enum import Enum
 
+from skill.steps.enum_step_type import EnumStepType
 from skill.steps.step_base import StepBase
+from skill.steps.step_stub import EnumStubName
 
 ITEM_PORT_RADIUS = 3
 
@@ -367,7 +369,13 @@ class DiagramNormalItem(QGraphicsPolygonItem):
                     elif condition is False and not arrow.condition_text_item.is_condition_true():
                         return arrow.end_item
                 else:
-                    return arrow.end_item
+                    step = arrow.end_item.step
+                    if step and step.type == EnumStepType.Stub.type_key():
+                        if step.stub_name == EnumStubName.EndSkill:
+                            print("diagram item step is stub type and name is end skill!!")
+                            return None
+                    else:
+                        return arrow.end_item
 
         return None
 

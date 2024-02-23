@@ -17,6 +17,12 @@ class StepHeader(StepBase):
         self.skid = skid
         self.description = description
 
+    def get_dict_attrs(self):
+        obj = super().get_dict_attrs()
+        del obj['tag']
+
+        return obj
+
     def gen_step(self, stepN, **kwargs):
         self.stepN = stepN
         json_str = self.gen_json_str()

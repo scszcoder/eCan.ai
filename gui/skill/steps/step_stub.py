@@ -12,6 +12,7 @@ class EnumStubName(Enum):
     EndLoop = "end loop"
     EndCondition = "end condition"
     DefFunction = "def function"
+    Tag = "tag"
 
 
 class StepStub(StepBase):
@@ -24,6 +25,12 @@ class StepStub(StepBase):
         self.stub_name: EnumStubName = sname
         self.func_name: str = fname
         self.fargs: str = fargs
+
+    def get_dict_attrs(self):
+        obj = super().get_dict_attrs()
+        del obj['tag']
+
+        return obj
 
     def to_obj(self, obj_dict):
         super().to_obj(obj_dict)
