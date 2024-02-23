@@ -1124,8 +1124,9 @@ class MainWindow(QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
+        test_ads_batch(self)
         # test_sqlite3(self)
-        test_scrape_amz_prod_list()
+        # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         #the grand test,
