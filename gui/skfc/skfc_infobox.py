@@ -3,7 +3,7 @@ from enum import Enum
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QFont, QPainter, QColor
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QLabel, QTableWidgetItem, QGraphicsView, \
-    QHBoxLayout, QFrame, QLineEdit, QHeaderView, QComboBox, QCheckBox
+    QHBoxLayout, QFrame, QLineEdit, QHeaderView, QComboBox, QCheckBox, QApplication
 
 from skfc.diagram_item_normal import DiagramNormalItem
 from skfc.skfc_scene import SkFCScene
@@ -19,9 +19,15 @@ PROPS_COLUMN_COUNT = 2
 STEP_ATTR_KEY = "step_attr_key"
 
 
+class EnumSkType(Enum):
+    Main = "T"
+    Sub = "F"
+
+
 class SKInfo:
-    def __init__(self, skname="", os="win", version="1.0", author="AIPPS LLC", skid="", description=""):
+    def __init__(self, skname="", sktype=EnumSkType.Sub.value, os="win", version="1.0", author="AIPPS LLC", skid="", description=""):
         self.skname = skname
+        self.sktype = sktype
         self.os = os
         self.version = version
         self.author = author
@@ -108,7 +114,13 @@ class SkFCInfoBox(QFrame):
         self.basic_info_skauthor = QLineEdit()
         self.basic_info_skid = QLineEdit()
         self.basic_info_skdesp = QLineEdit()
-        self.basic_info_table = QTableWidget(6, 2)
+
+        self.basic_info_sktype = QComboBox()
+        self.basic_info_sktype.addItem(QApplication.translate("QComboBox", "Main Skill"), EnumSkType.Main.value)
+        self.basic_info_sktype.addItem(QApplication.translate("QComboBox", "Sub Skill"), EnumSkType.Sub.value)
+        self.basic_info_sktype.activated.connect(self.basic_info_sktype_activated)
+
+        self.basic_info_table = QTableWidget(7, 2)
         self.basic_info_table.horizontalHeader().setVisible(False)
         self.basic_info_table.verticalHeader().setVisible(False)
         self.basic_info_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -118,16 +130,18 @@ class SkFCInfoBox(QFrame):
 
         self.basic_info_table.setCellWidget(0, 0, QLabel("Skill Name"))
         self.basic_info_table.setCellWidget(0, 1, self.basic_info_skname)
-        self.basic_info_table.setCellWidget(1, 0, QLabel("OS"))
-        self.basic_info_table.setCellWidget(1, 1, self.basic_info_skos)
-        self.basic_info_table.setCellWidget(2, 0, QLabel("Version"))
-        self.basic_info_table.setCellWidget(2, 1, self.basic_info_skversion)
-        self.basic_info_table.setCellWidget(3, 0, QLabel("Author"))
-        self.basic_info_table.setCellWidget(3, 1, self.basic_info_skauthor)
-        self.basic_info_table.setCellWidget(4, 0, QLabel("SkId"))
-        self.basic_info_table.setCellWidget(4, 1, self.basic_info_skid)
-        self.basic_info_table.setCellWidget(5, 0, QLabel("Description"))
-        self.basic_info_table.setCellWidget(5, 1, self.basic_info_skdesp)
+        self.basic_info_table.setCellWidget(1, 0, QLabel("Skill Type"))
+        self.basic_info_table.setCellWidget(1, 1, self.basic_info_sktype)
+        self.basic_info_table.setCellWidget(2, 0, QLabel("SkId"))
+        self.basic_info_table.setCellWidget(2, 1, self.basic_info_skid)
+        self.basic_info_table.setCellWidget(3, 0, QLabel("OS"))
+        self.basic_info_table.setCellWidget(3, 1, self.basic_info_skos)
+        self.basic_info_table.setCellWidget(4, 0, QLabel("Version"))
+        self.basic_info_table.setCellWidget(4, 1, self.basic_info_skversion)
+        self.basic_info_table.setCellWidget(5, 0, QLabel("Author"))
+        self.basic_info_table.setCellWidget(5, 1, self.basic_info_skauthor)
+        self.basic_info_table.setCellWidget(6, 0, QLabel("Description"))
+        self.basic_info_table.setCellWidget(6, 1, self.basic_info_skdesp)
 
         self.attrs_table = QTableWidget(0, PROPS_COLUMN_COUNT)
         self.attrs_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -160,6 +174,9 @@ class SkFCInfoBox(QFrame):
 
     def init_qline_edit(self, sk_info: SKInfo):
         self.basic_info_skname.setText(sk_info.skname)
+        index = self.basic_info_sktype.findData(sk_info.sktype)
+        if index >= 0:
+            self.basic_info_sktype.setCurrentIndex(index)
         self.basic_info_skos.setText(sk_info.os)
         self.basic_info_skversion.setText(sk_info.version)
         self.basic_info_skauthor.setText(sk_info.author)
@@ -168,15 +185,22 @@ class SkFCInfoBox(QFrame):
 
     def get_skill_info(self) -> SKInfo:
         skname = self.basic_info_skname.text()
+        sktype = self.basic_info_sktype.currentData()
+        skid = self.basic_info_skid.text()
         os = self.basic_info_skos.text()
         version = self.basic_info_skversion.text()
         author = self.basic_info_skauthor.text()
-        skid = self.basic_info_skid.text()
         desp = self.basic_info_skdesp.text()
 
-        sk_info = SKInfo(skname, os, version, author, skid, desp)
+        sk_info = SKInfo(skname, sktype, os, version, author, skid, desp)
 
         return sk_info
+
+    def basic_info_sktype_activated(self):
+        value = self.basic_info_sktype.currentData()
+        text = self.basic_info_sktype.currentText()
+
+        print(f"text: {text}, value: {value}")
 
     def convert_field_name(self, text):
         return ' '.join(w.capitalize() for w in text.split('_'))
@@ -272,8 +296,3 @@ class SkFCInfoBox(QFrame):
         print("text changed: ", text, self.sender())
         step: StepBase = self.current_diagram_item.step
         step.set_attr_value(self.sender().property(STEP_ATTR_KEY), text)
-
-
-
-
-

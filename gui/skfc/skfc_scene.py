@@ -359,7 +359,7 @@ class SkFCScene(QGraphicsScene):
             if isinstance(item, DiagramNormalItem):
                 step = item.step
                 if step and step.type == EnumStepType.Stub.type_key():
-                    if step.stub_name == EnumStubName.StartSkill:
+                    if step.stub_name == EnumStubName.StartSkill or step.stub_name == EnumStubName.StartSkillMain:
                         return item
 
         return None
@@ -440,7 +440,7 @@ class SkFCScene(QGraphicsScene):
                 this_step, step_words = StepStub(sname=EnumStubName.EndFunction).gen_step(this_step)
                 sorted_steps_stack.append(step_words)
             elif step.type == EnumStepType.Stub.type_key():
-                if step.stub_name == EnumStubName.StartSkill:
+                if step.stub_name == EnumStubName.StartSkill or step.stub_name == EnumStubName.StartSkillMain:
                     this_step, step_words = StepStub(sname=EnumStubName.EndSkill).gen_step(this_step)
                     sorted_steps_stack.append(step_words)
 
