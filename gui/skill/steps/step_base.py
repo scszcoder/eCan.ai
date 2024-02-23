@@ -27,13 +27,13 @@ class StepBase(ABC):
 
     def get_dict_attrs(self):
         obj = self.__dict__.copy()
+        del obj['stepN']
 
         return obj
 
     def gen_json_str(self):
         obj = self.to_dict()
 
-        del obj['stepN']
         if self.tag is None or self.tag == "":
             del obj['tag']
         #

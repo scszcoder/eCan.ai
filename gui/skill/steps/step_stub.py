@@ -4,6 +4,7 @@ from enum import Enum
 
 class EnumStubName(Enum):
     StartSkill = "start skill"
+    StartSkillMain = "start skill main"
     Function = "function"
     Else = "else"
     Break = "break"
