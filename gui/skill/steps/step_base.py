@@ -66,6 +66,10 @@ class StepBase(ABC):
     #     for key in dict_names.keys():
     #         result.append(key)
 
+    def filter_enum_show_items(self, enum):
+        print("need filter enum ", enum)
+        return enum.__members__.items()
+
     def need_hidden_fields(self):
         return []
 
