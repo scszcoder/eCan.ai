@@ -60,8 +60,21 @@ class StepBase(ABC):
         else:
             return 1
 
-    def gen_attrs(self):
+    # def convert_obj_attrs_to_str(self, src_obj):
+    #     dict_names = {key: None for key in src_obj}
+    #     result = []
+    #     for key in dict_names.keys():
+    #         result.append(key)
+
+    def need_hidden_fields(self):
+        return []
+
+    def gen_need_show_attrs(self):
         obj = self.get_dict_attrs()
+        for attr in self.need_hidden_fields():
+            print("need filter field: ", attr)
+            if attr in obj:
+                del obj[attr]
         obj = sorted(obj.items(), key=self.custom_sort)
 
         return dict(obj)

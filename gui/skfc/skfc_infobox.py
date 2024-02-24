@@ -222,7 +222,7 @@ class SkFCInfoBox(QFrame):
 
         self.current_diagram_item = diagram_item
 
-        attrs = diagram_item.step.gen_attrs()
+        attrs = diagram_item.step.gen_need_show_attrs()
         self.attrs_table.setRowCount(len(attrs))
 
         for row, (key, value) in enumerate(attrs.items()):
