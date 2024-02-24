@@ -6,11 +6,12 @@ from skill.steps.step_base import StepBase, STEP_GAP
 class StepHeader(StepBase):
     TYPE_KEY = "Header"
 
-    def __init__(self, stepN, name, os, version, author, skid, description):
+    def __init__(self, stepN, name, sktype, os, version, author, skid, description):
         super().__init__(stepN)
 
         self.type = self.TYPE_KEY
         self.name = name
+        self.sktype = sktype
         self.os = os
         self.version = version
         self.author = author
@@ -25,8 +26,8 @@ class StepHeader(StepBase):
         return json_step
 
 
-if __name__ == '__main__':
-    step = StepHeader("win_file_local_open_save_as", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001",
-                "File Open Dialog Handling for Windows.", 0)
-
-    print(step.gen_step())
+# if __name__ == '__main__':
+#     step = StepHeader("win_file_local_open_save_as", "win", "1.0", "AIPPS LLC", "PUBWINFILEOP001",
+#                 "File Open Dialog Handling for Windows.", 0)
+#
+#     print(step.gen_step())

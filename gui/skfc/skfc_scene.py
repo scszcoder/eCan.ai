@@ -453,7 +453,7 @@ class SkFCScene(QGraphicsScene):
 
         # header
         sk_info = self.parent.skfc_infobox.get_skill_info()
-        this_step, step_words = StepHeader(first_step, sk_info.skname, sk_info.os, sk_info.version, sk_info.author,
+        this_step, step_words = StepHeader(first_step, sk_info.skname, sk_info.sktype, sk_info.os, sk_info.version, sk_info.author,
                                            sk_info.skid, sk_info.description).gen_step(first_step)
         psk_words = psk_words + step_words
 
