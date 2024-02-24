@@ -12,3 +12,9 @@ class StepCheckCondition(StepBase):
         self.condition = condition
         self.if_else = ifelse
         self.if_end = ifend
+
+    def need_hidden_fields(self):
+        return [
+            "if_else",
+            "if_end"
+        ]
