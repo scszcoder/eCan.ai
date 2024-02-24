@@ -234,13 +234,14 @@ class SkFCInfoBox(QFrame):
             self.attrs_table.setCellWidget(row, 1, item_widget)
 
     def create_attrs_cell_widget(self, diagram_type, step_attr_key, step_attrs_value):
+        # Step type attr field
         if step_attr_key == "type":
             widget = QComboBox()
-            for item in self.create_step_type_items(diagram_type):
+            for item in self.create_step_type_attr_items(diagram_type):
                 widget.addItem(item)
             widget.setCurrentText(step_attrs_value)
             widget.currentTextChanged.connect(self.step_attrs_type_cmb_changed)
-        else:
+        else:  # normal attrs field
             if isinstance(step_attrs_value, Enum):
                 # print(f"step enum attrs: key {step_attr_key}= {step_attrs_value.value}")
                 widget = QComboBox()
@@ -261,19 +262,21 @@ class SkFCInfoBox(QFrame):
         # print(f"create field: {step_attr_key}; cell widget {widget}")
         return widget
 
-    def create_step_type_items(self, diagram_type):
+    def create_step_type_attr_items(self, diagram_type):
         types = []
         for key, value in EnumStepType.items():
             if diagram_type == DiagramNormalItem.StartEnd:
-                if key == StepStub.TYPE_KEY:
+                if key in EnumStepType.belong_start_end_step_type_keys():
                     types.append(key)
             elif diagram_type == DiagramNormalItem.Conditional:
-                if key == StepCheckCondition.TYPE_KEY:
+                if key in EnumStepType.belong_condition_step_type_keys():
                     types.append(key)
             elif diagram_type == DiagramNormalItem.Step:
-                types.append(key)
+                if key in EnumStepType.belong_process_step_type_keys():
+                    types.append(key)
             elif diagram_type == DiagramNormalItem.Io:
-                types.append(key)
+                if key in EnumStepType.belong_io_step_type_keys():
+                    types.append(key)
 
         return types
 
