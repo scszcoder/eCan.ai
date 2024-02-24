@@ -95,6 +95,7 @@ class SkFCScene(QGraphicsScene):
         elif event.key() == Qt.Key_Escape:
             if (self.myMode == self.InsertLine and isinstance(self.selected_item, DiagramArrowItem) and
                     self.ignore_mouse_move is False):
+                print("key press event set ignore mouse move is True")
                 self.ignore_mouse_move = True
                 self.removeItem(self.selected_item)
                 self.selected_item = None
@@ -149,6 +150,7 @@ class SkFCScene(QGraphicsScene):
 
                     self.add_diagram_item(item)
                     self.selected_item = item
+                    print("mouse move event set ignore mouse move is False")
                     self.ignore_mouse_move = False
                 elif target_item_group is not None:
                     self.selected_item = target_item_group.diagram_normal_item
@@ -184,6 +186,7 @@ class SkFCScene(QGraphicsScene):
         else:
             print("selected item is none!!!")
         # super(SkFCScene, self).mousePressEvent(mouseEvent)
+        mouseEvent.accept()
 
     def mouseMoveEvent(self, mouseEvent):
         # super().mouseMoveEvent(mouseEvent)
@@ -194,7 +197,7 @@ class SkFCScene(QGraphicsScene):
             # print(f"moving normal item {self.selected_item}")
         elif isinstance(self.selected_item, DiagramArrowItem):
             if self.ignore_mouse_move:
-                print("ignore mouse move event")
+                print("warning:::ignore mouse move event")
                 mouseEvent.ignore()
                 return
 
@@ -205,12 +208,14 @@ class SkFCScene(QGraphicsScene):
             super().mouseMoveEvent(mouseEvent)
 
         # super().mouseMoveEvent(mouseEvent)
+        mouseEvent.accept()
 
     def mouseReleaseEvent(self, mouseEvent):
         super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
         if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramArrowItem):
-                self.ignore_mouse_move = True
+                print("mouse release event set ignore mouse move is False")
+                self.ignore_mouse_move = False
                 line: DiagramArrowItem = self.selected_item
                 target_item_group = self.query_target_event_items(mouseEvent.scenePos())
                 line.mouse_release_handler(mouseEvent.scenePos(), target_item_group)
@@ -228,6 +233,7 @@ class SkFCScene(QGraphicsScene):
 
         self.selected_item = None
         # super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
+        mouseEvent.accept()
 
     def query_target_event_items(self, point: QPointF):
         target_item_group: DiagramItemGroup = None

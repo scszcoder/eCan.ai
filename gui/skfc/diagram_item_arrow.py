@@ -2,7 +2,7 @@ from enum import Enum
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, QSizeF, Qt, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor, QPolygonF, QPainterPath, QBrush, QFont, QPainterPathStroker, \
-    QTextOption
+    QTextOption, QTextCursor
 from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsItem, QMenu, QGraphicsSceneMouseEvent,
                                QGraphicsDropShadowEffect, QGraphicsTextItem, QApplication)
 import math
@@ -24,7 +24,7 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
         super().__init__(parent)
         self.setPlainText(text)
 
-        self.setTextWidth(50)
+        self.setTextWidth(40)
         self.previous_text = self.toPlainText()
 
         option = QTextOption()
@@ -35,13 +35,32 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
 
-    def set_text_interaction(self):
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+    def paint(self, painter, option, widget=None):
+        if self.toPlainText():
+            painter.setBrush(QBrush(Qt.white))  # 设置背景色为黄色
+            painter.setPen(Qt.NoPen)  # 不绘制边框
+            painter.drawRect(self.boundingRect())  # 根据文本项的边界绘制一个矩形作为背景
+            super(DiagramArrowConditionTextItem, self).paint(painter, option, widget)  # 调用基类的paint方法绘制文本
+
+    def set_text_interaction(self, event):
+        # self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        # self.setFocus(Qt.FocusReason.MouseFocusReason)
+        if self.textInteractionFlags() == Qt.NoTextInteraction:
+            self.setTextInteractionFlags(Qt.TextEditorInteraction)
+            self.setPositionCursor(event.pos())
         self.setFocus(Qt.FocusReason.MouseFocusReason)
 
-    def handle_double_click_event(self):
+    def setPositionCursor(self, pos):
+        cursor = QTextCursor(self.document())
+        pos = self.document().documentLayout().hitTest(pos, Qt.ExactHit)
+        if pos >= 0:
+            cursor.setPosition(pos)
+        self.setTextCursor(cursor)
+
+    def handle_double_click_event(self, event):
+        print("handle mouse double click event")
         self.previous_text = self.toPlainText()
-        self.set_text_interaction()
+        self.set_text_interaction(event)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
@@ -49,10 +68,17 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
         else:
             super().keyPressEvent(event)
 
+    def mousePressEvent(self, event):
+        if self.textInteractionFlags() == Qt.NoTextInteraction:
+            event.ignore()  # 忽略事件，不向嵌套的 item 传递
+        else:
+            super().mousePressEvent(event)
+
     def mouseDoubleClickEvent(self, event):
-        self.previous_text = self.toPlainText()
-        self.set_text_interaction()
+        print("trigger mouse double click event")
         super().mouseDoubleClickEvent(event)
+        self.previous_text = self.toPlainText()
+        self.set_text_interaction(event)
 
     def focusOutEvent(self, event):
         current_text = self.toPlainText()
@@ -98,6 +124,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         self.old_start_item: DiagramNormalItem = None
         self.old_end_item: DiagramNormalItem = None
         self.condition_text_item: DiagramArrowConditionTextItem = DiagramArrowConditionTextItem(condition_text, self)
+        self.condition_text_item.setZValue(1)
 
         self.pen = QPen(self.line_color, ARROW_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         self.setPen(self.pen)
@@ -236,7 +263,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         if self.isSelected():
             # 获取两条直线之间的路径
             stroke = QPainterPathStroker()
-            # stroke.setWidth(2)  # 选中时的线宽
+            stroke.setWidth(1.3)  # 选中时的线宽
             path = stroke.createStroke(self.path())
             # path.addPath(self.path())  # 将两条路径合并为一个路径
             return path
@@ -266,11 +293,10 @@ class DiagramArrowItem(QGraphicsPathItem):
 
     def mouseDoubleClickEvent(self, event):
         print("diagram arrow double click event")
+        super().mouseDoubleClickEvent(event)
         # self.click_timer.stop()
         if self.start_item is not None and self.start_item.diagram_type == DiagramNormalItem.Conditional:
-            self.condition_text_item.handle_double_click_event()
-        # self.condition_text_item.handle_double_click_event()
-        super().mouseDoubleClickEvent(event)
+            self.condition_text_item.handle_double_click_event(event)
 
     # def handle_click_timeout(self):
     #     self.click_timer.stop()
@@ -299,8 +325,8 @@ class DiagramArrowItem(QGraphicsPathItem):
         #     print("Mouse moved with left button pressed")
 
     def contextMenuEvent(self, event):
+        print("Diagram Item Array Right Button Pressed!!")
         super().contextMenuEvent(event)
-        # print("Right button pressed")
         self.scene().clearSelection()
         self.setSelected(True)
         self.my_context_menu.exec_(event.screenPos())
