@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QLabel, QTable
     QHBoxLayout, QFrame, QLineEdit, QHeaderView, QComboBox, QCheckBox, QApplication
 
 from skfc.diagram_item_normal import DiagramNormalItem
+from skfc.skfc_base import EnumSkType
 from skfc.skfc_scene import SkFCScene
 from config.app_info import app_info
 from skill.steps.enum_step_type import EnumStepType
@@ -17,11 +18,6 @@ from skill.steps.step_wait import StepWait
 
 PROPS_COLUMN_COUNT = 2
 STEP_ATTR_KEY = "step_attr_key"
-
-
-class EnumSkType(Enum):
-    Main = "T"
-    Sub = "F"
 
 
 class SKInfo:
@@ -244,7 +240,7 @@ class SkFCInfoBox(QFrame):
         else:  # normal attrs field
             if isinstance(step_attrs_value, Enum):
                 # print(f"step enum attrs: key {step_attr_key}= {step_attrs_value.value}")
-                filtered_enum_items = step.filter_enum_show_items(type(step_attrs_value))
+                filtered_enum_items = step.filter_enum_show_items(self.get_skill_info().sktype, type(step_attrs_value))
                 widget = QComboBox()
                 for name, member in filtered_enum_items:
                     widget.addItem(member.value)

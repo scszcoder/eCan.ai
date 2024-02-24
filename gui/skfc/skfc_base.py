@@ -117,3 +117,6 @@ class SkFCBase:
         return color
 
 
+class EnumSkType(Enum):
+    Main = "T"
+    Sub = "F"
