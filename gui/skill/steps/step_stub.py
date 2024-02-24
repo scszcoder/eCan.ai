@@ -1,3 +1,4 @@
+from skfc.skfc_base import EnumSkType
 from skill.steps.step_base import StepBase
 from enum import Enum
 
@@ -49,17 +50,20 @@ class StepStub(StepBase):
 
         return str
 
-    def filter_enum_show_items(self, enum):
-        items = super().filter_enum_show_items(enum)
+    def filter_enum_show_items(self, sktype, enum):
+        items = super().filter_enum_show_items(sktype, enum)
         filtered_items = []
         if enum is EnumStubName:
             for name, member in items:
                 print(name, member)
-                if name in [EnumStubName.StartSkill.name,
-                            EnumStubName.EndSkill.name,
-                            EnumStubName.StartSkillMain.name,
-                            EnumStubName.Function]:
-                    filtered_items.append((name, member))
+                if sktype == EnumSkType.Main.value:
+                    if name in [EnumStubName.EndSkill.name,
+                                EnumStubName.StartSkillMain.name]:
+                        filtered_items.append((name, member))
+                else:
+                    if name in [EnumStubName.StartSkill.name,
+                                EnumStubName.EndSkill.name]:
+                        filtered_items.append((name, member))
 
         return filtered_items
 
