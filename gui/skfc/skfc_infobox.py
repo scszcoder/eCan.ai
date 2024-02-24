@@ -228,12 +228,12 @@ class SkFCInfoBox(QFrame):
         for row, (key, value) in enumerate(attrs.items()):
             # print(f"Row: {row}, Key: {key}, Value: {value}")
             item_label = QLabel(self.convert_field_name(key))
-            item_widget = self.create_attrs_cell_widget(diagram_type, key, value)
+            item_widget = self.create_attrs_cell_widget(diagram_type, diagram_item.step, key, value)
 
             self.attrs_table.setCellWidget(row, 0, item_label)
             self.attrs_table.setCellWidget(row, 1, item_widget)
 
-    def create_attrs_cell_widget(self, diagram_type, step_attr_key, step_attrs_value):
+    def create_attrs_cell_widget(self, diagram_type, step, step_attr_key, step_attrs_value):
         # Step type attr field
         if step_attr_key == "type":
             widget = QComboBox()
@@ -244,8 +244,9 @@ class SkFCInfoBox(QFrame):
         else:  # normal attrs field
             if isinstance(step_attrs_value, Enum):
                 # print(f"step enum attrs: key {step_attr_key}= {step_attrs_value.value}")
+                filtered_enum_items = step.filter_enum_show_items(type(step_attrs_value))
                 widget = QComboBox()
-                for name, member in type(step_attrs_value).__members__.items():
+                for name, member in filtered_enum_items:
                     widget.addItem(member.value)
                 widget.setCurrentText(step_attrs_value.value)
                 widget.currentTextChanged.connect(self.step_attrs_normal_cmb_changed)

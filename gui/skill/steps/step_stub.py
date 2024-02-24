@@ -49,6 +49,20 @@ class StepStub(StepBase):
 
         return str
 
+    def filter_enum_show_items(self, enum):
+        items = super().filter_enum_show_items(enum)
+        filtered_items = []
+        if enum is EnumStubName:
+            for name, member in items:
+                print(name, member)
+                if name in [EnumStubName.StartSkill.name,
+                            EnumStubName.EndSkill.name,
+                            EnumStubName.StartSkillMain.name,
+                            EnumStubName.Function]:
+                    filtered_items.append((name, member))
+
+        return filtered_items
+
 
 if __name__ == '__main__':
     step = StepStub()
