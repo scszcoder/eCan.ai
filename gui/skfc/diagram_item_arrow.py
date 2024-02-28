@@ -23,6 +23,7 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
     def __init__(self, text="", parent=None):
         super().__init__(parent)
         self.setPlainText(text)
+        self.item_arrow = parent
 
         self.setTextWidth(40)
         self.previous_text = self.toPlainText()
@@ -63,12 +64,20 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
         self.set_text_interaction(event)
 
     def keyPressEvent(self, event):
+        print("condition item -> key press event key: ", event.key(), "; Plain Text:", self.toPlainText())
         if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
             self.clearFocus()
         else:
             super().keyPressEvent(event)
 
+    def keyReleaseEvent(self, event):
+        print("condition item -> key release event key: ", event.key(), "; Plain Text:", self.toPlainText())
+        # if self.toPlainText() is "":
+        #     self.setFocus()
+        super().keyReleaseEvent(event)
+
     def mousePressEvent(self, event):
+        print("condition item -> mouse press event", "; Plain Text:", self.toPlainText())
         if self.textInteractionFlags() == Qt.NoTextInteraction:
             event.ignore()  # 忽略事件，不向嵌套的 item 传递
         else:
@@ -81,10 +90,17 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
         self.set_text_interaction(event)
 
     def focusOutEvent(self, event):
+        print("condition item -> focus out event", "; Plain Text:", self.toPlainText())
         current_text = self.toPlainText()
-        if current_text.lower() not in ["true", "false", "  "]:
+        if current_text.lower() not in ["true", "false"]:
             self.setPlainText(self.previous_text)
-            print("recover to old value")
+            print("recover to old value ", self.previous_text)
+        else:
+            # 互斥修改状态
+            if current_text.lower() is not self.previous_text:
+                if self.item_arrow.start_item is not None:
+                    self.item_arrow.start_item.change_other_condition_arrow_value(self, not self.is_condition_true())
+                    print("change other arrow item condition value to ", not self.is_condition_true())
 
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         # self.clearFocus()
@@ -93,17 +109,28 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
     def set_plain_text(self, text):
         self.setPlainText(text)
 
+    def set_condition_value(self, condition):
+        if condition:
+            self.setPlainText("True")
+        else:
+            self.setPlainText("False")
+
+    def get_condition_value(self):
+        return self.toPlainText().lower() == "true"
+
     def is_condition_true(self):
         return self.toPlainText().lower() == "true"
 
 
 class DiagramArrowItem(QGraphicsPathItem):
     def __init__(self, start_point: QPointF, line_color, context_menu: QMenu, condition_text="",
-                 path_points: List[QPointF] = None, target_item_group: DiagramItemGroup = None, uuid=None, parent=None, scene=None):
+                 path_points: List[QPointF] = None, target_item_group: DiagramItemGroup = None, uuid=None,
+                 skfc_scene=None, parent=None, scene=None):
         super(DiagramArrowItem, self).__init__(parent, scene)
 
         print(f"build new arrow item with {target_item_group.diagram_normal_item if target_item_group is not None else None};"
               f" {target_item_group.diagram_item_port_direction if target_item_group is not None else None}")
+        self.skfc_scene = skfc_scene
         self.uuid = uuid if uuid is not None else SkFCBase.build_uuid()
         self.item_type: EnumItemType = EnumItemType.Arrow
         self.start_point: QPointF = start_point
@@ -184,7 +211,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         return obj_dict
 
     @classmethod
-    def from_dict(cls, obj_dict, context_menu: QMenu):
+    def from_dict(cls, skfc_scene, obj_dict, context_menu: QMenu):
         uuid = obj_dict["uuid"]
         line_color = QColor(SkFCBase.color_decode(obj_dict["line_color"]))
         path_points: [] = SkFCBase.path_points_decode(obj_dict["path_points"])
@@ -196,7 +223,8 @@ class DiagramArrowItem(QGraphicsPathItem):
 
         start_point: QPointF = path_points[0]
         diagram_arrow_item = DiagramArrowItem(start_point=start_point, line_color=line_color, context_menu=context_menu,
-                                              condition_text=condition_text, uuid=uuid, path_points=path_points)
+                                              condition_text=condition_text, uuid=uuid, path_points=path_points,
+                                              skfc_scene=skfc_scene)
         diagram_arrow_item.start_item_uuid = start_item_uuid
         diagram_arrow_item.start_item_port_direction = start_item_port_direction
         diagram_arrow_item.end_item_uuid = end_item_uuid
@@ -473,6 +501,16 @@ class DiagramArrowItem(QGraphicsPathItem):
 
         if self.start_item is not None:
             self.start_item.addArrow(self)
+
+            if self.start_item.diagram_type == DiagramNormalItem.Conditional:
+                if self.start_item.count_arrows_of_self_start() > 2:
+                    self.skfc_scene.remove_diagram_item(self)
+                else:
+                    value = self.start_item.other_condition_arrow_value(self)
+                    if value is None:
+                        self.condition_text_item.set_condition_value(True)
+                    else:
+                        self.condition_text_item.set_condition_value(not value)
 
         if self.old_start_item is not None and self.old_start_item != self.start_item:
             self.old_start_item.removeArrow(self)
