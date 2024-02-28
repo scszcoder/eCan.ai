@@ -106,6 +106,8 @@ class SkFCScene(QGraphicsScene):
         item = None
         if self.isItemChange(DiagramArrowItem):
             item = self.selectedItems()[0]
+            if item.condition_text_item.textInteractionFlags() == Qt.TextEditorInteraction:
+                item = None
         elif self.isItemChange(DiagramNormalItem):
             item = self.selectedItems()[0]
         elif self.isItemChange(DiagramTextItem):
@@ -146,7 +148,8 @@ class SkFCScene(QGraphicsScene):
                 # 当点击对应的item时候，需要要有选择到 port才能开始画线
                 if target_item_group is None or target_item_group.diagram_item_port_direction is not None:
                     item = DiagramArrowItem(start_point=mouseEvent.scenePos(), line_color=self.myLineColor,
-                                            context_menu=self.myItemMenu, target_item_group=target_item_group)
+                                            context_menu=self.myItemMenu, target_item_group=target_item_group,
+                                            skfc_scene=self)
 
                     self.add_diagram_item(item)
                     self.selected_item = item
@@ -343,7 +346,7 @@ class SkFCScene(QGraphicsScene):
             elif enum_item_type == EnumItemType.Normal:
                 diagram_item = DiagramNormalItem.from_dict(item, context_menu)
             elif enum_item_type == EnumItemType.Arrow:
-                diagram_item = DiagramArrowItem.from_dict(item, context_menu)
+                diagram_item = DiagramArrowItem.from_dict(self, item, context_menu)
                 arrow_items.append(diagram_item)
             else:
                 print(f"diagram scene from json error item type {enum_item_type}")

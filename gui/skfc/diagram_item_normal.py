@@ -282,6 +282,29 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         for arrow in self.arrows[:]:
             arrow.normal_item_move_redraw_path(self, event)
 
+    def other_condition_arrow_value(self, src_arrow):
+        for arrow in self.arrows[:]:
+            if arrow is not src_arrow and arrow.start_item == self:
+                return arrow.condition_text_item.get_condition_value()
+
+        return None
+
+    def change_other_condition_arrow_value(self, src_arrow, new_value):
+        for arrow in self.arrows[:]:
+            if arrow is not src_arrow and arrow.start_item == self:
+                return arrow.condition_text_item.set_condition_value(new_value)
+
+        return None
+
+    def count_arrows_of_self_start(self):
+        count = 0
+        for arrow in self.arrows[:]:
+            if arrow.start_item == self:
+                count = count+1
+
+        return count
+
+
     # def image(self):
     #     pixmap = QPixmap(250, 250)
     #     pixmap.fill(Qt.transparent)
