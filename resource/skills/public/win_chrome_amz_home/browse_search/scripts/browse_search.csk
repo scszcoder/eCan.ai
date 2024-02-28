@@ -102,6 +102,125 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "sun_browser",
+                        "anchor_type"  : "text",
+                        "template"     : "SunBrowser",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "flower_browser",
+                        "anchor_type"  : "text",
+                        "template"     : "FlowerBrowser",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "windows",
+                        "anchor_type"  : "text",
+                        "template"     : "Windows",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "mac",
+                        "anchor_type"  : "text",
+                        "template"     : "macOS",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "Linux",
+                        "anchor_type"  : "text",
+                        "template"     : "Linux",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "amazon_site",
+                        "anchor_type"  : "text",
+                        "template"     : "amazon.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "etsy_site",
+                        "anchor_type"  : "text",
+                        "template"     : "etsy.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ebay_site",
+                        "anchor_type"  : "text",
+                        "template"     : "ebay.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "facebook_site",
+                        "anchor_type"  : "text",
+                        "template"     : "facebook.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "twitter_site",
+                        "anchor_type"  : "text",
+                        "template"     : "twitter.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "google_site",
+                        "anchor_type"  : "text",
+                        "template"     : "google.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "youtube_site",
+                        "anchor_type"  : "text",
+                        "template"     : "youtube.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "instagram_site",
+                        "anchor_type"  : "text",
+                        "template"     : "instagram.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "whatsapp_site",
+                        "anchor_type"  : "text",
+                        "template"     : "whatsapp.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "tiktok_site",
+                        "anchor_type"  : "text",
+                        "template"     : "tiktok.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "other",
+                        "anchor_type"  : "text",
+                        "template"     : "other",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "custom_site",
+                        "anchor_type"  : "text",
+                        "template"     : "Please enter platform domain",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",

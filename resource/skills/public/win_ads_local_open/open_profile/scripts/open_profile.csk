@@ -1,6 +1,6 @@
 [
     {
-        "open": {
+        "ads_power": {
             "top" : {
                 "anchors": [
                     {
@@ -8,128 +8,259 @@
                         "anchor_type"  : "text",
                         "template"     : "Log in",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "all_groups",
+                        "anchor_type"  : "text",
+                        "template"     : "All groups",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "go_back",
+                        "anchor_type"  : "text",
+                        "template"     : "Go Back",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "delete",
+                        "anchor_type"  : "text",
+                        "template"     : "Delete",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "notifications",
+                        "anchor_type"  : "text",
+                        "template"     : "notifications",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "platform",
+                        "anchor_type"  : "text",
+                        "template"     : "Platform",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "user_agent",
+                        "anchor_type"  : "text",
+                        "template"     : "User-Agent",
+                        "ref_method"   : "0",
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "specified_url",
                         "anchor_type"  : "text",
                         "template"     : "specified URL",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
-                    {
-                        "anchor_name"  : "new_profiles",
-                        "anchor_type"  : "text",
-                        "template"     : "New Profile",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
-                    {
-                        "anchor_name"  : "batch_import",
-                        "anchor_type"  : "text",
-                        "template"     : "Batch Import",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "profiles",
                         "anchor_type"  : "text",
                         "template"     : "Profiles",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "new_profiles",
+                        "anchor_type"  : "text",
+                        "template"     : "New Profile",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "batch_import",
+                        "anchor_type"  : "text",
+                        "template"     : "Batch Import",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "profiles",
+                        "anchor_type"  : "text",
+                        "template"     : "Profiles",
+                        "ref_method"   : "0",
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "drag_drop",
                         "anchor_type"  : "text",
                         "template"     : "Drag and drop",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "new_profiles",
                         "anchor_type"  : "text",
                         "template"     : "New Profile",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "sun_browser",
                         "anchor_type"  : "text",
                         "template"     : "SunBrowser",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
-                    },
-                    {
-                        "anchor_name"  : "mac_os",
-                        "anchor_type"  : "text",
-                        "template"     : "macOS",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "ok",
                         "anchor_type"  : "text",
                         "template"     : "OK",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "no_matching_data",
+                        "anchor_type"  : "text",
+                        "template"     : "No matching data",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "enter_domain",
+                        "anchor_type"  : "text",
+                        "template"     : "Please enter platform domain",
+                        "ref_method"   : "0",
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "close",
-                        "anchor_type"  : "ion",
+                        "anchor_type"  : "icon",
                         "template"     : "close0.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "open",
                         "anchor_type"  : "text",
                         "template"     : "Open",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
-                    }
-                ], 
-                "info": [
-                    {
-                        "info_name"  : "profile_line",
-                        "info_type"  : "lines 1",
-                        "template"     : "#[0-9]+",
-                        "ref_method"   : "2",
-                        "refs" : [{
-                                "dir": "above",
-                                "ref": "complete_order",
-                                "offset": 0,
-                                "offset_unit": "box"
-                            }
-                        ]
-                    }
-                ]
-            }
-	    }
-	},
-    {
-        "profiles": {
-            "top" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "login",
-                        "anchor_type"  : "text",
-                        "template"     : "Log in",
-                        "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "new_profiles",
+                        "anchor_name"  : "flower_browser",
                         "anchor_type"  : "text",
-                        "template"     : "New Profile",
+                        "template"     : "FlowerBrowser",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "open",
+                        "anchor_name"  : "windows",
                         "anchor_type"  : "text",
-                        "template"     : "Open",
+                        "template"     : "Windows",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "mac",
+                        "anchor_type"  : "text",
+                        "template"     : "macOS",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "Linux",
+                        "anchor_type"  : "text",
+                        "template"     : "Linux",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "amazon_site",
+                        "anchor_type"  : "text",
+                        "template"     : "amazon.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "etsy_site",
+                        "anchor_type"  : "text",
+                        "template"     : "etsy.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ebay_site",
+                        "anchor_type"  : "text",
+                        "template"     : "ebay.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "facebook_site",
+                        "anchor_type"  : "text",
+                        "template"     : "facebook.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "twitter_site",
+                        "anchor_type"  : "text",
+                        "template"     : "twitter.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "google_site",
+                        "anchor_type"  : "text",
+                        "template"     : "google.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "youtube_site",
+                        "anchor_type"  : "text",
+                        "template"     : "youtube.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "instagram_site",
+                        "anchor_type"  : "text",
+                        "template"     : "instagram.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "whatsapp_site",
+                        "anchor_type"  : "text",
+                        "template"     : "whatsapp.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "tiktok_site",
+                        "anchor_type"  : "text",
+                        "template"     : "tiktok.com",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "other",
+                        "anchor_type"  : "text",
+                        "template"     : "other",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "custom_site",
+                        "anchor_type"  : "text",
+                        "template"     : "Please enter platform domain",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "site_not_reached",
+                        "anchor_type"  : "text",
+                        "template"     : "unexpectedly closed the connection",
+                        "ref_method"   : "0",
+                        "ref_location" : []
                     }
                 ], 
                 "info": [
