@@ -120,12 +120,13 @@ def genStepSaveHtml(html_file_name, html_file_var_name, template, settings, sink
 # sect: which section of the page is this extraction about?
 # page_data: data on the page extracted from analyzing html file contents. this info will help image analysis
 # option: in case this page has no anchor, needs extra help.....
-def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_data, option=""):
+# example option:  "options": "{\"info\": [{\"info_name\": \"label_row\", \"info_type\": \"lines 1\", \"template\": \"2\", \"ref_method\": \"1\", \"refs\": [{\"dir\": \"right inline\", \"ref\": \"entries\", \"offset\": 0, \"offset_unit\": \"box\"}]}]}",
+def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_data, options=""):
     stepjson = {
         "type": "Extract Info",
         "settings": settings,
         "template": template,
-        "option": option,
+        "options": options,
         "data_sink": sink,
         "page": page,
         "page_data_info": page_data,
@@ -166,15 +167,16 @@ def genStepSearchAnchorInfo(screen, names, name_type, target_types, logic, resul
 
 
 # search substring(regular expression) on a piece of info on a screen.
-def genStepSearchWordLine(screen, template_var, target_name, target_type, result, flag, site, break_here, stepN):
+def genStepSearchWordLine(screen, names, name_type, target_type, logic, result, flag, site, break_here, stepN):
     stepjson = {
         "type": "Search Word Line",
         "screen": screen,
-        "template_var": template_var,
-        "target_name": target_name,
-        "target_type": target_type,
-        "site": site,
+        "names": names,
+        "name_type": name_type,
+        "target_types": target_types,
+        "logic": logic,
         "result": result,
+        "site": site,
         "breakpoint": break_here,
         "status": flag
     }
@@ -622,7 +624,7 @@ def get_top_visible_window():
         return active_app_name, window_rect
 
 
-def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile):
+def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options):
     settings = mission.parent_settings
     global screen_loc
 
@@ -665,7 +667,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         "psk": m_psk_names[0].replace("\\", "\\\\"),
         "csk": m_csk_names[0].replace("\\", "\\\\"),
         "lastMove": page_sect,
-        "options": sk_settings["options"],
+        "options": options,
         "theme": page_theme,
         "imageFile": sfile.replace("\\", "\\\\"),
         "factor": "{}"
@@ -836,7 +838,7 @@ def processExtractInfo(step, i, mission, skill):
         print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
-        result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile)
+        result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"])
         symTab[step["data_sink"]] = result
         print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -1416,13 +1418,13 @@ def processOpenApp(step, i):
             url = step["target_link"]
             webbrowser.open(url, new=0, autoraise=True)
         else:
-            exec("oa_exe = "+step["target_link"])
+            exec("global oa_exe\noa_exe = "+step["target_type"])
             if step["cargs_type"] == "direct":
                 subprocess.call(symTab["oa_exe"] + " " + step["cargs"])
             else:
                 # in case of "expr" type.
-                print("running shell on :", symTab[step["cargs"]])
-                exec("oa_args = " + step["cargs"])
+                exec("global oa_args\noa_args = " + step["cargs"])
+                print("running shell", symTab["oa_exe"], "on :", step["cargs"], "with val["+symTab["oa_args"]+"]")
                 subprocess.Popen([symTab["oa_exe"], symTab["oa_args"]])
         time.sleep(step["wait"])
 
@@ -1469,7 +1471,7 @@ def processCreateData(step, i):
             # this is the case of direct assignment.
             # print("NOT AN DICT ENTRY ASSIGNMENT")
             if step["data_type"] == "expr":
-                # print("TBEx: ", step["data_name"] + " = " + step["key_value"])
+                print("TBEx: ", step["data_name"] + " = " + step["key_value"])
                 # symTab[step["data_name"]] = None
                 # exec("global sk_work_settings")
                 # exec("global "+step["data_name"])
@@ -2104,8 +2106,8 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
                 junk = sk_stack.pop()
 
                 return_var_name = stack.pop()
-                if return_var_name != "" and step["fargs"] != "":
-                    symTab[return_var_name] = symTab[step["fargs"]]             # assign return value
+                if return_var_name != "":
+                    symTab[return_var_name] = symTab["fout"]      # assign return value
 
                 symTab["fin"] = stack.pop()
                 symTab["fout"] = stack.pop()
@@ -2304,6 +2306,7 @@ def processSearchAnchorInfo(step, i):
     ex_stat = "success:0"
     try:
         scrn = symTab[step["screen"]]
+        print("SEARCH SCREEN INFO:", scrn)
         logic = step["logic"]
         fault_names = ["site_not_reached", "bad_request"]
         fault_found = []
