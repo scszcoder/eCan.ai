@@ -128,6 +128,7 @@ vicrop = {
     "Etsy Remove Expanded": lambda x, y: processEtsyRemoveAlreadyExpanded(x, y),
     "Etsy Extract Tracking": lambda x, y: processEtsyExtractTracking(x, y),
     "Etsy Add Page Of Order": lambda x, y: processEtsyAddPageOfOrder(x, y),
+    "Create ADS Profile Batches": lambda x, y, z: processADSProfileBatches(x, y, z),
     "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
@@ -318,7 +319,7 @@ def run1step(steps, si, mission, skill, stack):
             si,isat = vicrop[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = vicrop[step["type"]](step, si, mission, skill)
-        elif step["type"] == "AMZ Scrape PL Html":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches":
             si,isat = vicrop[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si,isat = vicrop[step["type"]](step, si, stack, stepKeys)

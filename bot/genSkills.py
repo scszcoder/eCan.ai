@@ -143,18 +143,124 @@ def getWorkSettings(lieutenant, bot_works):
             "name_space": name_space
             }
 
+def getWorkRunSettings(lieutenant, bot_works):
+    works = bot_works["works"]
+    widx = bot_works["current widx"]  # walk task index
+
+    print("works:", works)
+    print("widx: ", widx)
+
+    print("bot_works: ", bot_works)
+    mission_id = works[widx]["mid"]
+    midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(mission_id)), -1)
+    for m in lieutenant.missions:
+        print("MissionIDs:", m.getMid())
+    if midx < 0 or midx >= len(lieutenant.missions):
+        print("ERROR: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
+
+    print("mission_id: ", mission_id, "midx: ", midx)
+    # get parent settings which contains tokens to allow the machine to communicate with cloud side.
+    # settings = lieutenant.missions[midx].getParentSettings()
+    platform = lieutenant.missions[midx].getPlatform()
+    site = lieutenant.missions[midx].getSite()
+    app = lieutenant.missions[midx].getApp()
+    app_exe = lieutenant.missions[midx].getAppExe()
+    print("settings setting app_exe: ", app, app_exe, platform, site)
+
+    rpaName = works[widx]["name"]
+
+    # cargs = lieutenant.skills[skidx].getAppArgs()
+
+    bot_id = works[widx]["bid"]
+    print("bot_id: ", bot_id)
+
+    inventory = lieutenant.getBotsInventory(bot_id)
+    if inventory:
+        products = []
+        for p in inventory.getProducts():
+            products.append(p.genJson())
+    else:
+        print("no inventory found")
+        products = []
+
+    # for b in lieutenant.bots:
+    #     print("BID:", b.getBid())
+    bot_idx = next((i for i, bot in enumerate(lieutenant.bots) if str(bot.getBid()) == str(bot_id)), -1)
+    if bot_idx < 0 or bot_idx >= len(lieutenant.bots):
+        print("ERROR: Designated BOT " + str(bot_id) + "(out of "+str(len(lieutenant.bots))+" bots) not found!!!!")
+    print("bot_idx: ", bot_idx)
+
+
+    name_space = "B" + str(bot_id) + "M" + str(mission_id) + "!" + "" + "!"
+
+    run_config = works[widx]["config"]
+    root_path = lieutenant.homepath
+
+    dtnow = datetime.now()
+
+    date_word = dtnow.strftime("%Y%m%d")
+    print("date word:", date_word)
+    fdir = ecb_data_homepath.replace("\\", "/")
+    fdir = fdir + "/runlogs/" + date_word + "/"
+    log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
+
+    bot = lieutenant.bots[bot_idx]
+
+    #create seller information json for seller related work in case
+    sij = {
+        "No": "1",
+        "FromName": bot.getName(),
+        "PhoneFrom": bot.getPhone(),
+        "Address1From": bot.getAddrStreet1(),
+        "CompanyFrom": "",
+        "Address2From": bot.getAddrStreet2(),
+        "CityFrom": bot.getAddrCity(),
+        "StateFrom": bot.getAddrState(),
+        "ZipCodeFrom": bot.getAddrZip()
+    }
+
+    return {
+            "skname": "",
+            "skfname": "",
+            "cargs": "",
+            # "works": works,
+            "botid": bot_id,
+            "b_email": works[widx]["b_email"],
+            "batch_profile": works[widx]["batch_file"],
+            "full_site": works[widx]["full_site"],
+            "seller": sij,
+            "mid": mission_id,
+            "midx": midx,
+            "run_config": run_config,
+            "root_path": root_path,
+            "log_path_prefix": log_path_prefix,
+            "log_path": "",
+            # "settings": settings,
+            "platform": platform,
+            "site": site,
+            "app": app,
+            "app_exe": app_exe,
+            "page": "",
+            "products": products,
+            "rpaName": rpaName,
+            "wifis" : lieutenant.getWifis(),
+            "options": "{}",
+            "name_space": name_space
+            }
 
 # set skill related setting items in worksettings.
 def setWorkSettingsSkill(worksettings, sk):
     # derive full path skill file name.
     print(">>>>>>>getting psk file name:", sk.getPskFileName())
-    worksettings["skfname"] = worksettings["root_path"] + "/" + sk.getPskFileName()
+    worksettings["skfname"] = worksettings["root_path"] + "" + sk.getPskFileName()
     worksettings["platform"] = sk.getPlatform()
     worksettings["app"] = sk.getApp()
-    worksettings["app_exe"] = sk.getAppLink()
+    # worksettings["app_exe"] = sk.getAppLink()
+
     worksettings["site"] = sk.getSiteName()
 
     worksettings["page"] = sk.getPage()
+    print("settings skill app_exe: ", worksettings["app_exe"], worksettings["app"], worksettings["platform"], worksettings["site"], worksettings["page"])
 
     worksettings["skname"] = os.path.basename(sk.getName())
     print("GENERATING STEPS into: ", worksettings["skfname"], "  skill name: ", worksettings["skname"])
@@ -180,17 +286,19 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     else:
         sk_file_name = root_path + "/resource/skills/my/" + sk_prefix + "/" + sk_name + ".psk"
 
+    sk_file_dir = os.path.dirname(sk_file_name)
+    os.makedirs(sk_file_dir, exist_ok=True)
 
-    print("opening skill file: ", sk_file_name)
+    print("sk_file_dir", sk_file_dir, "sk_full_name: ", sk_full_name)
+    print("opening skill file: ", sk_file_name, "start_step:", start_step)
 
     try:
-        if os.path.exists(sk_file_name):
-            skf = open(sk_file_name, "w+")
-            skf.write("\n")
-            psk_words = ""
+        if sk_full_name in SkillGeneratorTable.keys():
+            this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
 
-            if sk_full_name in SkillGeneratorTable:
-                this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
+            with open(sk_file_name, 'w+') as skf:
+                skf.write("\n")
+                psk_words = ""
 
                 psk_words = psk_words + step_words
 
@@ -200,7 +308,8 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
                 skf.write(psk_words)
                 skf.close()
         else:
-            print("WARNING:::: skill file not found")
+            print("Skill generator code is NOT Available for ", sk_full_name)
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
