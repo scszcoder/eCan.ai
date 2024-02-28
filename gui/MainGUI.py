@@ -37,7 +37,7 @@ class Expander(QWidget):
         self.animationDuration = animationDuration
         self.toggleAnimation = QParallelAnimationGroup()
         self.contentArea = QScrollArea()
-        self.headerLine =  QFrame()
+        self.headerLine = QFrame()
         self.toggleButton = QToolButton()
         self.mainLayout = QGridLayout()
 
@@ -75,12 +75,12 @@ class Expander(QWidget):
         mainLayout.addWidget(self.contentArea, row, 0, 1, 3)
         self.setLayout(self.mainLayout)
 
-        def start_animation(checked):
-            arrow_type = Qt.DownArrow if checked else Qt.RightArrow
-            direction = QAbstractAnimation.Forward if checked else QAbstractAnimation.Backward
-            toggleButton.setArrowType(arrow_type)
-            self.toggleAnimation.setDirection(direction)
-            self.toggleAnimation.start()
+    def start_animation(checked):
+        arrow_type = Qt.DownArrow if checked else Qt.RightArrow
+        direction = QAbstractAnimation.Forward if checked else QAbstractAnimation.Backward
+        toggleButton.setArrowType(arrow_type)
+        self.toggleAnimation.setDirection(direction)
+        self.toggleAnimation.start()
 
         self.toggleButton.clicked.connect(start_animation)
 
@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
         self.SM_PLATFORMS = ['WhatsApp','Messenger','Facebook','Instagram', 'Snap', 'Telegraph','Google','Line','Wechat','Tiktok','QQ', 'Custom']
         self.BUY_TYPES = ['buy', 'goodFB', 'badFB']
         self.SELL_TYPES = ['sell', 'marketing', 'research', 'advertise']
-
+        self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.machine_role = machine_role
@@ -634,9 +634,9 @@ class MainWindow(QMainWindow):
         self.todays_completed = []
         if not self.hostrole == "Platoon":
             # For commander creates
-            self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []})
+            self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
             # point to the 1st task to run for the day.
-            self.updateRunStatus(self.todays_work["tbd"][0], 0)
+            self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
 
     def addSkillRowsToSkillManager(self):
         self.skillManagerWin.addSkillRows(self.skills)
@@ -1124,8 +1124,9 @@ class MainWindow(QMainWindow):
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
 
-        test_ads_batch(self)
+        # test_ads_batch(self)
         # test_sqlite3(self)
+        test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
 
@@ -1544,28 +1545,39 @@ class MainWindow(QMainWindow):
                 for i in range(p_nsites):
                     if i == 0 and not self.hostrole == "CommanderOnly":
                         # if commander participate work, give work to here.
+                        batched_tasks, ads_profiles = formADSProfileBatches(p_task_groups[0], self.bots, self.all_ads_profiles_xls, ecb_data_homepath)
+                        # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
                         print("arranged for today on this machine....")
-                        current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
-                        self.todays_work["tbd"].append({"name": "automation", "works": p_task_groups[0], "status": "yet to start", "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
+                        # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
+                        self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
                     else:
                         #otherwise, send work to platoons in the field.
                         if self.hostrole == "CommanderOnly":
                             print("cmd only sending to platoon: ", i)
-                            task_group_string = json.dumps(p_task_groups[i]).replace('"', '\\"')
-                            current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[i])
+                            batched_tasks, ads_profiles = formADSProfileBatches(p_task_groups[i], self.bots, self.all_ads_profiles_xls, ecb_data_homepath)
+
+                            task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
+                            # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[i])
                             self.todays_work["tbd"].append(
-                                {"name": "automation", "works": p_task_groups[i], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
-                                 "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0,
-                                 "current oidx": 0, "completed": [], "aborted": []})
+                                {"name": "automation", "works": batched_tasks, "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                                 "current widx": 0, "completed": [], "aborted": []})
 
                         else:
                             print("cmd sending to platoon: ", i)
-                            task_group_string = json.dumps(p_task_groups[i+1]).replace('"', '\\"')
-                            current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[i+1])
+                            # flatten tasks and regroup them based on sites, and divide them into batches
+                            batched_tasks, ads_profiles = formADSProfileBatches(p_task_groups[i+1], self.bots, self.all_ads_profiles_xls, ecb_data_homepath)
+                            for profile in ads_profiles:
+                                with open(profile, 'rb') as fileTBSent:
+                                    file_contents = fileTBSent.read()
+                                    cmd = {"cmd": "reqSendFile", "file_name": profile, "file_contents": file_contents.decode('latin1')}
+                                    cmd_str = json.dumps(cmd)
+                                fieldLinks[i]["link"].transport.write(cmd.encode("utf-8"))
+
+                            task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
+                            # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
                             self.todays_work["tbd"].append(
-                                {"name": "automation", "works": p_task_groups[i+1], "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
-                                 "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0,
-                                 "current oidx": 0, "completed": [], "aborted": []})
+                                {"name": "automation", "works": batched_tasks, "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                                 "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
 
                         # now need to fetch this task associated bots, mission, skills
                         # get all bots IDs involved. get all mission IDs involved.
@@ -1602,6 +1614,30 @@ class MainWindow(QMainWindow):
     # in case of 1 element, it will be the actuall bot tasks to be done for platton or the fetch schedule task for Comander Only.
     # in case of 2 elements, the 0th element will be the fetch schedule, the 1st element will be the bot tasks(as a whole)
     # self.todays_work = {"tbd": [], "allstat": "working"}
+    def checkNextToRun(self):
+        print("checking todos......", self.todays_work["tbd"])
+        nextrun = None
+        # go thru tasks and check the 1st task whose designated start_time has passed.
+        pt = datetime.now()
+        if len(self.todays_work["tbd"]) > 0:
+            if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
+                # in case the 1st todos is fetch schedule
+                if self.ts2time(int(self.todays_work["tbd"][0]["works"][0]["start_time"]/1)) < pt:
+                    nextrun = self.todays_work["tbd"][0]
+            elif "Completed" not in self.todays_work["tbd"][0]["status"]:
+                # in case the 1st todos is an automation task.
+                print("self.todays_work[\"tbd\"][0] :", self.todays_work["tbd"][0])
+                print("time right now is:", self.time2ts(pt))
+
+                # determin next task group:
+                current_work_idx = self.todays_work["tbd"][0]["current widx"]
+
+                if self.ts2time(int(self.todays_work["tbd"][0]["works"][current_work_idx]["start_time"]/3)) < pt:
+                    print("next run is now set up......")
+                    nextrun = self.todays_work["tbd"][0]
+                print("nextRUN>>>>>: ", nextrun)
+        return nextrun
+
     def checkToDos(self):
         print("checking todos......", self.todays_work["tbd"])
         nextrun = None
@@ -1660,6 +1696,11 @@ class MainWindow(QMainWindow):
                 print("nextRUN>>>>>: ", nextrun)
         return nextrun
 
+
+    def findWorksToBeRetried(self, todos):
+        retryies = copy.deepcopy(todos)
+        print("MISSIONS needs retry:", retryies)
+        return retryies
 
     def findMissonsToBeRetried(self, todos):
         retryies = copy.deepcopy(todos)
@@ -1740,7 +1781,7 @@ class MainWindow(QMainWindow):
         global skill_code
 
         all_done = False
-        worksettings = getWorkSettings(self, worksTBD)
+        worksettings = getWorkRunSettings(self, worksTBD)
         print("worksettings: mid, bid", worksettings["botid"], worksettings["mid"])
 
         rpaScripts = []
@@ -1831,7 +1872,7 @@ class MainWindow(QMainWindow):
         # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
         # the timer tick will trigger the run of the next mission on the list....
         self.update1MStat(worksettings["midx"], runResult)
-        self.updateRunStatus(worksTBD, worksettings["midx"])
+        self.update1WorkRunStatus(worksTBD, worksettings["midx"])
 
         return worksettings["botid"], worksettings["midx"], runResult
 
@@ -1843,8 +1884,18 @@ class MainWindow(QMainWindow):
         if retry_count > 0:
             self.missions[midx].setRetry(retry_count - 1)
 
-    def updateRunStatus(self, worksTBD, midx):
+    #update next mission pointer, return -1 if exceed the end of it.
+    def update1WorkRunStatus(self, worksTBD, midx):
+        this_stat = self.missions[midx].getStatus()
+        if "Completed" in this_stat:
+            if worksTBD["current widx"] < len(worksTBD["works"])-1:
+                worksTBD["current widx"] = worksTBD["current widx"] + 1
+            else:
+                worksTBD["status"] == "Completed"
+                worksTBD["current widx"] = -1
 
+
+    def updateRunStatus(self, worksTBD, midx):
         works = worksTBD["works"]
 
         tz = worksTBD["current tz"]
@@ -3590,26 +3641,30 @@ class MainWindow(QMainWindow):
     def analyzeMainSkillDependencies(self, main_psk):
         dependencies = set()
         visited = set()
-        self.find_dependencies(main_psk, visited, dependencies)
-        if len(dependencies) > 0:
-            dep_list = list(dependencies)
-        else:
-            dep_list = []
-        print("found dependency:", dep_list)
-
-        dep_ids = []
-        for dep in dep_list:
-            skid = self.findSkillIDWithSkillFileName(dep)
-            dep_ids.append((skid, dep))
-
-        existing_skill_ids = []
-        for dp in dep_ids:
-            if dp[0] == -1:
-                print("ERROR: missing skill dependent skills file:", dp[1])
+        if os.path.exists(main_psk):
+            self.find_dependencies(main_psk, visited, dependencies)
+            if len(dependencies) > 0:
+                dep_list = list(dependencies)
             else:
-                existing_skill_ids.append(dp[0])
-        # existing_skill_ids = filter(lambda x: x == -1, dep_ids)
-        print("existing_skill_ids:", existing_skill_ids)
+                dep_list = []
+            print("found dependency:", dep_list)
+
+            dep_ids = []
+            for dep in dep_list:
+                skid = self.findSkillIDWithSkillFileName(dep)
+                dep_ids.append((skid, dep))
+
+            existing_skill_ids = []
+            for dp in dep_ids:
+                if dp[0] == -1:
+                    print("ERROR: missing skill dependent skills file:", dp[1])
+                else:
+                    existing_skill_ids.append(dp[0])
+            # existing_skill_ids = filter(lambda x: x == -1, dep_ids)
+            print("existing_skill_ids:", existing_skill_ids)
+        else:
+            existing_skill_ids = []
+
         return existing_skill_ids
 
 
@@ -3831,7 +3886,7 @@ class MainWindow(QMainWindow):
         # run all the work
         botTodos = None
         if self.workingState == "Idle":
-            botTodos = self.checkToDos()
+            botTodos = self.checkNextToRun()
             self.showMsg("check todos....")
             if not botTodos == None:
                 print("working on..... ", botTodos["name"])
@@ -4125,7 +4180,16 @@ class MainWindow(QMainWindow):
                 msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"status\", \"content\":\"" + json.dumps(statusJson).replace('"', '\\"') +"\"}"
                 # send to commander
                 self.commanderXport.write(msg.encode('utf8'))
+        elif msg["cmd"] == "reqSendFile":
+            # update vehicle status display.
+            self.showMsg("received a file: "+msg["file_name"])
+            file_name = msg["file_name"]
+            file_contents = msg["file_contents"].encode('latin1')  # Encode string to binary data
+            with open(file_name, 'wb') as file:
+                file.write(file_contents)
 
+            # first check if the missions are completed or being run or not, if so nothing could be done.
+            # otherwise, simply update the mission status to be "Cancelled"
         elif msg["cmd"] == "reqCancelMissions":
             # update vehicle status display.
             self.showMsg(msg["content"])
@@ -4138,16 +4202,8 @@ class MainWindow(QMainWindow):
             self.addBotsMissionsFromCommander(msg["bots"], msg["missions"])
             print("received work request:", localworks)
             # send work into work Queue which is the self.todays_work["tbd"] data structure.
-            for key, value in localworks.items():
-                if isinstance(value, list) and len(value) > 0:
-                    current_tz = key
-                    current_tz_works = value
-                    if len(current_tz_works[0]["bw_works"]) > 0:
-                        current_group = "bw_works"
-                    else:
-                        current_group = "other_works"
-                    break
-            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current tz": current_tz, "current grp": current_group, "current bidx": 0, "current widx": 0, "current oidx": 0, "completed": [], "aborted": []})
+
+            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
             print("after assigned work, ", len(self.todays_work["tbd"]), "todos exists in the queue.", self.todays_work["tbd"])
             # clean up the reports on this vehicle....
             self.todaysReports = []
@@ -4274,7 +4330,7 @@ class MainWindow(QMainWindow):
 
         # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
         if not self.hostrole == "Platoon":
-            self.todays_work = {"tbd": [{"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current tz": "eastern", "current grp": "other_works", "current bidx": 0, "current widx": 0, "current oidx": 0, "completed" : [], "aborted": []}]}
+            self.todays_work = {"tbd": [{"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []}]}
 
         self.todays_completed = []
         self.todaysReports = []
@@ -4304,27 +4360,16 @@ class MainWindow(QMainWindow):
         return self.tz
 
     def gen_default_fetch(self):
-        FETCH_ROUTINE = {
-            "eastern": [{
-                "bid": 0,
-                "tz": self.tz,
-                "bw_works": [],
-                "other_works": [{
+        FETCH_ROUTINE = [{
                     "mid": 0,
+                    "bid": 0,
                     "name": "fetch schedules",
                     "cuspas": "",
                     "todos": None,
                     "start_time": START_TIME,
                     "end_time": "",
                     "stat": "nys"
-                }],
-            }],
-            "central": [],
-            "moutain": [],
-            "pacific": [],
-            "alaska": [],
-            "hawaii": []
-        }
+                }]
 
         return FETCH_ROUTINE
 

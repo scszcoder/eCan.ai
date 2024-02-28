@@ -309,7 +309,10 @@ def genWinEtsyCollectOrderListSkill(worksettings, stepN, theme):
     this_step, step_words = genStepKeyInput("", True, "ctrl,s", "", 4, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("str", "hf_name", "NA", hfname, this_step)
+    this_step, step_words = genStepCreateData("str", "profile_name", "NA", hfname, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("str", "profile_name", "NA", hfname, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', sk_work_settings['log_path'], hf_name]", this_step)

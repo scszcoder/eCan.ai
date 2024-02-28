@@ -9,6 +9,7 @@ from missions import *
 from adsPowerSkill import *
 global symTab
 import os
+import shutil
 
 
 def test_eb_orders_scraper():
@@ -519,7 +520,7 @@ def test_sqlite3(mw):
     # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
 
-    # sql ="UPDATE bots SET delDate = '2345-01-01' WHERE botid > 20"
+    # sql ="UPDATE bots SET email = 'elsakaiya34@gmail.com' WHERE botid = 15"
     # mw.dbCursor.execute(sql)
     # print("update bots")
     # mw.dbcon.commit()
@@ -579,12 +580,12 @@ def test_ads_batch(parent):
     #     "hawaii": [{ "bid" : 5, "bw_works" : [], "other_works" : [{ "start_time" : 3 }] }]
     # }
     vTasks = {
-        "eastern": [{ "bid" : 0, "bw_works" : [{ "start_time" : 12 }], "other_works" : [] }],
-        "central": [{ "bid" : 3, "bw_works" : [{ "start_time" : 4 }], "other_works" : [] }],
-        "mountain": [{ "bid" : 6, "bw_works" : [{ "start_time" : 30 }], "other_works" : [{ "start_time" : 26 }] }],
-        "pacific": [{ "bid" : 9, "bw_works" : [{ "start_time" : 0 }], "other_works" : [] }, { "bid" : 7, "bw_works" : [{ "start_time" : 21 }], "other_works" : [] }],
-        "alaska": [{ "bid" : 12, "bw_works" : [{ "start_time" : 15 }], "other_works" : [] }],
-        "hawaii": [{ "bid" : 5, "bw_works" : [], "other_works" : [{ "start_time" : 3 }] }]
+        "eastern": [{ "bid" : 0, "bw_works" : [{ "start_time" : 12, "cuspas": "win,chrome,etsy" }], "other_works" : [] }],
+        "central": [{ "bid" : 3, "bw_works" : [{ "start_time" : 4, "cuspas": "win,chrome,amz" }], "other_works" : [] }],
+        "mountain": [{ "bid" : 6, "bw_works" : [{ "start_time" : 30, "cuspas": "win,chrome,amz" }], "other_works" : [{ "start_time" : 26, "cuspas": "win,chrome,amz" }] }],
+        "pacific": [{ "bid" : 9, "bw_works" : [{ "start_time" : 0, "cuspas": "win,chrome,amz" }], "other_works" : [] }, { "bid" : 7, "bw_works" : [{ "start_time" : 21, "cuspas": "win,chrome,amz" }], "other_works" : [] }],
+        "alaska": [{ "bid" : 12, "bw_works" : [{ "start_time" : 15, "cuspas": "win,chrome,etsy" }], "other_works" : [] }],
+        "hawaii": [{ "bid" : 5, "bw_works" : [], "other_works" : [{ "start_time" : 3, "cuspas": "win,chrome,etsy" }] }]
     }
 
 
@@ -639,4 +640,20 @@ def test_ads_batch(parent):
         new_bot.setEmail(all_emails[i])
         allbots.append(new_bot)
 
-    genBatchBasedOnADSSizeLimit(vTasks, allbots, all_profiles_csv, test_dir)
+    all_ads_batches, batches_files = formADSProfileBatches(vTasks, allbots, all_profiles_csv, test_dir)
+    print("all_ads_batches: ", all_ads_batches)
+    print("batches_files: ", batches_files)
+
+def test_misc():
+    executable_path = shutil.which('AdsPower Global.exe')
+    print("AdsPower:", executable_path)
+    executable_path = shutil.which('chrome.exe')
+    if executable_path:
+        print("chrome:", executable_path)
+    else:
+        print("chrome not found")
+    executable_path = shutil.which('git.exe')
+    print("git:", executable_path)
+
+    if os.path.exists('C:/Program Files/AdsPower Global/AdsPower Global.exe'):
+        print("found ads power...")

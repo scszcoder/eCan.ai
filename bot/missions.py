@@ -1,6 +1,8 @@
 from WorkSkill import *
 from readSkill import *
 from datetime import datetime
+import shutil
+import os
 
 # Every bot has a run schedule which is specified in the following parameters
 # start time for the day, example: 7am pacific time.
@@ -230,6 +232,59 @@ class M_Pub_Attributes():
         self.skills = dj["skills"]
         self.cuspas = dj["cuspas"]
         self.createon = dj["createon"]
+        cuspas = self.cuspas.split(",")
+        self.platform = cuspas[0]
+        self.app = cuspas[1]
+        site = cuspas[2]
+
+        if self.app == "ads":
+            full_app_name = "AdsPower Global"
+        else:
+            full_app_name = self.app
+
+        if "win" in self.cuspas:
+            self.app_exe = shutil.which(full_app_name+".exe")
+            if not self.app_exe:
+                if self.app == "ads":
+                    self.app_exe = 'C:/Program Files/AdsPower Global/AdsPower Global.exe'
+                if self.app == "chrome":
+                    self.app_exe = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+        else:
+            self.app_exe = shutil.which(full_app_name)
+
+        if "amz" in site:
+            self.site = "Amazon"
+            self.site_html = "https://www.amazon.com"
+        elif "etsy" in self.cuspas:
+            self.site = "etsy"
+            self.site_html = "https://www.etsy.com"
+        elif "ebay" in self.cuspas:
+            self.site = "ebay"
+            self.site_html = "https://www.ebay.com"
+        elif "tiktok" in self.cuspas:
+            self.site = "tiktok"
+            self.site_html = "https://www.tiktok.com"
+        elif "youtube" in self.cuspas:
+            self.site = "youtube"
+            self.site_html = "https://www.youtube.com"
+        elif "facebook" in self.cuspas:
+            self.site = "facebook"
+            self.site_html = "https://www.facebook.com"
+        elif "instagram" in self.cuspas:
+            self.site = "youtube"
+            self.site_html = "https://www.instagram.com"
+        elif "temu" in self.cuspas:
+            self.site = "temu"
+            self.site_html = "https://www.temu.com"
+        elif "shein" in self.cuspas:
+            self.site = "shein"
+            self.site_html = "https://www.shein.com"
+        elif "walmart" in self.cuspas:
+            self.site = "walmart"
+            self.site_html = "https://www.walmart.com"
+        elif "ali" in self.cuspas:
+            self.site = "aliexpress"
+            self.site_html = "https://www.aliexpress.com"
 
     def genJson(self):
         jd = {
