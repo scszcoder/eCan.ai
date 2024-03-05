@@ -18,9 +18,16 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "new_profiles",
+                        "anchor_name"  : "new_profile",
                         "anchor_type"  : "text",
                         "template"     : "New Profile",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "no_data",
+                        "anchor_type"  : "text",
+                        "template"     : "No Data",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -35,6 +42,87 @@
                         "anchor_name"  : "profiles",
                         "anchor_type"  : "text",
                         "template"     : "Profiles",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "chrome_kernel",
+                        "anchor_type"  : "text",
+                        "template"     : "Chrome kernel",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "browser_sun",
+                        "anchor_type"  : "text",
+                        "template"     : "SunBrowser",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "chrome_kernel",
+                                "side": "top",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "user_agant1",
+                        "anchor_type"  : "text",
+                        "template"     : "User-Agent",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "agent_windows",
+                        "anchor_type"  : "text",
+                        "template"     : "[Windows]",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "user_agent",
+                                "side": "right",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "agent_mac",
+                        "anchor_type"  : "text",
+                        "template"     : "[macOS]",
+                        "ref_method"   : "1",
+                        "ref_location" : [                            
+                            {
+                                "ref": "user_agent",
+                                "side": "right",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "agent_linux",
+                        "anchor_type"  : "text",
+                        "template"     : "[Linux]",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "user_agent",
+                                "side": "right",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "agent_any",
+                        "anchor_type"  : "text",
+                        "template"     : "Windows\\macOS\\Linux",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -60,6 +148,65 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "os",
+                        "anchor_type"  : "text",
+                        "template"     : "OS",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "os_windows",
+                        "anchor_type"  : "text",
+                        "template"     : "Windows",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "os_linux",
+                                "side": "left",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "os_mac0",
+                        "anchor_type"  : "text",
+                        "template"     : "macos",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "os_linux",
+                                "side": "left",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "os_mac1",
+                        "anchor_type"  : "text",
+                        "template"     : "macOS",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "os_linux",
+                                "side": "left",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "os_linux",
+                        "anchor_type"  : "text",
+                        "template"     : "Linux",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "ok",
                         "anchor_type"  : "text",
                         "template"     : "OK",
@@ -81,6 +228,36 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "all_groups",
+                        "anchor_type"  : "text",
+                        "template"     : "All groups",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "checkbox",
+                        "anchor_type"  : "icon",
+                        "template"     : "checkbox0.png",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "all_groups",
+                                "side": "bottom",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "trash0",
+                        "anchor_type"  : "icon",
+                        "template"     : "trash0.png",
+                        "ref_method"   : "0",
+                        "ref_location" : [
+                        ]
+                    },
+                    {
                         "anchor_name"  : "flower_browser",
                         "anchor_type"  : "text",
                         "template"     : "FlowerBrowser",
@@ -92,7 +269,8 @@
                         "anchor_type"  : "text",
                         "template"     : "Windows",
                         "ref_method"   : "0",
-                        "ref_location" : []
+                        "ref_location" : [
+                        ]
                     },
                     {
                         "anchor_name"  : "mac",
@@ -102,9 +280,82 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "Linux",
+                        "anchor_name"  : "checked",
+                        "anchor_type"  : "icon",
+                        "template"     : "checked0.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                   {
+                        "anchor_name"  : "windows_checked",
+                        "anchor_type"  : "text",
+                        "template"     : "Windows",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "checked",
+                                "side": "left",
+                                "dir": "<",
+                                "offset": "2",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                   {
+                        "anchor_name"  : "mac_checked",
+                        "anchor_type"  : "text",
+                        "template"     : "macOS",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "checked",
+                                "side": "left",
+                                "dir": "<",
+                                "offset": "2",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                   {
+                        "anchor_name"  : "linux_checked",
                         "anchor_type"  : "text",
                         "template"     : "Linux",
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "checked",
+                                "side": "left",
+                                "dir": "<",
+                                "offset": "2",
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "anchor_name"  : "platform",
+                        "anchor_type"  : "text",
+                        "template"     : "Platform",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "specified_url",
+                        "anchor_type"  : "text",
+                        "template"     : "Open a specified URL",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "optional",
+                        "anchor_type"  : "text",
+                        "template"     : "Optional",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "none",
+                        "anchor_type"  : "text",
+                        "template"     : "None",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -186,7 +437,7 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "custom_site",
+                        "anchor_name"  : "enter_platform",
                         "anchor_type"  : "text",
                         "template"     : "Please enter platform domain",
                         "ref_method"   : "0",

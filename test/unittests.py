@@ -657,3 +657,170 @@ def test_misc():
 
     if os.path.exists('C:/Program Files/AdsPower Global/AdsPower Global.exe'):
         print("found ads power...")
+
+def test_run_mission(main_vehicle):
+    # run a skill here, to a skill, need to::
+    # 1) set up a mission that will use this skill(we can use a default test mission: self.trMission)
+    # 2) need to set up a bot to run this mission (if we use self.trMission, it has a imaginary bot  with id 0 assigned to it already)
+    # 3) set up today's work schedule to schedule in the mission
+    # 4) then, call runbotworks() this will take care of the rest....
+    trMission = EBMISSION(main_vehicle)
+    trMission.setMid(98)
+    trMission.setSkills("4")
+    trMission.pubAttributes.setType("user", "Buy")
+    trMission.pubAttributes.setBot(0)
+    trMission.setCusPAS("win,ads,amz")
+    trMission.setAppExe("C:/Program Files/AdsPower Global/AdsPower Global.exe")
+    main_vehicle.missions.append(trMission)
+    tbr_tasks = [{"name": "walk_routine",
+                  "mid": 98,
+                  "bid": 0,
+                  "b_email": "jairgoldenvp89@gmail.com",
+                  "full_site": "www.amazon.com",
+                  "start_time": 40,
+                  "cuspas": "win,ads,amz",
+                  "tz": "eastern",
+                  "batch_file": "C:/AmazonSeller/SelfSwipe/test_ads_batch/ads_profiles_amz_0.xls",   # profiles_dir + "/ads_profiles_" + one_site +"_"+str(bi)+".xls"
+                  "config": {
+                      "estRunTime": 2,
+                      "searches": [
+                          {
+                              "type": "browse",
+                              "site": "amz",
+                              "os": "win",
+                              "app": "ads",
+                              "entry_paths": {
+                                  "type": "Search",
+                                  "words": [
+                                      "electric scooter"
+                                  ]
+                              },
+                              "top_menu_item": "Amazon Home",
+                              "prodlist_pages": [
+                                  {
+                                      "flow_type": "down up down",
+                                      "products": [
+                                          {
+                                              "selType": "op",
+                                              "detailLvl": 0,
+                                              "purchase": []
+                                          },
+                                          {
+                                              "selType": "mr",
+                                              "detailLvl": 0,
+                                              "purchase": []
+                                          }
+                                      ]
+                                  }
+                              ],
+                              "buy_cfg": None
+                          }
+                      ]},
+                    }]
+    main_vehicle.todays_work["tbd"].append(
+        {"name": "automation", "works": tbr_tasks, "ip": "127.0.0.1", "status": "yet to start",
+         "current widx": 0, "completed": [], "aborted": []})
+
+    main_vehicle.runbotworks()
+
+
+def test_processSearchWordLine():
+    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, 1)
+    symTab["screen_info"] = [{"name": "paragraph",
+                                "text": "uAdsPower Browser \\n",
+                                "loc": [16, 32, 56, 531],
+                                "type": "info",
+                                "txt_struct": [{
+                                  "num": 1,
+                                  "text": "uAdsPower Browser ",
+                                  "box": [32, 27, 323, 48],
+                                  "words": [{
+                                      "num": 0,
+                                      "text": "uAdsPower",
+                                      "box": [32, 16, 209, 56]
+                                    },
+                                    {"num": 1,
+                                     "text": "Browser",
+                                     "box": [220, 27, 323, 48]
+                                     }]
+                                }]
+                            },
+                            {"name": "paragraph",
+                             "text": "| 4.9.20 \\n",
+                             "loc": [27, 333, 48, 423],
+                             "type": "info",
+                             "txt_struct": [{"num": 2,
+                                             "text": "| 4.9.20 ",
+                                             "box": [333, 27, 423, 48],
+                                             "words": [{"num": 2,
+                                                        "text": "|",
+                                                        "box": [333, 25, 336, 55]
+                                                        },
+                                                        {"num": 3,
+                                                         "text": "4.9.20",
+                                                         "box": [346, 27, 423, 48]
+                                                         }]
+                                             }]
+                             },
+                             {"name": "paragraph",
+                              "text": "| 20.6.8.7 \\n",
+                              "loc": [27, 435, 48, 531],
+                              "type": "info",
+                              "txt_struct": [{"num": 4,
+                                              "text": "| 20.6.8.7 ",
+                                              "box": [435, 27, 531, 48],
+                                              "words": [{"num": 4,
+                                                         "text": "|",
+                                                         "box": [435, 25, 437, 55]
+                                                         },
+                                                        {"num": 5,
+                                                         "text": "20.6.8.7",
+                                                         "box": [449, 27, 531, 48]
+                                                         }]
+                                              }]
+                              },
+                             {"name": "paragraph",
+                              "text": "Edit \\nWindow Help \\n",
+                              "loc": [84, 34, 114, 389],
+                              "type": "info",
+                              "txt_struct": [{"num": 0,
+                                              "text": "File ",
+                                              "box": [34, 84, 75, 107],
+                                              "words": [{"num": 6,
+                                                         "text": "File",
+                                                         "box": [34, 84, 75, 107]
+                                                         }]
+                                              },
+                                             {"num": 1,
+                                              "text": "Edit Window Help ",
+                                              "box": [109, 84, 389, 114],
+                                              "words": [{"num": 7,
+                                                         "text": "Edit",
+                                                         "box": [109, 84, 155, 107]
+                                                         },
+                                                        {"num": 8,
+                                                         "text": "Window",
+                                                         "box": [189, 84, 297, 107]
+                                                         },
+                                                        {"num": 9,
+                                                         "text": "Help",
+                                                         "box": [331, 84, 389, 114]
+                                                         }]
+                                              }]
+                              }
+                            ]
+
+    symTab["test_pattern"] = "2[0-9]\."
+    stepjson = {
+        "type": "Search Word Line",
+        "screen": "screen_info",
+        "names": "test_pattern",
+        "name_types": "expr pattern",
+        "logic": "any",
+        "result": "txt_on_screen",
+        "site": "ads",
+        "breakpoint": False,
+        "status": "txt_on_screen"
+    }
+
+    processSearchWordLine(stepjson, 1)

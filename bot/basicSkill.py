@@ -167,13 +167,12 @@ def genStepSearchAnchorInfo(screen, names, name_type, target_types, logic, resul
 
 
 # search substring(regular expression) on a piece of info on a screen.
-def genStepSearchWordLine(screen, names, name_type, target_type, logic, result, flag, site, break_here, stepN):
+def genStepSearchWordLine(screen, names, name_types, logic, result, flag, site, break_here, stepN):
     stepjson = {
         "type": "Search Word Line",
         "screen": screen,
         "names": names,
-        "name_type": name_type,
-        "target_types": target_types,
+        "name_types": name_types,
         "logic": logic,
         "result": result,
         "site": site,
@@ -676,7 +675,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     result = req_cloud_read_screen(settings["session"], request, settings["token"])
-    # print("result::: ", result)
+    print("result::: ", result)
     jresult = json.loads(result['body'])
     # print("cloud result data: ", jresult["data"])
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
@@ -1206,6 +1205,7 @@ def processMouseClick(step, i):
             loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
             post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
             post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
+            print("indirect calculated locations:", loc, "post_offset:(", post_offset[0], ",", post_offset[1], ")", "post_loc:", post_loc)
 
         else:
             # the location is already calculated directly and stored here.
@@ -1226,7 +1226,7 @@ def processMouseClick(step, i):
                 post_offset_x = (symTab["click_target"][3] - symTab["click_target"][1]) * step["post_move"][1]
                 post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
 
-        print("calculated locations:", loc)
+            print("direct calculated locations:", loc, "post_offset:(", post_offset_x, ",", post_offset_y, ")", "post_loc:", post_loc)
 
         window_name, window_rect = get_top_visible_window()
         print("top windows rect:", window_rect)
@@ -1235,11 +1235,9 @@ def processMouseClick(step, i):
         loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
         print("global loc@ ", loc[0], " ,  ", loc[1])
 
-
         pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
 
         time.sleep(step["move_pause"])
-
 
         if step["action"] == "Single Click":
             pyautogui.click()
@@ -1261,8 +1259,8 @@ def processMouseClick(step, i):
             pyautogui.dragTo(loc[0], loc[1], duration=2)
 
         time.sleep(1)
-        print("post click moveto :", post_loc)
-        pyautogui.moveTo(post_loc[0] + window_rect[0], post_loc[1] + window_rect[1])
+        print("post click moveto :(", int(post_loc[0]) + window_rect[0], ",", int(post_loc[1]) + window_rect[1], ")")
+        pyautogui.moveTo(int(post_loc[0]) + window_rect[0], int(post_loc[1]) + window_rect[1])
         if step["post_wait"] > 0:
             time.sleep(step["post_wait"]-1)
 
@@ -1359,7 +1357,7 @@ def processMouseScroll(step, i):
         screen_vsize = screen_data[len(screen_data) - 2]['loc'][2]
 
         if step["unit"] == "screen":
-            print("SCREEN SIZE: ", screen_data[len(screen_data) - 2]['loc'], "resultion var: ", step["resolution"], " val: ", symTab[step["resolution"]])
+            print("SCREEN SIZE: ", screen_data[len(screen_data) - 2]['loc'], "resolution var: ", step["resolution"], " val: ", symTab[step["resolution"]])
             if type(step["amount"]) is str:
                 scroll_amount = int(((symTab[step["amount"]]/100)*screen_vsize)/symTab[step["resolution"]])
             else:
@@ -2393,17 +2391,23 @@ def matched_loc(pattern, text):
     return index
 
 # search a subword out of a word or line....
+# "type": "Search Word Line",
+# "screen": screen,
+# "names": names,
+# "name_types": name_types,
+# "patterns": patterns,
+# "logic": logic,
+# "result": result,
+# "site": site,
+# "breakpoint": break_here,
+# "status": flag
 def processSearchWordLine(step, i):
-    print("Searching....words and/or lines", step["target_type"])
+    print("Searching....words and/or lines", step["name_types"])
     global in_exception
+    p_stat = ""
     ex_stat = "success:0"
     try:
         scrn = symTab[step["screen"]]
-        target_name = step["target_name"]           #contains anchor/info name, or the text string to matched against.
-        target_type = step["target_type"]
-
-        pattern = symTab[step["template_var"]]
-
         fault_names = ["site_not_reached", "bad_request"]
         fault_found = []
 
@@ -2411,55 +2415,78 @@ def processSearchWordLine(step, i):
         n_targets_found = 0
 
         # print("Searching screen....", scrn)
+        if not (type(step["names"]) is list):
+            target_names = [step["names"]]  # make it a list.
+            name_types = [step["name_types"]]
+        else:
+            target_names = step["names"]
+            name_types = step["name_types"]
+
+        print("target_names:", target_names, "name_types:", name_types)
+        for idx in range(len(target_names)):
+            if "direct" not in name_types[idx]:
+                exec("global temp_target_name\ntemp_target_name= " + target_names[idx])
+                target_names[idx] = temp_target_name
+                print("ith target:", idx, name_types[idx], target_names[idx])
 
         # now do the search
-        print("searching: ", target_name, ", ", target_type, "==================")
-        infos = [element for index, element in enumerate(scrn) if element["type"] == target_type and element["name"] == target_name]
+        # all_lines = [element["txt_struct"] for index, element in enumerate(scrn) if element["name"] == "paragraph" and element["type"] == "info"]
+        all_paragraphs = [element for index, element in enumerate(scrn) if element["name"] == "paragraph" and element["type"] == "info"]
+        print("all_paragraphs:", all_paragraphs)
+        print("==============================================================")
+        # go thru each to be matched pattern and search paragraph by paragraph.
+        all_found = []
+        for target_name, name_type in zip(target_names, name_types):
+            found = []
+            for p in all_paragraphs:
+                # search which line has the match
+                for line in p["txt_struct"]:
+                    lmatch = re.search(target_name, line["text"])
+                    if lmatch:
+                        print("line matched:", line["text"])
+                        start_index = lmatch.start()
+                        end_index = lmatch.end()
+                        matched_pattern = line["text"][start_index:end_index]
+                        matched_words = matched_pattern.split()
+                        first_word = matched_words[0]
+                        last_word = None
+                        print("matched_words", matched_words, "first_word", first_word, "last_word", last_word)
+                        if len(matched_words) >  1:
+                            last_word = matched_words[len(matched_words)-1]
 
-        for info in infos:
+                        match_starts = [word for index, word in enumerate(line["words"]) if first_word in word["text"]]
 
-            match = re.search(pattern, info["text"])
+                        if last_word:
+                            match_ends = [word for index, word in enumerate(line["words"]) if last_word in word["text"]]
 
-            if match:
+                        print("match_starts", match_starts)
+                        for match_start in match_starts:
+                            if last_word:
+                                match_end = next((x for x in match_ends if x["box"][0] > match_start["box"][2] ), None)
+                                matched_loc = [match_start["box"][0], match_start["box"][1], match_end["box"][2], match_end["box"][3]]
+                                print("match more than 1 word")
+                            else:
+                                matched_loc = match_start["box"]
+                                print("match only 1 word")
 
-                # Pattern found, get the starting index of the match
-                index = match.start()
-                print("pattern found @ index", index, "["+info["text"].strip()+"]", "location:", info["loc"])
-                if index == 0:
-                    loc = [info["loc"][1], info["loc"][0] + int((info["loc"][2] - info["loc"][0])/2)]
-                    found.append(loc)
+                            found.append({"txt": matched_pattern, "box": matched_loc})
                 else:
-                    words = info["text"].strip().split(" ")
-                    if len(words) == 1:
-                        wordlen = len(info["text"].strip()) - 1
-                        print("# of Char gaps:", wordlen)
-                        gap = int((info["loc"][3] - info["loc"][1])/wordlen)
-                        loc = [info["loc"][1] + gap * index, info["loc"][0] + int((info["loc"][2] - info["loc"][0]) / 2)]
-                    else:
-                        print("# of words:", (len(words)-1))
-                        gap = int((info["loc"][3] - info["loc"][1]) / (len(words)-1))
-                        n = 0
-                        subidxs = []
+                    p_stat = "pattern NOT FOUND in paragraph"
+                    print(p_stat, p["text"])
 
-                        for i in range(len(words)):
-                            subidxs.append(n)
-                            n = n + len(words[i]) + 1
+            # line up the matched location top to bottom.
+            if len(found) > 0:
+                print("found here", found)
+                sorted_found = sorted(found, key=lambda w: w["box"][1], reverse=False)
+                all_found.extend(sorted_found)
 
-                        index = next((i for i, w in enumerate(subidxs) if matched_loc(pattern, info["text"][w:]) == 0), -1)
-                        print("subidxs:", subidxs, "found word index:", index, "gap is:", gap)
-                        if index >= 0:
-                            loc = [info["loc"][1]+gap*index, info["loc"][0] + int((info["loc"][2] - info["loc"][0])/2)]
-                    found.append(loc)
-            else:
-                print("pattern NOT FOUND")
-        # reg = re.compile(target_names + "[0-9]+")
-        # found = [element for index, element in enumerate(scrn["data"]) if reg.match(element["name"]) and element["type"] == target_types]
+            print("======================+++++++++++++++++++++++++++++++++++")
 
-        print("found.... ", found)
+        print("all found.... ", all_found)
         # search result should be put into the result variable.
-        symTab[step["result"]] = found
+        symTab[step["result"]] = all_found
 
-        if len(found) == 0:
+        if len(all_found) == 0:
             symTab[step["status"]] = False
         else:
             symTab[step["status"]] = True
@@ -2476,7 +2503,6 @@ def processSearchWordLine(step, i):
 
         if step["breakpoint"]:
             input("type any key to continuue")
-
 
     except Exception as e:
         # Get the traceback information
