@@ -43,3 +43,25 @@ class ChangeColorCommand(QUndoCommand):
     def redo(self):
         print("redo set new color ", self.newColor)
         self.item.setBrush(self.newColor)
+
+
+class ChangeFontCommand(QUndoCommand):
+    def __init__(self, item, oldFont, newFont, cb_fn):
+        super().__init__()
+        print("init ChangeFontCommand")
+        self.item = item
+        self.oldFont = oldFont
+        self.newFont = newFont
+        self.cb_fn = cb_fn
+
+    def undo(self):
+        print("undo set font ", self.oldFont)
+        if self.item:
+            self.item.set_font(self.oldFont)
+        self.cb_fn(self.oldFont)
+
+    def redo(self):
+        print("undo set font ", self.newFont)
+        if self.item:
+            self.item.set_font(self.newFont)
+        self.cb_fn(self.newFont)
