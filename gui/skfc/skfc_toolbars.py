@@ -222,3 +222,8 @@ class SkFCToolBars(QHBoxLayout):
         font.setUnderline(self.txtUnderlineButton.isChecked())
 
         self.skfc_scene.setFont(font)
+
+    def reset_items_status(self, font):
+        self.fontCombo.setCurrentFont(font)
+        self.fontSizeCombo.setCurrentText(str(font.pointSize()))
+

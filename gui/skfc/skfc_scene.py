@@ -6,7 +6,7 @@ from gui.skfc.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, 
 from gui.skfc.diagram_item_text import DiagramTextItem
 from gui.skfc.diagram_item_arrow import DiagramArrowItem
 from gui.skfc.skfc_base import EnumItemType
-from skfc.skfc_undo_stack import AddDiagramItemCommand, RemoveDiagramItemCommand, ChangeColorCommand
+from skfc.skfc_undo_stack import AddDiagramItemCommand, RemoveDiagramItemCommand, ChangeColorCommand, ChangeFontCommand
 from skill.steps.enum_step_type import EnumStepType
 from skill.steps.step_goto import StepGoto
 from skill.steps.step_header import StepHeader
@@ -64,11 +64,25 @@ class SkFCScene(QGraphicsScene):
             item.setBrush(self.myItemColor)
             self.undoStack.push(ChangeColorCommand(item, old_color, color))
 
+    def callback_update_font(self, new_font):
+        print("update font ", new_font)
+        self.myFont = new_font
+        skfc_toolbars = self.parent.skfc_toolbars
+        skfc_toolbars.reset_items_status(new_font)
+
     def setFont(self, font):
+        old_font = self.myFont
         self.myFont = font
         if self.isItemChange(DiagramTextItem):
             item: DiagramTextItem = self.selectedItems()[0]
             item.set_font(self.myFont)
+            self.undoStack.push(ChangeFontCommand(item, old_font, font, lambda x: self.callback_update_font(x)))
+        elif self.isItemChange(DiagramNormalSubTextItem):
+            item: DiagramNormalSubTextItem = self.selectedItems()[0]
+            item.set_font(self.myFont)
+            self.undoStack.push(ChangeFontCommand(item, old_font, font, lambda x: self.callback_update_font(x)))
+        else:
+            self.undoStack.push(ChangeFontCommand(None, old_font, font, lambda x: self.callback_update_font(x)))
 
     def setMode(self, mode):
         self.myMode = mode
@@ -104,8 +118,10 @@ class SkFCScene(QGraphicsScene):
                 self.removeItem(self.selected_item)
                 self.selected_item = None
         elif event.key() == Qt.Key_Z and event.modifiers() & Qt.ControlModifier:
+            print("key press event undo")
             self.undoStack.undo()
         elif event.key() == Qt.Key_Y and event.modifiers() & Qt.ControlModifier:
+            print("key press event redo")
             self.undoStack.redo()
 
         super().keyPressEvent(event)
