@@ -1,11 +1,12 @@
 from PySide6.QtCore import (Signal, QPointF, Qt)
-from PySide6.QtGui import (QFont, QColor, QKeyEvent)
+from PySide6.QtGui import (QFont, QColor, QKeyEvent, QUndoStack, QKeySequence, QShortcut)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QMenu
 from gui.skfc.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup, \
     DiagramNormalSubTextItem
 from gui.skfc.diagram_item_text import DiagramTextItem
 from gui.skfc.diagram_item_arrow import DiagramArrowItem
 from gui.skfc.skfc_base import EnumItemType
+from skfc.skfc_undo_stack import AddDiagramItemCommand, RemoveDiagramItemCommand, ChangeColorCommand
 from skill.steps.enum_step_type import EnumStepType
 from skill.steps.step_goto import StepGoto
 from skill.steps.step_header import StepHeader
@@ -38,8 +39,9 @@ class SkFCScene(QGraphicsScene):
         self.myFont: QFont = QFont("Times New Roman", 14)
         self.gridSize = 5
         self.ignore_mouse_move = False
-
         self.diagram_item_map_stepN = {}
+
+        self.undoStack = QUndoStack(self)
 
     def setLineColor(self, color):
         self.myLineColor = color
@@ -51,14 +53,16 @@ class SkFCScene(QGraphicsScene):
     def setTextColor(self, color):
         self.myTextColor = color
         if self.isItemChange(DiagramTextItem):
-            item = self.selectedItems()[0]
+            item: DiagramTextItem = self.selectedItems()[0]
             item.setDefaultTextColor(self.myTextColor)
 
     def setItemColor(self, color):
+        old_color = self.myItemColor
         self.myItemColor = color
         if self.isItemChange(DiagramNormalItem):
             item: DiagramNormalItem = self.selectedItems()[0]
             item.setBrush(self.myItemColor)
+            self.undoStack.push(ChangeColorCommand(item, old_color, color))
 
     def setFont(self, font):
         self.myFont = font
@@ -99,6 +103,10 @@ class SkFCScene(QGraphicsScene):
                 self.ignore_mouse_move = True
                 self.removeItem(self.selected_item)
                 self.selected_item = None
+        elif event.key() == Qt.Key_Z and event.modifiers() & Qt.ControlModifier:
+            self.undoStack.undo()
+        elif event.key() == Qt.Key_Y and event.modifiers() & Qt.ControlModifier:
+            self.undoStack.redo()
 
         super().keyPressEvent(event)
 
@@ -260,6 +268,8 @@ class SkFCScene(QGraphicsScene):
 
     def add_diagram_item(self, item):
         self.addItem(item)
+        self.undoStack.push(AddDiagramItemCommand(self, item))
+        print("push item to undo stack", item)
 
     def remove_diagram_item(self, item):
         print(f"remove item {item} from scene")
@@ -272,6 +282,8 @@ class SkFCScene(QGraphicsScene):
             pass
 
         self.removeItem(item)
+        self.undoStack.push(RemoveDiagramItemCommand(self, item))
+        print("push item to redo stack", item)
 
     # def mydrawBackground(self):
     #     pen =QPen()
