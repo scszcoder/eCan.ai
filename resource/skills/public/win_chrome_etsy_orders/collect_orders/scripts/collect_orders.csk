@@ -8,49 +8,49 @@
                         "anchor_type"  : "text",
                         "template"     : "New",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "orders_per_page",
                         "anchor_type"  : "text",
                         "template"     : "orders per page",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "page",
                         "anchor_type"  : "text",
                         "template"     : "Page",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
                         "template"     : "Etsy, Inc.",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "next_page",
                         "anchor_type"  : "icon",
                         "template"     : "end_pages.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },  
                     {
                         "anchor_name"  : "of0",
                         "anchor_type"  : "text",
                         "template"     : "of",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "ship_to",
                         "anchor_type"  : "text",
                         "template"     : "Ship to",
                         "ref_method"   : "0",
-                        "ref_constraints" : [{
+                        "ref_location" : [{
                                 "dir": "<",
                                 "ref": "bottom",
                                 "offset": 90,
@@ -63,21 +63,21 @@
                         "anchor_type"  : "text",
                         "template"     : "No orders here right now",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     }
                 ], 
                 "info": [
@@ -103,7 +103,7 @@
                         "anchor_type"  : "text",
                         "template"     : "Ship to",
                         "ref_method"   : "0",
-                        "ref_constraints" : [{
+                        "ref_location" : [{
                                 "dir": "<",
                                 "ref": "bottom",
                                 "offset": 90,
@@ -116,28 +116,28 @@
                         "anchor_type"  : "text",
                         "template"     : "Copy address",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },                  
                     {
                         "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
                         "template"     : "Etsy, Inc",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     }
                 ], 
                 "info": [
@@ -150,7 +150,7 @@
                         "anchor_type"  : "text",
                         "template"     : "Ship to",
                         "ref_method"   : "0",
-                        "ref_constraints" : [{
+                        "ref_location" : [{
                                 "dir": "<",
                                 "ref": "bottom",
                                 "offset": 90,
@@ -163,42 +163,42 @@
                         "anchor_type"  : "text",
                         "template"     : "Copy address",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },            
                     {
                         "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
                         "template"     : "Etsy, Inc",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "complete_order",
                         "anchor_type"  : "icon",
                         "template"     : "complete_order.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "check_box",
                         "anchor_type"  : "icon",
                         "template"     : "check_box.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     }
                 ], 
                 "info": [
@@ -262,28 +262,28 @@
                         "anchor_type"  : "icon",
                         "template"     : "end_pages.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },               
                     {
                         "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
                         "template"     : "Etsy, Inc",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     }
                 ], 
                 "info": []
@@ -295,42 +295,42 @@
                         "anchor_type"  : "icon",
                         "template"     : "start_pages.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },        
                     {
                         "anchor_name"  : "next_page",
                         "anchor_type"  : "icon",
                         "template"     : "end_pages.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },               
                     {
                         "anchor_name"  : "etsy_inc",
                         "anchor_type"  : "text",
                         "template"     : "Etsy, Inc.",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "bad_request",
                         "anchor_type"  : "text",
                         "template"     : "Bad Request",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "complete_order",
                         "anchor_type"  : "icon",
                         "template"     : "complete_order.png",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
                         "ref_method"   : "0",
-                        "ref_constraints" : []
+                        "ref_location" : []
                     }
                 ], 
                 "info": [

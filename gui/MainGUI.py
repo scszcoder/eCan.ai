@@ -1126,9 +1126,12 @@ class MainWindow(QMainWindow):
 
         # test_ads_batch(self)
         # test_sqlite3(self)
-        test_misc()
+        # test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        test_run_mission(self)
+        # test_processSearchWordLine()
+
 
         #the grand test,
         # 1) fetch today's schedule.
@@ -1778,98 +1781,112 @@ class MainWindow(QMainWindow):
         global skill_code
 
         all_done = False
-        worksettings = getWorkRunSettings(self, worksTBD)
-        print("worksettings: mid, bid", worksettings["botid"], worksettings["mid"])
+        try:
+            worksettings = getWorkRunSettings(self, worksTBD)
+            print("worksettings: mid, bid", worksettings["botid"], worksettings["mid"])
 
-        rpaScripts = []
+            rpaScripts = []
 
-        # generate walk skills on the fly.
-        running_mission = self.missions[worksettings["midx"]]
-        print("current RUNNING MISSION:", running_mission.genJson())
-        rpaSkillIdWords = running_mission.getSkills().split(",")
-        rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
+            # generate walk skills on the fly.
+            running_mission = self.missions[worksettings["midx"]]
+            print("current RUNNING MISSION:", running_mission.genJson())
+            rpaSkillIdWords = running_mission.getSkills().split(",")
+            print("current RUNNING MISSION SKILL:", running_mission.getSkills())
+            rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
-        print("rpaSkillIds:", rpaSkillIds, type(rpaSkillIds[0]), "running mission id:", running_mission.getMid())
+            print("rpaSkillIds:", rpaSkillIds, type(rpaSkillIds[0]), "running mission id:", running_mission.getMid())
 
-        # get skills data structure by IDs
-        print("all skills ids:", [sk.getSkid() for sk in self.skills])
-        relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
-        relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
-        print("relevant skills ids:", relevant_skill_ids)
-        dependent_skids=[]
-        for sk in relevant_skills:
-            dependent_skids = dependent_skids + sk.getDependencies()
-        print("all dependencies:", dependent_skids)
+            # get skills data structure by IDs
+            print("all skills ids:", [sk.getSkid() for sk in self.skills])
+            relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
+            relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
+            print("relevant skills ids:", relevant_skill_ids)
+            dependent_skids=[]
+            for sk in relevant_skills:
+                dependent_skids = dependent_skids + sk.getDependencies()
+            print("all dependencies:", dependent_skids)
 
-        dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
-        relevant_skills = relevant_skills + dependent_skills
-        relevant_skill_ids = relevant_skill_ids + dependent_skids
+            dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
+            relevant_skills = relevant_skills + dependent_skills
+            relevant_skill_ids = relevant_skill_ids + dependent_skids
 
-        if len(relevant_skill_ids) < len(rpaSkillIds):
-            s = set(relevant_skill_ids)
-            missing = [x for x in rpaSkillIds if x not in s]
-            print("ERROR: Required Skills not found:", missing)
-
-
-        all_skill_codes = []
-        step_idx = 0
-        for sk in relevant_skills:
-            print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
-            setWorkSettingsSkill(worksettings, sk)
-            # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
-
-            # readPSkillFile will remove comments. from the file
-            pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
-
-            # now regen address and update settings, after running, pskJson will be updated.
-            step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
-
-            addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
-
-            print("RUNNABLE PSK JSON::::", pskJson)
-
-            # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
-            rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + "rsk"
-            print("rskFileName:", rskFileName, "step_idx:", step_idx)
-            with open(rskFileName, "w") as outfile:
-                json.dump(pskJson, outfile)
-            outfile.close()
-
-            all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
-
-        print("all_skill_codes: ", all_skill_codes)
+            if len(relevant_skill_ids) < len(rpaSkillIds):
+                s = set(relevant_skill_ids)
+                missing = [x for x in rpaSkillIds if x not in s]
+                print("ERROR: Required Skills not found:", missing)
 
 
-        rpa_script = prepRunSkill(all_skill_codes)
-        print("generated psk:", rpa_script)
+            all_skill_codes = []
+            step_idx = 0
+            for sk in relevant_skills:
+                print("settingSKKKKKKKK: ", sk.getSkid(), sk.getName())
+                setWorkSettingsSkill(worksettings, sk)
+                # print("settingSKKKKKKKK: ", json.dumps(worksettings, indent=4))
 
-        # doing this just so that the code below can run multiple codes if needed. but in reality
-        # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
-        # this has to be corrected because, the following append would just have multiple same
-        # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
-        # forseaable future.
-        rpaScripts.append(rpa_script)
-        print("rpaScripts:[", len(rpaScripts), "] ", rpaScripts)
+                # readPSkillFile will remove comments. from the file
+                pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
 
-        #now run the steps
-        for script in rpaScripts:
-            # (steps, mission, skill, mode="normal"):
-            # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
-            # print("it_items: ", it_items)
-            # for it in it_items:
-            #     print("item: ", it.getSkid())
-            # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
-            # print("running skid:", rpaSkillIds[0], "len(self.skills): ", len(self.skills), "skill 0 skid: ", self.skills[0].getSkid())
-            # print("running skill: ", running_skill)
-            runResult = runAllSteps(script, self.missions[worksettings["midx"]], relevant_skills[0])
-            if runResult.split(":")[0] != "Completed":
-                # some thing is wrong.... simply exit and claim this mission execution failed.
-                break
+                # now regen address and update settings, after running, pskJson will be updated.
+                step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
 
-        # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
-        # the timer tick will trigger the run of the next mission on the list....
-        self.update1MStat(worksettings["midx"], runResult)
-        self.update1WorkRunStatus(worksTBD, worksettings["midx"])
+                addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
+
+                print("RUNNABLE PSK JSON::::", pskJson)
+
+                # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
+                rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + "rsk"
+                print("rskFileName:", rskFileName, "step_idx:", step_idx)
+                with open(rskFileName, "w") as outfile:
+                    json.dump(pskJson, outfile)
+                outfile.close()
+
+                all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
+
+            print("all_skill_codes: ", all_skill_codes)
+
+
+            rpa_script = prepRunSkill(all_skill_codes)
+            print("generated psk:", rpa_script)
+
+            # doing this just so that the code below can run multiple codes if needed. but in reality
+            # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
+            # this has to be corrected because, the following append would just have multiple same
+            # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
+            # forseaable future.
+            rpaScripts.append(rpa_script)
+            print("rpaScripts:[", len(rpaScripts), "] ", rpaScripts)
+
+            #now run the steps
+            for script in rpaScripts:
+                # (steps, mission, skill, mode="normal"):
+                # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
+                # print("it_items: ", it_items)
+                # for it in it_items:
+                #     print("item: ", it.getSkid())
+                # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
+                # print("running skid:", rpaSkillIds[0], "len(self.skills): ", len(self.skills), "skill 0 skid: ", self.skills[0].getSkid())
+                # print("running skill: ", running_skill)
+                runResult = runAllSteps(script, self.missions[worksettings["midx"]], relevant_skills[0])
+                if runResult.split(":")[0] != "Completed":
+                    # some thing is wrong.... simply exit and claim this mission execution failed.
+                    break
+
+            # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
+            # the timer tick will trigger the run of the next mission on the list....
+            self.update1MStat(worksettings["midx"], runResult)
+            self.update1WorkRunStatus(worksTBD, worksettings["midx"])
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorSearchWordLine:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            else:
+                ex_stat = "ErrorSearchWordLine: traceback information not available:" + str(e)
+            print(ex_stat)
+            worksettings = {"botid": -1, "midx": -1}
+            runResult = "Completed"
 
         return worksettings["botid"], worksettings["midx"], runResult
 
@@ -3888,7 +3905,7 @@ class MainWindow(QMainWindow):
             if not botTodos == None:
                 print("working on..... ", botTodos["name"])
                 self.workingState = "Working"
-                if botTodos["name"] == "fetch schedule":
+                if botTodos["name"] == "not fetch schedule":
                     print("fetching schedule..........")
                     last_start = int(datetime.now().timestamp()*1)
 
@@ -3929,7 +3946,8 @@ class MainWindow(QMainWindow):
                                     print("Commander Done with today!!!!!!!!!")
                                     self.doneWithToday()
                 else:
-                    print("Unrecogizable todo name....", botTodos["name"])
+                    print("Unrecogizable todo....", botTodos["name"])
+                    self.todays_work["tbd"].pop(0)
 
             else:
                 # nothing to do right now. check if all of today's work are done.
