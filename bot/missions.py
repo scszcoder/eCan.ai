@@ -165,7 +165,7 @@ class M_Pub_Attributes():
         self.category = cat
 
     def setSkills(self, sks):
-        self.skill = sks
+        self.skills = sks
 
     def addSkill(self, sk):
         self.skills.append(sk)

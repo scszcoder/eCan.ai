@@ -65,6 +65,10 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "None", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 250, this_step)
+    psk_words = psk_words + step_words
+
+
     # first call subskill to open ADS Power App
     this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
     psk_words = psk_words + step_words
@@ -77,7 +81,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "anchor text", "any", "useless", "bot_loaded", "ads", False, this_step)
+    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
@@ -90,7 +94,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "anchor text", "any", "useless", "bot_loaded", "ads", False, this_step)
+    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -115,7 +119,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site']", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA", "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]", this_step)
@@ -126,6 +130,23 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
 
     # now that the user loaded, click to open its browser.
     this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # read screen again with user email as anchor word and "open" button as the derived anchor.
+    this_step, step_words = genStepCreateData("string", "partial", "NA", "{\\\"anchors\\\": [{\\\"anchor_name\\\": \\\"bot_user\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global ops_string\nops_string = partial + pidx", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "tail", "NA", "\\\", \\\"ref_method\\\": \\\"0\\\", \\\"ref_location\\\": []}, {\\\"anchor_name\\\": \\\"bot_open\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"Open\\\", \\\"ref_method\\\": \\\"1\\\", \\\"ref_location\\\": [{\\\"ref\\\": \\\"bot_user\\\", \\\"side\\\": \\\"right\\\", \\\"dir\\\": \\\">\\\", \\\"offset\\\": \\\"1\\\", \\\"offset_unit\\\": \\\"box\\\" }]}]}", this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + todate + tail", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global ops_string\nops_string = partial + tail\nprint('ops_string', ops_string)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # now bot profile loaded and the by this step, the bot open button should have been located as well..

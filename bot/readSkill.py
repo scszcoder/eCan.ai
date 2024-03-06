@@ -666,7 +666,7 @@ def gen_addresses(stepcodes, nth_pass):
 
                 elif stepcodes[stepName]["stub_name"] == "end condition":
                     # pop from stack
-                    print("before popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
+                    # print("before popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
 
                     tempStepName = temp_stack.pop()
                     print("popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
