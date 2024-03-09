@@ -504,16 +504,16 @@ def test_sqlite3(mw):
     # print("DB Data:", db_data)
 
 
-    # new_fb = 'feedbacks'
-    # fb_type = 'INTEGER'  # Change this to the desired data type
-    # rt_col = 'rating'
+    # new_fb = 'backemail_site'
+    # fb_type = 'TEXT'  # Change this to the desired data type
+    # rt_col = 'ebpw'
     #
     # new_rrt = 'price'
     # rrt_type = 'REAL'  # Change this to the desired data type
     # est_col = 'feedbacks'
 
-    # sql = f"ALTER TABLE missions ADD COLUMN {new_fb} {fb_type} AFTER {rt_col};"
-    # # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
+    # sql = f"ALTER TABLE bots ADD COLUMN {new_fb} {fb_type} AFTER {rt_col};"
+    # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
 
     # sql = f"ALTER TABLE missions ADD COLUMN {new_rrt} {rrt_type} AFTER {est_col};"
@@ -523,7 +523,7 @@ def test_sqlite3(mw):
     # sql ="UPDATE bots SET email = 'elsakaiya34@gmail.com' WHERE botid = 15"
     # mw.dbCursor.execute(sql)
     # print("update bots")
-    # mw.dbcon.commit()
+    mw.dbcon.commit()
     # table_name = 'missions'
     # db_data = mw.dbCursor.fetchall()
     # print("DB Data:", db_data)

@@ -231,7 +231,7 @@ class BotNewWin(QMainWindow):
 
         self.bd_label = QLabel(QApplication.translate("QLabel", "Birthday:"), alignment=Qt.AlignLeft)
         self.bd_edit = QLineEdit()
-        self.bd_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Birthday here in MM/DD/YYYY"))
+        self.bd_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input in YYYY-MM-DD format"))
 
         self.m_rb = QRadioButton(QApplication.translate("QRadioButton", "Male"))
         self.f_rb = QRadioButton(QApplication.translate("QRadioButton", "Female"))
@@ -501,7 +501,7 @@ class BotNewWin(QMainWindow):
         self.phone_label = QLabel(QApplication.translate("QLabel", "Contact Phone:"), alignment=Qt.AlignLeft)
         self.phone_edit = QLineEdit()
         self.phone_edit.setPlaceholderText(QApplication.translate("QLineEdit", "(optional) contact phone number here"))
-        self.em_label = QLabel(QApplication.translate("QLabel", "Contact Phone:"), alignment=Qt.AlignLeft)
+        self.em_label = QLabel(QApplication.translate("QLabel", "User Email:"), alignment=Qt.AlignLeft)
         self.em_edit = QLineEdit()
         self.em_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input email here"))
         self.empw_label = QLabel(QApplication.translate("QLabel", "Email Password:"), alignment=Qt.AlignLeft)
@@ -513,6 +513,9 @@ class BotNewWin(QMainWindow):
         self.acctpw_label = QLabel(QApplication.translate("QLabel", "E-Business Account Password:"), alignment=Qt.AlignLeft)
         self.acctpw_edit = QLineEdit("")
         self.acctpw_edit.setPlaceholderText(QApplication.translate("QLineEdit", "(optional) E-Business Account Password here"))
+        self.backem_site_label = QLabel(QApplication.translate("QLabel", "Backup Email Site:"), alignment=Qt.AlignLeft)
+        self.backem_site_edit = QLineEdit("")
+        self.backem_site_edit.setPlaceholderText(QApplication.translate("QLineEdit", "website for access backup email"))
 
         self.prvpflLine1Layout = QHBoxLayout(self)
         self.prvpflLine1Layout.addWidget(self.fn_label)
@@ -588,12 +591,16 @@ class BotNewWin(QMainWindow):
         self.prvpflLine4Layout = QHBoxLayout(self)
         self.prvpflLine4Layout.addWidget(self.backem_label)
         self.prvpflLine4Layout.addWidget(self.backem_edit)
+
+        self.prvpflLine4Layout.addWidget(self.acctpw_label)
+        self.prvpflLine4Layout.addWidget(self.acctpw_edit)
         self.prvpflWidget_layout.addLayout(self.prvpflLine4Layout)
 
         self.prvpflLine5Layout = QHBoxLayout(self)
-        self.prvpflLine5Layout.addWidget(self.acctpw_label)
-        self.prvpflLine5Layout.addWidget(self.acctpw_edit)
+        self.prvpflLine5Layout.addWidget(self.backem_site_label)
+        self.prvpflLine5Layout.addWidget(self.backem_site_edit)
         self.prvpflWidget_layout.addLayout(self.prvpflLine5Layout)
+
 
         self.prvpflWidget.setLayout(self.prvpflWidget_layout)
         QApplication.translate("QLabel", "App Name:")
@@ -800,6 +807,7 @@ class BotNewWin(QMainWindow):
         self.ln_edit.setText(bot.getLn())
         self.pln_edit.setText(bot.getPseudoLastName())
         self.pfn_edit.setText(bot.getPseudoFirstName())
+        self.backem_site_edit.setText(bot.getBackEmSite())
         print("hihii???")
         # self.pnn_edit.setText(bot.getNickName())
         self.phone_edit.setText(bot.getPhone())
@@ -977,7 +985,7 @@ class BotNewWin(QMainWindow):
 
         self.newBot.pubProfile.setPseudoFirstLastName(self.pfn_edit.text(), self.pln_edit.text())
         self.newBot.privateProfile.setFirstLastName(self.fn_edit.text(), self.ln_edit.text())
-        self.newBot.privateProfile.setAcct(self.em_edit.text(), self.empw_edit.text(), self.phone_edit.text(), self.backem_edit.text(), self.acctpw_edit.text())
+        self.newBot.privateProfile.setAcct(self.em_edit.text(), self.empw_edit.text(), self.phone_edit.text(), self.backem_edit.text(), self.acctpw_edit.text(), self.backem_edit.text())
 
         self.newBot.pubProfile.setPubBirthday(self.bd_edit.text())
         self.newBot.pubProfile.setNickName(self.pnn_edit.text())
