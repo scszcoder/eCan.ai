@@ -134,7 +134,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, stepN, theme):
 # 1） open the orders page
 # 2） save and scrape HTML
 # 3） if more than 1 page, go thru all pages. get all.
-def genWinEtsyCollectOrderListSkill(worksettings, stepN, theme):
+def genWinChromeEtsyCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = "{"
     site_url = "https://www.etsy.com/your/orders/sold"
 
@@ -426,7 +426,7 @@ def processEtsySearchOrders(step, i):
 
 # this skill assumes tracking code ready in the orders list data structure, and update tracking code to the orders on website.
 # all the tracking code should already be updated into etsy_orders data structure which is the sole input parameter.....
-def genWinEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
+def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = "{"
     site_url = "https://www.etsy.com/your/orders/sold"
 

@@ -1,0 +1,263 @@
+
+import os
+
+import pandas as pd
+
+from basicSkill import *
+
+ADS_BATCH_SIZE = 3
+
+
+def genWinADSCheckGMailSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_gmail_home_routine_access", "win", "1.0", "AIPPS LLC", "PUBWINADSCHECKGMAIL001",
+                                          "Windows ADS Power check gmail.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/routine_access", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    # assume profile file is ready.
+    this_step, step_words = genStepCallExtern("global gmail_acct\ngmail_acct = fin[0]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global gmail_pw\ngmail_pw = fin[1]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # os is like windows, macos, linux...
+    this_step, step_words = genStepCallExtern("global back_email_site\nback_email_site = fin[2]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # site is like amazon, ebay, etcs....
+    this_step, step_words = genStepCallExtern("global back_email_acct\nback_email_acct = fin[3]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global back_email_pw\nback_email_pw = fin[4]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # open a new tab to go to gmail
+    # open a new tab with hot-key ctrl-t
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # since the mouse cursor will be automatiall put at the right location, just start typing.... www.amazcon.com
+    this_step, step_words = genStepTextInput("var", False, "www.gmail.com", "direct", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "Compose", "direct", "anchor text", "any", "useless", "logged_in", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not logged_in", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+
+
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # since the mouse cursor will be automatiall put at the right location, just start typing.... www.amazcon.com
+    this_step, step_words = genStepTextInput("var", False, "back_email_site", "var", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+    # should be a loop to wait, the site could take a long time to open.
+
+    # once the page is loaded, check if log in button is there, if not, click to translate to english, then click on english
+
+    # then wait for log in button to appear again, if so,
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "come_in", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now that we're in, click on inbox to show all emails list, and fetch # of new email received, # to the right of inbox,
+    # then read them one by one by clicking on the titles below "Primary".
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "inbox", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "no_profiles", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not no_profiles", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # here should delete existing loaded profiles first.
+    # first click on select All.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # go back to main email list.
+    this_step, step_words = genStepKeyInput("", True, "alt,left", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    #read screen for the confirmation pop up.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # click on the confirmation popup.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # close the tab and be done with this sub-skill.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,w", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/routine_access", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows ads power gmail routine access....." + psk_words)
+
+    return this_step, psk_words
+
+
+
+def genWinChromeCheckGMailSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_chrome_gmail_home_routine_access", "win", "1.0", "AIPPS LLC", "PUBWINCHROMECHECKGMAIL001",
+                                          "Windows chrome handle emails send/read.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_gmail_home/routine_access", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    # assume profile file is ready.
+    this_step, step_words = genStepCallExtern("global gmail_acct\ngmail_acct = fin[0]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global gmail_pw\ngmail_pw = fin[1]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # os is like windows, macos, linux...
+    this_step, step_words = genStepCallExtern("global back_email_site\nback_email_site = fin[2]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # site is like amazon, ebay, etcs....
+    this_step, step_words = genStepCallExtern("global back_email_acct\nback_email_acct = fin[3]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global back_email_pw\nback_email_pw = fin[4]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # open a new tab to go to gmail
+    # open a new tab with hot-key ctrl-t
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # since the mouse cursor will be automatiall put at the right location, just start typing.... www.amazcon.com
+    this_step, step_words = genStepTextInput("var", False, "www.gmail.com", "direct", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "Compose", "direct", "anchor text", "any", "useless", "logged_in", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not logged_in", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+
+
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # since the mouse cursor will be automatiall put at the right location, just start typing.... www.amazcon.com
+    this_step, step_words = genStepTextInput("var", False, "back_email_site", "var", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+    # should be a loop to wait, the site could take a long time to open.
+
+    # once the page is loaded, check if log in button is there, if not, click to translate to english, then click on english
+
+    # then wait for log in button to appear again, if so,
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "come_in", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now that we're in, click on inbox to show all emails list, and fetch # of new email received, # to the right of inbox,
+    # then read them one by one by clicking on the titles below "Primary".
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "inbox", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "no_profiles", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not no_profiles", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # here should delete existing loaded profiles first.
+    # first click on select All.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # go back to main email list.
+    this_step, step_words = genStepKeyInput("", True, "alt,left", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    #read screen for the confirmation pop up.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # click on the confirmation popup.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # close the tab and be done with this sub-skill.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,w", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/routine_access", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows chrome gmail routine access....." + psk_words)
+
+    return this_step, psk_words
