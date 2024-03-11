@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
             self.dbCursor = self.dbcon.cursor()
 
             # create tables.
-            sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
+            sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT, backemail_site TEXT)'
             #sql = '''ALTER TABLE bots RENAME TO junkbots0'''
             self.dbCursor.execute(sql)
             sql = 'SELECT * FROM bots'
@@ -1125,11 +1125,11 @@ class MainWindow(QMainWindow):
         # self.test_scroll()
 
         # test_ads_batch(self)
-        # test_sqlite3(self)
+        test_sqlite3(self)
         # test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
-        test_run_mission(self)
+        # test_run_mission(self)
         # test_processSearchWordLine()
 
 
@@ -2429,12 +2429,12 @@ class MainWindow(QMainWindow):
             # now add bot to local DB.
             j = 0
             for newbot in jbody:
-                sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
-                              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw, backemail_site)
+                              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
                 data_tuple = (newbot["bid"], newbot["owner"], newbot["levels"], newbot["gender"], newbot["birthday"], \
                               newbot["interests"], newbot["location"], newbot["roles"], newbot["status"], newbot["delDate"], \
                               api_bots[j]["name"], api_bots[j]["pseudoname"], api_bots[j]["nickname"], api_bots[j]["addr"], api_bots[j]["shipaddr"], \
-                              api_bots[j]["phone"], api_bots[j]["email"], api_bots[j]["epw"], api_bots[j]["backemail"], api_bots[j]["ebpw"])
+                              api_bots[j]["phone"], api_bots[j]["email"], api_bots[j]["epw"], api_bots[j]["backemail"], api_bots[j]["ebpw"], api_bots[j]["backemail_site"])
 
                 self.dbCursor.execute(sql, data_tuple)
 
@@ -2475,7 +2475,8 @@ class MainWindow(QMainWindow):
             "email": abot.getEmail(),
             "epw": abot.getEmPW(),
             "backemail": abot.getBackEm(),
-            "ebpw": abot.getAcctPw()
+            "ebpw": abot.getAcctPw(),
+            "backemail_site": abot.getAcctPw()
         }]
         jresp = send_update_bots_request_to_cloud(self.session, [abot], self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
@@ -2488,12 +2489,12 @@ class MainWindow(QMainWindow):
 
                 sql = ''' UPDATE bots SET owner = ?, levels = ?, gender = ?, birthday = ?, interests = ?, location = ?, roles = ?,
                         status = ?, delDate = ?, name = ?, pseudoname = ?, nickname = ?, addr = ?, shipaddr = ?, phone = ?, 
-                        email = ?,  epw = ?, backemail = ?, ebpw = ? WHERE botid = ?; '''
+                        email = ?,  epw = ?, backemail = ?, ebpw = ? , backemail_site = ?WHERE botid = ?; '''
 
                 data_tuple = (api_bots[0]["owner"], api_bots[0]["levels"], api_bots[0]["gender"], api_bots[0]["birthday"], \
                               api_bots[0]["interests"], api_bots[0]["location"], api_bots[0]["roles"], api_bots[0]["status"], api_bots[0]["delDate"], \
                               api_bots[0]["name"], api_bots[0]["pseudoname"], api_bots[0]["nickname"], api_bots[0]["addr"], api_bots[0]["shipaddr"], \
-                              api_bots[0]["phone"], api_bots[0]["email"], api_bots[0]["epw"], api_bots[0]["backemail"], api_bots[0]["ebpw"], api_bots[0]["bid"])
+                              api_bots[0]["phone"], api_bots[0]["email"], api_bots[0]["epw"], api_bots[0]["backemail"], api_bots[0]["ebpw"], api_bots[0]["backemail_site"], api_bots[0]["bid"])
 
                 self.dbCursor.execute(sql, data_tuple)
                 # Check if the UPDATE query was successful

@@ -89,7 +89,7 @@ class BOT_PRIVATE_PROFILE():
         self.email_pw = ""
         self.phone = ""
         self.backup_email = ""
-
+        self.backup_email_site = ""
         self.acct_pw = ""
         self.file = ""
         self.birthday = ""
@@ -168,6 +168,9 @@ class BOT_PRIVATE_PROFILE():
     def setEBPW(self, epw):
         self.acct_pw = epw
 
+    def setBackEmailSite(self, site):
+        self.backup_email_site = site
+
     def setBirthday(self, bdtxt):
         print("SETTING BIRTHDAY:", bdtxt)
         self.privateProfile.birthday = bdtxt
@@ -180,11 +183,12 @@ class BOT_PRIVATE_PROFILE():
         return self.privateProfile.birthdaydt
 
 
-    def setAcct(self, email, epw, phone, back_email, acct_pw):
+    def setAcct(self, email, epw, phone, back_email, acct_pw, back_email_site):
         self.email = email
         self.email_pw = epw
         self.phone = phone
         self.backup_email = back_email
+        self.backup_email_site = back_email_site
         self.acct_pw = acct_pw
 
 
@@ -196,6 +200,7 @@ class BOT_PRIVATE_PROFILE():
         self.phone = dj["phone"]
         self.backup_email = dj["backup_email"]
         self.acct_pw = dj["acct_pw"]
+        self.backup_email_site = dj["backup_email_site"]
         self.birthday = dj["birthday"]
         self.addrl1 = dj["addrl1"]
         self.addrl2 = dj["addrl2"]
@@ -217,6 +222,7 @@ class BOT_PRIVATE_PROFILE():
                 "email_pw": self.email_pw,
                 "phone": self.phone,
                 "backup_email": self.backup_email,
+                "backup_email_site": self.backup_email_site,
                 "acct_pw": self.acct_pw,
                 "birthday": self.birthday,
                 "addrl1": self.addrl1,
@@ -568,6 +574,12 @@ class EBBOT(QStandardItem):
     def getAcctPw(self):
         return self.privateProfile.acct_pw
 
+    def getBackEmSite(self):
+        return self.privateProfile.backup_email_site
+
+    def setBackEmSite(self, site):
+        self.privateProfile.backup_email_site = site
+
     def getPhone(self):
         return self.privateProfile.phone
 
@@ -639,6 +651,7 @@ class EBBOT(QStandardItem):
         self.privateProfile.setEPW(dbd[17])
         self.privateProfile.setBackEmail(dbd[18])
         self.privateProfile.setEBPW(dbd[19])
+        self.privateProfile.setBackEmailSite(dbd[20])
 
 
 
