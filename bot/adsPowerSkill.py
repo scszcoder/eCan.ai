@@ -700,3 +700,26 @@ def genStepCreateADSProfileBatches(taskgroup, profiles_dir, all_profiles, result
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+# gather 10 profiles into 1 and use this combined file for batch import.
+def combineProfilesXlsx(xlsProfilesToBeLoaded):
+    # Replace with the path to your files
+    ads_profile_dir = 'path_to_your_excel_files'
+
+    # List to hold dataframes
+    dfs = []
+
+    # Iterate over the files in the directory
+    for filename in xlsProfilesToBeLoaded:
+        if filename.endswith('.xlsx'):
+            file_path = os.path.join(ads_profile_dir, filename)
+            # Read the excel file and append it to the list
+            dfs.append(pd.read_excel(file_path))
+
+    # Concatenate all dataframes
+    combined_df = pd.concat(dfs, ignore_index=True)
+
+    this_batch = os.path.join(ads_profile_dir, 'this_batch.xlsx')
+    # Write the combined dataframe to a new excel file
+    combined_df.to_excel(this_batch, index=False)
