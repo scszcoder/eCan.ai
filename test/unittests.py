@@ -824,3 +824,92 @@ def test_processSearchWordLine():
     }
 
     processSearchWordLine(stepjson, 1)
+
+
+def test_ads_profiling():
+    profile_json = readTxtProfile("C:/AmazonSeller/SelfSwipe/ADSProfiles/PrakerWilfredKNtb.txt")
+    print("profile json is:", profile_json)
+    print("# cookies:", len(profile_json["cookie"]))
+    print("============================================================")
+    removeUselessCookies(profile_json, ["amazon"])
+    print("after filter, profile json is:", profile_json)
+
+    print("# cookies:", len(profile_json["cookie"]))
+    print("============================================================")
+
+    genProfileXlsx(profile_json, "C:/AmazonSeller/SelfSwipe/ADSProfiles/temp0.xlsx")
+    # genProfileXlsxs(pfJsons, fnames)
+
+
+def test_batch_ads_profile_conversion():
+    standard_sites = ["google", "gmail", "amazon"]
+    site_lists = {
+        "AdowBooneHLOWkG": standard_sites,
+        "BagasShavershoWDC": standard_sites,
+        "BreauxLawrenceZkdY": standard_sites,
+        "ComptonGunarajwyjuE": standard_sites,
+        "ElishaDlaminiSqjls": standard_sites,
+        "FulkersonCoolXgK": standard_sites,
+        "GanchuaAthenasbyIYaeD": standard_sites,
+        "GuascoEvensuAvR": standard_sites,
+        "KaliSalvadorwAy": standard_sites,
+        "KnutsonLaurensWRsc": standard_sites,
+        "KollerSkeetVPB": standard_sites,
+        "LimJimuelCkxbpu": standard_sites,
+        "LindenbergLorenzoXzqzZ": standard_sites,
+        "MenusMylesMPZ": standard_sites,
+        "MinksStanleyGQbY": standard_sites,
+        "MoranoSaberwEyv": standard_sites,
+        "NeedhamChakravarthiguuN": standard_sites,
+        "PalmquistJojongibO": standard_sites,
+        "QueGaillardrXH": standard_sites,
+        "RayviJoebobRZn": standard_sites,
+        "RenardAbellosRVn": standard_sites,
+        "RufusRealMIUJg": standard_sites,
+        "SeniorAsriPJZX": standard_sites,
+        "ShatzelKingprinceKoXoA": standard_sites,
+        "TeluguOttoYuGh": standard_sites,
+        "TyqawndisSaveryVDHV": standard_sites,
+        "VonkKingprinceoJSCf": standard_sites,
+        "TripMarowtjVJ": standard_sites,
+        "dabaosisy2022": ["google", "gmail", "ebay"]
+    }
+    fnames = [
+            # "C:/AmazonSeller/SelfSwipe/ADSProfiles/AdowBooneHLOWkG.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/BagasShavershoWDC.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/BreauxLawrenceZkdY.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/ComptonGunarajwyjuE.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/ElishaDlaminiSqjls.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/FulkersonCoolXgK.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/GanchuaAthenasbyIYaeD.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/GuascoEvensuAvR.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/KaliSalvadorwAy.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/KnutsonLaurensWRsc.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/KollerSkeetVPB.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/LimJimuelCkxbpu.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/LindenbergLorenzoXzqzZ.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/MenusMylesMPZ.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/MinksStanleyGQbY.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/MoranoSaberwEyv.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/NeedhamChakravarthiguuN.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/PalmquistJojongibO.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/PrakerWilfredKNtb.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/QueGaillardrXH.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/RayviJoebobRZn.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/RenardAbellosRVn.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/RufusRealMIUJg.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/SeniorAsriPJZX.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/ShatzelKingprinceKoXoA.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/TeluguOttoYuGh.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/TripMarowtjVJ.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/TyqawndisSaveryVDHV.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/VonkKingprinceoJSCf.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_23_48_49.txt",
+            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_22_15_43.txt"
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/PrakerWilfredKNtb.txt",
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/dabaosisy2022Ebay.txt"
+    ]
+
+    site_list = ["google", "gmail", "amazon"]
+
+    covertTxtProfiles2XlsxProfiles(fnames, site_lists)
