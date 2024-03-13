@@ -654,4 +654,23 @@ class EBBOT(QStandardItem):
         self.privateProfile.setBackEmailSite(dbd[20])
 
 
-
+    def loadXlsxData(self, jd):
+        self.pubProfile.setLevels(jd["2"])
+        self.pubProfile.setGender(jd["Gender"])
+        self.pubProfile.setPubBirthday(jd["DoB"])
+        self.pubProfile.setInterests(jd["5"])
+        self.pubProfile.setLoc(jd["6"])
+        self.pubProfile.setRoles(jd["7"])
+        self.pubProfile.setStatus(jd["8"])
+        self.pubProfile.setDelDate(jd["9"])
+        self.privateProfile.setName(jd["New First Name"]+" "+jd["Last Name"])
+        self.pubProfile.setPseudoName(jd["PseudoFN"]+" "+jd["PseudoLN"])
+        self.pubProfile.setNickName("")
+        self.privateProfile.setAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
+        self.privateProfile.setShippingAddr1(jd["14"])
+        self.privateProfile.setPhone(jd["15"])
+        self.privateProfile.setEmail(jd["Email"])
+        self.privateProfile.setEPW(jd["PW"])
+        self.privateProfile.setBackEmail(jd["Backup Email"])
+        self.privateProfile.setEBPW(jd["Back PW"])
+        self.privateProfile.setBackEmailSite(jd["BackEmailSite"])

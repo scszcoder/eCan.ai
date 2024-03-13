@@ -18,8 +18,10 @@ FULL_SITE_MAP = {
     "ali": "aliexpress.com",
     "walmart": "walmart.com",
     "paypal": "paypal.com"
-
 }
+
+DEFAULT_SITE_LIST = ["google", "gmail", "amazon"]
+
 
 #input
 def genADSPowerLaunchSteps(worksettings, stepN, theme):
@@ -723,3 +725,184 @@ def combineProfilesXlsx(xlsProfilesToBeLoaded):
     this_batch = os.path.join(ads_profile_dir, 'this_batch.xlsx')
     # Write the combined dataframe to a new excel file
     combined_df.to_excel(this_batch, index=False)
+
+
+
+# this functionr reads an ADS power saved profile in text format and return a json object that contains the file contents.
+def readTxtProfile(fname):
+    pfJsons = []
+    pfJson = {}
+    nl = 0
+    with open(fname, 'r') as file:
+        for line in file:
+            if '=' in line:
+                key, value = line.strip().split('=', 1)
+                if key == "acc_id":
+                    if nl > 0:
+                        pfJsons.append(pfJson)
+                        pfJson = {}
+
+                    pfJson[key] = value
+                elif key == "cookie":
+                    pfJson[key] = json.loads(value)
+                else:
+                    pfJson[key] = value
+
+                nl = nl + 1
+
+        if len(pfJson.keys()) > 0:
+            pfJsons.append(pfJson)
+    print("["+str(len(pfJsons))+"] profiles read.....")
+    file.close()
+    return pfJsons
+
+# read in multiple files, returns a list of jsons
+def readTxtProfiles(fnames):
+    pfJsons = []
+    for fname in fnames:
+        pfJsons = pfJsons + readTxtProfile(fname)
+
+    return pfJsons
+
+
+# this function removes useless cookies from a ADS Power profile object, so that the cookie is short enough to fit into
+# an excel file cell (32768 Byte), and enough to let one log into the target web site, typically 1 gamil + 1 other site.
+def removeUselessCookies(pfJson, site_list):
+    qualified_cookies = list(filter(lambda x: any(site in x["domain"] for site in site_list), pfJson["cookie"]))
+    pfJson["cookie"] = qualified_cookies
+
+# this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
+def genProfileXlsx(pfJsons, fname, site_lists):
+    # Convert JSON data to a DataFrame
+    for pfJson in pfJsons:
+        un = pfJson["username"].split("@")[0]
+        if un in site_lists.keys():
+            site_list = site_lists[un]
+        else:
+            # just use some default list.
+            site_list = DEFAULT_SITE_LIST
+        removeUselessCookies(pfJson, site_list)
+        pfJson["cookie"]=json.dumps(pfJson["cookie"])
+    df = pd.DataFrame(pfJsons)
+    print("writing to:", fname)
+    # Write DataFrame to Excel file
+    df.to_excel(fname, index=False)
+
+def genProfileTxt(pfJsons, fname):
+    # Convert JSON data to a DataFrame
+    with open(fname, 'w') as f:
+        for pfJson in pfJsons:
+            f.write("\n")
+            pfJson["cookie"]=json.dumps(pfJson["cookie"])
+
+            for pfkey in pfJson.keys():
+                f.write(pfkey+"="+pfJson[pfkey]+"\n")
+    f.close()
+
+# this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
+# site_lists is in the format "{email_before@ : ["google", "gmail", "amazon"]}, .... }
+# the reason we need this is full cookie is too large to fit into an excel cell, and
+# ads batch import only recognize a xlsx file input. so the cookie field should be
+# filtered to contain only sites that a mission needs.
+def genProfileXlsxs(pfJsons, fnames, site_lists):
+    for pfJson, fname in zip(pfJsons, fnames):
+        genProfileXlsx(pfJson, fname, site_lists)
+
+# this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
+def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
+    pf_idx = 0
+    for fname in fnames:
+        basename = os.path.basename(fname)
+        dirname = os.path.dirname(fname)
+        xls_name = dirname + "/" + basename.split(".")[0]+".xlsx"
+        pfjsons = readTxtProfile(fname)
+        genProfileXlsx(pfjsons, xls_name, site_lists)
+        pf_idx = pf_idx + 1
+
+# create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
+# assume each bot already has a txt version of the profile there.
+def gen_ads_profile_batchs(missions, bots, site_lists, batch_size, profile_dir):
+    site_lists = {}
+    pfJsons_batches = []
+    bot_pfJsons=[]
+    m_idx = 0
+    for mission in missions:
+        bots = [b for b in bots if b.getBid() == mission.getBid()]
+        if len(bots) > 0:
+            bot = bots[0]
+            user_prefix = bot.getEmail().split("@")[0]
+            mail_site_words = bot.getEmail().split("@")[1].split(".")
+            mail_site = mail_site_words[len(mail_site_words)-2]
+            bot_ads_profile = user_prefix+".txt"
+
+            site_lists[bot_ads_profile] = [mail_site]
+            if mail_site == "gmail":
+                site_lists[bot_ads_profile].append("google")
+
+            if mission.setSite() == "amz":
+                site_lists[bot_ads_profile].append("amazon")
+            else:
+                site_lists[bot_ads_profile].append(mission.setSite().lower())
+
+            full_bot_profile_path = profile_dir + "/" + bot_ads_profile
+            newly_read = readTxtProfile(full_bot_profile_path)
+        else:
+            newly_read = []
+        m_idx = m_idx + 1
+        if m_idx == batch_size:
+            # complete a batch
+            if len(bot_pfJsons) > 0:
+                pfJsons_batches.append(bot_pfJsons)
+
+            # start a new batch
+            bot_idx = 0
+            bot_pfJsons = []
+
+        bot_pfJsons = bot_pfJsons + newly_read
+
+    if len(bot_pfJsons) > 0:
+        pfJsons_batches.append(bot_pfJsons)
+
+    #now for each batch, generate xlsx for this batch so that it can be loaded easily next time.
+    batch_idx = 0
+    for pfJsons_batch in pfJsons_batches:
+        batch_file = ""+str(batch_idx)
+        genProfileXlsx(pfJsons_batch, batch_file, site_lists)
+        batch_idx = batch_idx + 1 
+
+# after a batch save, grab individual profiles in the batch and update
+# each profile individually both txt and xlsx version so that time
+# a batch can be done easily.
+def update_individual_profile_from_batch_saved_txt(batch_profiles_txt, site_list):
+    pfJsons = readTxtProfile(batch_profiles_txt)
+    pf_dir = os.path.dirname(batch_profiles_txt)
+    for pfJson in pfJsons:
+        # xlsx_file_path = pf_dir + "/" + pfJson["username"].split("@")[0]+".xlsx"
+        txt_file_path = pf_dir + "/" + pfJson["username"].split("@")[0] + ".txt"
+        # genProfileXlsx([pfJson], xlsx_file_path, site_list)
+        existing = readTxtProfile(txt_file_path)
+        existing_cookies = existing["cookie"]
+        new_cookies = pfJson["cookie"]
+        pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
+        genProfileTxt([pfJson], txt_file_path)
+
+# for a list of existing cookies, find matching in name and domain and path, if matched all three in newones,
+# replace the existing cookie with the one in newones, otherwise, simply add newones into the existing ones.
+def merge_cookies(existing, new_ones):
+    merged_cookies = existing.copy()
+
+    for new_cookie in new_ones:
+        matched_index = None
+        for i, existing_cookie in enumerate(merged_cookies):
+            if (existing_cookie['name'] == new_cookie['name'] and
+                existing_cookie['domain'] == new_cookie['domain'] and
+                existing_cookie['path'] == new_cookie['path']):
+                matched_index = i
+                break
+
+        if matched_index is not None:
+            merged_cookies[matched_index] = new_cookie
+        else:
+            merged_cookies.append(new_cookie)
+
+    return merged_cookies
