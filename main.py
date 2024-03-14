@@ -100,12 +100,12 @@ if __name__ == '__main__':
     # test_basic()
     # test_coordinates()
     # test_rar()
-    test_batch_ads_profile_conversion()
+    # test_batch_ads_profile_conversion()
 
     # print("all unit test done...")
 
 
-    # windowlauncher()
+    windowlauncher()
 
 
 
