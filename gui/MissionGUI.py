@@ -666,10 +666,10 @@ class MissionNewWin(QMainWindow):
 
         if self.mode == "new":
             print("adding new mission....")
-            self.parent.addNewMission(self.newMission)
+            self.parent.addNewMissions([self.newMission])
         elif self.mode == "update":
             print("update a mission....")
-            self.parent.updateAMission(self.newMission)
+            self.parent.updateMissions([self.newMission])
 
         self.close()
 

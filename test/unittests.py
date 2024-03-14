@@ -906,10 +906,13 @@ def test_batch_ads_profile_conversion():
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/VonkKingprinceoJSCf.txt",
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_23_48_49.txt",
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_22_15_43.txt"
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/PrakerWilfredKNtb.txt",
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/dabaosisy2022Ebay.txt"
+          # "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_12_23_46_48.txt",
+          # "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_12_18_20_00.txt",
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_12_23_29_10.txt"
     ]
 
     site_list = ["google", "gmail", "amazon"]
 
     covertTxtProfiles2XlsxProfiles(fnames, site_lists)
+
+
