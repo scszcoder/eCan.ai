@@ -9,6 +9,7 @@ from LoggerGUI import *
 from ui_settings import *
 import TestAll
 import importlib
+import pandas as pd
 
 from vehicles import *
 from unittests import *
@@ -385,6 +386,7 @@ class MainWindow(QMainWindow):
         #creating QActions
         self.botNewAction = self._createBotNewAction()
         self.botGetAction = self._createGetBotsAction()
+        self.botGetLocalAction = self._createGetLocalBotsAction()
         self.saveAllAction = self._createSaveAllAction()
         self.botDelAction = self._createBotDelAction()
         self.botEditAction = self._createBotEditAction()
@@ -752,6 +754,7 @@ class MainWindow(QMainWindow):
 
         bot_menu.addAction(self.botNewAction)
         bot_menu.addAction(self.botGetAction)
+        bot_menu.addAction(self.botGetLocalAction)
         bot_menu.addAction(self.botEditAction)
         bot_menu.addAction(self.botCloneAction)
         bot_menu.addAction(self.botDelAction)
@@ -854,6 +857,15 @@ class MainWindow(QMainWindow):
         # self.openAction = QAction(QIcon(":file-open.svg"), "&Open...", self)
         # self.saveAction = QAction(QIcon(":file-save.svg"), "&Save", self)
         # self.exitAction = QAction("&Exit", self)
+        return new_action
+
+    def _createGetLocalBotsAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Load All Local Bots"))
+        new_action.triggered.connect(self.getAllBotsFromLocalDB)
+        # ew_action.connect(QAction.)
+
         return new_action
 
     def _createSaveAllAction(self):
@@ -2404,7 +2416,8 @@ class MainWindow(QMainWindow):
             "email": new_bot.getEmail(),
             "epw": new_bot.getEmPW(),
             "backemail": new_bot.getBackEm(),
-            "ebpw": new_bot.getAcctPw()
+            "ebpw": new_bot.getAcctPw(),
+            "backemail_site": new_bot.getBackEmSite()
         }]
         jresp = send_add_bots_request_to_cloud(self.session, [new_bot], self.tokens['AuthenticationResult']['IdToken'])
 
@@ -2448,6 +2461,8 @@ class MainWindow(QMainWindow):
                 j = j + 1
             #update self data structure and save in json file for easy access (1 line of python code)
             # self.saveBotJsonFile(jbody)
+
+        #now read back just added bots and echo it back onto display...
 
 
     def updateABot(self, abot):
@@ -3325,92 +3340,117 @@ class MainWindow(QMainWindow):
 
     def newBotFromFile(self):
         print("loading bots from a file...")
-        api_bots = []
-        uncompressed = open(self.homepath + "/resource/testdata/newbots.json")
-        if uncompressed != None:
-            # print("body string:", uncompressed, "!", len(uncompressed), "::")
-            filebbots = json.load(uncompressed)
-            if len(filebbots) > 0:
-                #add bots to the relavant data structure and add these bots to the cloud and local DB.
-                for fb in filebbots:
-                    new_bot = EBBOT(self)
-                    self.fillNewBotFullInfo(fb, new_bot)
-                    self.bots.append(new_bot)
-                    self.botModel.appendRow(new_bot)
-                    self.selected_bot_row = self.botModel.rowCount()-1
-                    self.selected_bot_item = self.botModel.item(self.selected_bot_row)
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            QApplication.translate("QFileDialog", "Open Bot Definition File"),
+            '',
+            QApplication.translate("QFileDialog", "Bot Files (*.json, *.xlsx, *.csv)")
+        )
+        if filename != "":
+            if "json" in filename:
+                api_bots = []
+                uncompressed = open(self.homepath + "/resource/testdata/newbots.json")
+                if uncompressed != None:
+                    # print("body string:", uncompressed, "!", len(uncompressed), "::")
+                    filebbots = json.load(uncompressed)
+                    if len(filebbots) > 0:
+                        #add bots to the relavant data structure and add these bots to the cloud and local DB.
+                        for fb in filebbots:
+                            new_bot = EBBOT(self)
+                            self.fillNewBotFullInfo(fb, new_bot)
+                            self.bots.append(new_bot)
+                            self.botModel.appendRow(new_bot)
+                            self.selected_bot_row = self.botModel.rowCount()-1
+                            self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
-                # jresp = send_add_bots_request_to_cloud(self.session, filebbots,
-                #                                        self.tokens['AuthenticationResult']['IdToken'])
-                #
-                # if "errorType" in jresp:
-                #     screen_error = True
-                #     print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
-                # else:
-                #     print("jresp type: ", type(jresp), len(jresp["body"]))
-                #     jbody = jresp["body"]
-                #     # now that add is successfull, update local file as well.
-                #
-                #     # now add bot to local DB.
-                #
-                #     for i in range(len(jbody)):
-                #         print(i)
-                #         new_bot = EBBOT(self)
-                #         self.fillNewBotPubInfo(jbody[i], new_bot)
-                #         self.bots.append(new_bot)
-                #         self.botModel.appendRow(new_bot)
-                #         api_bots.append({
-                #             "bid": new_bot.getBid(),
-                #             "owner": self.owner,
-                #             "roles": new_bot.getRoles(),
-                #             "pubbirthday": new_bot.getPubBirthday(),
-                #             "gender": new_bot.getGender(),
-                #             "location": new_bot.getLocation(),
-                #             "levels": new_bot.getLevels(),
-                #             "birthday": new_bot.getBirthdayTxt(),
-                #             "interests": new_bot.getInterests(),
-                #             "status": new_bot.getStatus(),
-                #             "delDate": new_bot.getInterests(),
-                #             "name": new_bot.getName(),
-                #             "pseudoname": new_bot.getPseudoName(),
-                #             "nickname": new_bot.getNickName(),
-                #             "addr": new_bot.getInterests(),
-                #             "shipaddr": new_bot.getInterests(),
-                #             "phone": new_bot.getPhone(),
-                #             "email": new_bot.getEmail(),
-                #             "epw": new_bot.getEmPW(),
-                #             "backemail": new_bot.getBackEm(),
-                #             "ebpw": new_bot.getAcctPw()
-                #         })
-                #
-                #         sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
-                #                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                #         data_tuple = (
-                #         api_bots[i]["bid"], api_bots[i]["owner"], api_bots[i]["levels"], api_bots[i]["gender"],
-                #         api_bots[i]["birthday"], \
-                #         api_bots[i]["interests"], api_bots[i]["location"], api_bots[i]["roles"], api_bots[i]["status"],
-                #         api_bots[i]["delDate"], \
-                #         api_bots[i]["name"], api_bots[i]["pseudoname"], api_bots[i]["nickname"], api_bots[i]["addr"],
-                #         api_bots[i]["shipaddr"], \
-                #         api_bots[i]["phone"], api_bots[i]["email"], api_bots[i]["epw"], api_bots[i]["backemail"],
-                #         api_bots[i]["ebpw"])
-                #
-                #         self.dbCursor.execute(sql, data_tuple)
-                #
-                #         sql = 'SELECT * FROM bots'
-                #         res = self.dbCursor.execute(sql)
-                #         print("fetchall", res.fetchall())
-                        # important about format: returned here is a list of tuples (,,,,)
-                        #for column in res.description:
-                        #    print(column[0])
+                        # jresp = send_add_bots_request_to_cloud(self.session, filebbots,
+                        #                                        self.tokens['AuthenticationResult']['IdToken'])
+                        #
+                        # if "errorType" in jresp:
+                        #     screen_error = True
+                        #     print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+                        # else:
+                        #     print("jresp type: ", type(jresp), len(jresp["body"]))
+                        #     jbody = jresp["body"]
+                        #     # now that add is successfull, update local file as well.
+                        #
+                        #     # now add bot to local DB.
+                        #
+                        #     for i in range(len(jbody)):
+                        #         print(i)
+                        #         new_bot = EBBOT(self)
+                        #         self.fillNewBotPubInfo(jbody[i], new_bot)
+                        #         self.bots.append(new_bot)
+                        #         self.botModel.appendRow(new_bot)
+                        #         api_bots.append({
+                        #             "bid": new_bot.getBid(),
+                        #             "owner": self.owner,
+                        #             "roles": new_bot.getRoles(),
+                        #             "pubbirthday": new_bot.getPubBirthday(),
+                        #             "gender": new_bot.getGender(),
+                        #             "location": new_bot.getLocation(),
+                        #             "levels": new_bot.getLevels(),
+                        #             "birthday": new_bot.getBirthdayTxt(),
+                        #             "interests": new_bot.getInterests(),
+                        #             "status": new_bot.getStatus(),
+                        #             "delDate": new_bot.getInterests(),
+                        #             "name": new_bot.getName(),
+                        #             "pseudoname": new_bot.getPseudoName(),
+                        #             "nickname": new_bot.getNickName(),
+                        #             "addr": new_bot.getInterests(),
+                        #             "shipaddr": new_bot.getInterests(),
+                        #             "phone": new_bot.getPhone(),
+                        #             "email": new_bot.getEmail(),
+                        #             "epw": new_bot.getEmPW(),
+                        #             "backemail": new_bot.getBackEm(),
+                        #             "ebpw": new_bot.getAcctPw()
+                        #         })
+                        #
+                        #         sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
+                        #                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                        #         data_tuple = (
+                        #         api_bots[i]["bid"], api_bots[i]["owner"], api_bots[i]["levels"], api_bots[i]["gender"],
+                        #         api_bots[i]["birthday"], \
+                        #         api_bots[i]["interests"], api_bots[i]["location"], api_bots[i]["roles"], api_bots[i]["status"],
+                        #         api_bots[i]["delDate"], \
+                        #         api_bots[i]["name"], api_bots[i]["pseudoname"], api_bots[i]["nickname"], api_bots[i]["addr"],
+                        #         api_bots[i]["shipaddr"], \
+                        #         api_bots[i]["phone"], api_bots[i]["email"], api_bots[i]["epw"], api_bots[i]["backemail"],
+                        #         api_bots[i]["ebpw"])
+                        #
+                        #         self.dbCursor.execute(sql, data_tuple)
+                        #
+                        #         sql = 'SELECT * FROM bots'
+                        #         res = self.dbCursor.execute(sql)
+                        #         print("fetchall", res.fetchall())
+                                # important about format: returned here is a list of tuples (,,,,)
+                                #for column in res.description:
+                                #    print(column[0])
 
-            else:
-                self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
-        else:
-            self.warn(QApplication.translate("QMainWindow", "Warning: No file."))
+                    else:
+                        self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
+                else:
+                    self.warn(QApplication.translate("QMainWindow", "Warning: No file."))
 
-        for b in self.bots:
-            print("added BID:", b.getBid())
+            elif "xlsx" in filename:
+                xls = pd.ExcelFile(filename)
+
+                # Initialize an empty list to store JSON data
+                botsJson = []
+
+                # Iterate over each sheet in the Excel file
+                for sheet_name in xls.sheet_names:
+                    # Read the sheet into a DataFrame
+                    df = pd.read_excel(filename, sheet_name=sheet_name)
+
+                    # Convert DataFrame to JSON and append to the list
+                    botsJson = botsJson + df.to_dict(orient='records')
+
+        bots_from_file = []
+        for bjson in botsJson:
+            new_bot = EBBOT(self)
+            new_bot.loadXlsxData(bjson)
+            bots_from_file.append(new_bot)
 
     # data format conversion. nb is in EBMISSION data structure format., nbdata is json
     def fillNewMission(self, nmjson, nm):
@@ -3858,6 +3898,14 @@ class MainWindow(QMainWindow):
             print("resp body", jresp["body"])
             #jbody = json.loads(jresp["body"])
             # now that fetch all bots from the cloud side is successfull, need to compare with local data and merge:
+
+    def getAllBotsFromLocalDB(self):
+        sqlite_select_query = """SELECT * from bots;"""
+        self.dbCursor.execute(sqlite_select_query)
+        # Fetch all the rows (each row represents a column)
+        db_data = self.dbCursor.fetchall()
+        print("DB Data:", db_data)
+        # now populate UI with these bots.
 
 
     def setOwner(self, owner):
