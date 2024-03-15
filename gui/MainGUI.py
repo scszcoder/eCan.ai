@@ -3,6 +3,7 @@ import sqlite3
 from PySide6.QtCore import QParallelAnimationGroup, QPropertyAnimation, QAbstractAnimation, QThreadPool
 from PySide6.QtWidgets import QToolButton, QMenuBar
 
+import missions
 from inventories import *
 from network import *
 from LoggerGUI import *
@@ -15,6 +16,7 @@ from vehicles import *
 from unittests import *
 from SkillManagerGUI import *
 import os
+import openpyxl
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -2392,34 +2394,36 @@ class MainWindow(QMainWindow):
         # now should close the main window and bring back up the login screen?
 
 
-    def addNewBot(self, new_bot):
+    def addNewBots(self, new_bots):
         # Logic for creating a new bot:
-        print("adding a .... new... bot")
-        api_bots = [{
-            "bid": new_bot.getBid(),
-            "owner": self.owner,
-            "roles": new_bot.getRoles(),
-            "pubbirthday": new_bot.getPubBirthday(),
-            "gender": new_bot.getGender(),
-            "location": new_bot.getLocation(),
-            "levels": new_bot.getLevels(),
-            "birthday": new_bot.getBirthdayTxt(),
-            "interests": new_bot.getInterests(),
-            "status": new_bot.getStatus(),
-            "delDate": new_bot.getInterests(),
-            "name": new_bot.getName(),
-            "pseudoname": new_bot.getPseudoName(),
-            "nickname": new_bot.getNickName(),
-            "addr": new_bot.getInterests(),
-            "shipaddr": new_bot.getInterests(),
-            "phone": new_bot.getPhone(),
-            "email": new_bot.getEmail(),
-            "epw": new_bot.getEmPW(),
-            "backemail": new_bot.getBackEm(),
-            "ebpw": new_bot.getAcctPw(),
-            "backemail_site": new_bot.getBackEmSite()
-        }]
-        jresp = send_add_bots_request_to_cloud(self.session, [new_bot], self.tokens['AuthenticationResult']['IdToken'])
+        api_bots = []
+        print("adding new bots....")
+        for new_bot in new_bots:
+            api_bots.append({
+                "bid": new_bot.getBid(),
+                "owner": self.owner,
+                "roles": new_bot.getRoles(),
+                "pubbirthday": new_bot.getPubBirthday(),
+                "gender": new_bot.getGender(),
+                "location": new_bot.getLocation(),
+                "levels": new_bot.getLevels(),
+                "birthday": new_bot.getBirthdayTxt(),
+                "interests": new_bot.getInterests(),
+                "status": new_bot.getStatus(),
+                "delDate": new_bot.getInterests(),
+                "name": new_bot.getName(),
+                "pseudoname": new_bot.getPseudoName(),
+                "nickname": new_bot.getNickName(),
+                "addr": new_bot.getInterests(),
+                "shipaddr": new_bot.getInterests(),
+                "phone": new_bot.getPhone(),
+                "email": new_bot.getEmail(),
+                "epw": new_bot.getEmPW(),
+                "backemail": new_bot.getBackEm(),
+                "ebpw": new_bot.getAcctPw(),
+                "backemail_site": new_bot.getBackEmSite()
+            })
+        jresp = send_add_bots_request_to_cloud(self.session, new_bots, self.tokens['AuthenticationResult']['IdToken'])
 
         if "errorType" in jresp:
             screen_error = True
@@ -2429,89 +2433,103 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             #now that add is successfull, update local file as well.
             # first, update bot ID both in data structure and in GUI display.
+            idx = 0
+            for i, resp_rec in enumerate(jresp["body"]):
+                new_bots[i].setBid(resp_rec["bid"])
+                new_bots[i].setInterests(resp_rec["interests"])
+                self.bots.append(new_bots[i])
+                self.botModel.appendRow(new_bots[i])
 
-            new_bot.setBid(jresp["body"][0]["bid"])
-
-            self.bots.append(new_bot)
-            self.botModel.appendRow(new_bot)
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
-
-            sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT)'
-
-            # now add bot to local DB.
+            # now add bots to local DB.
             j = 0
+            data_tuple = []
+            sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw, backemail_site)
+                                          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
             for newbot in jbody:
                 sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw, backemail_site)
                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                data_tuple = (newbot["bid"], newbot["owner"], newbot["levels"], newbot["gender"], newbot["birthday"], \
+                data_tuple.append((newbot["bid"], newbot["owner"], newbot["levels"], newbot["gender"], newbot["birthday"], \
                               newbot["interests"], newbot["location"], newbot["roles"], newbot["status"], newbot["delDate"], \
                               api_bots[j]["name"], api_bots[j]["pseudoname"], api_bots[j]["nickname"], api_bots[j]["addr"], api_bots[j]["shipaddr"], \
-                              api_bots[j]["phone"], api_bots[j]["email"], api_bots[j]["epw"], api_bots[j]["backemail"], api_bots[j]["ebpw"], api_bots[j]["backemail_site"])
-
-                self.dbCursor.execute(sql, data_tuple)
-
-                # Check if the INSERT query was successful
-                if self.dbCursor.rowcount == 1:
-                    print("Insertion successful.")
-                    self.dbcon.commit()
-                else:
-                    print("Insertion failed.")
-
+                              api_bots[j]["phone"], api_bots[j]["email"], api_bots[j]["epw"], api_bots[j]["backemail"], api_bots[j]["ebpw"], api_bots[j]["backemail_site"]))
                 j = j + 1
+
+            self.dbCursor.executemany(sql, data_tuple)
+
+            # Check if the INSERT query was successful
+            if self.dbCursor.rowcount == len(new_bots):
+                print("New Bot SQLite DB Insertion successful.")
+                self.dbcon.commit()
+            else:
+                print("Insertion failed.")
+
             #update self data structure and save in json file for easy access (1 line of python code)
             # self.saveBotJsonFile(jbody)
 
-        #now read back just added bots and echo it back onto display...
+            #now read back just added bots and echo it back onto display...
+            bid_tuple = tuple([bot.getBid() for bot in new_bots])
 
+            # Construct the SQL query with a parameterized IN clause
+            sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
 
-    def updateABot(self, abot):
+            res = self.dbCursor.execute(sql)
+            db_data = self.dbCursor.fetchall()
+            print("Just Added Local DB Bot Row(s):", db_data)
+
+    def updateBots(self, bots):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
         # otherwise, only update locally.
         jresp = {"body": []}
-        api_bots = [{
-            "bid": abot.getBid(),
-            "owner": self.owner,
-            "roles": abot.getRoles(),
-            "pubbirthday": abot.getPubBirthday(),
-            "gender": abot.getGender(),
-            "location": abot.getLocation(),
-            "levels": abot.getLevels(),
-            "birthday": abot.getBirthdayTxt(),
-            "interests": abot.getInterests(),
-            "status": abot.getStatus(),
-            "delDate": abot.getInterests(),
-            "name": abot.getName(),
-            "pseudoname": abot.getPseudoName(),
-            "nickname": abot.getNickName(),
-            "addr": abot.getInterests(),
-            "shipaddr": abot.getInterests(),
-            "phone": abot.getPhone(),
-            "email": abot.getEmail(),
-            "epw": abot.getEmPW(),
-            "backemail": abot.getBackEm(),
-            "ebpw": abot.getAcctPw(),
-            "backemail_site": abot.getAcctPw()
-        }]
-        jresp = send_update_bots_request_to_cloud(self.session, [abot], self.tokens['AuthenticationResult']['IdToken'])
+        api_bots = []
+        for abot in bots:
+            api_bots.append({
+                "bid": abot.getBid(),
+                "owner": self.owner,
+                "roles": abot.getRoles(),
+                "pubbirthday": abot.getPubBirthday(),
+                "gender": abot.getGender(),
+                "location": abot.getLocation(),
+                "levels": abot.getLevels(),
+                "birthday": abot.getBirthdayTxt(),
+                "interests": abot.getInterests(),
+                "status": abot.getStatus(),
+                "delDate": abot.getInterests(),
+                "name": abot.getName(),
+                "pseudoname": abot.getPseudoName(),
+                "nickname": abot.getNickName(),
+                "addr": abot.getInterests(),
+                "shipaddr": abot.getInterests(),
+                "phone": abot.getPhone(),
+                "email": abot.getEmail(),
+                "epw": abot.getEmPW(),
+                "backemail": abot.getBackEm(),
+                "ebpw": abot.getAcctPw(),
+                "backemail_site": abot.getAcctPw()
+            })
+
+        jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
         else:
             jbody = jresp["body"]
 
-            if jbody['numberOfRecordsUpdated'] == 1:
+            if jbody['numberOfRecordsUpdated'] == len(bots):
 
                 sql = ''' UPDATE bots SET owner = ?, levels = ?, gender = ?, birthday = ?, interests = ?, location = ?, roles = ?,
                         status = ?, delDate = ?, name = ?, pseudoname = ?, nickname = ?, addr = ?, shipaddr = ?, phone = ?, 
                         email = ?,  epw = ?, backemail = ?, ebpw = ? , backemail_site = ?WHERE botid = ?; '''
 
-                data_tuple = (api_bots[0]["owner"], api_bots[0]["levels"], api_bots[0]["gender"], api_bots[0]["birthday"], \
-                              api_bots[0]["interests"], api_bots[0]["location"], api_bots[0]["roles"], api_bots[0]["status"], api_bots[0]["delDate"], \
-                              api_bots[0]["name"], api_bots[0]["pseudoname"], api_bots[0]["nickname"], api_bots[0]["addr"], api_bots[0]["shipaddr"], \
-                              api_bots[0]["phone"], api_bots[0]["email"], api_bots[0]["epw"], api_bots[0]["backemail"], api_bots[0]["ebpw"], api_bots[0]["backemail_site"], api_bots[0]["bid"])
+                data_tuple = []
+                for i, api_bot in enumerate(api_bots):
+                    data_tuple.append((api_bots[i]["owner"], api_bots[i]["levels"], api_bots[i]["gender"], api_bots[i]["birthday"], \
+                                  api_bots[i]["interests"], api_bots[i]["location"], api_bots[i]["roles"], api_bots[i]["status"], api_bots[i]["delDate"], \
+                                  api_bots[i]["name"], api_bots[i]["pseudoname"], api_bots[i]["nickname"], api_bots[i]["addr"], api_bots[i]["shipaddr"], \
+                                  api_bots[i]["phone"], api_bots[i]["email"], api_bots[i]["epw"], api_bots[i]["backemail"], api_bots[i]["ebpw"], api_bots[i]["backemail_site"], api_bots[i]["bid"]))
 
-                self.dbCursor.execute(sql, data_tuple)
+                self.dbCursor.executemany(sql, data_tuple)
                 # Check if the UPDATE query was successful
                 if self.dbCursor.rowcount > 0:
                     print(f"{self.dbCursor.rowcount} row(s) updated successfully.")
@@ -2521,53 +2539,63 @@ class MainWindow(QMainWindow):
             else:
                 print("WARNING: bot NOT updated in Cloud!")
 
-            #now that add is successfull, update local file as well.
-            # self.saveBotJsonFile()
+            #now read back just added bots and echo it back onto display...
+            #now read back just added bots and echo it back onto display...
+            bid_tuple = tuple([bot.getBid() for bot in bots])
 
-    def addNewMission(self, new_mission):
+            # Construct the SQL query with a parameterized IN clause
+            sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
+
+            res = self.dbCursor.execute(sql)
+            db_data = self.dbCursor.fetchall()
+            print("Just Updated Local DB Bot Row:", db_data)
+
+    def addNewMissions(self, new_missions):
         # Logic for creating a new mission:
         print("adding a .... new... mission")
-        api_missions = [{
-            "mid": new_mission.getMid(),
-            "ticket": new_mission.getMid(),
-            "botid": new_mission.getBid(),
-            "status": new_mission.getStatus(),
-            "createon": new_mission.getBD(),
-            "esd": new_mission.getEsd(),
-            "ecd": new_mission.getEcd(),
-            "asd": new_mission.getAsd(),
-            "abd": new_mission.getAbd(),
-            "aad": new_mission.getAad(),
-            "afd": new_mission.getAfd(),
-            "acd": new_mission.getAcd(),
-            "actual_start_time": new_mission.getActualStartTime(),
-            "est_start_time": new_mission.getEstimatedStartTime(),
-            "actual_run_time": new_mission.getActualRunTime(),
-            "est_run_time": new_mission.getEstimatedRunTime(),
-            "n_retries": new_mission.getNRetries(),
-            "cuspas": new_mission.getCusPAS(),
-            "search_cat": new_mission.getSearchCat(),
-            "search_kw": new_mission.getSearchKW(),
-            "pseudo_store": new_mission.getPseudoStore(),
-            "pseudo_brand": new_mission.getPseudoBrand(),
-            "pseudo_asin": new_mission.getPseudoASIN(),
-            "repeat": new_mission.getRetry(),
-            "mtype": new_mission.getMtype(),
-            "mconfig": new_mission.getConfig(),
-            "skills": new_mission.getSkills(),
-            "delDate": new_mission.getDelDate(),
-            "asin": new_mission.getASIN(),
-            "store": new_mission.getStore(),
-            "brand": new_mission.getBrand(),
-            "image": new_mission.getImagePath(),
-            "title": new_mission.getTitle(),
-            "rating": new_mission.getRating(),
-            "feedbacks": new_mission.getFeedbacks(),
-            "price": new_mission.getPrice(),
-            "customer": new_mission.getCustomerID(),
-            "platoon": new_mission.getPlatoonID()
-        }]
-        jresp = send_add_missions_request_to_cloud(self.session, [new_mission], self.tokens['AuthenticationResult']['IdToken'])
+        api_missions = []
+        for new_mission in new_missions:
+            api_missions.append({
+                "mid": new_mission.getMid(),
+                "ticket": new_mission.getMid(),
+                "botid": new_mission.getBid(),
+                "status": new_mission.getStatus(),
+                "createon": new_mission.getBD(),
+                "esd": new_mission.getEsd(),
+                "ecd": new_mission.getEcd(),
+                "asd": new_mission.getAsd(),
+                "abd": new_mission.getAbd(),
+                "aad": new_mission.getAad(),
+                "afd": new_mission.getAfd(),
+                "acd": new_mission.getAcd(),
+                "actual_start_time": new_mission.getActualStartTime(),
+                "est_start_time": new_mission.getEstimatedStartTime(),
+                "actual_run_time": new_mission.getActualRunTime(),
+                "est_run_time": new_mission.getEstimatedRunTime(),
+                "n_retries": new_mission.getNRetries(),
+                "cuspas": new_mission.getCusPAS(),
+                "search_cat": new_mission.getSearchCat(),
+                "search_kw": new_mission.getSearchKW(),
+                "pseudo_store": new_mission.getPseudoStore(),
+                "pseudo_brand": new_mission.getPseudoBrand(),
+                "pseudo_asin": new_mission.getPseudoASIN(),
+                "repeat": new_mission.getRetry(),
+                "mtype": new_mission.getMtype(),
+                "mconfig": new_mission.getConfig(),
+                "skills": new_mission.getSkills(),
+                "delDate": new_mission.getDelDate(),
+                "asin": new_mission.getASIN(),
+                "store": new_mission.getStore(),
+                "brand": new_mission.getBrand(),
+                "image": new_mission.getImagePath(),
+                "title": new_mission.getTitle(),
+                "rating": new_mission.getRating(),
+                "feedbacks": new_mission.getFeedbacks(),
+                "price": new_mission.getPrice(),
+                "customer": new_mission.getCustomerID(),
+                "platoon": new_mission.getPlatoonID()
+            })
+        jresp = send_add_missions_request_to_cloud(self.session, new_missions, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
             print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
@@ -2576,101 +2604,123 @@ class MainWindow(QMainWindow):
             # now that delete is successfull, update local file as well.
             # self.writeMissionJsonFile()
             print("JUST ADDED mission:", jbody)
-            new_mission.setMid(jbody[0]["mid"])
-            new_mission.setTicket(jbody[0]["ticket"])
-            new_mission.setEstimatedStartTime(jbody[0]["esttime"])
-            new_mission.setEstimatedRunTime(jbody[0]["runtime"])
-            new_mission.setEsd(jbody[0]["esd"])
-            self.missions.append(new_mission)
-            self.missionModel.appendRow(new_mission)
+            for i, new_mission in enumerate(new_missions):
+                new_mission.setMid(jbody[i]["mid"])
+                new_mission.setTicket(jbody[i]["ticket"])
+                new_mission.setEstimatedStartTime(jbody[i]["esttime"])
+                new_mission.setEstimatedRunTime(jbody[i]["runtime"])
+                new_mission.setEsd(jbody[i]["esd"])
+                self.missions.append(new_mission)
+                self.missionModel.appendRow(new_mission)
 
             # mid ticket botid status createon esd ecd asd abd aad afd acd startt esttime runtime cuspas category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, title, rating, customer, platoon'
             # add to local DB
             sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, actual_start_time, est_start_time, actual_runtime,
                     est_runtime, n_retries, cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
                     title, rating, feedbacks, price, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-            data_tuple = (jbody[0]["mid"], jbody[0]["ticket"], jbody[0]["botid"], jbody[0]["status"], jbody[0]["createon"], \
-                          jbody[0]["esd"], jbody[0]["ecd"], jbody[0]["asd"], jbody[0]["abd"], jbody[0]["aad"], \
-                          jbody[0]["afd"], jbody[0]["acd"], api_missions[0]["actual_start_time"], jbody[0]["esttime"], api_missions[0]["actual_run_time"], jbody[0]["runtime"], \
-                          api_missions[0]["n_retries"], jbody[0]["cuspas"], jbody[0]["category"], jbody[0]["phrase"], jbody[0]["pseudoStore"], \
-                          jbody[0]["pseudoBrand"], jbody[0]["pseudoASIN"], jbody[0]["type"], jbody[0]["config"], \
-                          jbody[0]["skills"], jbody[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
-                          api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], api_missions[0]["platoon"])
-            self.dbCursor.execute(sql, data_tuple)
+
+            data_tuple = []
+            for i, jb in enumerate(jbody):
+                data_tuple.append((jbody[i]["mid"], jbody[i]["ticket"], jbody[i]["botid"], jbody[i]["status"], jbody[i]["createon"], \
+                          jbody[i]["esd"], jbody[i]["ecd"], jbody[i]["asd"], jbody[i]["abd"], jbody[i]["aad"], \
+                          jbody[i]["afd"], jbody[i]["acd"], api_missions[i]["actual_start_time"], jbody[i]["esttime"], api_missions[i]["actual_run_time"], jbody[i]["runtime"], \
+                          api_missions[i]["n_retries"], jbody[i]["cuspas"], jbody[i]["category"], jbody[i]["phrase"], jbody[i]["pseudoStore"], \
+                          jbody[i]["pseudoBrand"], jbody[i]["pseudoASIN"], jbody[i]["type"], jbody[i]["config"], \
+                          jbody[i]["skills"], jbody[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"], api_missions[i]["brand"], \
+                          api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], api_missions[i]["customer"], api_missions[i]["platoon"]))
+
+            self.dbCursor.executemany(sql, data_tuple)
             # Check if the INSERT query was successful
-            if self.dbCursor.rowcount == 1:
-                print("Insertion successful.")
+            if self.dbCursor.rowcount == len(jbody):
+                print("New Mission SQLite DB Insertion successful.")
                 self.dbcon.commit()
             else:
                 print("Insertion failed.")
 
-    def updateAMission(self, amission):
+            mid_tuple = tuple([mission.getMid() for mission in new_missions])
+
+            # Construct the SQL query with a parameterized IN clause
+            sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
+            res = self.dbCursor.execute(sql)
+            db_data = self.dbCursor.fetchall()
+            print("Just Added Local DB Mission Row:", db_data)
+
+
+    def updateMissions(self, missions):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
         # otherwise, only update locally.
-        api_missions = [{
-            "mid": amission.getMid(),
-            "ticket": amission.getMid(),
-            "botid": amission.getBid(),
-            "status": amission.getStatus(),
-            "createon": amission.getBD(),
-            "esd": amission.getEsd(),
-            "ecd": amission.getEcd(),
-            "asd": amission.getAsd(),
-            "abd": amission.getAbd(),
-            "aad": amission.getAad(),
-            "afd": amission.getAfd(),
-            "acd": amission.getAcd(),
-            "actual_start_time": amission.getActualStartTime(),
-            "est_start_time": amission.getEstimatedStartTime(),
-            "actual_run_time": amission.getActualRunTime(),
-            "est_run_time": amission.getEstimatedRunTime(),
-            "n_retries": amission.getNRetries(),
-            "cuspas": amission.getCusPAS(),
-            "search_cat": amission.getSearchCat(),
-            "search_kw": amission.getSearchKW(),
-            "pseudo_store": amission.getPseudoStore(),
-            "pseudo_brand": amission.getPseudoBrand(),
-            "pseudo_asin": amission.getPseudoASIN(),
-            "repeat": amission.getRetry(),
-            "type": amission.getMtype(),
-            "config": amission.getConfig(),
-            "skills": amission.getSkills(),
-            "delDate": amission.getDelDate(),
-            "asin": amission.getASIN(),
-            "store": amission.getStore(),
-            "brand": amission.getBrand(),
-            "image": amission.getImagePath(),
-            "title": amission.getTitle(),
-            "rating": amission.getRating(),
-            "feedbacks": amission.getFeedbacks(),
-            "price": amission.getPrice(),
-            "customer": amission.getCustomerID(),
-            "platoon": amission.getPlatoonID()
-        }]
+        api_missions = []
+        for amission in missions:
+            api_missions.append({
+                "mid": amission.getMid(),
+                "ticket": amission.getMid(),
+                "botid": amission.getBid(),
+                "status": amission.getStatus(),
+                "createon": amission.getBD(),
+                "esd": amission.getEsd(),
+                "ecd": amission.getEcd(),
+                "asd": amission.getAsd(),
+                "abd": amission.getAbd(),
+                "aad": amission.getAad(),
+                "afd": amission.getAfd(),
+                "acd": amission.getAcd(),
+                "actual_start_time": amission.getActualStartTime(),
+                "est_start_time": amission.getEstimatedStartTime(),
+                "actual_run_time": amission.getActualRunTime(),
+                "est_run_time": amission.getEstimatedRunTime(),
+                "n_retries": amission.getNRetries(),
+                "cuspas": amission.getCusPAS(),
+                "search_cat": amission.getSearchCat(),
+                "search_kw": amission.getSearchKW(),
+                "pseudo_store": amission.getPseudoStore(),
+                "pseudo_brand": amission.getPseudoBrand(),
+                "pseudo_asin": amission.getPseudoASIN(),
+                "repeat": amission.getRetry(),
+                "type": amission.getMtype(),
+                "config": amission.getConfig(),
+                "skills": amission.getSkills(),
+                "delDate": amission.getDelDate(),
+                "asin": amission.getASIN(),
+                "store": amission.getStore(),
+                "brand": amission.getBrand(),
+                "image": amission.getImagePath(),
+                "title": amission.getTitle(),
+                "rating": amission.getRating(),
+                "feedbacks": amission.getFeedbacks(),
+                "price": amission.getPrice(),
+                "customer": amission.getCustomerID(),
+                "platoon": amission.getPlatoonID()
+            })
 
-        jresp = send_update_missions_request_to_cloud(self.session, [amission], self.tokens['AuthenticationResult']['IdToken'])
+        jresp = send_update_missions_request_to_cloud(self.session, missions, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
             print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
         else:
             jbody = jresp["body"]
             print("Update Cloud side result:", jbody)
-            if jbody['numberOfRecordsUpdated'] == 1:
+            if jbody['numberOfRecordsUpdated'] == len(missions):
                 #update local DB
                 sql = ''' UPDATE missions SET ticket = ?, botid = ?, status = ?, createon = ?, esd = ?, ecd = ?, asd = ?, abd = ?, 
                         aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
                         n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
                         pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
                         img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ? WHERE mid = ?; '''
-                data_tuple = (
-                api_missions[0]["ticket"], api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
-                api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], api_missions[0]["abd"], api_missions[0]["aad"], \
-                api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["actual_start_time"], api_missions[0]["est_start_time"], api_missions[0]["actual_run_time"], api_missions[0]["est_run_time"], \
-                api_missions[0]["n_retries"], api_missions[0]["cuspas"], api_missions[0]["search_cat"], api_missions[0]["search_kw"], api_missions[0]["pseudo_store"], \
-                api_missions[0]["pseudo_brand"], api_missions[0]["pseudo_asin"], api_missions[0]["type"], api_missions[0]["config"], \
-                api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], api_missions[0]["store"], api_missions[0]["brand"], \
-                api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], api_missions[0]["platoon"], api_missions[0]["mid"])
-                self.dbCursor.execute(sql, data_tuple)
+
+                data_tuple = []
+
+                for i, amission in enumerate(jbody):
+                    data_tuple.append((
+                    api_missions[i]["ticket"], api_missions[i]["botid"], api_missions[i]["status"], api_missions[i]["createon"], \
+                    api_missions[i]["esd"], api_missions[i]["ecd"], api_missions[i]["asd"], api_missions[i]["abd"], api_missions[i]["aad"], \
+                    api_missions[i]["afd"], api_missions[i]["acd"], api_missions[i]["actual_start_time"], api_missions[i]["est_start_time"], api_missions[i]["actual_run_time"], api_missions[i]["est_run_time"], \
+                    api_missions[i]["n_retries"], api_missions[i]["cuspas"], api_missions[i]["search_cat"], api_missions[i]["search_kw"], api_missions[i]["pseudo_store"], \
+                    api_missions[i]["pseudo_brand"], api_missions[i]["pseudo_asin"], api_missions[i]["type"], api_missions[i]["config"], \
+                    api_missions[i]["skills"], api_missions[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"], api_missions[i]["brand"], \
+                    api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], api_missions[i]["customer"], api_missions[i]["platoon"], api_missions[i]["mid"]))
+
+
+                self.dbCursor.executemany(sql, data_tuple)
                 # Check if the UPDATE query was successful
                 print("data_tuple:", data_tuple)
                 print("update row count:", str(self.dbCursor.rowcount))
@@ -2681,6 +2731,16 @@ class MainWindow(QMainWindow):
                     print("No rows were updated.")
                 # now that add is successfull, update local file as well.
                 # self.writeMissionJsonFile()
+
+                mid_tuple = tuple([mission.getMid() for mission in missions])
+
+                # Construct the SQL query with a parameterized IN clause
+                sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
+                # now read back just added bots and echo it back onto display...
+                res = self.dbCursor.execute(sql)
+                db_data = self.dbCursor.fetchall()
+                print("Just Updated Local DB Mission Row:", db_data)
+
             else:
                 print("WARNIN: cloud NOT updated.")
 
@@ -3156,7 +3216,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_mission = copy.deepcopy(self.selected_cus_mission_item)
         # new_bot.setText()
-        self.addNewMission(new_mission)
+        self.addNewMissions([new_mission])
 
     def deleteCusMission(self):
         # File actions
@@ -3268,7 +3328,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_bot = copy.deepcopy(self.selected_bot_item)
         # new_bot.setText()
-        self.addNewBot(new_bot)
+        self.addNewBots([new_bot])
 
     def deleteBot(self):
         # File actions
@@ -3344,7 +3404,7 @@ class MainWindow(QMainWindow):
             self,
             QApplication.translate("QFileDialog", "Open Bot Definition File"),
             '',
-            QApplication.translate("QFileDialog", "Bot Files (*.json, *.xlsx, *.csv)")
+            QApplication.translate("QFileDialog", "Bot Files (*.json *.xlsx *.csv)")
         )
         if filename != "":
             if "json" in filename:
@@ -3433,24 +3493,43 @@ class MainWindow(QMainWindow):
                     self.warn(QApplication.translate("QMainWindow", "Warning: No file."))
 
             elif "xlsx" in filename:
-                xls = pd.ExcelFile(filename)
+                print("working on file:", filename)
+                xls = openpyxl.load_workbook(filename, data_only=True)
 
                 # Initialize an empty list to store JSON data
                 botsJson = []
-
                 # Iterate over each sheet in the Excel file
-                for sheet_name in xls.sheet_names:
+                title_cells = []
+                for idx, sheet in enumerate(xls.sheetnames):
                     # Read the sheet into a DataFrame
-                    df = pd.read_excel(filename, sheet_name=sheet_name)
+                    ws = xls[sheet]
+
+                    # Iterate over each row in the sheet
+                    for ri, row in enumerate(ws.iter_rows(values_only=True)):
+                        if idx == 0 and ri == 0:
+                            title_cells = [cell for cell in row]
+                        elif ri > 0:
+                            if len(row) == 25:
+                                botJson = {}
+                                for ci, cell in enumerate(title_cells):
+                                    if cell == "DoB":
+                                        botJson[cell] = row[ci].strftime('%Y-%m-%d')
+                                    else:
+                                        botJson[cell] = row[ci]
+
+                                botsJson.append(botJson)
 
                     # Convert DataFrame to JSON and append to the list
-                    botsJson = botsJson + df.to_dict(orient='records')
-
+        print("total # of rows read:", len(botsJson))
+        print("all jsons from bot xlsx file:", botsJson)
         bots_from_file = []
         for bjson in botsJson:
             new_bot = EBBOT(self)
             new_bot.loadXlsxData(bjson)
             bots_from_file.append(new_bot)
+            new_bot.genJson()
+
+        self.addNewBots(bots_from_file)
 
     # data format conversion. nb is in EBMISSION data structure format., nbdata is json
     def fillNewMission(self, nmjson, nm):

@@ -791,6 +791,7 @@ class BotNewWin(QMainWindow):
                 interests = interests + ","
         self.newBot.setInterests(interests)
 
+    # fill GUI from data.
     def setBot(self, bot):
         self.newBot = bot
         #now populate the GUI to reflect info in this bot.
@@ -1001,10 +1002,10 @@ class BotNewWin(QMainWindow):
 
         if self.mode == "new":
             print("adding new bot....")
-            self.parent.addNewBot(self.newBot)
+            self.parent.addNewBots([self.newBot])
         elif self.mode == "update":
             print("update a bot....")
-            self.parent.updateABot(self.newBot)
+            self.parent.updateBots([self.newBot])
 
         self.close()
         # print(self.parent)
@@ -1014,8 +1015,11 @@ class BotNewWin(QMainWindow):
         for i in range(self.roleModel.rowCount()):
             self.selected_role_item = self.roleModel.item(i)
             rd = self.selected_role_item.getData()
-            role_words = rd[0] + ":" + rd[2] + ":" + rd[1]
-            self.newBot.setRoles(self.newBot.getRoles() + "," + role_words)
+            role_words = rd[0] + ":" + rd[2]
+            if i == 0:
+                self.newBot.setRoles(self.newBot.getRoles() + role_words)
+            else:
+                self.newBot.setRoles(self.newBot.getRoles() + "," + role_words)
             print("roles>>>>>", self.newBot.getRoles())
 
     def fillInterests(self):
