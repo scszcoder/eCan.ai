@@ -126,14 +126,13 @@ class BOT_PRIVATE_PROFILE():
 
     def setAddr(self, l1, l2, city, state, zip):
         self.addrl1 = l1
+        if not l2:
+            l2 = ""
         self.addrl2 = l2
         self.addrcity = city
         self.addrstate = state
         self.addrzip = zip
-        if l2 != "":
-            self.addr = l1 + "\n" + l2 + "\n" + city + ", " + state + " " + zip
-        else:
-            self.addr = l1 + "\n" + city + ", " + state + " " + zip
+        self.addr = l1 + "\n" + l2 + "\n" + city + ", " + state + " " + zip
 
     def setAddr1(self, addr):
         self.addr = addr
@@ -141,14 +140,13 @@ class BOT_PRIVATE_PROFILE():
 
     def setShippingAddr(self, l1, l2, city, state, zip):
         self.shipping_addrl1 = l1
+        if not l2:
+            l2 = ""
         self.shipping_addrl1 = l2
         self.shipping_addrcity = city
         self.shipping_addrstate = state
         self.shipping_addrzip = zip
-        if l2 != "":
-            self.shipping_addr = l1 + "\n" + l2 + "\n" + city + ", " + state + " " + zip
-        else:
-            self.shipping_addr = l1 + "\n" + city + ", " + state + " " + zip
+        self.shipping_addr = l1 + "\n" + l2 + "\n" + city + ", " + state + " " + zip
 
     def setShippingAddr1(self, addr):
         self.shipping_addr = addr
@@ -425,7 +423,10 @@ class EBBOT(QStandardItem):
         self.settings = BOT_SETTINGS()
 
         self.ebType = "AMZ"
-        self.setText('bot'+str(self.getBid()))
+        if len(self.getFn()) > 1:
+            self.setText('bot' + str(self.getBid())+":"+self.getFn()[:1]+" "+self.getLn())
+        else:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
         self.setFont(parent.std_item_font)
         self.icon = QIcon(parent.bot_icon_path)
         self.setIcon(self.icon)
@@ -590,7 +591,10 @@ class EBBOT(QStandardItem):
 
     def setBid(self, bid):
         self.pubProfile.bid = bid
-        self.setText('bot'+str(bid))
+        if len(self.getFn()) > 1:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn())
+        else:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
 
     def setOwner(self, owner):
         self.pubProfile.owner = owner
@@ -611,11 +615,17 @@ class EBBOT(QStandardItem):
         self.pubProfile.loadJson(nbJson["pubProfile"])
         self.privateProfile.loadJson(nbJson["privateProfile"])
         self.settings.loadJson(nbJson["settings"])
-        self.setText('bot' + str(self.getBid()))
+        if len(self.getFn()) > 1:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn())
+        else:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
-        self.setText('bot' + str(self.getBid()))
+        if len(self.getFn()) > 1:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn())
+        else:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
 
     def genJson(self):
         print("generating Json..........>>>>")
@@ -628,7 +638,10 @@ class EBBOT(QStandardItem):
         return jsd
 
     def updateDisplay(self):
-        self.setText('bot' + str(self.getBid()))
+        if len(self.getFn()) > 1:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn())
+        else:
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
 
     def loadDBData(self, dbd):
         self.pubProfile.setBid(dbd[0])
@@ -655,20 +668,21 @@ class EBBOT(QStandardItem):
 
 
     def loadXlsxData(self, jd):
-        self.pubProfile.setLevels(jd["2"])
+        # location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr
+        self.pubProfile.setLevels(jd["Levels"])
         self.pubProfile.setGender(jd["Gender"])
         self.pubProfile.setPubBirthday(jd["DoB"])
-        self.pubProfile.setInterests(jd["5"])
-        self.pubProfile.setLoc(jd["6"])
-        self.pubProfile.setRoles(jd["7"])
-        self.pubProfile.setStatus(jd["8"])
-        self.pubProfile.setDelDate(jd["9"])
+        self.pubProfile.setInterests(jd["Interests"])
+        self.pubProfile.setLoc(jd["Proxy City"]+","+jd["State"])
+        self.pubProfile.setRoles(jd["Roles"])
+        self.pubProfile.setStatus("")
+        self.pubProfile.setDelDate("2121-01-01")
         self.privateProfile.setName(jd["New First Name"]+" "+jd["Last Name"])
         self.pubProfile.setPseudoName(jd["PseudoFN"]+" "+jd["PseudoLN"])
         self.pubProfile.setNickName("")
         self.privateProfile.setAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
-        self.privateProfile.setShippingAddr1(jd["14"])
-        self.privateProfile.setPhone(jd["15"])
+        self.privateProfile.setShippingAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
+        self.privateProfile.setPhone(jd["IP phone"])
         self.privateProfile.setEmail(jd["Email"])
         self.privateProfile.setEPW(jd["PW"])
         self.privateProfile.setBackEmail(jd["Backup Email"])
