@@ -27,6 +27,14 @@ class VEHICLE(QStandardItem):
         self.setFont(parent.std_item_font)
         self.status = "Idle";
         self.mstats = []
+        self.field_link = None
+
+
+    def getFieldLink(self):
+        return self.field_link
+
+    def setFieldLink(self, fl):
+        self.field_link = fl
 
     def getVid(self):
         return self.id
