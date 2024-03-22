@@ -122,9 +122,7 @@ class MainWindow(QMainWindow):
         self.mission_failed_icon_path = self.homepath + '/resource/images/icons/failed_launch0_48.png'
         self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
         self.product_icon_path = self.homepath + '/resource/images/icons/product80_0.png'
-        self.win_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
-        self.mac_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
-        self.linux_vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
+        self.vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
         self.commander_icon_path = self.homepath + '/resource/images/icons/general1_4.png'
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
@@ -145,6 +143,7 @@ class MainWindow(QMainWindow):
         self.tokens = inTokens
         self.machine_role = machine_role
         self.ip = ip
+        print("main window ip:", self.ip)
         if self.machine_role != "Platoon":
             self.tcpServer = tcpserver
             self.commanderXport = None
@@ -1514,10 +1513,10 @@ class MainWindow(QMainWindow):
         }
 
         if self.hostrole == "Commander":
-            print("checking commander>>>>>>>>>>>>>>>>>>>>>>>>>", self.ip)
+            print("checking commander>>>>>>>>>>>>>>>>>>>>>>>>>", self.getIP())
             self_v = VEHICLE(self)
-            self_v.setIP(self.getIP()[0])
-            ipfields = self.getIP()[0].split(".")
+            self_v.setIP(self.getIP())
+            ipfields = self.getIP().split(".")
             ip = ipfields[len(ipfields) - 1]
             self_v.setVid(ip)
             if self.platform == "win":
