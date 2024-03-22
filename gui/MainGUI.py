@@ -1515,13 +1515,17 @@ class MainWindow(QMainWindow):
 
         if self.hostrole == "Commander":
             print("checking commander>>>>>>>>>>>>>>>>>>>>>>>>>", self.ip)
+            self_v = VEHICLE(self)
+            self_v.setIP(self.getIP()[0])
+            ipfields = self.getIP()[0].split(".")
+            ip = ipfields[len(ipfields) - 1]
+            self_v.setVid(ip)
             if self.platform == "win":
-                result["win"].append(self.ip)
+                result["win"].append(self_v)
             elif self.platform == "mac":
-                result["mac"].append(self.ip)
+                result["mac"].append(self_v)
             else:
-                result["linux"].append(self.ip)
-
+                result["linux"].append(self_v)
 
         return result
 
@@ -1570,7 +1574,7 @@ class MainWindow(QMainWindow):
                             task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[i])
                             self.todays_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i].getIP(), "status": "yet to start",
                                  "current widx": 0, "completed": [], "aborted": []})
 
                         else:
@@ -1582,12 +1586,12 @@ class MainWindow(QMainWindow):
                                     file_contents = fileTBSent.read()
                                     cmd = {"cmd": "reqSendFile", "file_name": profile, "file_contents": file_contents.decode('latin1')}
                                     cmd_str = json.dumps(cmd)
-                                fieldLinks[i]["link"].transport.write(cmd.encode("utf-8"))
+                                    v_groups[platform][i].getFieldLink()["link"].transport.write(cmd.encode("utf-8"))
 
                             task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
                             # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
                             self.todays_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": fieldLinks[i]["ip"][0], "status": "yet to start",
+                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i]["ip"][0], "status": "yet to start",
                                  "current widx": 0, "completed": [], "aborted": []})
 
                         # now need to fetch this task associated bots, mission, skills
@@ -1597,7 +1601,7 @@ class MainWindow(QMainWindow):
                         schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
                         print("SCHEDULE:::", schedule)
 
-                        fieldLinks[i]["link"].transport.write(schedule.encode("utf-8"))
+                        v_groups[platform][i].getFieldLink()["link"].transport.write(schedule.encode("utf-8"))
 
         # now that a new day starts, clear all reports data structure
         self.todaysReports = []
@@ -1938,6 +1942,7 @@ class MainWindow(QMainWindow):
             this_stat = self.missions[midx].getStatus()
             retry_count = self.missions[midx].getRetry()
             if "Success" not in this_stat and retry_count > 0:
+                print("scheduing retry#:", j, "MID:", mid)
                 next_run_index = j
                 break
         return j
@@ -2799,6 +2804,7 @@ class MainWindow(QMainWindow):
             print("a fieldlink.....", fieldLinks[i])
             newVehicle = VEHICLE(self)
             newVehicle.setIP(fieldLinks[i]["ip"][0])
+            newVehicle.setFieldLink(fieldLinks[i])
             ipfields = fieldLinks[i]["ip"][0].split(".")
             ip = ipfields[len(ipfields)-1]
             newVehicle.setVid(ip)
