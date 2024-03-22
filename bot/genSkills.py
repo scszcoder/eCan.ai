@@ -16,7 +16,8 @@ ecb_data_homepath = getECBotDataHome()
 
 SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
-    "win_ads_amz_home_browse_search": lambda x,y,z: genWinADSAMZWalkSkill(x, y, z),
+    "win_ads_amz_home_browse_search": lambda x,y,z: genStubWinADSAMZWalkSkill(x, y, z),
+    # "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSCollectOrderListSkill(x, y, z),
     "win_chrome_ebay_orders_update_tracking": lambda x, y, z: genWinADSEbayUpdateShipmentTrackingSkill(x, y, z),
@@ -166,6 +167,7 @@ def getWorkRunSettings(lieutenant, bot_works):
     # settings = lieutenant.missions[midx].getParentSettings()
     platform = lieutenant.missions[midx].getPlatform()
     site = lieutenant.missions[midx].getSite()
+    full_site = lieutenant.missions[midx].getSiteHTML()
     app = lieutenant.missions[midx].getApp()
     app_exe = lieutenant.missions[midx].getAppExe()
     print("settings setting app_exe: ", app, app_exe, platform, site)
@@ -228,9 +230,13 @@ def getWorkRunSettings(lieutenant, bot_works):
             "cargs": "",
             # "works": works,
             "botid": bot_id,
-            "b_email": works[widx]["b_email"],
-            "batch_profile": works[widx]["batch_file"],
-            "full_site": works[widx]["full_site"],
+            "b_email": bot.getEmail(),
+            "b_email_pw": bot.getEmPW(),
+            "b_backup_email": bot.getBackEm(),
+            "b_backup_email_pw": bot.getAcctPw(),
+            "b_backup_email_site": bot.getBackEmSite(),
+            "batch_profile": works[widx]["ads_xlsx_profile"],
+            "full_site": full_site,
             "seller": sij,
             "mid": mission_id,
             "midx": midx,

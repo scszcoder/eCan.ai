@@ -591,7 +591,7 @@ def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
 
 
 def processAMZScrapeOrdersHtml(step, i, mission, skill):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Extract Order List from HTML: ", step)
 

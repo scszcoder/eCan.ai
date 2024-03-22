@@ -693,7 +693,7 @@ def genStepGSExtractZippedFileName(screen_txt_var, outvar, statusvar, stepN):
 
 
 def processGSExtractZippedFileName(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("extracting from:", symTab[step["zipped_screen_text"]])
         fn_txt = x = re.sub(' +', ' ', symTab[step["zipped_screen_text"]][0]["text"])

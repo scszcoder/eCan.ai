@@ -82,8 +82,6 @@ def windowlauncher():
         # w.show()
         loop.run_forever()
 
-
-
 if __name__ == '__main__':
     ecb_data_homepath = getECBotDataHome()
     runlogs_dir = ecb_data_homepath + "/runlogs"
@@ -101,6 +99,8 @@ if __name__ == '__main__':
     # test_coordinates()
     # test_rar()
     # test_batch_ads_profile_conversion()
+    # test_run_group_of_tasks()
+    # test_schedule_check()
 
     # print("all unit test done...")
 

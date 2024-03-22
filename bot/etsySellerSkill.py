@@ -394,7 +394,7 @@ def genStepEtsySearchOrders(screen, orderDataName, errFlagName, stepN):
 
 # check whether there are orders
 def processEtsySearchOrders(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Searching....", step["target_types"])
         global in_exception
@@ -753,7 +753,7 @@ def order_is_for_fbs(order, pbook):
 # ec_order data structure can be refered to scraperEtsy.py file.
 # basically list of pages of orders: each
 def processPrepGSOrder(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
         gs_label_orders = []
@@ -899,7 +899,7 @@ def match_name(img_name, txt_name):
     return matched
 
 def processEtsyGetOrderClickedStatus(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Get Order Clicked Status .....")
         # first extract name, city, state from the text information
@@ -921,7 +921,7 @@ def processEtsyGetOrderClickedStatus(step, i):
     return (i + 1), ex_stat
 
 def processEtsySetOrderClickedStatus(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Opening App .....", step["target_link"] + " " + step["cargs"])
         symTab[step["orders"]][symTab[step["foundOrderIndex"]]].setChecked(True)
@@ -943,7 +943,7 @@ def contains_states(line):
         return False
 
 def processEtsyRemoveAlreadyExpanded(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Remove expanded state .....")
         # first extract name, city, state from the text information
@@ -971,7 +971,7 @@ def processEtsyRemoveAlreadyExpanded(step, i):
     return (i + 1), ex_stat
 
 def processEtsyAddPageOfOrder(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         symTab[step["fullOrders"]].append(symTab[step["pageOfOrders"]])
 
@@ -985,7 +985,7 @@ def processEtsyAddPageOfOrder(step, i):
 # 1) get tracking code & status variable updated into the etsy_orders data structure.
 # 2) need to
 def processEtsyExtractTracking(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         gs_orders = symTab[step["gs_orders"]]
         etsy_orders = symTab[step["fullOrders"]]
@@ -1010,7 +1010,7 @@ def processEtsyExtractTracking(step, i):
 # "found_index_var": found_index of the order in the orders list,
 # "n_more_var": how many more orders to update
 def processEtsyFindScreenOrder(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         found = -1
         orders = symTab[step["orders_var"]]
