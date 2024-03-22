@@ -614,7 +614,7 @@ def genStepEbayScrapeOrdersHtml(html_var, page_cfg, page_num, product_list, step
 
 
 def processEbayScrapeOrdersHtml(step, i, mission, skill):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Extract Order List from HTML: ", step)
 

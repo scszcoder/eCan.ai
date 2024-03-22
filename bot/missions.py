@@ -373,6 +373,13 @@ class EBMISSION(QStandardItem):
         self.icon = QIcon(parent.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
+        self.ads_xlsx_profile = ""
+
+    def setADSXlsxProfile(self, axpf):
+        self.ads_xlsx_profile = axpf
+
+    def getADSXlsxProfile(self):
+        return self.ads_xlsx_profile
 
     def setMissionIcon(self, icon):
         self.icon = icon
@@ -779,6 +786,7 @@ class EBMISSION(QStandardItem):
 
     def genJson(self):
         jsd = {
+                "ads_xlsx_profile": self.ads_xlsx_profile,
                 "pubAttributes": self.pubAttributes.genJson(),
                 "privateAttributes": self.privateAttributes.genJson()
                 }
@@ -788,6 +796,7 @@ class EBMISSION(QStandardItem):
 
     def loadNetRespJson(self, jd):
         self.pubAttributes.loadNetRespJson(jd)
+        self.setText('mission' + str(self.getMid()))
 
     def updateDisplay(self):
         self.setText('mission' + str(self.getMid()))
@@ -841,44 +850,33 @@ class EBMISSION(QStandardItem):
 
 
     def loadXlsxData(self, jd):
-        self.setMid(jd["0"])
-        self.setTicket(jd["1"])
-        self.setBid(jd["2"])
-        self.setOwner(jd["3"])
-        self.setStatus(jd["4"])
-        self.setBD(jd["5"])
-        self.setEsd(jd["6"])
-        self.setEcd(jd["7"])
-        self.setAsd(jd["8"])
-        self.setAbd(jd["9"])
-        self.setAad(jd["10"])
-        self.setAfd(jd["11"])
-        self.setAcd(jd["12"])
-        self.setActualStartTime(jd["13"])
-        self.setEstimatedStartTime(jd["14"])
-        self.setActualRunTime(jd["15"])
-        self.setEstimatedRunTime(jd["16"])
-        self.setNRetries((jd["16"]))
-        self.setCusPAS(jd["17"])
-        self.setSearchCat(jd["18"])
-        self.setSearchKW(jd["19"])
-        self.setPseudoStore(jd["20"])
-        self.setPseudoBrand(jd["21"])
-        self.setPseudoASIN(jd["22"])
-        self.setMtype(jd["23"])
-        self.setConfig(jd["24"])
-        self.setSkills(jd["25"])
-        self.setDelDate(jd["26"])
-        self.setASIN(jd["27"])
-        self.setStore(jd["28"])
-        self.setBrand(jd["29"])
-        self.setImagePath(jd["30"])
-        self.setTitle(jd["31"])
-        self.setRating(jd["32"])
-        self.setFeedbacks(jd["33"])
-        self.setPrice(jd["34"])
-        self.setCustomerID(jd["35"])
-        self.setPlatoon(jd["36"])
+        self.setMid(jd["mid"])
+        self.setTicket(jd["ticket"])
+        self.setBid(jd["botid"])
+        self.setEsd(jd["esd"])
+        self.setEcd(jd["ecd"])
+        self.setEstimatedStartTime(jd["est"])
+        self.setEstimatedRunTime(jd["ert"])
+        self.setNRetries((jd["retries"]))
+        self.setCusPAS(jd["platform"]+","+jd["app"]+","+jd["site"])
+        self.setSearchCat(jd["search cat"])
+        self.setSearchKW(jd["search phrase"])
+        self.setPseudoStore(jd["pseudo store"])
+        self.setPseudoBrand(jd["pseudo brand"])
+        self.setPseudoASIN(jd["pseudo asin"])
+        self.setMtype(jd["type"])
+        self.setConfig(jd["config"])
+        self.setSkills(jd["skills"])
+        self.setASIN(jd["asin"])
+        self.setStore(jd["store"])
+        self.setBrand(jd["brand"])
+        self.setImagePath(jd["img dir"])
+        self.setTitle(jd["title"])
+        self.setRating(jd["rating"])
+        self.setFeedbacks(jd["feedbacks"])
+        self.setPrice(jd["price"])
+        self.setCustomerID(jd["customer"])
+        self.setPlatoon(jd["platoon"])
 
 
     async def run(self):

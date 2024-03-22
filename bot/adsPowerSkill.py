@@ -1,6 +1,7 @@
 import os
 
 import pandas as pd
+import copy
 
 from basicSkill import *
 
@@ -575,118 +576,46 @@ def getBotEMail(bid, bots):
 # so in the code of executing tasks one by one, when it's time to run, it will check which profile
 # Note: no all tasks involves using ADS, so could very well be that out of N bots, there will be less than N lines in
 #       profiles.
-def formADSProfileBatches(vTasks, all_bots, all_profiles_xls, profiles_dir):
+def formADSProfileBatches(vTasks, commander):
     # vTasks, allbots, all_profiles_csv, run_data_dir):
-
     try:
-        all_tasks_by_bots = []
+        tgbs = []
+
+        # flatten across time zone
         for tz in vTasks.keys():
-            all_tasks_by_bots = all_tasks_by_bots + vTasks[tz]
-        print("all_tasks_by_bots:", all_tasks_by_bots)
-        batch_idx = 0
-        ads_batches=[]
-        ads_batches_files = []
-        ads_batch = []
+            tgbs = tgbs + vTasks[tz]
 
-        works_by_site={}
-        sites_involved = []
-        # note on the cloud side, the task groups are already divided by OS, i.e. windows, mac, linux
-        # so vTasks will only need to be re-grouped by site.
-        # for each bid:bw_works and bid:otherworks,
-        for tasks in all_tasks_by_bots:
-            if len(tasks["bw_works"]) > 0:
-                for work in tasks["bw_works"]:
-                    site = work["cuspas"].split(",")[2]
-                    work["bid"] = tasks["bid"]
-                    work["b_email"] = getBotEMail(work["bid"], all_bots)
-                    if site in FULL_SITE_MAP:
-                        work["full_site"] = FULL_SITE_MAP[site]
-                    else:
-                        work["full_site"] = site+".com"
-                    if site not in sites_involved:
-                        print("new bw site:", site)
-                        works_by_site[site] = []
-                        sites_involved.append(site)
-                    print("bw Site:", site, "work:", work)
-                    works_by_site[site].append(work)
+        all_works = []
+        for tgb in tgbs:
+            bid = tgb["bid"]
 
-            if len(tasks["other_works"]) > 0:
-                for work in tasks["other_works"]:
-                    site = work["cuspas"].split(",")[2]
-                    work["bid"] = tasks["bid"]
-                    work["b_email"] = getBotEMail(work["bid"], all_bots)
-                    if site in FULL_SITE_MAP:
-                        work["full_site"] = FULL_SITE_MAP[site]
-                    else:
-                        work["full_site"] = site+".com"
-                    if site not in sites_involved:
-                        print("new other site:", site)
-                        works_by_site[site] = []
-                        sites_involved.append(site)
-                    print("other Site:", site, "work:", work)
-                    works_by_site[site].append(work)
+            for bw in tgb["bw_works"]:
+                bw["bid"] = bid
+                all_works.append(bw)
 
-        print("works_by_site:", works_by_site)
-        all_ads_batches = []
-        for one_site in works_by_site.keys():
-            works_by_site[one_site] = sorted(works_by_site[one_site], key=lambda x: x["start_time"], reverse=False)
+            for other in tgb["other_works"]:
+                other["bid"] = bid
+                all_works.append(other)
 
-            ads_batches = []
-            start_idx = 0
-            end_idx = 0
-            # about to fill 1 batch
-            while end_idx < len(works_by_site[one_site]):
-                if (len(works_by_site[one_site]) - start_idx) >= (ADS_BATCH_SIZE - len(ads_batch)):
-                    end_idx = start_idx + (ADS_BATCH_SIZE - len(ads_batch))
-                    ads_batch = ads_batch + works_by_site[one_site][start_idx:end_idx]
-                    start_idx = end_idx
-                    print("SSstart_idx:", start_idx, "end_idx:", end_idx)
-                    #increment batch counter, finish the batch
-                    ads_batches.append(ads_batch)
-                    batch_idx = batch_idx + 1
-                    ads_batch = []
-                else:
-                    # down to the last batch.
-                    ads_batch = ads_batch + works_by_site[one_site][start_idx:]
-                    end_idx = len(works_by_site[one_site])
-                    start_idx = end_idx
-                    print("start_idx:", start_idx, "end_idx:", end_idx)
-            # handle the last batch
-            if len(ads_batch) > 0:
-                ads_batches.append(ads_batch)
-            print("ads_batches:", ads_batches)
+        time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
 
-            # now， ads_batches contains all batches for this site, for example amazon.com
-            # now generate ADS profiles for each batch.
-            for bi in range(len(ads_batches)):
-                all_bids = [t["bid"] for t in ads_batches[bi]]
-                bots_in_batch = [b for b in all_bots if b.getBid() in all_bids]
-                ads_batch_file = profiles_dir + "/ads_profiles_" + one_site +"_"+str(bi)+".xls"
-                print("allbids:", all_bids)
-                print("all_profiles_csv:", all_profiles_xls, "ads_batch_file:", ads_batch_file, "bots length:", len(bots_in_batch))
-                for t in ads_batches[bi]:
-                    t["batch_file"] = ads_batch_file
+        ads_profile_batches_fnames = gen_ads_profile_batchs(commander, commander.getIP(), time_ordered_works)
 
-                if os.path.isfile(all_profiles_xls):
-                    extractBatchOfProfiles(bots_in_batch, all_profiles_xls, ads_batch_file)
-                    ads_batches_files.append(ads_batch_file)
-
-            all_ads_batches = all_ads_batches + ads_batches
-        print("all_ads_batches:", all_ads_batches)
+        print("all_ads_batches:", ads_profile_batches_fnames)
 
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorKeyInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorformADSProfileBatches:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
-            ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)
+            ex_stat = "ErrorformADSProfileBatches: traceback information not available:" + str(e)
         print(ex_stat)
 
     # sorted_all_ads_batches = sorted(all_ads_batches, key=lambda x: x["start_time"], reverse=False)
-    flattened_ads_tasks = [item for one_ads_batch in all_ads_batches for item in one_ads_batch]
-    return flattened_ads_tasks, ads_batches_files
+    # flattened_ads_tasks = [item for one_ads_batch in all_ads_batches for item in one_ads_batch]
+    return time_ordered_works, ads_profile_batches_fnames
 
 # taskgroup will be the full task group on a vehicle.
 # profiles_dir is the path name that will hold the resulting files
@@ -772,8 +701,41 @@ def removeUselessCookies(pfJson, site_list):
     pfJson["cookie"] = qualified_cookies
 
 # this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
-def genProfileXlsx(pfJsons, fname, site_lists):
+def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
     # Convert JSON data to a DataFrame
+    new_pfJsons = []
+
+    for one_profile in batch_bot_mid_keys:
+        one_un = one_profile.split("_")[0]
+        found_match = False
+        for original_pfJson in pfJsons:
+            un = original_pfJson["username"].split("@")[0]
+            if un == one_un:
+                found_match = True
+                break
+
+        if found_match:
+            if one_profile in site_lists.keys():
+                site_list = site_lists[one_profile]
+            else:
+                # just use some default list.
+                site_list = DEFAULT_SITE_LIST
+            print("found a match, filter a json cookie....")
+            pfJson = copy.deepcopy(original_pfJson)
+            removeUselessCookies(pfJson, site_list)
+            pfJson["cookie"]=json.dumps(pfJson["cookie"])
+            new_pfJsons.append(pfJson)
+
+    df = pd.DataFrame(new_pfJsons)
+    print("writing to:", fname)
+    # Write DataFrame to Excel file
+    df.to_excel(fname, index=False)
+
+
+
+def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
+    # Convert JSON data to a DataFrame
+    pfJsons = readTxtProfiles(profile_names)
     for pfJson in pfJsons:
         un = pfJson["username"].split("@")[0]
         if un in site_lists.keys():
@@ -784,9 +746,11 @@ def genProfileXlsx(pfJsons, fname, site_lists):
         removeUselessCookies(pfJson, site_list)
         pfJson["cookie"]=json.dumps(pfJson["cookie"])
     df = pd.DataFrame(pfJsons)
-    print("writing to:", fname)
+    print("writing to:", xlsx_name)
     # Write DataFrame to Excel file
-    df.to_excel(fname, index=False)
+    df.to_excel(xlsx_name, index=False)
+
+
 
 def genProfileTxt(pfJsons, fname):
     # Convert JSON data to a DataFrame
@@ -816,59 +780,66 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
         dirname = os.path.dirname(fname)
         xls_name = dirname + "/" + basename.split(".")[0]+".xlsx"
         pfjsons = readTxtProfile(fname)
-        genProfileXlsx(pfjsons, xls_name, site_lists)
+        print("reading in # jsons:", len(pfjsons))
+        genProfileXlsx(pfjsons, xls_name, site_lists.keys(), site_lists)
         pf_idx = pf_idx + 1
 
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
-def gen_ads_profile_batchs(missions, bots, site_lists, batch_size, profile_dir):
-    site_lists = {}
+
+def gen_ads_profile_batchs(commander, host_ip, task_groups):
+    print("commander ads batch size:", commander.getADSBatchSize())
+
+    print("time_ordered_works:", task_groups)
     pfJsons_batches = []
     bot_pfJsons=[]
-    m_idx = 0
-    for mission in missions:
-        bots = [b for b in bots if b.getBid() == mission.getBid()]
-        if len(bots) > 0:
-            bot = bots[0]
-            user_prefix = bot.getEmail().split("@")[0]
-            mail_site_words = bot.getEmail().split("@")[1].split(".")
-            mail_site = mail_site_words[len(mail_site_words)-2]
-            bot_ads_profile = user_prefix+".txt"
-
-            site_lists[bot_ads_profile] = [mail_site]
-            if mail_site == "gmail":
-                site_lists[bot_ads_profile].append("google")
-
-            if mission.setSite() == "amz":
-                site_lists[bot_ads_profile].append("amazon")
-            else:
-                site_lists[bot_ads_profile].append(mission.setSite().lower())
-
-            full_bot_profile_path = profile_dir + "/" + bot_ads_profile
-            newly_read = readTxtProfile(full_bot_profile_path)
-        else:
-            newly_read = []
-        m_idx = m_idx + 1
-        if m_idx == batch_size:
-            # complete a batch
-            if len(bot_pfJsons) > 0:
-                pfJsons_batches.append(bot_pfJsons)
-
-            # start a new batch
-            bot_idx = 0
-            bot_pfJsons = []
-
-        bot_pfJsons = bot_pfJsons + newly_read
-
-    if len(bot_pfJsons) > 0:
-        pfJsons_batches.append(bot_pfJsons)
-
-    #now for each batch, generate xlsx for this batch so that it can be loaded easily next time.
+    v_ads_profile_batch_xlsxs = []
     batch_idx = 0
-    for pfJsons_batch in pfJsons_batches:
-        batch_file = ""+str(batch_idx)
-        genProfileXlsx(pfJsons_batch, batch_file, site_lists)
-        batch_idx = batch_idx + 1 
+    batch_file = "Host" + host_ip + "B" + str(batch_idx) + "profile.xlsx"
+    w_idx = 0
+    batch_bot_mids = []
+    batch_bot_profiles_read = []
+    for bot_work in task_groups:
+        bid = bot_work["bid"]
+        found_bots = list(filter(lambda cbot: cbot.getBid() == bid, commander.bots))
+
+        mid = bot_work["mid"]
+
+        found_missions = list(filter(lambda cm: cm.getMid() == mid, commander.missions))
+        if len(found_missions) > 0:
+            found_mision = found_missions[0]
+            bot_work["ads_xlsx_profile"] = batch_file
+            found_mision.setADSXlsxProfile(batch_file)
+
+        if len(found_bots) > 0:
+            found_bot = found_bots[0]
+            bot_txt_profile_name = commander.getADSProfileDir() + "/" + found_bot.getEmail().split("@")[0]+".txt"
+            bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
+
+            if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
+                newly_read = readTxtProfile(bot_txt_profile_name)
+                batch_bot_profiles_read.append(bot_txt_profile_name)
+            else:
+                newly_read = []
+
+            batch_bot_mids.append(bot_mid_key)
+
+            bot_pfJsons = bot_pfJsons + newly_read
+
+            if w_idx >= commander.getADSBatchSize():
+                genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
+                v_ads_profile_batch_xlsxs.append(batch_file)
+                w_idx = 0
+                bot_pfJsons = []
+                batch_bot_mids = []
+                batch_bot_profiles_read = []
+                batch_idx = batch_idx + 1
+                batch_file = "Host" + host_ip + "B" + str(batch_idx) + "profile.xlsx"
+            else:
+                w_idx = w_idx + 1
+
+
+    return v_ads_profile_batch_xlsxs
 
 # after a batch save, grab individual profiles in the batch and update
 # each profile individually both txt and xlsx version so that time

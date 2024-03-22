@@ -52,6 +52,8 @@ current_context = None
 
 screen_loc = (0, 0)
 
+DEFAULT_RUN_STATUS = "Success:0"
+
 ecb_data_homepath = getECBotDataHome()
 #####################################################################################
 #  some useful utility functions
@@ -722,7 +724,7 @@ def restore_current_context(context):
 
 
 def processHalt(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Due to supply time lag, this mission is halted till  hours later....")
         #should kick off a timer to wait .
@@ -732,7 +734,7 @@ def processHalt(step, i):
     return (i+1), ex_stat
 
 def processDone(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Mission accomplished!")
     except:
@@ -741,7 +743,7 @@ def processDone(step, i):
     return (i+1), ex_stat
 
 def processWait(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("waiting...... make mouse pointer wonder a little bit!")
         wtime = 1
@@ -774,7 +776,7 @@ def processExtractInfo(step, i, mission, skill):
 
     global screen_error
 
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         screen_error = False
         dtnow = datetime.now()
@@ -868,7 +870,7 @@ def processExtractInfo(step, i, mission, skill):
 # or canadian addresses......
 
 def processFillRecipients(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("txts var:", symTab[step["texts_var"]])
         for txt_bloc in symTab[step["texts_var"]]:
@@ -917,7 +919,7 @@ def processFillRecipients(step, i):
 def processTextInput(step, i):
     global page_stack
     global current_context
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         # print("Keyboard typing......", nthSearch, type(nthSearch), type(run_config), run_config, list(run_config.keys()))
 
@@ -1190,7 +1192,7 @@ def processMouseClick(step, i):
     global page_stack
     global current_context
     print("Mouse Clicking .....")
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["target_type"] != "direct" and step["target_type"] != "expr":
             if step["target_type"] == "var name":
@@ -1290,7 +1292,7 @@ def processKeyInput(step, i):
     global page_stack
     global current_context
 
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         keys = step["action_value"].split(',')
         print("Keyboard Action..... hot keys", keys)
@@ -1352,7 +1354,7 @@ def box_center(box):
 def processMouseScroll(step, i):
     screen_data = symTab[step["screen"]]
     # print("screen_data: ", screen_data)
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         screen_vsize = screen_data[len(screen_data) - 2]['loc'][2]
 
@@ -1410,7 +1412,7 @@ def processMouseScroll(step, i):
 
 def processOpenApp(step, i):
     print("Opening App .....", step["target_link"] + " " + step["cargs"])
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["target_type"] == "browser":
             url = step["target_link"]
@@ -1463,7 +1465,7 @@ def extract_variable_names(code_line):
 def processCreateData(step, i):
     print("Creating Data .....")
     global mission_vars
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["key_name"] == "NA":
             # this is the case of direct assignment.
@@ -1512,7 +1514,7 @@ def processCreateData(step, i):
 
 def processTextToNumber(step, i):
     original = symTab[step["intext"]]
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         num = original.strip().split(" ")[0].replace("$", "").replace("#", "").replace("%", "").replace(",", "").replace(" ", "")
 
@@ -1546,7 +1548,7 @@ def processTextToNumber(step, i):
 # fill_type: "assign"/"copy"/"append"/"prepend"/"merge"/"clear"/"pop":
 def processFillData(step, i):
     print("Filling Data .....", step)
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         # if not re.match("\[.*\]|\{.*\}", step["from"]):
         if type(step["from"]) is str:
@@ -1619,7 +1621,7 @@ def processEndException(step, i, step_keys):
     global page_stack
     global in_exception
     print("Return from Exception .....")
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         # basically do a rollback, and resume running from the last rollback point.
         rollback_point = page_stack.pop()
@@ -1654,7 +1656,7 @@ def processExceptionHandler(step, i, step_keys):
     n_retries = 0
     global net_connected
 
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         while n_retries <= max_retries:
             # back off some time,
@@ -1731,7 +1733,7 @@ def evalCondition(condition):
 # "if_end": ifend
 def processCheckCondition(step, i, step_keys):
     print("Check Condition.....")
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         condition = step["condition"]
 
@@ -1763,7 +1765,7 @@ def processCheckCondition(step, i, step_keys):
 # "end": loop end marker.
 def processRepeat(step, i,  step_keys):
     print("Looping.....: ", step)
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["count"].isnumeric():
             repeat_count = int(step["count"])
@@ -1812,7 +1814,7 @@ def processRepeat(step, i,  step_keys):
 # assumption: data is in form of a single json which can be easily dumped.
 def processLoadData(step, i):
     print("Loading Data .....")
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         with open(step["file_link"], 'r') as f:
             symTab[step["data_name"]] = json.load(f)
@@ -1834,7 +1836,7 @@ def processLoadData(step, i):
 
 def processSaveData(step, i):
     print("Saving Data .....")
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         with open(step["file_link"], 'w') as f:
             json.dump(symTab[step["data_name"]], f)
@@ -1860,7 +1862,7 @@ def processSaveData(step, i):
 # output: output data variable
 def processCallExtern(step, i):
     print("Run External Script/code as strings .....")
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["entity"] == "file":
             cmdline = ["python", step["file"]]
@@ -1911,7 +1913,7 @@ def processCallExtern(step, i):
 def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
     global skill_code
 
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         # push current address pointer onto stack,
         stack.append(i+1)
@@ -1961,7 +1963,7 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
 def processOverloadSkill(step, i, stack, step_keys):
     global skill_code
     global skill_table
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         # push current address pointer onto stack,
         stack.append(i)
@@ -2001,7 +2003,7 @@ def processOverloadSkill(step, i, stack, step_keys):
 # return_point: where does function return. (maybe not needed with stack.)
 # output: function returned result
 def processCallFunction(step, i, stack, func_table, step_keys):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         # push current address pointer onto stack,
         stack.append(i+1)
@@ -2040,7 +2042,7 @@ def processCallFunction(step, i, stack, func_table, step_keys):
 
 
 def processReturn(step, i, stack, step_keys):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         # push current address pointer onto stack,
         return_var_name = stack.pop()
@@ -2077,7 +2079,7 @@ def processReturn(step, i, stack, step_keys):
 # this is a stub/marker for end of if-else, end of function, end of loop etc. SC - 20230723 total mistake of this function....
 # whatever written here should be in address generation.
 def processStub(step, i, stack, sk_stack, sk_table, step_keys):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
 
@@ -2129,7 +2131,7 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
 
 
 def processGoto(step, i,  step_keys):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("stepGOTO:", step["goto"])
         if "step B" in step["goto"] and "!" in step["goto"] :
@@ -2153,7 +2155,7 @@ def processGoto(step, i,  step_keys):
 
 
 def processListDir(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         lof = os.listdir(step["dir"])
         symTab[step["result"]] = [f for f in lof if f.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
@@ -2174,7 +2176,7 @@ def processListDir(step, i):
 
 
 def processCheckExistence(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         if "var" in step["fntype"]:
             fn = symTab[step["file"]]
@@ -2204,7 +2206,7 @@ def processCheckExistence(step, i):
 
 
 def processCreateDir(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["name_type"] == "direct":
             dir_tbc = step["dir"]
@@ -2242,7 +2244,7 @@ def processCreateDir(step, i):
 
 # run 7z for the zip and unzip.
 def process7z(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["var_type"] == "direct":
             exe = step["exe_var"]
@@ -2301,7 +2303,7 @@ def process7z(step, i):
 def processSearchAnchorInfo(step, i):
     print("Searching....", step["target_types"])
     global in_exception
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
         print("SEARCH SCREEN INFO:", scrn)
@@ -2405,7 +2407,7 @@ def processSearchWordLine(step, i):
     print("Searching....words and/or lines", step["name_types"])
     global in_exception
     p_stat = ""
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
         fault_names = ["site_not_reached", "bad_request"]
@@ -2533,7 +2535,7 @@ def processSearchWordLine(step, i):
 def processSearchScroll(step, i):
 
     print("Searching....", step["anchor"])
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
         anchor = step["anchor"]
@@ -2591,7 +2593,7 @@ def processSearchScroll(step, i):
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
 def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
     psk_words = ""
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     print("DEBUG", "gen_psk_for_scroll_down_until...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
@@ -2721,7 +2723,7 @@ def get_save_button_loc(result):
 def processSaveHtml(step, i, mission, skill):
     global screen_loc
     print("Saving web page to a local html file .....", step)
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         dtnow = datetime.now()
 
