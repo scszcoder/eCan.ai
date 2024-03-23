@@ -46,6 +46,30 @@ def genWinChromeAMZWalkSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
+def genStubWinADSAMZWalkSkill(worksettings, stepN, theme):
+    print("GENERATING WinADSAMZWalkSkill======>")
+    psk_words = "{"
+    site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_amz_browse_search", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINADSAMZBROWSE001",
+                                          "AMZ Browse On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_home/browse_search", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browse_search", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    # print("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    return this_step, psk_words
+
+
+
 def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     print("GENERATING WinADSAMZWalkSkill======>")
     psk_words = "{"
@@ -1608,7 +1632,7 @@ def genStepAMZSearchReviews(screen, sink, flag, stepN):
 
 
 def processAMZSearchProducts(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
         found = []
@@ -1626,7 +1650,7 @@ def processAMZSearchProducts(step, i):
 # process product detail pages on screen, basically this function searches.
 # for reviews to click.
 def processAMZBrowseDetails(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Searching....", step["target"])
 
@@ -1644,7 +1668,7 @@ def processAMZBrowseDetails(step, i):
 
 
 def processAMZBrowseReviews(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Searching....", step["target"])
 
@@ -1801,7 +1825,7 @@ def match_product(summery, screen_data):
 
 
 def processAMZMatchProduct(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
 
@@ -1860,7 +1884,7 @@ def processAMZMatchProduct(step, i):
 
 
 def processExtractPurchaseOrder(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Searching....", step["target"])
 
@@ -1903,7 +1927,7 @@ def amzProductsOnSameRow(p1_txt_box, p2_txt_box):
 # The algorithm analyze keyword "Free Shipping" to the next "Free Shipping" Assumption is there are
 # at lease 2 free shipping on the page, and
 def processAMZCalcProductLayout(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         vdistance = 0                         #unit in pixel.
         scrn = symTab[step["screen"]]
@@ -2018,7 +2042,7 @@ def found_match(p, pl):
 # will "pay attention to" (i.e. click into it to browse more details).
 # Note: this is the place, to swap the custom product to the actual to be swiped product.
 def processAMZScrapePLHtml(step, i, mission):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Extract Product List from HTML: ", step)
 
@@ -2077,7 +2101,7 @@ def processAMZScrapePLHtml(step, i, mission):
     return (i + 1), ex_stat
 
 def processAMZScrapeDetailsHtml(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Extract Product Details from HTML")
 
@@ -2106,7 +2130,7 @@ def processAMZScrapeDetailsHtml(step, i):
     return (i + 1), ex_stat
 
 def processAMZScrapeReviewsHtml(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Extract Product Reviews from HTML")
 

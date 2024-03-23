@@ -34,7 +34,7 @@ def genStepEtsyScrapeOrders(html_dir, dir_name_type, html_file, pidx, outvar, st
 # with address details
 # order id...... revenue(price) .... ship by date ..... break-word : product title    <li....> quantity  .... "address break-word" - all name address details....
 def processEtsyScrapeOrders(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
         pidx = step["pidx"]

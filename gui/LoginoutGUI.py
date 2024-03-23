@@ -37,7 +37,7 @@ class Login(QDialog):
         self.cog = None
         self.mainwin = None
         self.xport = None
-        self.ip = ""
+        self.ip = commanderIP
         self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
         self.lang = "en"
 
@@ -216,6 +216,7 @@ class Login(QDialog):
 
     def set_ip(self, ip):
         self.ip = ip
+
     def read_role(self):
         self.machine_role = "Platoon"
 
