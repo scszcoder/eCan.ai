@@ -251,9 +251,10 @@ def runAllSteps(steps, mission, skill, mode="normal"):
     #     print("steps: ", k, " -> ", steps[k])
     print("=====================================")
     while next_step_index <= len(stepKeys)-1 and running:
+        last_step = next_step_index
         next_step_index, step_stat = run1step(steps, next_step_index, mission, skill, run_stack)
 
-        if step_stat == "success:0":
+        if step_stat == DEFAULT_RUN_STATUS:
 
             # debugging mode. if the next instruction is one of the breakpoints, then stop and pendin for
             # keyboard input. (should fix later to support GUI button press.....)
@@ -280,11 +281,11 @@ def runAllSteps(steps, mission, skill, mode="normal"):
         else:
             break
 
-    if step_stat == "success:0":
+    if step_stat == DEFAULT_RUN_STATUS:
         print("RUN COMPLETED!")
     else:
         print("RUN ABORTED!")
-        run_result = step_stat
+        run_result = "Aborted:"+str(last_step)+":"+step_stat
 
     return run_result
 
@@ -367,7 +368,7 @@ def continueRun(steps, settings):
 
 
 def processBrowse(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("browsing the page....")
     except:
@@ -452,7 +453,7 @@ def find_marker_on_screen(screen_data, target_word):
 # screen: variable that contains the screen content data structure.
 # to: put result in this varable name.
 def processRecordTxtLineLocation(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         loc_word = step["location"]
         scrn = step["screen"]
@@ -539,7 +540,7 @@ def find_paragraph_match(target, screen_data):
 # "screen": screen
 # "marker": marker
 def processCalibrateScroll(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         screen_resolution = 30
         marker_text = step["marker"]

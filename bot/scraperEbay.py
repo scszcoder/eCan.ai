@@ -8,12 +8,13 @@ from calendar import isleap
 import cv2
 import esprima
 from esprima.visitor import Visitor
+from basicSkill import *
 from ordersData import *
 
 
 
 def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         pagefull_of_orders = {"page": pidx, "ol": None}
         orders = []

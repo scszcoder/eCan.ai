@@ -93,6 +93,7 @@ async def tcpServer(topgui):
     hostname = socket.gethostname()
     myips = socket.gethostbyname_ex(hostname)[2]
     myip = myips[len(myips)-1]
+    topgui.set_ip(myip)
     print("my host name is: ", hostname, " and my ip is: ", myip)
     tcp_loop = asyncio.get_running_loop()
     on_con_lost = tcp_loop.create_future()

@@ -872,6 +872,7 @@ def test_batch_ads_profile_conversion():
         "TyqawndisSaveryVDHV": standard_sites,
         "VonkKingprinceoJSCf": standard_sites,
         "TripMarowtjVJ": standard_sites,
+        "PrakerWilfredKNtb": standard_sites,
         "dabaosisy2022": ["google", "gmail", "ebay"]
     }
     fnames = [
@@ -906,13 +907,69 @@ def test_batch_ads_profile_conversion():
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/VonkKingprinceoJSCf.txt",
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_23_48_49.txt",
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_22_15_43.txt"
-          # "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_12_23_46_48.txt",
-          # "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_12_18_20_00.txt",
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_12_23_29_10.txt"
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_20_17_39_58.txt",
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_20_17_32_31.txt",
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_20_17_22_54.txt"
     ]
 
     site_list = ["google", "gmail", "amazon"]
 
     covertTxtProfiles2XlsxProfiles(fnames, site_lists)
+
+
+def test_schedule_check():
+    fname = "C:/temp/testSchedule.txt"
+    # with open(fname, 'r') as file:
+    #     for line in file:
+    #         if '=' in line:
+    # file.close()
+    fj = open(fname)
+
+    # returns JSON object as
+    # a dictionary
+    schJsons = json.load(fj)
+
+    # schJsons = json.load(data)
+    print("loaded Json:", len(schJsons))
+    print("=================================")
+    print(schJsons)
+    fj.close()
+
+    for schJson in schJsons:
+        for tz in schJson.keys():
+            print(tz, len(schJson[tz]))
+
+
+def getProfileFileName(pf_dir, pf_email):
+    return pf_dir+"/"+pf_email.split("@")[0]+"txt"
+
+# test run a schedule output from the cloud.
+def test_run_group_of_tasks(commander):
+    fname = "C:/temp/scheduleResultTest2.json"
+    profiles_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
+    fj = open(fname)
+
+    # returns JSON object as
+    # a dictionary
+    schJsons = json.load(fj)
+
+    fj.close()
+
+    # from jsongs generate xlsx batches.
+    batch_profiles = []                                # a list batch_profiles for ADS. and some will be send to corresponding vehicles.
+    tgs = schJsons["task_groups"]
+
+    commander.addNewlyAddedMissions(schJsons)
+    # now that todays' newly added missions are in place, generate the cookie site list for the run.
+    commander.build_cookie_site_lists()
+
+
+    # on each machine
+    commander.assignWork(tgs)
+
+
+
+
+
 
 

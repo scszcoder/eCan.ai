@@ -48,7 +48,7 @@ def genStepPrintLabels(labdir, printer, stat_name, stepN):
 
 
 def processPrintLabel(step, i):
-    ex_stat = "success:0"
+    ex_stat = DEFAULT_RUN_STATUS
     try:
         print("Printing label, will do some processing before printing. .....")
         symTab[step["print_status"]] = print_labels(step["label_dir"], step["printer"])
