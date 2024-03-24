@@ -907,9 +907,9 @@ def test_batch_ads_profile_conversion():
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/VonkKingprinceoJSCf.txt",
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_23_48_49.txt",
             #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_22_15_43.txt"
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_20_17_39_58.txt",
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_20_17_32_31.txt",
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_20_17_22_54.txt"
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_22_16_08_43.txt",
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_22_16_02_00.txt",
+          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_22_15_50_40.txt"
     ]
 
     site_list = ["google", "gmail", "amazon"]
