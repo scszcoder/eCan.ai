@@ -48,6 +48,7 @@ def genWinChromeAMZWalkSkill(worksettings, stepN, theme):
 
 def genStubWinADSAMZWalkSkill(worksettings, stepN, theme):
     print("GENERATING WinADSAMZWalkSkill======>")
+
     psk_words = "{"
     site_url = "https://www.amazon.com/"
 
@@ -58,7 +59,6 @@ def genStubWinADSAMZWalkSkill(worksettings, stepN, theme):
 
     this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_home/browse_search", "", this_step)
     psk_words = psk_words + step_words
-
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browse_search", "", this_step)
     psk_words = psk_words + step_words

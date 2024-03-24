@@ -54,6 +54,8 @@ screen_loc = (0, 0)
 
 DEFAULT_RUN_STATUS = "Success:0"
 
+TEST_RUN_CNT = 0
+
 ecb_data_homepath = getECBotDataHome()
 #####################################################################################
 #  some useful utility functions
@@ -2079,6 +2081,7 @@ def processReturn(step, i, stack, step_keys):
 # this is a stub/marker for end of if-else, end of function, end of loop etc. SC - 20230723 total mistake of this function....
 # whatever written here should be in address generation.
 def processStub(step, i, stack, sk_stack, sk_table, step_keys):
+    global TEST_RUN_CNT
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -2114,6 +2117,13 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
                 symTab["sk_work_settings"] = stack.pop()
                 #  set the pointer to the return to pointer.
                 next_i = stack.pop()
+
+            if step["func_name"] == "public/win_ads_amz_home/***_***":
+                if TEST_RUN_CNT > 1:
+                    ex_stat = "ErrorStub: Manually Set Error"
+
+                print("TEST_RUN_CNT ex_stat:", TEST_RUN_CNT, "[" + ex_stat + "]")
+                TEST_RUN_CNT = TEST_RUN_CNT + 1
 
 
 
