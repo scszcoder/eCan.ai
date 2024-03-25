@@ -1368,6 +1368,7 @@ class MainWindow(QMainWindow):
 
     def fill_mission(self, blank_m, m, tgs):
         blank_m.loadNetRespJson(m)
+        # print("after fill mission paramter:", blank_m.getRetry())
         mconfig = None
         for tz_group in tgs:
             for tz in tz_group:
@@ -1410,7 +1411,7 @@ class MainWindow(QMainWindow):
             self.fill_mission(new_mission, m, task_groups)
             self.missions.append(new_mission)
             self.missionModel.appendRow(new_mission)
-            print("adding mission....")
+            print("adding mission....", new_mission.getRetry())
 
     def getBotByID(self, bid):
         found_bot = None
@@ -1908,28 +1909,25 @@ class MainWindow(QMainWindow):
 
 
     def update1MStat(self, midx, result):
-        print("1 mission run completed.")
+        print("1 mission run completed.", midx, self.missions[midx].getMid(), self.missions[midx].getRetry(), self.missions[midx].getNRetries(), "status:", result)
         self.missions[midx].setStatus(result)
-        retry_count = self.missions[midx].getRetry()
-        if retry_count > 0:
-            self.missions[midx].setRetry(retry_count - 1)
+        retry_count = self.missions[midx].getNRetries()
+        self.missions[midx].setNRetries(retry_count + 1)
+        print("update1MStat:", midx, self.missions[midx].getMid(), self.missions[midx].getNRetries())
 
     #update next mission pointer, return -1 if exceed the end of it.
     def update1WorkRunStatus(self, worksTBD, midx):
 
         this_stat = self.missions[midx].getStatus()
-        print("updatin 1 work run status:", this_stat)
-        if "Completed" in this_stat:
-            if worksTBD["current widx"] < len(worksTBD["works"])-1:
-                worksTBD["current widx"] = worksTBD["current widx"] + 1
-            else:
-                worksTBD["current widx"] = worksTBD["current widx"] + 1
-                # now we should check whether all missions in this group are success，if there is any
-                # unsuccessfull runs, we should set up the pointer ("current widx") to retry, before
-                # claiming this whole group is completed.
-                worksTBD["current widx"] = self.checkTaskGroupCompleteness(self, worksTBD)
-                if worksTBD["current widx"] >= len(worksTBD["works"]):
-                    worksTBD["status"] == "Completed"
+        worksTBD["current widx"] = worksTBD["current widx"] + 1
+
+        print("updatin 1 work run status:", this_stat, worksTBD["current widx"], len(worksTBD["works"]))
+
+        if worksTBD["current widx"] >= len( worksTBD["works"]):
+            worksTBD["current widx"] = self.checkTaskGroupCompleteness(worksTBD)
+            print("current widx pointer after checking retries:", worksTBD["current widx"], len(worksTBD["works"]))
+            if worksTBD["current widx"] >= len(worksTBD["works"]):
+                worksTBD["status"] = "Completed"
         print("current widx pointer now at:", worksTBD["current widx"], "worksTBD status:", worksTBD["status"])
 
 
@@ -1937,14 +1935,16 @@ class MainWindow(QMainWindow):
         mids = [w["mid"] for w in worksTBD["works"]]
         next_run_index = len(mids)
         for j, mid in enumerate(mids):
-            midx = next((i for i, m in enumerate(self.missions) if str(m.getMid()) == mid), -1)
+            midx = next((i for i, m in enumerate(self.missions) if m.getMid() == mid), -1)
             this_stat = self.missions[midx].getStatus()
-            retry_count = self.missions[midx].getRetry()
-            if "Success" not in this_stat and retry_count > 0:
+            n_2b_retried = self.missions[midx].getRetry()
+            retry_count = self.missions[midx].getNRetries()
+            print("check retries: ", midx, self.missions[midx].getMid(), "n2b retries:", n_2b_retried, "n retried:", retry_count)
+            if "Complete" not in this_stat and retry_count < n_2b_retried:
                 print("scheduing retry#:", j, "MID:", mid)
                 next_run_index = j
                 break
-        return j
+        return next_run_index
 
     def updateRunStatus(self, worksTBD, midx):
         works = worksTBD["works"]
