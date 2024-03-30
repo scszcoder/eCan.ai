@@ -382,9 +382,9 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "subscriptions",
+                        "anchor_name"  : "subscription",
                         "anchor_type"  : "text",
-                        "template"     : "subscriptions",
+                        "template"     : "subscription",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -441,6 +441,20 @@
                         "anchor_name"  : "enter_platform",
                         "anchor_type"  : "text",
                         "template"     : "Please enter platform domain",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "invalid_response",
+                        "anchor_type"  : "text",
+                        "template"     : "invalid_response",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "proxy_failure",
+                        "anchor_type"  : "text",
+                        "template"     : "Proxy failure",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },

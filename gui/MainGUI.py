@@ -1149,7 +1149,8 @@ class MainWindow(QMainWindow):
         print("running all test suits.")
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
-        test_run_group_of_tasks(self)
+        # test_get_all_wins()
+
         # test_ads_batch(self)
         # test_sqlite3(self)
         # test_misc()
@@ -1157,7 +1158,7 @@ class MainWindow(QMainWindow):
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
         # test_run_mission(self)
         # test_processSearchWordLine()
-
+        test_run_group_of_tasks(self)
 
         #the grand test,
         # 1) fetch today's schedule.
@@ -1560,7 +1561,7 @@ class MainWindow(QMainWindow):
                 for i in range(p_nsites):
                     if i == 0 and not self.hostrole == "CommanderOnly":
                         # if commander participate work, give work to here.
-                        batched_tasks, ads_profiles = formADSProfileBatches(p_task_groups[0], self)
+                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[0], self)
                         # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
                         print("arranged for today on this machine....")
                         # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
@@ -1569,7 +1570,7 @@ class MainWindow(QMainWindow):
                         #otherwise, send work to platoons in the field.
                         if self.hostrole == "CommanderOnly":
                             print("cmd only sending to platoon: ", i)
-                            batched_tasks, ads_profiles = formADSProfileBatches(p_task_groups[i], self)
+                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i], self)
 
                             task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[i])
@@ -1580,7 +1581,7 @@ class MainWindow(QMainWindow):
                         else:
                             print("cmd sending to platoon: ", i)
                             # flatten tasks and regroup them based on sites, and divide them into batches
-                            batched_tasks, ads_profiles = formADSProfileBatches(p_task_groups[i+1], self)
+                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i+1], self)
                             for profile in ads_profiles:
                                 with open(profile, 'rb') as fileTBSent:
                                     file_contents = fileTBSent.read()
@@ -4695,7 +4696,8 @@ class MainWindow(QMainWindow):
         for m in self.missions:
             print("mission" + str(m.getMid()) + " created ON:", m.getBD().split(" ")[0] + " today:" + formatted_today)
         missions_today = list(filter(lambda m: formatted_today == m.getBD().split(" ")[0], self.missions))
-
+        # first ,clear today's bot cookie site list dictionary
+        self.bot_cookie_site_lists = {}
         for mission in missions_today:
             bots = [b for b in self.bots if b.getBid() == mission.getBid()]
             if len(bots) > 0:
@@ -4711,6 +4713,8 @@ class MainWindow(QMainWindow):
 
                 if mission.getSite() == "amz":
                     self.bot_cookie_site_lists[bot_mission_ads_profile].append("amazon")
+                elif mission.getSite() == "ali":
+                    self.bot_cookie_site_lists[bot_mission_ads_profile].append("aliexpress")
                 else:
                     self.bot_cookie_site_lists[bot_mission_ads_profile].append(mission.getSite().lower())
 

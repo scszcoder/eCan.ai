@@ -319,6 +319,30 @@ def test_get_account_info(session, token):
 
 def test_api(parent, session, token):
     print("TESTING API....")
+    request = [{
+        "id": 702,
+        "bid": 85,
+        "os": "win",
+        "app": "ads",
+        "domain": "local",
+        "page": "ads_power",
+        "layout": "",
+        "skill_name": "batch_import",
+        # "psk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.psk", -- not working...
+        "psk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.psk",
+        # "csk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
+        "csk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
+        "lastMove": "top",
+        "options": "{\\\"anchors\\\": [{\\\"anchor_name\\\": \\\"bot_user\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"TeluguOttoYuGh\\\", \\\"ref_method\\\": \\\"0\\\", \\\"ref_location\\\": []}, {\\\"anchor_name\\\": \\\"bot_open\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"Open\\\", \\\"ref_method\\\": \\\"1\\\", \\\"ref_location\\\": [{\\\"ref\\\": \\\"bot_user\\\", \\\"side\\\": \\\"right\\\", \\\"dir\\\": \\\">\\\", \\\"offset\\\": \\\"1\\\", \\\"offset_unit\\\": \\\"box\\\"}]} ]}",
+        "theme": "light",
+        "imageFile": "C:\\\\Users\\\\songc\\\\PycharmProjects\\\\ecbot/runlogs/20240329/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1711760595.png",
+        # "imageFile": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240329/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1711760595.png",
+        "factor": "{}"
+    }]
+    result = req_cloud_read_screen(session, request, token)
+    # print("result", request[0]["options"])
+    print("result", result)
+
     # qs = [{"mid": 1, "bid": 1, "status":"Completed:0", "starttime": 123, "endtime": 123}]
     # result = send_completion_status_to_cloud(session, qs, token)
     # print("send_completion_status_to_cloud RESULT:", result)
@@ -520,7 +544,7 @@ def test_sqlite3(mw):
     # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
 
-    # sql ="UPDATE bots SET email = 'elsakaiya34@gmail.com' WHERE botid = 15"
+    # sql ="UPDATE bots SET email = 'kaiya34@gmail.com' WHERE botid = 15"
     # mw.dbCursor.execute(sql)
     # print("update bots")
     mw.dbcon.commit()
@@ -588,50 +612,13 @@ def test_ads_batch(parent):
         "hawaii": [{ "bid" : 5, "bw_works" : [], "other_works" : [{ "start_time" : 3, "cuspas": "win,chrome,etsy" }] }]
     }
 
+    fname = "C:/temp/adsProfilesTest0.json"
+    fj = open(fname)
+    pJsons = json.load(fj)
+    fj.close()
 
-    all_emails = [  "jazminejefferysotp@gmail.com",
-                    "willjaylan859@gmail.com",
-                    "keshawnvalentino193@gmail.com",
-                    "paulmarquise676@gmail.com",
-                    "mayradestinee598@gmail.com",
-                    "alannahhaylieul69@gmail.com",
-                    "carlchance499@gmail.com",
-                    "jairgoldenvp89@gmail.com",
-                    "lynchjacobsja20@gmail.com",
-                    "seanbradfordugda@gmail.com",
-                    "jackmaddennyiq@gmail.com",
-                    "silastalan660@gmail.com",
-                    "brisafarmerdl74@gmail.com",
-                    "isabelalawrence48@gmail.com",
-                    "pottersimone282@gmail.com",
-                    "kiankonnor83@gmail.com",
-                    "marquiselivia743@gmail.com",
-                    "edgarcook7@gmail.com",
-                    "kyliehezekiah4@gmail.com",
-                    "jarvisaaliyah300@gmail.com",
-                    "alfonsomaribel4442@gmail.com",
-                    "kysonkeltonqbtb@gmail.com",
-                    "zandersarah97@gmail.com",
-                    "carrollmeyercs33@gmail.com",
-                    "kaidentrevon565@gmail.com",
-                    "elsakaiya34@gmail.com",
-                    "adamsericajeap@gmail.com",
-                    "ximenamccarthy98@gmail.com",
-                    "tyantonio792@gmail.com",
-                    "keatonemmett6@gmail.com",
-                    "arjuncelesteyg30@gmail.com",
-                    "aedandominick741@gmail.com",
-                    "cortezjace283@gmail.com",
-                    "travisstoutwmle@gmail.com",
-                    "carrollkevin4837@gmail.com",
-                    "mohammedpowellzzil@gmail.com",
-                    "cervantesmariam95@gmail.com",
-                    "meltonlucerotzpd@gmail.com",
-                    "briggsrileyhapp@gmail.com",
-                    "byronellen80@gmail.com",
-                    "skylarbrylee5603@gmail.com",
-                    "koltencarmelorgtt@gmail.com"
-                    ]
+    all_emails = pJsons["all_emails"]
+
     all_profiles_csv = "C:/AmazonSeller/SelfSwipe/test_all.xls"
 
     for i in range(42):
@@ -827,7 +814,7 @@ def test_processSearchWordLine():
 
 
 def test_ads_profiling():
-    profile_json = readTxtProfile("C:/AmazonSeller/SelfSwipe/ADSProfiles/PrakerWilfredKNtb.txt")
+    profile_json = readTxtProfile("C:/AmazonSeller/SelfSwipe/ADSProfiles/test_profile.txt")
     print("profile json is:", profile_json)
     print("# cookies:", len(profile_json["cookie"]))
     print("============================================================")
@@ -842,80 +829,18 @@ def test_ads_profiling():
 
 
 def test_batch_ads_profile_conversion():
-    standard_sites = ["google", "gmail", "amazon"]
-    site_lists = {
-        "AdowBooneHLOWkG": standard_sites,
-        "BagasShavershoWDC": standard_sites,
-        "BreauxLawrenceZkdY": standard_sites,
-        "ComptonGunarajwyjuE": standard_sites,
-        "ElishaDlaminiSqjls": standard_sites,
-        "FulkersonCoolXgK": standard_sites,
-        "GanchuaAthenasbyIYaeD": standard_sites,
-        "GuascoEvensuAvR": standard_sites,
-        "KaliSalvadorwAy": standard_sites,
-        "KnutsonLaurensWRsc": standard_sites,
-        "KollerSkeetVPB": standard_sites,
-        "LimJimuelCkxbpu": standard_sites,
-        "LindenbergLorenzoXzqzZ": standard_sites,
-        "MenusMylesMPZ": standard_sites,
-        "MinksStanleyGQbY": standard_sites,
-        "MoranoSaberwEyv": standard_sites,
-        "NeedhamChakravarthiguuN": standard_sites,
-        "PalmquistJojongibO": standard_sites,
-        "QueGaillardrXH": standard_sites,
-        "RayviJoebobRZn": standard_sites,
-        "RenardAbellosRVn": standard_sites,
-        "RufusRealMIUJg": standard_sites,
-        "SeniorAsriPJZX": standard_sites,
-        "ShatzelKingprinceKoXoA": standard_sites,
-        "TeluguOttoYuGh": standard_sites,
-        "TyqawndisSaveryVDHV": standard_sites,
-        "VonkKingprinceoJSCf": standard_sites,
-        "TripMarowtjVJ": standard_sites,
-        "PrakerWilfredKNtb": standard_sites,
-        "dabaosisy2022": ["google", "gmail", "ebay"]
-    }
-    fnames = [
-            # "C:/AmazonSeller/SelfSwipe/ADSProfiles/AdowBooneHLOWkG.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/BagasShavershoWDC.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/BreauxLawrenceZkdY.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/ComptonGunarajwyjuE.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/ElishaDlaminiSqjls.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/FulkersonCoolXgK.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/GanchuaAthenasbyIYaeD.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/GuascoEvensuAvR.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/KaliSalvadorwAy.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/KnutsonLaurensWRsc.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/KollerSkeetVPB.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/LimJimuelCkxbpu.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/LindenbergLorenzoXzqzZ.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/MenusMylesMPZ.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/MinksStanleyGQbY.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/MoranoSaberwEyv.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/NeedhamChakravarthiguuN.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/PalmquistJojongibO.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/PrakerWilfredKNtb.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/QueGaillardrXH.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/RayviJoebobRZn.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/RenardAbellosRVn.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/RufusRealMIUJg.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/SeniorAsriPJZX.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/ShatzelKingprinceKoXoA.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/TeluguOttoYuGh.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/TripMarowtjVJ.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/TyqawndisSaveryVDHV.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/VonkKingprinceoJSCf.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_23_48_49.txt",
-            #   "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_11_22_15_43.txt"
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_22_16_08_43.txt",
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_22_16_02_00.txt",
-          "C:/AmazonSeller/SelfSwipe/ADSProfiles/profiles_2024_03_22_15_50_40.txt"
-    ]
+    fname = "C:/temp/adsProfilesTest0.json"
+    fj = open(fname)
+    pJsons = json.load(fj)
+    fj.close()
 
-    site_list = ["google", "gmail", "amazon"]
+    site_lists = pJsons["site_lists"]
+    fnames =  pJsons["fnames"]
 
     covertTxtProfiles2XlsxProfiles(fnames, site_lists)
 
+def test_get_all_wins():
+    get_top_visible_window()
 
 def test_schedule_check():
     fname = "C:/temp/testSchedule.txt"
