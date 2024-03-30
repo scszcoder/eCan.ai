@@ -113,6 +113,8 @@ vicrop = {
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),
     "Print Label": lambda x,y: processPrintLabel(x, y),
+    "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
+    "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),

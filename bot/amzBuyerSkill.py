@@ -93,7 +93,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    # first call subskill to open ADS Power App
+    # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
     this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
     psk_words = psk_words + step_words
 
@@ -140,7 +140,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site']", this_step)
+    this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)

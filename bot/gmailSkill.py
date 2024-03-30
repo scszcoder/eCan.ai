@@ -5,7 +5,7 @@ import pandas as pd
 
 from basicSkill import *
 
-ADS_BATCH_SIZE = 3
+ADS_BATCH_SIZE = 2
 
 
 def genWinADSCheckGMailSkill(worksettings, stepN, theme):
