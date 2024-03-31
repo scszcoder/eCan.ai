@@ -130,8 +130,13 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     print("DEBUG", "genAMZBrowseDetails...", worksettings, "stepN:", stepN)
 
     # now read screen, if there is log in, then click on log in.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, stepN, None)
     psk_words = psk_words + step_words
+
+    # first click on select all checkbox
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
 
     # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_icon", "anchor icon", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
@@ -149,39 +154,32 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "url_open", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "proxy", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "proxy", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "region", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "region", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "city", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "city", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "fingerprint", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "fingerprint", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "text_file", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "text_file", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "file_dialog", theme, this_step, None)
@@ -189,13 +187,11 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [4, 0], "box", 1, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepTextInput("var", False, "ads_file_path", "direct", 0.05, "enter", 1, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "select_folder", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "select_folder", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
@@ -213,63 +209,34 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click "Close" button on the pop up.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
-                                               this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-
-    # wait 3 seconds till it logs in....
-    this_step, step_words = genStepWait(3, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-
-    # now that we have logged in, load profiles.
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
     # wait 3 seconds till it logs in....
-    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    this_step, step_words = genStepWait(2, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     # now that we have logged in, load profiles.
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 1,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
+    # use saved text to update individial bot profile cookie file
     this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", this_step)
     psk_words = psk_words + step_words
 
-    # delete all profiles and be ready for the next batch. first, click on select all checkbox
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # click on trash can icon to delete all profiles.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0,
-                                              "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # read screen for the confirmation pop up.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    # click on the confirmation popup.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-
     return this_step, psk_words
+
+
 
 def genADSPowerConnectProxy(worksettings, stepN, theme):
     psk_words = ""
