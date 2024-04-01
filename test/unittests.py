@@ -893,6 +893,13 @@ def test_run_group_of_tasks(commander):
     commander.assignWork(tgs)
 
 
+def test_UpdateBotADSProfileFromSavedBatchTxt():
+    stepjson = {
+        "type": "ADS Batch Text To Profiles",
+        "batch_txt_dir": "C:/AmazonSeller/SelfSwipe/ADSProfiles",
+        "output": "useless"
+    }
+    processUpdateBotADSProfileFromSavedBatchTxt(stepjson, 1)
 
 
 

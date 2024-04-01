@@ -1158,7 +1158,8 @@ class MainWindow(QMainWindow):
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
         # test_run_mission(self)
         # test_processSearchWordLine()
-        test_run_group_of_tasks(self)
+        test_UpdateBotADSProfileFromSavedBatchTxt()
+        # test_run_group_of_tasks(self)
 
         #the grand test,
         # 1) fetch today's schedule.
