@@ -133,50 +133,59 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, stepN, None)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("expr", "ads_file_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
+    psk_words = psk_words + step_words
+
     # first click on select all checkbox
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
 
     # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_icon", "anchor icon", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_icon", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_selected", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "tags", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "url_open", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "proxy", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "region", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "city", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "fingerprint", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_selected", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "tags", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "url_open", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "proxy", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "region", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "city", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "fingerprints", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "text_file", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
@@ -194,45 +203,45 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "select_folder", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok_button", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # wait 5 seconds for batch text to save, once done, a pop up with "Close" button will pop up.
-    this_step, step_words = genStepWait(5, 0, 0, this_step)
+    this_step, step_words = genStepWait(6, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # click "Close" button on the pop up.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # wait 3 seconds till it logs in....
-    this_step, step_words = genStepWait(2, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    # now that we have logged in, load profiles.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close_button", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # use saved text to update individial bot profile cookie file
     this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", this_step)
     psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    # psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    # psk_words = psk_words + step_words
+
+    # wait 3 seconds till it logs in....
+    # this_step, step_words = genStepWait(2, 0, 0, this_step)
+    # psk_words = psk_words + step_words
+
+    # now that we have logged in, load profiles.
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    # psk_words = psk_words + step_words
 
     return this_step, psk_words
 
@@ -1178,15 +1187,19 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
 def update_individual_profile_from_batch_saved_txt(batch_profiles_txt):
     pfJsons = readTxtProfile(batch_profiles_txt)
     pf_dir = os.path.dirname(batch_profiles_txt)
+    # print("pf_dir", pf_dir)
+    # print("pfJsons", pfJsons)
     for pfJson in pfJsons:
         # each pfJson is a json for the bot-mission pair
         # xlsx_file_path = pf_dir + "/" + pfJson["username"].split("@")[0]+".xlsx"
         txt_file_path = pf_dir + "/" + pfJson["username"].split("@")[0] + ".txt"
+        # print("txt_file_path:", txt_file_path)
         # genProfileXlsx([pfJson], xlsx_file_path, site_list)
 
         # existing is a bot's current profile, the cookie section contains all cookies this bot has collected so far.
         existing = readTxtProfile(txt_file_path)
-        existing_cookies = existing["cookie"]
+        # print("existing:", existing)
+        existing_cookies = existing[0]["cookie"]
         new_cookies = pfJson["cookie"]
 
         # now merge the new cookies into all cookies.
@@ -1238,6 +1251,9 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
 
         # Get the file with the latest modification time
         latest_file = max(files, key=lambda file: os.path.getmtime(os.path.join(step["batch_txt_dir"], file)))
+        latest_file = step["batch_txt_dir"] + "/" + latest_file
+        print("latest_file:", latest_file)
+
 
         # now save for roll back if ever needed.
         # first remove the previously save rollback point, but leave up to 3 rollback points
@@ -1289,9 +1305,9 @@ def processADSGenXlsxBatchProfiles(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorADSGenXlsxBatchProfiles:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
-            ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt: traceback information not available:" + str(e)
+            ex_stat = "ErrorADSGenXlsxBatchProfiles: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
