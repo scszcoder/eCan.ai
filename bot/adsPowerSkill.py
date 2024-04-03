@@ -2,10 +2,11 @@ import os
 
 import pandas as pd
 import copy
+import json
 
 from basicSkill import *
 
-ADS_BATCH_SIZE = 3
+ADS_BATCH_SIZE = 2
 
 FULL_SITE_MAP = {
     "amz": "amazon.com",
@@ -80,21 +81,21 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 
     # check whether there is any pop up ads, there might be multiple advertising pop ups, if so, close it one by one until we see the
     # adspower's main home screen. The indication of whether the main screen is shown is to to check whether the button "All groups" is
-    # found on screen, if not that means some pop up(s) block it.
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "all_groups", "direct", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)
+    # found on screen, if not that means some pop up(s) block it. use hot key shift+esc to close it.
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "subscription", "direct", "anchor text", "any", "useless", "ad_shown", "ads", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepLoop("main_shown != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
+    this_step, step_words = genStepLoop("ad_shown", "", "", "ADSPowerLaunch" + str(this_step), this_step)
     psk_words = psk_words + step_words
 
-    # Click on the close icon, but make sure close the lower most one. because the main window has a close icon too...
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor icon", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    # close the pop-up using hotkey
+    this_step, step_words = genStepKeyInput("", True, "shift,esc", "", 3, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "all_groups", "direct", "anchor text", "any", "useless", "main_shown", "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "subscription", "direct", "anchor text", "any", "useless", "ad_shown", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     # close bracket
@@ -102,7 +103,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    # now that we have logged in, load default profiles.
+    # now that we have logged in, click on profiles to view the default profiles loaded.
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
     psk_words = psk_words + step_words
 
@@ -116,8 +117,6 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global fout\nfout = 'ERROR: Unable To Log Into ADS Power!'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-
-
     # close bracket for if loginwin != True
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
@@ -126,15 +125,314 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 
 
 
-# from given bots information, generate profiles for ADS power to load.
-# assumption: there will be a large .xlsx that contains the correct profiles for all bots.
-# and we will select x number of bots that are scheduled to run at this time,
-# this skill assumes ADS power is already launched, and its main window opened......
-# input to this skill: profile file name, os, site,
-# output of this skill: whether the profile file is loaded.
-# steps:
-# 1) delete all existing profiles.
-# 2) load a current profile.
+def genADSPowerExitProfileSteps(worksettings, stepN, theme):
+    psk_words = ""
+    print("DEBUG", "genAMZBrowseDetails...", worksettings, "stepN:", stepN)
+
+    # now read screen, if there is log in, then click on log in.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, stepN, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "ads_file_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
+    psk_words = psk_words + step_words
+
+    # first click on select all checkbox
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
+    # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_icon", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_selected", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "tags", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "url_open", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "proxy", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "region", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "city", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "fingerprints", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "text_file", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "file_dialog", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [4, 0], "box", 1, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepTextInput("var", False, "ads_file_path", "direct", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "select_folder", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok_button", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # wait 5 seconds for batch text to save, once done, a pop up with "Close" button will pop up.
+    this_step, step_words = genStepWait(6, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # click "Close" button on the pop up.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close_button", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # use saved text to update individial bot profile cookie file
+    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    # psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    # psk_words = psk_words + step_words
+
+    # wait 3 seconds till it logs in....
+    # this_step, step_words = genStepWait(2, 0, 0, this_step)
+    # psk_words = psk_words + step_words
+
+    # now that we have logged in, load profiles.
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    # psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
+
+def genADSPowerConnectProxy(worksettings, stepN, theme):
+    psk_words = ""
+    print("DEBUG", "genADSPowerConnectProxy...", worksettings, "stepN:", stepN)
+
+    # check the 1st tab to make sure the connection to internet thru proxy is normal, the way to check
+    # is to check wither there is a valid IP address, there is IPV4 and IPV6, and/or the green dot around
+    # the typical web site.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,1", "", 3, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "usa", "direct", "anchor text", "any", "ip_obtained", "useless", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("ip_obtained", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("bool", "net_timeout", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "wait_count", "NA", 6, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("ip_obtained != True and not net_timeout", "", "", "connectProxy" + str(this_step), this_step)
+    psk_words = psk_words + step_words
+
+    # refresh the page
+    this_step, step_words = genStepKeyInput("", True, "f5", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global wait_count\nwait_count = wait_count - 1\nprint('wait_count:',wait_count)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("wait_count == 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
+    this_step, step_words = genStepCallExtern("global net_timeout\nnet_timeout = True\nprint('net_timeout:',net_timeout)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # wait 5~7 seconds until the proxy connection is complete， success or not
+    this_step, step_words = genStepWait(0, 6, 9, this_step)
+    psk_words = psk_words + step_words
+
+    # now that we have logged in, load profiles.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "login", "direct", "anchor text", "any", "useless",
+                                                    "loginwin", "ads", False, this_step)
+    psk_words = psk_words + step_words
+    # close bracket
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ipv4", "ipv6"], "direct", ["info 1", "info 1"], "any", "shipToSummeries", "useless", "ip_obtained", False, this_step)
+    psk_words = psk_words + step_words
+
+    # close bracket
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now go to the last tap which should be the amazon page or whatever the e-commerce site
+    this_step, step_words = genStepKeyInput("", True, "ctrl,9", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+
+    return this_step, psk_words
+
+
+def genADSLoadAmzHomePage(worksettings, stepN, theme):
+    psk_words = ""
+    print("DEBUG", "genADSPowerConnectProxy...", worksettings, "stepN:", stepN)
+
+    this_step, step_words = genStepWait(3, 0, 0, stepN)
+    psk_words = psk_words + step_words
+
+    # make sure the page is fully loaded,
+    # 1) make sure no text like "throttle", "FAILED", "ERROR" are not on the page.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["throttle", "failed", "error"], "direct", ["anchor text", "anchor text", "anchor text"],
+                                                    "any", "shipToSummeries", "useless", "met_error", False,
+                                                    this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not met_error", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now need to make sure the amazon.com‘s home page is loaded fully and correctly，
+    # note if network is slow， it could be possible that only partial page is loaded
+    # resulting unreadable page。 The challenge is how to spot that?
+    this_step, step_words = genStepCreateData("bool", "net_timeout", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "wait_count", "NA", 6, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("ip_obtained != True and not net_timeout", "", "",
+                                        "connectProxy" + str(this_step), this_step)
+    psk_words = psk_words + step_words
+
+    # refresh the page
+    this_step, step_words = genStepKeyInput("", True, "f5", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global wait_count\nwait_count = wait_count - 1\nprint('wait_count:',wait_count)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("wait_count == 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
+    this_step, step_words = genStepCallExtern(
+        "global net_timeout\nnet_timeout = True\nprint('net_timeout:',net_timeout)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # wait 5~7 seconds until the proxy connection is complete， success or not
+    this_step, step_words = genStepWait(0, 5, 7, this_step)
+    psk_words = psk_words + step_words
+
+    # now that we have logged in, load profiles.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                               this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "login", "direct", "anchor text", "any", "useless",
+                                                    "loginwin", "ads", False, this_step)
+    psk_words = psk_words + step_words
+    # close bracket
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                               this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ipv4", "ipv6"], "direct", ["info 1", "info 1"],
+                                                    "any", "shipToSummeries", "useless", "ip_obtained", False,
+                                                    this_step)
+    psk_words = psk_words + step_words
+
+    # close bracket
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now go to the last tap which should be the amazon page or whatever the e-commerce site
+    this_step, step_words = genStepKeyInput("", True, "ctrl,9", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
+
+# NOTE: each day's schedule will be different, involving diffeent bots and different missions, an ads bot's profile is
+#       really associated with a bot-mission combo rather than a bot itself or a mission itself. This is due to
+#       ADS's profile loading limitation, it only loads xlsx file format, and there is a size limit of a xlsx cell
+#       the most important info in the xlsx is the cookie info, and for now cookis from no more than 2 sites can
+#       fit into a cell size limit. therefore we'll limit 2 cookies per profile. 1 cookie for bot's email account
+#       site (for ex, gmail), another for the mission target site (for ex, amazon).
+#       Of course a bot can access multiple site, so we will keep a large cookie file for a bot in the pre-designated
+#       profile directory, except each time before running today's schedule work, we will distill 2 cookies out from
+#       that bot's large cookie pool, and use that to generate 1 row of the xlsx file.
+#       ADS has a limit on how many bot profiles can be loaded as a batch at a time. the free version allows 2, the
+#       basic version allows 10, so depends on this limit. We will decide how many batches (i.e. how many xlsx files)
+#       will be generated. And batches should follow the time lines, so that consecutively executed profiles should
+#       be put into a single batch, and batch numbers should be ordered according to scheduled time as well, we will
+#       generate all profile batche xlsx files for today.
+#       One key to note is that, once all missions involved in a xlsx are complete, we need to save their updated cookies
+#       merge the updated cookies back each bot's main cooke pool so that they're up-to-date and there is continuity of
+#       history the next time the same site is accessed in another mission.
+#       Another note here, cookie save should be done whenever we need to switch to a different batch of profiles, but
+#       cookie merge should be done ONLY at the end of today's runs and should be executed only if the mission is
+#       executed successfully.
+#       the way tasks are executed are all tasks will be sequentially executed once, success or not. then the failed
+#       ones will be retried.
+#
 def genWinADSBatchImportSkill(worksettings, stepN, theme):
     psk_words = "{"
     # site_url = "https://www.amazon.com/"
@@ -153,15 +451,18 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global in_file_op\nin_file_op = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global current_profile_path\ncurrent_profile_path = fin[1]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global current_profile_path\ncurrent_profile_path = fin[1]\nprint('current_profile_path', current_profile_path)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # os is like windows, macos, linux...
-    this_step, step_words = genStepCallExtern("global current_profile_name\ncurrent_profile_name = fin[2]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global current_profile_name\ncurrent_profile_name = fin[2]\nprint('current_profile_name', current_profile_name)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # site is like amazon, ebay, etcs....
     this_step, step_words = genStepCallExtern("global in_bot_email\nin_bot_email = fin[3]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global in_bot_user_name\nin_bot_user_name = in_bot_email.split('@')[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global in_full_site\nin_full_site = fin[4]", "", "in_line", "", this_step)
@@ -324,7 +625,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchWordLine("screen_info", "in_full_site", "direct", "any", "useless", "site_found", "ads", False, this_step)
+    this_step, step_words = genStepSearchWordLine("screen_info", "in_full_site", "expr", "any", "useless", "site_found", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "other", "direct", "anchor text", "any", "useless", "site_list_ended", "ads", False, this_step)
@@ -340,7 +641,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchWordLine("screen_info", "in_full_site", "direct", "any", "useless", "site_found", "ads", False, this_step)
+    this_step, step_words = genStepSearchWordLine("screen_info", "in_full_site", "expr", "any", "useless", "site_found", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "other", "direct", "anchor text", "any", "useless", "site_list_ended", "ads", False, this_step)
@@ -354,7 +655,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # make sure the OS is selected correctly.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "in_full_site", "anchor text", "", 0, "left", [3, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "paragraph", "info", "in_full_site", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # else for condition "site_found"
@@ -378,22 +679,37 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now start file open routine.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "drag_drop", "anchor text", "", 0, "left", [3, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "drag_drop", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # wait for batch import to fully load
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     # get rid to call open_save_as sub skill
-    this_step, step_words = genStepCreateData("expr", "file_open_input", "NA", "['open', current_profile_path, current_profile_file]", this_step)
+    this_step, step_words = genStepCreateData("expr", "file_open_input", "NA", "['open', current_profile_path, current_profile_name]", this_step)
     psk_words = psk_words + step_words
 
     # now open the profile
     this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_open_input", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
+    # click the OK button
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
     # wait for batch import to fully load
     this_step, step_words = genStepWait(10, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    # now get ready to click OK button
+    # now get ready to click OK button on the pop up window.
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
@@ -402,10 +718,23 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
 
 
     # now that the new profile is loaded. double check to make sure the designated bot profile is loaded from this batch.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = '{\\\\\"anchors\\\\\": [{\\\\\"anchor_name\\\\\": \\\\\"bot_user\\\\\", \\\\\"anchor_type\\\\\": \\\\\"text\\\\\", \\\\\"template\\\\\": \\\\\"'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchWordLine("screen_info", "in_bot_email", "direct", "any", "useless", "bot_found", "ads", False, this_step)
+    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = dyn_options + in_bot_user_name", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = dyn_options + '\\\\\", \\\\\"ref_method\\\\\": \\\\\"0\\\\\", \\\\\"ref_location\\\\\": []}, {\\\\\"anchor_name\\\\\": \\\\\"bot_open\\\\\", \\\\\"anchor_type\\\\\": \\\\\"text\\\\\", \\\\\"template\\\\\": \\\\\"Open\\\\\", \\\\\"ref_method\\\\\": \\\\\"1\\\\\", \\\\\"ref_location\\\\\": [{\\\\\"ref\\\\\": \\\\\"bot_user\\\\\", \\\\\"side\\\\\": \\\\\"right\\\\\", \\\\\"dir\\\\\": \\\\\">\\\\\", \\\\\"offset\\\\\": \\\\\"1\\\\\", \\\\\"offset_unit\\\\\": \\\\\"box\\\\\"}]}]}'", "", "in_line", "", this_step)
+    # this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = dyn_options + '\\\\\", \\\\\"ref_method\\\\\": \\\\\"0\\\", \\\\\"ref_location\\\\\": []} ]}'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepSearchWordLine("screen_info", "bot_user", "direct", "any", "useless", "bot_loaded", "ads", False, this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_user", "direct", "anchor text", "any", "useless", "bot_loaded", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
@@ -415,10 +744,11 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchWordLine("screen_info", "in_bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
+    # this_step, step_words = genStepSearchWordLine("screen_info", "bot_user", "direct", "any", "useless", "bot_loaded", "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_user", "direct", "anchor text", "any", "useless", "bot_loaded", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -427,7 +757,9 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCheckCondition("bot_loaded", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_open", "expr", "anchor text", "any", "bot_open_button", "bot_loaded", "ads", False, this_step)
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_open", "direct", "anchor text", "any", "bot_open_button", "bot_loaded", "ads", False, this_step)
+    # psk_words = psk_words + step_words
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "bot_open", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -457,7 +789,7 @@ def genWinADSRemoveProfilesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genADSPowerLaunchSteps(worksettings, this_step, theme)
+    this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
 
@@ -571,12 +903,14 @@ def getBotEMail(bid, bots):
     else:
         return ""
 
-# input: all bot tasks on 1 vehicle.
-# output: a flattend list of tasks with 4 new attributes/keys added to task: bid, b_email, full_site, batch_file
+# input vTasks: all bot tasks on 1 vehicle.
+# input commander: the commander data structure which links to all bots, missions, etc.
+# output: input bot tasks are updated with 4 new attributes/keys added to task: bid, b_email, full_site, batch_file
+#         a list of batch profile xlsx file names,
 # so in the code of executing tasks one by one, when it's time to run, it will check which profile
 # Note: no all tasks involves using ADS, so could very well be that out of N bots, there will be less than N lines in
 #       profiles.
-def formADSProfileBatches(vTasks, commander):
+def formADSProfileBatchesFor1Vehicle(vTasks, commander):
     # vTasks, allbots, all_profiles_csv, run_data_dir):
     try:
         tgbs = []
@@ -597,40 +931,37 @@ def formADSProfileBatches(vTasks, commander):
                 other["bid"] = bid
                 all_works.append(other)
 
+        print("after flatten and aggregation, total of ", len(all_works), "tasks in this group!")
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
 
         ads_profile_batches_fnames = gen_ads_profile_batchs(commander, commander.getIP(), time_ordered_works)
 
-        print("all_ads_batches:", ads_profile_batches_fnames)
+        print("all_ads_batches===>", ads_profile_batches_fnames)
+        print("time_ordered_works===>", time_ordered_works)
 
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorformADSProfileBatches:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorFormADSProfileBatchesFor1Vehicle:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
-            ex_stat = "ErrorformADSProfileBatches: traceback information not available:" + str(e)
+            ex_stat = "ErrorFormADSProfileBatchesFor1Vehicle: traceback information not available:" + str(e)
         print(ex_stat)
 
     # sorted_all_ads_batches = sorted(all_ads_batches, key=lambda x: x["start_time"], reverse=False)
     # flattened_ads_tasks = [item for one_ads_batch in all_ads_batches for item in one_ads_batch]
     return time_ordered_works, ads_profile_batches_fnames
 
+
+def formADSProfileBatches(AllVTasks, commander):
+    for vtasks in AllVTasks:
+        formADSProfileBatchesFor1Vehicle(vtasks, commander)
+
 # taskgroup will be the full task group on a vehicle.
 # profiles_dir is the path name that will hold the resulting files
 # all_profiles is the file full path name of the .xls file that contains all available profiles.
 # result_list is the variable string name that will holds the result which will be a list of profile file names.
-def genStepCreateADSProfileBatches(taskgroup, profiles_dir, all_profiles, result_list, stepN):
-    stepjson = {
-        "type": "Create ADS Profile Batches",
-        "task_group": taskgroup,
-        "profiles_dir": profiles_dir,
-        "all_profiles": all_profiles,
-        "result": result_list
-    }
-
-    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 # gather 10 profiles into 1 and use this combined file for batch import.
@@ -786,16 +1117,17 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
 
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
-
 def gen_ads_profile_batchs(commander, host_ip, task_groups):
     print("commander ads batch size:", commander.getADSBatchSize())
-
+    # ads_profile_dir = commander.getADSProfileDir()
+    ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
     print("time_ordered_works:", task_groups)
     pfJsons_batches = []
     bot_pfJsons=[]
     v_ads_profile_batch_xlsxs = []
     batch_idx = 0
     batch_file = "Host" + host_ip + "B" + str(batch_idx) + "profile.xlsx"
+    batch_file = ads_profile_dir + "/" + batch_file
     w_idx = 0
     batch_bot_mids = []
     batch_bot_profiles_read = []
@@ -813,8 +1145,9 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
 
         if len(found_bots) > 0:
             found_bot = found_bots[0]
-            bot_txt_profile_name = commander.getADSProfileDir() + "/" + found_bot.getEmail().split("@")[0]+".txt"
+            bot_txt_profile_name = ads_profile_dir + "/" + found_bot.getEmail().split("@")[0]+".txt"
             bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
+            print("bot_mid_key:", bot_mid_key, "bot_txt_profile_name:", bot_txt_profile_name, "w_idx:", w_idx, "batch_size:", commander.getADSBatchSize())
 
             if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
                 newly_read = readTxtProfile(bot_txt_profile_name)
@@ -826,7 +1159,7 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
 
             bot_pfJsons = bot_pfJsons + newly_read
 
-            if w_idx >= commander.getADSBatchSize():
+            if w_idx >= commander.getADSBatchSize()-1:
                 genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
                 v_ads_profile_batch_xlsxs.append(batch_file)
                 w_idx = 0
@@ -835,26 +1168,44 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
                 batch_bot_profiles_read = []
                 batch_idx = batch_idx + 1
                 batch_file = "Host" + host_ip + "B" + str(batch_idx) + "profile.xlsx"
+                batch_file = ads_profile_dir + "/" + batch_file
             else:
                 w_idx = w_idx + 1
 
+    # take care of the last batch.
+    if len(bot_pfJsons) > 0:
+        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
+        v_ads_profile_batch_xlsxs.append(batch_file)
 
     return v_ads_profile_batch_xlsxs
 
 # after a batch save, grab individual profiles in the batch and update
-# each profile individually both txt and xlsx version so that time
+# each profile individually both txt and xlsx version so that next time
 # a batch can be done easily.
-def update_individual_profile_from_batch_saved_txt(batch_profiles_txt, site_list):
+# input: batch_profiles_txt: just saved batch of profiles in txt format:
+# site_list:
+def update_individual_profile_from_batch_saved_txt(batch_profiles_txt):
     pfJsons = readTxtProfile(batch_profiles_txt)
     pf_dir = os.path.dirname(batch_profiles_txt)
+    # print("pf_dir", pf_dir)
+    # print("pfJsons", pfJsons)
     for pfJson in pfJsons:
+        # each pfJson is a json for the bot-mission pair
         # xlsx_file_path = pf_dir + "/" + pfJson["username"].split("@")[0]+".xlsx"
         txt_file_path = pf_dir + "/" + pfJson["username"].split("@")[0] + ".txt"
+        # print("txt_file_path:", txt_file_path)
         # genProfileXlsx([pfJson], xlsx_file_path, site_list)
+
+        # existing is a bot's current profile, the cookie section contains all cookies this bot has collected so far.
         existing = readTxtProfile(txt_file_path)
-        existing_cookies = existing["cookie"]
+        # print("existing:", existing)
+        existing_cookies = existing[0]["cookie"]
         new_cookies = pfJson["cookie"]
+
+        # now merge the new cookies into all cookies.
         pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
+
+        #now update txt version of the profile of the bot
         genProfileTxt([pfJson], txt_file_path)
 
 # for a list of existing cookies, find matching in name and domain and path, if matched all three in newones,
@@ -877,3 +1228,86 @@ def merge_cookies(existing, new_ones):
             merged_cookies.append(new_cookie)
 
     return merged_cookies
+
+def genStepUpdateBotADSProfileFromSavedBatchTxt(batch_txt_dir, output, stepN):
+        stepjson = {
+            "type": "ADS Batch Text To Profiles",
+            "batch_txt_dir": batch_txt_dir,
+            "output": output
+        }
+
+        return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
+
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        # it stinks that ADS batch save doesn't allow you to pick an output file name, so you have to grab the one with the latest time stamp.
+        files = os.listdir(step["batch_txt_dir"])
+
+        # Filter out directories from the list of files
+        files = [file for file in files if os.path.isfile(os.path.join(step["batch_txt_dir"], file))]
+
+        # Get the file with the latest modification time
+        latest_file = max(files, key=lambda file: os.path.getmtime(os.path.join(step["batch_txt_dir"], file)))
+        latest_file = step["batch_txt_dir"] + "/" + latest_file
+        print("latest_file:", latest_file)
+
+
+        # now save for roll back if ever needed.
+        # first remove the previously save rollback point, but leave up to 3 rollback points
+        update_individual_profile_from_batch_saved_txt(latest_file)
+
+        # wait after key action.
+        # time.sleep(step["wait_after"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt: traceback information not available:" + str(e)
+        print(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def genStepADSGenXlsxBatchProfiles(commander_name, vtasks_name, output, stepN):
+        stepjson = {
+            "type": "ADS Gen XLSX Batch Profiles",
+            "commander": commander_name,
+            "vtasks": vtasks_name,
+            "output": output
+        }
+
+        return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def processADSGenXlsxBatchProfiles(step, i):
+
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        # now save for roll back if ever needed.
+        # first remove the previously save rollback point, but leave up to 3 rollback points
+        vTasks = symTab[["vtasks"]]
+        commander = symTab[step["commander"]]
+        formADSProfileBatches(vTasks, commander)
+
+        # wait after key action.
+        # time.sleep(step["wait_after"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorADSGenXlsxBatchProfiles:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorADSGenXlsxBatchProfiles: traceback information not available:" + str(e)
+        print(ex_stat)
+
+    return (i + 1), ex_stat

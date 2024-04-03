@@ -106,10 +106,7 @@ if __name__ == '__main__':
 
     # print("all unit test done...")
 
-
     windowlauncher()
-
-
 
     # try:
     #     asyncio.run(main())

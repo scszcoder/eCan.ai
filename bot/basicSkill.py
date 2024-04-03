@@ -18,6 +18,7 @@ import traceback
 from ping3 import ping, verbose_ping
 if sys.platform == 'win32':
     import win32gui
+    import win32con
 elif sys.platform == 'darwin':
     from AppKit import NSWorkspace
     from Quartz import (
@@ -552,6 +553,24 @@ def genStepCreateData(dtype, dname, keyname, keyval, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepCheckAppRunning(appname, result, stepN):
+    stepjson = {
+        "type": "Check App Running",
+        "appname": appname,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+def genStepBringAppToFront(win_title, result, stepN):
+    stepjson = {
+        "type": "Check App Running",
+        "win_title": win_title,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 #fill type: array fill, value fill, object fill?
 # src : src variable
@@ -655,6 +674,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
 
     # request an analysis of the uploaded screen
     # some example options usage:
+    # Note: options is a global variable name that actually contains the options json string as shown below:
     # "options": "{\"info\": [{\"info_name\": \"label_row\", \"info_type\": \"lines 1\", \"template\": \"2\", \"ref_method\": \"1\", \"refs\": [{\"dir\": \"right inline\", \"ref\": \"entries\", \"offset\": 0, \"offset_unit\": \"box\"}]}]}",
     # basically let a user to modify csk file by appending some user defined way to extract certain information element.
 
@@ -670,11 +690,14 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         "psk": m_psk_names[0].replace("\\", "\\\\"),
         "csk": m_csk_names[0].replace("\\", "\\\\"),
         "lastMove": page_sect,
-        "options": options,
+        "options": "",
         "theme": page_theme,
         "imageFile": sfile.replace("\\", "\\\\"),
         "factor": "{}"
     }]
+
+    if options != "":
+        request[0]["options"] = symTab[options]
 
     print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -939,7 +962,7 @@ def processTextInput(step, i):
         # pyautogui.click()
         if step["text_type"] == "var":
             print("about to TYPE in:", symTab[txt_to_be_input])
-            pyautogui.write(symTab[txt_to_be_input])
+            pyautogui.write(symTab[txt_to_be_input], interval=0.25)
         else:
             if len(txt_to_be_input) > 0:
                 print("direct type in:", txt_to_be_input[0])
@@ -1081,13 +1104,44 @@ def group_1D(int_list, threshold=25):
 def find_clickable_object(sd, target, template, target_type, nth):
     print("LOOKING FOR:", target, "   ", template,  "   ", target_type, "   ", nth)
     found = {"loc": None}
-    reg = re.compile(target+"[0-9]+")
+    if target != "paragraph":
+        reg = re.compile(target+"[0-9]+")
+        targets = [x for x in sd if (x["name"] == target or reg.match(x["name"])) and x["type"] == target_type]
+    else:
+        reg = re.compile(template)
+        targets = [x for x in sd if template in x["text"] and x["type"] == target_type and x["name"] == target]
     # grab all instances of the target object.
-    objs = [x for x in sd if (x["name"] == target or reg.match(x["name"])) and x["type"] == target_type]
+
+    print("found targets::", len(targets))
+    objs = []
 
     # convert possible string to integer
-    for o in objs:
-        o["loc"] = [int(o["loc"][0]), int(o["loc"][1]), int(o["loc"][2]), int(o["loc"][3])]
+    for o in targets:
+        if o["name"] == "paragraph":
+            lines = [l for l in o["txt_struct"] if (l["text"] == template or re.search(template, l["text"]))]
+            print("found lines::", len(lines))
+            if len(lines) > 0:
+                for li, l in enumerate(lines):
+                    pat_words = template.strip().split()
+                    lreg = re.compile(pat_words[0])
+                    print("checking line:", l, pat_words)
+                    start_word = next((x for x in l["words"] if re.search(pat_words[0], x["text"])), None)
+                    print("start_word:", start_word)
+                    if start_word:
+                        if len(pat_words) > 1:
+                            lreg = re.compile(pat_words[len(pat_words)-1])
+                            end_word = next((x for x in l["words"] if x["text"] == pat_words[len(pat_words)-1] or lreg.match(x["text"])), None)
+                            print("multi word end_word:", end_word)
+                        else:
+                            end_word = start_word
+                            print("single word")
+
+                        objs.append({"loc": [int(start_word["box"][1]), int(start_word["box"][0]), int(end_word["box"][3]), int(end_word["box"][2])]})
+                        print("objs:", objs)
+        else:
+            print("non paragraph:", o)
+            o["loc"] = [int(o["loc"][0]), int(o["loc"][1]), int(o["loc"][2]), int(o["loc"][3])]
+            objs.append({"loc": o["loc"]})
 
     print("objs:", objs)
     if len(objs) > 1:
@@ -1202,7 +1256,11 @@ def processMouseClick(step, i):
             else:
                 target_name = step["target_name"]
             sd = symTab[step["screen"]]
-            print("finding: ", step["text"], " target name: ", target_name)
+
+            if step["text"] != "":
+                if step["text"] in symTab:
+                    step["text"] = symTab[step["text"]]
+            print("finding: ", step["text"], " target name: ", target_name, " text to be matched:["+step["text"]+"]")
             # print("from data: ", sd)
             obj_box = find_clickable_object(sd, target_name, step["text"], step["target_type"], step["nth"])
             print("obj_box: ", obj_box)
@@ -1223,11 +1281,11 @@ def processMouseClick(step, i):
             else:
                 print("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]", step["target_name"])
                 exec("global click_target\nclick_target = " + step["target_name"])
-                print("box: ", symTab["click_target"])
-                box = [symTab["click_target"][1], symTab["click_target"][0], symTab["click_target"][3], symTab["click_target"][2]]
+                print("box: ", symTab["target_name"])
+                box = [symTab["target_name"][1], symTab["target_name"][0], symTab["target_name"][3], symTab["target_name"][2]]
                 loc = box_center(box)
-                post_offset_y = (symTab["click_target"][2] - symTab["click_target"][0]) * step["post_move"][0]
-                post_offset_x = (symTab["click_target"][3] - symTab["click_target"][1]) * step["post_move"][1]
+                post_offset_y = (symTab["target_name"][2] - symTab["target_name"][0]) * step["post_move"][0]
+                post_offset_x = (symTab["target_name"][3] - symTab["target_name"][1]) * step["post_move"][1]
                 post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
 
             print("direct calculated locations:", loc, "post_offset:(", post_offset_x, ",", post_offset_y, ")", "post_loc:", post_loc)
@@ -2828,3 +2886,75 @@ def processSaveHtml(step, i, mission, skill):
 
     return ni, ex_stat
 
+
+def processCheckAppRunning(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["result"]] = False
+    try:
+        if sys.platform == 'win32':
+            names = []
+
+            def winEnumHandler(hwnd, ctx):
+                if win32gui.IsWindowVisible(hwnd):
+                    n = win32gui.GetWindowText(hwnd)
+                    # print("windows: ", n)
+                    if n:
+                        names.append(n)
+
+            win32gui.EnumWindows(winEnumHandler, None)
+
+            for win_name in names:
+                if step["appname"] in win_name:
+                    symTab[step["result"]] = True
+                    break
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckAppRunning:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckAppRunning: traceback information not available:" + str(e)
+        print(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processBringAppToFront(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["result"]] = False
+    try:
+        if sys.platform == 'win32':
+            names = []
+
+            def winEnumHandler(hwnd, ctx):
+                if win32gui.IsWindowVisible(hwnd):
+                    n = win32gui.GetWindowText(hwnd)
+                    # print("windows: ", n)
+                    if n:
+                        names.append(n)
+
+            win32gui.EnumWindows(winEnumHandler, None)
+            win_title = step["win_title"]
+            hwnd = win32gui.FindWindow(None, win_title)
+
+            # Bring the window to the foreground
+            if hwnd:
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)  # Restore window if minimized
+                win32gui.SetForegroundWindow(hwnd)
+                symTab[step["result"]] = True
+            else:
+                print(f"Error: Window with title '{win_title}' not found.")
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorBringAppToFront:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorBringAppToFront: traceback information not available:" + str(e)
+        print(ex_stat)
+
+    return (i + 1), ex_stat
