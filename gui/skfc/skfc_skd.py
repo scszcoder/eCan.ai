@@ -229,3 +229,5 @@ class SkFCSkd:
 
         # print(this_step, sorted_steps_stack)
         return this_step, sorted_steps_stack
+
+# SkFCSkd().gen_psk_file(skd_file, psk_file_dir)
