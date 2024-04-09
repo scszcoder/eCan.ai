@@ -385,6 +385,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
 
     def get_next_diagram_item(self, condition=False):
         for arrow in self.arrows:
+            print(f"step item tag name:{arrow.start_item.tag_text_item.toPlainText()}")
             if arrow.start_item == self:
                 if self.diagram_type == DiagramNormalItem.Conditional:
                     if condition is True and arrow.condition_text_item.is_condition_true():

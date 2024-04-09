@@ -9,6 +9,7 @@ from gui.skfc.skfc_scene import SkFCScene
 from gui.skfc.diagram_item_normal import DiagramNormalItem
 from gui.skfc.skfc_toolbars import SkFCToolBars
 from skfc.skfc_infobox import SkFCInfoBox
+from skfc.skfc_skd import SkFCSkd
 from skfc.skfc_toolbox import SkFCToolBox
 
 
@@ -145,19 +146,12 @@ class SkFCWidget(QWidget):
         items = self.skfc_scene.to_dict()
         sk_info = self.skfc_infobox.to_dict()
 
-        json_dict = {
-            "sk_info": sk_info,
-            "items": items
-        }
-        json_str = json.dumps(json_dict, indent=indent)
-        print(f"encode json str: {json_str}")
-
-        return json_str
+        return SkFCSkd.encode_skd_dict(items, sk_info, indent)
 
     def decode_json(self, json_str):
-        skd_dict = json.loads(json_str)
-        self.skfc_scene.from_json(skd_dict["items"], self.context_menu)
-        self.skfc_infobox.from_json(skd_dict["sk_info"] if "sk_info" in skd_dict else None)
+        items, sk_info = SkFCSkd.decode_skd_dict(json_str)
+        self.skfc_scene.from_json(items, self.context_menu)
+        self.skfc_infobox.from_json(sk_info)
 
     def handleFontChange(self):
         self.skfc_toolbars.handleFontChange()

@@ -1,16 +1,16 @@
 from PySide6.QtCore import (Signal, QPointF, Qt)
-from PySide6.QtGui import (QFont, QColor, QKeyEvent, QUndoStack, QKeySequence, QShortcut)
+from PySide6.QtGui import (QFont, QColor, QKeyEvent, QUndoStack)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QMenu
 from gui.skfc.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup, \
     DiagramNormalSubTextItem
 from gui.skfc.diagram_item_text import DiagramTextItem
 from gui.skfc.diagram_item_arrow import DiagramArrowItem
-from gui.skfc.skfc_base import EnumItemType
-from skfc.skfc_undo_stack import AddDiagramItemCommand, RemoveDiagramItemCommand, ChangeColorCommand, ChangeFontCommand
-from skill.steps.enum_step_type import EnumStepType
-from skill.steps.step_goto import StepGoto
-from skill.steps.step_header import StepHeader
-from skill.steps.step_stub import EnumStubName, StepStub
+from gui.skfc.skfc_skd import SkFCSkd
+from gui.skfc.skfc_undo_stack import (AddDiagramItemCommand, RemoveDiagramItemCommand, ChangeColorCommand,
+                                      ChangeFontCommand)
+# from typing import TYPE_CHECKING
+# if TYPE_CHECKING:
+#     from skill.steps.step_base import StepBase
 
 
 class SkFCScene(QGraphicsScene):
@@ -245,7 +245,7 @@ class SkFCScene(QGraphicsScene):
                 self.ignore_mouse_move = False
                 line: DiagramArrowItem = self.selected_item
                 target_item_group = self.query_target_event_items(mouseEvent.scenePos())
-                line.mouse_release_handler(mouseEvent.scenePos(), target_item_group)
+                line.mouse_release_handler(self, mouseEvent.scenePos(), target_item_group)
                 if line.distance_too_short():
                     self.removeItem(line)
                     print("line distance is too short should removed from scene")
@@ -275,8 +275,9 @@ class SkFCScene(QGraphicsScene):
         return target_item_group
 
     def isItemChange(self, type):
-        # print(f"selected item change type {type}")
+        print(f"selected item change type {type}")
         for item in self.selectedItems():
+            print(f"###{isinstance(item, type)}")
             if isinstance(item, type):
                 print(f"selected item {item} same type {type}")
                 return True
@@ -339,13 +340,6 @@ class SkFCScene(QGraphicsScene):
     #     else:
     #         return QGraphicsItem.itemChange(change, value)
 
-    def get_normal_item_by_uuid(self, uuid):
-        for item in self.items():
-            if isinstance(item, DiagramNormalItem) and item.uuid == uuid:
-                return item
-
-        return None
-
     def to_dict(self) -> []:
         items = []
 
@@ -353,8 +347,8 @@ class SkFCScene(QGraphicsScene):
             if isinstance(item, DiagramNormalItem):
                 items.append(item.to_dict())
             elif isinstance(item, DiagramTextItem):
-                if item.sub_item is False:
-                    items.append(item.to_dict())
+                # if item.sub_item is False:
+                items.append(item.to_dict())
             elif isinstance(item, DiagramArrowItem):
                 items.append(item.to_dict())
             else:
@@ -363,156 +357,42 @@ class SkFCScene(QGraphicsScene):
         return items
 
     def from_json(self, items, context_menu: QMenu):
-        arrow_items = []
-        for item in items:
-            diagram_item = None
-            str_item_type = item["item_type"]
-            enum_item_type = EnumItemType[str_item_type]
-
-            if enum_item_type == EnumItemType.Text:
-                diagram_item = DiagramTextItem.from_dict(item, context_menu)
-            elif enum_item_type == EnumItemType.Normal:
-                diagram_item = DiagramNormalItem.from_dict(item, context_menu)
-            elif enum_item_type == EnumItemType.Arrow:
-                diagram_item = DiagramArrowItem.from_dict(self, item, context_menu)
-                arrow_items.append(diagram_item)
-            else:
-                print(f"diagram scene from json error item type {enum_item_type}")
-
-            if diagram_item is not None:
-                print(f"add diagram item {diagram_item.item_type.name};{diagram_item.uuid} to scene")
-                self.addItem(diagram_item)
-
-        # 单独把创建的arrow 对象, 绑定到normal item 对象
-        for arrow in arrow_items:
-            start_item = self.get_normal_item_by_uuid(arrow.start_item_uuid)
-            arrow.add_start_item(start_item)
-
-            end_item = self.get_normal_item_by_uuid(arrow.end_item_uuid)
-            arrow.add_end_item(end_item)
-
-    def get_start_skill_diagram_item(self):
-        for item in self.items():
-            if isinstance(item, DiagramNormalItem):
-                step = item.step
-                if step and step.type == EnumStepType.Stub.type_key():
-                    if step.stub_name == EnumStubName.StartSkill or step.stub_name == EnumStubName.StartSkillMain:
-                        return item
-
-        return None
-
-    def get_diagram_item_stepN(self, item):
-        for key, value in self.diagram_item_map_stepN.items():
-            if value == item:
-                return key
-
-        return None
-
-    def get_next_item_steps(self, stepN, next_diagram_item):
-        this_step = stepN
-        temp_steps_stack = []
-        existed_next_stepN = self.get_diagram_item_stepN(next_diagram_item)
-
-        # 替换为goto，如果是已经执行过的step
-        if existed_next_stepN:
-            step = next_diagram_item.step
-            if step.tag is not None and step.tag != "":
-                this_step, step_words = StepGoto(gotostep=step.tag).gen_step(this_step)
-                temp_steps_stack.append(step_words)
-            else:
-                print("ERROR::::: step->", step, " tag is null")
-        else:
-            this_step, steps_stack = self.gen_skill_steps(next_diagram_item, this_step)
-            temp_steps_stack.extend(steps_stack)
-
-        return this_step, temp_steps_stack
-
-    def gen_skill_steps(self, diagram_item, stepN):
-        sorted_steps_stack = []
-        this_step = stepN
-
-        self.diagram_item_map_stepN[this_step] = diagram_item
-        step = diagram_item.step
-        this_step, step_words = step.gen_step(this_step, settings=self.worksettings)
-        sorted_steps_stack.append(step_words)
-        if step.tag is not None and step.tag != "":
-            this_step, step_words = StepStub(sname=EnumStubName.Tag, fname=step.tag).gen_step(this_step)
-            sorted_steps_stack.append(step_words)
-        # print(f"gen step {step.type}; {this_step}")
-
-        if diagram_item.diagram_type == DiagramNormalItem.Conditional:
-            true_next_item = diagram_item.get_next_diagram_item(True)
-            if true_next_item:
-                this_step, steps_stack = self.get_next_item_steps(this_step, true_next_item)
-                sorted_steps_stack.extend(steps_stack)
-            else:
-                print(f"condition {diagram_item} true next item is none")
-
-            this_step, step_words = StepStub(sname=EnumStubName.Else).gen_step(this_step)
-            sorted_steps_stack.append(step_words)
-
-            false_next_item = diagram_item.get_next_diagram_item(False)
-            if false_next_item:
-                this_step, steps_stack = self.get_next_item_steps(this_step, false_next_item)
-                sorted_steps_stack.extend(steps_stack)
-            else:
-                print(f"condition {diagram_item} false next item is none")
-        else:
-            next_item = diagram_item.get_next_diagram_item()
-            if next_item:
-                this_step, steps_stack = self.get_next_item_steps(this_step, next_item)
-                sorted_steps_stack.extend(steps_stack)
-            else:
-                print(f"{diagram_item} next item is none")
-
-        # need end stub steps
-        if step.type in EnumStepType.need_end_step_stub_type_keys():
-            if step.type == EnumStepType.CheckCondition.type_key():
-                this_step, step_words = StepStub(sname=EnumStubName.EndCondition).gen_step(this_step)
-                sorted_steps_stack.append(step_words)
-            elif step.type == EnumStepType.Repeat.type_key():
-                this_step, step_words = StepStub(sname=EnumStubName.EndLoop).gen_step(this_step)
-                sorted_steps_stack.append(step_words)
-            elif step.type == EnumStepType.CallFunction.type_key():
-                this_step, step_words = StepStub(sname=EnumStubName.EndFunction).gen_step(this_step)
-                sorted_steps_stack.append(step_words)
-            elif step.type == EnumStepType.Stub.type_key():
-                if step.stub_name == EnumStubName.StartSkill or step.stub_name == EnumStubName.StartSkillMain:
-                    this_step, step_words = StepStub(sname=EnumStubName.EndSkill).gen_step(this_step)
-                    sorted_steps_stack.append(step_words)
-
-        # print(this_step, sorted_steps_stack)
-        return this_step, sorted_steps_stack
+        diagram_items = SkFCSkd().decode_diagram_items(items, context_menu)
+        for diagram_item in diagram_items:
+            print(f"add diagram item {diagram_item.item_type.name};{diagram_item.uuid} to scene")
+            self.addItem(diagram_item)
 
     def gen_psk_words(self, worksettings):
-        psk_words = "{"
-        first_step = 0
-
-        # header
         sk_info = self.parent.skfc_infobox.get_skill_info()
-        this_step, step_words = StepHeader(first_step, sk_info.skname, sk_info.sktype, sk_info.os, sk_info.version, sk_info.author,
-                                           sk_info.skid, sk_info.description).gen_step(first_step)
-        psk_words = psk_words + step_words
-
-        # body steps
-        sorted_steps_stack = []
-        start_diagram_item = self.get_start_skill_diagram_item()
-        if start_diagram_item:
-            self.diagram_item_map_stepN = {}
-            self.worksettings = worksettings
-            this_step, steps_stack = self.gen_skill_steps(start_diagram_item, this_step)
-            sorted_steps_stack.extend(steps_stack)
-
-            step_words = ''.join(sorted_steps_stack)
-            psk_words = psk_words + step_words
-        else:
-            print("Error No Start Skill Step Diagram Item")
-
-        # dummy
-        psk_words = psk_words + "\"dummy\" : \"\"}"
-        print(psk_words)
+        skfc_skd = SkFCSkd()
+        start_diagram_item = skfc_skd.get_start_skill_diagram_item(self.items())
+        psk_words = skfc_skd.gen_psk_body(sk_info, start_diagram_item, worksettings)
 
         return psk_words
 
 
-
+# class StepQueue:
+#     def __init__(self):
+#         self.queue = []
+#
+#     def enqueue(self, step: StepBase):
+#         self.queue.append(step)
+#
+#     def dequeue(self):
+#         if len(self.queue) < 1:
+#             return None
+#         return self.queue.pop(0)
+#
+#     def size(self):
+#         return len(self.queue)
+#
+#     def insert(self, position, step: StepBase):
+#         self.queue.insert(position, step)
+#
+#     def find(self, value):
+#         try:
+#             position = self.queue.index(value)
+#             return position
+#         except ValueError:
+#             return -1
+#
