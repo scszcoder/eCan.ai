@@ -125,12 +125,11 @@ class DiagramArrowConditionTextItem(QGraphicsTextItem):
 class DiagramArrowItem(QGraphicsPathItem):
     def __init__(self, start_point: QPointF, line_color, context_menu: QMenu, condition_text="",
                  path_points: List[QPointF] = None, target_item_group: DiagramItemGroup = None, uuid=None,
-                 skfc_scene=None, parent=None, scene=None):
+                 parent=None, scene=None):
         super(DiagramArrowItem, self).__init__(parent, scene)
 
         print(f"build new arrow item with {target_item_group.diagram_normal_item if target_item_group is not None else None};"
               f" {target_item_group.diagram_item_port_direction if target_item_group is not None else None}")
-        self.skfc_scene = skfc_scene
         self.uuid = uuid if uuid is not None else SkFCBase.build_uuid()
         self.item_type: EnumItemType = EnumItemType.Arrow
         self.start_point: QPointF = start_point
@@ -211,7 +210,7 @@ class DiagramArrowItem(QGraphicsPathItem):
         return obj_dict
 
     @classmethod
-    def from_dict(cls, skfc_scene, obj_dict, context_menu: QMenu):
+    def from_dict(cls, obj_dict, context_menu: QMenu):
         uuid = obj_dict["uuid"]
         line_color = QColor(SkFCBase.color_decode(obj_dict["line_color"]))
         path_points: [] = SkFCBase.path_points_decode(obj_dict["path_points"])
@@ -223,8 +222,7 @@ class DiagramArrowItem(QGraphicsPathItem):
 
         start_point: QPointF = path_points[0]
         diagram_arrow_item = DiagramArrowItem(start_point=start_point, line_color=line_color, context_menu=context_menu,
-                                              condition_text=condition_text, uuid=uuid, path_points=path_points,
-                                              skfc_scene=skfc_scene)
+                                              condition_text=condition_text, uuid=uuid, path_points=path_points)
         diagram_arrow_item.start_item_uuid = start_item_uuid
         diagram_arrow_item.start_item_port_direction = start_item_port_direction
         diagram_arrow_item.end_item_uuid = end_item_uuid
@@ -495,7 +493,7 @@ class DiagramArrowItem(QGraphicsPathItem):
             self.render_arrow(self.path_points)
             # print("mouse move event update arrow path completed!!!")
 
-    def mouse_release_handler(self, target_point: QPointF, target_item_group: DiagramItemGroup = None):
+    def mouse_release_handler(self, skfc_scene, target_point: QPointF, target_item_group: DiagramItemGroup = None):
         print(f"mouse_release_handler: {target_point}")
         # self.mouse_move_handler(target_point, target_item_group)
 
@@ -504,7 +502,7 @@ class DiagramArrowItem(QGraphicsPathItem):
 
             if self.start_item.diagram_type == DiagramNormalItem.Conditional:
                 if self.start_item.count_arrows_of_self_start() > 2:
-                    self.skfc_scene.remove_diagram_item(self)
+                    skfc_scene.remove_diagram_item(self)
                 else:
                     value = self.start_item.other_condition_arrow_value(self)
                     if value is None:

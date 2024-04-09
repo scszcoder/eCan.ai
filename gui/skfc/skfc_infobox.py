@@ -5,7 +5,7 @@ from PySide6.QtGui import QIcon, QFont, QPainter, QColor
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QLabel, QTableWidgetItem, QGraphicsView, \
     QHBoxLayout, QFrame, QLineEdit, QHeaderView, QComboBox, QCheckBox, QApplication
 
-from skfc.diagram_item_normal import DiagramNormalItem
+from gui.skfc.diagram_item_normal import DiagramNormalItem
 from skfc.skfc_base import EnumSkType
 from skfc.skfc_scene import SkFCScene
 from config.app_info import app_info
@@ -165,8 +165,15 @@ class SkFCInfoBox(QFrame):
         return sk_info.__dict__
 
     def from_json(self, sk_info_dict: dict):
+        sk_info = self.gen_sk_info(sk_info_dict)
+        if sk_info:
+            self.init_qline_edit(sk_info)
+
+    @staticmethod
+    def gen_sk_info(sk_info_dict: dict):
         if sk_info_dict is not None:
-            self.init_qline_edit(SKInfo.from_dict(sk_info_dict))
+            return SKInfo.from_dict(sk_info_dict)
+        return None
 
     def init_qline_edit(self, sk_info: SKInfo):
         self.basic_info_skname.setText(sk_info.skname)

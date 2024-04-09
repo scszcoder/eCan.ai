@@ -2584,5 +2584,3 @@ class SkillGUI(QMainWindow):
         # when app, domain, page changed, that means, we need a different .csk file.
         print("app, domain, page changed....")
 
-
-
