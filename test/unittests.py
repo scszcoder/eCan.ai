@@ -319,29 +319,41 @@ def test_get_account_info(session, token):
 
 def test_api(parent, session, token):
     print("TESTING API....")
-    request = [{
-        "id": 702,
-        "bid": 85,
-        "os": "win",
-        "app": "ads",
-        "domain": "local",
-        "page": "ads_power",
-        "layout": "",
-        "skill_name": "batch_import",
-        # "psk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.psk", -- not working...
-        "psk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.psk",
-        # "csk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
-        "csk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
-        "lastMove": "top",
-        "options": "{\\\"anchors\\\": [{\\\"anchor_name\\\": \\\"bot_user\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"TeluguOttoYuGh\\\", \\\"ref_method\\\": \\\"0\\\", \\\"ref_location\\\": []}, {\\\"anchor_name\\\": \\\"bot_open\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"Open\\\", \\\"ref_method\\\": \\\"1\\\", \\\"ref_location\\\": [{\\\"ref\\\": \\\"bot_user\\\", \\\"side\\\": \\\"right\\\", \\\"dir\\\": \\\">\\\", \\\"offset\\\": \\\"1\\\", \\\"offset_unit\\\": \\\"box\\\"}]} ]}",
-        "theme": "light",
-        "imageFile": "C:\\\\Users\\\\songc\\\\PycharmProjects\\\\ecbot/runlogs/20240329/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1711760595.png",
-        # "imageFile": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240329/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1711760595.png",
-        "factor": "{}"
-    }]
-    result = req_cloud_read_screen(session, request, token)
-    # print("result", request[0]["options"])
-    print("result", result)
+    # request = [{
+    #     "id": 702,
+    #     "bid": 85,
+    #     "os": "win",
+    #     "app": "ads",
+    #     "domain": "local",
+    #     "page": "ads_power",
+    #     "layout": "",
+    #     "skill_name": "batch_import",
+    #     # "psk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.psk", -- not working...
+    #     "psk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.psk",
+    #     # "csk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
+    #     "csk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
+    #     "lastMove": "top",
+    #     "options": "{\\\"anchors\\\": [{\\\"anchor_name\\\": \\\"bot_user\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"TeluguOttoYuGh\\\", \\\"ref_method\\\": \\\"0\\\", \\\"ref_location\\\": []}, {\\\"anchor_name\\\": \\\"bot_open\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"Open\\\", \\\"ref_method\\\": \\\"1\\\", \\\"ref_location\\\": [{\\\"ref\\\": \\\"bot_user\\\", \\\"side\\\": \\\"right\\\", \\\"dir\\\": \\\">\\\", \\\"offset\\\": \\\"1\\\", \\\"offset_unit\\\": \\\"box\\\"}]} ]}",
+    #     "theme": "light",
+    #     "imageFile": "C:\\\\Users\\\\songc\\\\PycharmProjects\\\\ecbot/runlogs/20240329/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1711760595.png",
+    #     # "imageFile": "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240329/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1711760595.png",
+    #     "factor": "{}"
+    # }]
+    # # result = req_cloud_read_screen(session, request, token)
+    # # print("result", request[0]["options"])
+    # # print("result", result)
+    #
+    # allTodoReports = [{'mid': 702, 'bid': 85, 'starttime': 1712082891, 'endtime': 1712082891, 'status': 'Completed:0'},
+    #  {'mid': 694, 'bid': 71, 'starttime': 1712082921, 'endtime': 1712082921, 'status': 'Completed:0'},
+    #  {'mid': 698, 'bid': 77, 'starttime': 1712082951, 'endtime': 1712082951, 'status': 'Completed:0'}]
+    # send_completion_status_to_cloud(session, allTodoReports, token)
+
+
+    qs = [{"msgID": "1", "user": "john", "timeStamp": "2024-04-09T12:00:00.000Z", "product": "resistance band", "goal": "customer service", "background": "", "msg": "hi, do you sell fabric type?"}]
+    result = send_query_chat_request_to_cloud(session, token, qs)
+    print("send_query_chat_request_to_cloud RESULT:", result)
+
+
 
     # qs = [{"mid": 1, "bid": 1, "status":"Completed:0", "starttime": 123, "endtime": 123}]
     # result = send_completion_status_to_cloud(session, qs, token)

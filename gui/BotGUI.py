@@ -1289,6 +1289,7 @@ class BotNewWin(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Delete"))
         return new_action
 
+
     def editRole(self):
         if self.role_platform_sel.currentText() == "Custom":
             self.selected_role_item.setPlatform(self.role_platform_edit.text())

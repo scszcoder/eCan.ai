@@ -18,7 +18,7 @@ SAME_ROW_THRESHOLD = 16
 # this is for Amazon's FBM
 def genWinChromeAmzFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = "{"
-    site_url = "https://www.etsy.com/your/orders/sold"
+    site_url = "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1"
 
     this_step, step_words = genStepHeader("win_chrome_amz_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ001",
                                           "Amazon Fullfill New Orders On Windows.", stepN)

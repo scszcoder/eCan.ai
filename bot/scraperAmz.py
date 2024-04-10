@@ -179,3 +179,229 @@ def amz_buyer_fetch_product_reviews(html_file,  product):
 
 
     return product
+
+
+def processAmzScrapeOrders(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        next_i = i + 1
+        pidx = step["pidx"]
+
+        if step["html_dir_type"] == "direct":
+            html_dir = step["html_dir"]
+        else:
+            exec("html_dir = "+step["html_dir"])
+
+        html_file = html_dir + "/" + step["html_file"]
+        pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
+        orders = []
+        option_tags = []
+
+        with open(html_file, 'rb') as fp:
+            soup = BeautifulSoup(fp, 'html.parser')
+
+            li_tag = soup.find('li', class_='a-last')
+
+            # Extract the page number from the href attribute of the <a> tag
+            if li_tag:
+                a_tag = li_tag.find('a')
+                if a_tag:
+                    href = a_tag['href']
+                    page_number = href.split('=')[-1].split('#')[0]
+                    print("Current Page Number:", page_number)
+                else:
+                    print("No <a> tag found within the <li> tag.")
+            else:
+                print("No <li> tag with class 'a-last' found.")
+
+
+            # extract number of pages info
+            orderItems = soup.findAll("tr")
+            orderList = []
+            if len(orderItems) > 0:
+                print("found page items.")
+
+                for oi in orderItems:
+                    oneOrder={}
+                    # Extracting product ASIN
+                    oneOrder["asin"] = oi.select_one('div:has(> span:contains("ASIN")) b').text
+
+                    # Extracting order datetime
+                    oneOrder["datetime"] = oi.select_one('div:has(> div:contains("days ago"))').text.strip()
+
+                    # Extracting order number
+                    oneOrder["orderId"] = oi.select_one(
+                        'div:has(> a[href^="https://sellercentral.amazon.com/orders-v3/order/"])').text.strip()
+
+                    orderedProducts = []
+                    product_info_divs = oi.select('div:has(> span:contains("ASIN"))')  # Assuming each product info is contained in a div with ASIN
+                    for product_info_div in product_info_divs:
+                        product_name = product_info_div.previous_sibling.previous_sibling.text.strip()
+                        product_quantity = product_info_div.find_next('div', string='Quantity').find_next(
+                            'b').text.strip()
+                        orderedProducts.append({"name": product_name, "quantity": product_quantity})
+
+                    # Extracting total order price
+                    oneOrder["total"] = oi.select_one('div:has(> span:contains("Item subtotal"))').text.split(':')[-1].strip()
+                    orderList.append(oneOrder)
+
+
+        pagefull_of_orders["ol"] = orderList
+
+        pagefull_of_orders["n_new_orders"] = len(orderList)
+
+        pagefull_of_orders["page"] = page_number
+
+
+        if len(option_tags) > 0:
+            pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
+        else:
+            pagefull_of_orders["num_pages"] = 1
+        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # print(json.dumps(pagefull_of_orders))
+        print("# of orders:", len(orders))
+        for o in orders:
+            print(o.toJson())
+        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+
+        symTab[step["result"]] = pagefull_of_orders
+
+
+    except Exception as e:
+        print(f"Exception info:{e}")
+        ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+
+    return next_i, ex_stat
+
+
+def processAmzScrapeShipToAddress(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        next_i = i + 1
+        pidx = step["pidx"]
+
+        if step["html_dir_type"] == "direct":
+            html_dir = step["html_dir"]
+        else:
+            exec("html_dir = "+step["html_dir"])
+
+        html_file = html_dir + "/" + step["html_file"]
+        pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
+        shipTo = {}
+
+        with open(html_file, 'rb') as fp:
+            soup = BeautifulSoup(fp, 'html.parser')
+
+            recipient_name = soup.find('span', {'data-test-id': 'shipping-section-recipient-name'}).text.strip()
+
+            # Extract address lines
+            address_lines = [line.strip() for line in
+                             soup.find('div', {'data-test-id': 'shipping-section-buyer-address'}).stripped_strings]
+
+            # Extract contact phone
+            contact_phone = soup.find('span', {'data-test-id': 'shipping-section-phone'}).text.strip()
+
+            # Extract other address information such as city, state, zip, etc. (if available)
+            # Here, I assume that address lines contain all the required information, you may need to further parse it if needed
+
+            # Printing extracted information
+            print("Recipient's Name:", recipient_name)
+            print("Address Line 1:", address_lines[0])
+            print("Address Line 2:",
+                  address_lines[1] if len(address_lines) > 1 else "")  # Assuming there are at most 2 lines for the address
+            print("City, State, Zip:", address_lines[2])
+            print("Contact Phone:", contact_phone)
+
+            city_state_zip = address_lines[-1].split(',')
+
+            shipTo["recipient"] = recipient_name
+            shipTo["phone"] = contact_phone
+            shipTo["city"] = city_state_zip[0].strip()
+            state_zip = city_state_zip[1].strip().split()
+            shipTo["state"] = state_zip[0].upper()
+            shipTo["zip"] = state_zip[1].strip()
+
+
+        if len(option_tags) > 0:
+            pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
+        else:
+            pagefull_of_orders["num_pages"] = 1
+        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # print(json.dumps(pagefull_of_orders))
+        print("# of orders:", len(orders))
+        for o in orders:
+            print(o.toJson())
+        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+
+        symTab[step["result"]] = pagefull_of_orders
+
+
+    except Exception as e:
+        print(f"Exception info:{e}")
+        ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+
+    return next_i, ex_stat
+
+
+def processAmzScrapeCustomerMsgThread(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        next_i = i + 1
+        pidx = step["pidx"]
+
+        if step["html_dir_type"] == "direct":
+            html_dir = step["html_dir"]
+        else:
+            exec("html_dir = "+step["html_dir"])
+
+        html_file = html_dir + "/" + step["html_file"]
+        pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
+        shipTo = {}
+
+        with open(html_file, 'rb') as fp:
+            soup = BeautifulSoup(fp, 'html.parser')
+
+            message_components = soup.find_all(class_=re.compile(r'message-component'))
+
+            # Initialize list to store messages
+            messages = []
+
+            # Iterate through message components
+            for component in message_components:
+                msg_from = "customer" if "received" in component['class'] else "myself"
+                msg_body = component.find(class_='message-body-text').get_text(strip=True)
+                msg_date_str = component.find(class_='case-message-view-message-date').get_text(strip=True)
+
+                # Convert date string to datetime object
+                msg_date = datetime.datetime.strptime(msg_date_str, "%b %d, %Y %I:%M %p")
+
+                # Append message to list
+                messages.append({"msgFrom": msg_from, "msgBody": msg_body, "timeStamp": msg_date.strftime("%Y-%m-%d %H:%M:%S")})
+
+            # Sort messages chronologically
+            messages.sort(key=lambda x: x["timeStamp"])
+
+            # Print the messages
+            for message in messages:
+                print(message)
+
+
+        if len(option_tags) > 0:
+            pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
+        else:
+            pagefull_of_orders["num_pages"] = 1
+        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # print(json.dumps(pagefull_of_orders))
+        print("# of orders:", len(orders))
+        for o in orders:
+            print(o.toJson())
+        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+
+        symTab[step["result"]] = pagefull_of_orders
+
+
+    except Exception as e:
+        print(f"Exception info:{e}")
+        ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+
+    return next_i, ex_stat
