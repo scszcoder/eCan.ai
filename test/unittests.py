@@ -142,7 +142,7 @@ def test_scrape_amz_prod_list():
     # amission.setTicket(0)
     # amission.setOwner('songc@yahoo.com')
     # amission.setBid(2)
-    # amission.setStatus('ASSIGNED')
+    # amission.setStatus('Assigned')
     # amission.setBD('2022-10-23 00:00:00')
     #
     # amission.setRetry("1")
@@ -419,7 +419,7 @@ def test_api(parent, session, token):
     # amission.setTicket(0)
     # amission.setOwner('songc@yahoo.com')
     # amission.setBid(2)
-    # amission.setStatus('ASSIGNED')
+    # amission.setStatus('Assigned')
     # amission.setBD('2022-10-23 00:00:00')
     #
     # amission.setRetry("1")

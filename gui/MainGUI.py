@@ -138,10 +138,13 @@ class MainWindow(QMainWindow):
 
         self.SM_PLATFORMS = ['WhatsApp','Messenger','Facebook','Instagram', 'Snap', 'Telegraph','Google','Line','Wechat','Tiktok','QQ', 'Custom']
         self.BUY_TYPES = ['browse', 'buy', 'goodFB', 'badFB']
+        self.SUB_BUY_TYPES = ['addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"]
         self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
+        self.SUB_SELL_TYPES = []
         self.OP_TYPES = ['opProcure', 'opPromote', 'opAccount', 'opCustom']
-        self.STATUS_TYPES = ['Unassigned', 'Assigned', 'Error', 'Completed']
-        self.BUY_STATUS_TYPES = ['Searched', 'Incart', 'Paid', 'Arrived', 'FBDone', 'RVDone']
+        self.SUB_OP_TYPES = []
+        self.STATUS_TYPES = ['Unassigned', 'Assigned', 'Incomplete', 'Completed']
+        self.BUY_STATUS_TYPES = ['Searched', 'InCart', 'Paid', 'Arrived', 'RatingDone', 'FBDone', 'RatingConfirmed', 'FBConfirmed']
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
         self.tokens = inTokens
@@ -694,11 +697,20 @@ class MainWindow(QMainWindow):
     def getBUYTYPES(self):
         return self.BUY_TYPES
 
+    def getSUBBUYTYPES(self):
+        return self.SUB_BUY_TYPES
+
     def getSELLTYPES(self):
         return self.SELL_TYPES
 
+    def getSUBSELLTYPES(self):
+        return self.SUB_SELL_TYPES
+
     def getOPTYPES(self):
         return self.OP_TYPES
+
+    def getSUBOPTYPES(self):
+        return self.SUB_OP_TYPES
 
     def getSTATUSTYPES(self):
         return self.STATUS_TYPES
@@ -1893,7 +1905,7 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorSearchWordLine: traceback information not available:" + str(e)
             print(ex_stat)
             worksettings = {"botid": -1, "midx": -1}
-            runResult = "Completed"
+            runResult = "Completed:0"
 
         print("botid, mid:", worksettings["botid"], worksettings["mid"])
         return worksettings["botid"], worksettings["mid"], runResult

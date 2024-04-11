@@ -236,16 +236,24 @@ class MissionNewWin(QMainWindow):
 
         self.buy_mission_type_label = QLabel(QApplication.translate("QLabel", "Buy Mission Type:"), alignment=Qt.AlignLeft)
         self.buy_mission_type_sel = QComboBox()
+        self.buy_sub_mission_type_label = QLabel(QApplication.translate("QLabel", "Buy Sub-Mission Type:"), alignment=Qt.AlignLeft)
+        self.buy_sub_mission_type_sel = QComboBox()
 
         for bt in self.parent.getBUYTYPES():
             self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", bt))
 
+        for bt in self.parent.getSUBBUYTYPES():
+            self.buy_sub_mission_type_sel.addItem(QApplication.translate("QComboBox", bt))
+
         self.sell_mission_type_label = QLabel(QApplication.translate("QLabel", "Sell Mission Type:"), alignment=Qt.AlignLeft)
         self.sell_mission_type_sel = QComboBox()
+        self.sell_sub_mission_type_label = QLabel(QApplication.translate("QLabel", "Sell Sub Mission Type:"), alignment=Qt.AlignLeft)
+        self.sell_sub_mission_type_sel = QComboBox()
 
         for st in self.parent.getSELLTYPES():
             self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
-
+        for st in self.parent.getSUBSELLTYPES():
+            self.sell_sub_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
         self.op_mission_type_label = QLabel(QApplication.translate("QLabel", "Operation Mission Type:"), alignment=Qt.AlignLeft)
         self.op_mission_type_sel = QComboBox()
@@ -531,11 +539,15 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine8Layout = QHBoxLayout(self)
         self.prvAttrLine8Layout.addWidget(self.buy_mission_type_label)
         self.prvAttrLine8Layout.addWidget(self.buy_mission_type_sel)
+        self.prvAttrLine8Layout.addWidget(self.buy_sub_mission_type_label)
+        self.prvAttrLine8Layout.addWidget(self.buy_sub_mission_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine8Layout)
 
         self.prvAttrLine9Layout = QHBoxLayout(self)
         self.prvAttrLine9Layout.addWidget(self.sell_mission_type_label)
         self.prvAttrLine9Layout.addWidget(self.sell_mission_type_sel)
+        self.prvAttrLine9Layout.addWidget(self.sell_sub_mission_type_label)
+        self.prvAttrLine9Layout.addWidget(self.sell_sub_mission_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine9Layout)
 
         self.prvAttrLine10Layout = QHBoxLayout(self)
@@ -555,36 +567,16 @@ class MissionNewWin(QMainWindow):
         self.mission_status_sel = QComboBox()
         self.mission_error_label = QLabel(QApplication.translate("QLabel", "Mission Error Reason:"), alignment=Qt.AlignLeft)
         self.mission_error_edit = QLineEdit()
-
-        self.mission_buy_status_label = QLabel(QApplication.translate("QLabel", "Buy Mission Status:"), alignment=Qt.AlignLeft)
-        self.mission_buy_status_sel = QComboBox()
+        self.mission_status_sel.currentTextChanged.connect(self.missionStatusSel_changed)
 
         for st in self.parent.getSTATUSTYPES():
             self.mission_status_sel.addItem(QApplication.translate("QComboBox", st))
-
-        for st in self.parent.getBUYSTATUSTYPES():
-            self.mission_buy_status_sel.addItem(QApplication.translate("QComboBox", st))
-
-
-        self.bought_label = QLabel(QApplication.translate("QLabel", "Item Bought:"), alignment=Qt.AlignLeft)
-        self.bought_cb = QCheckBox()
-        self.received_label = QLabel(QApplication.translate("QLabel", "Item Received:"), alignment=Qt.AlignLeft)
-        self.received_cb = QCheckBox()
-        self.fb_rated_label = QLabel(QApplication.translate("QLabel", "Feedback Rated:"), alignment=Qt.AlignLeft)
-        self.fb_rated_cb = QCheckBox()
-        self.fb_reviewed_label = QLabel(QApplication.translate("QLabel", "Feedback Reviewed:"), alignment=Qt.AlignLeft)
-        self.fb_reviewed_cb = QCheckBox()
 
 
         self.actItemsLine1Layout = QHBoxLayout(self)
         self.actItemsLine1Layout.addWidget(self.mission_status_label)
         self.actItemsLine1Layout.addWidget(self.mission_status_sel)
         self.actItemsWidget.layout.addLayout(self.actItemsLine1Layout)
-
-        self.actItemsLine1ALayout = QHBoxLayout(self)
-        self.actItemsLine1ALayout.addWidget(self.mission_buy_status_label)
-        self.actItemsLine1ALayout.addWidget(self.mission_buy_status_sel)
-        self.actItemsWidget.layout.addLayout(self.actItemsLine1ALayout)
 
 
         self.actItemsLine2Layout = QHBoxLayout(self)
@@ -615,6 +607,7 @@ class MissionNewWin(QMainWindow):
         self.setCentralWidget(self.mainWidget)
         self.setWindowTitle("Mission Editor")
 
+        self.buy_rb.setChecked(False)
         self.buy_rb.setChecked(True)
 
 
@@ -654,15 +647,17 @@ class MissionNewWin(QMainWindow):
             self.newMission.setRetry(int(self.repeat_edit.text()))
 
         if self.buy_rb.isChecked():
-            if self.auto_rb.isChecked():
-                self.newMission.pubAttributes.setType("auto", "goodFB")
+            if self.buy_mission_type_sel.currentText() == "browse":
+                self.newMission.setMtype(self.buy_mission_type_sel.currentText())
             else:
-                self.newMission.pubAttributes.setType("manual", "goodFB")
+                self.newMission.setMtype(self.buy_mission_type_sel.currentText() + "_" + self.buy_sub_mission_type_sel.currentText())
         elif self.sell_rb.isChecked():
-            if self.auto_rb.isChecked():
-                self.newMission.pubAttributes.setType("auto", "sellFullfill")
+            self.newMission.setMtype(self.sell_mission_type_sel.currentText())
+        elif self.op_rb.isChecked():
+            if self.op_mission_type_sel.currentText() == "opCustom":
+                self.newMission.setMtype("opCustom_"+self.op_mission_type_custome_edit.text())
             else:
-                self.newMission.pubAttributes.setType("manual", "sellFullfill")
+                self.newMission.setMtype(self.op_mission_type_sel.currentText())
 
 
         self.newMission.setBuyType(self.buy_mission_type_sel.currentText())
@@ -674,21 +669,13 @@ class MissionNewWin(QMainWindow):
         self.newMission.setCustomerSMID(self.cus_sm_id_edit.text())
         self.newMission.setCustomerSMPlatform(self.cus_alt_sm_type_sel.currentText())
 
-        if self.fb_reviewed_cb.isChecked():
-            self.newMission.setStatus("reviewed")
-        elif self.fb_rated_cb.isChecked():
-            self.newMission.setStatus("rated")
-        elif self.received_cb.isChecked():
-            self.newMission.setStatus("received")
-        elif self.bought_cb.isChecked():
-            self.newMission.setStatus("bought")
-
-
         self.newMission.pubAttributes.setSearch(self.search_kw_edit.text(), self.search_cat_edit.text())
 
         self.newMission.setPseudoStore(self.pseudo_store_edit.text())
         self.newMission.setPseudoBrand(self.pseudo_brand_edit.text())
         self.newMission.setPseudoASIN(self.pseudo_asin_edit.text())
+
+        self.missionStatusSel_changed()
 
         platform_text = self.mission_platform_sel.currentText()
         platform_sh = self.parent.translatePlatform(platform_text)
@@ -776,10 +763,21 @@ class MissionNewWin(QMainWindow):
 
         self.repeat_edit.setText(str(self.newMission.getRetry()))
 
-        if self.newMission.getMtype() == "buy":
+        if "browse" in self.newMission.getMtype() or "buy" in self.newMission.getMtype() or "Rating" in self.newMission.getMtype() or "FB" in "buy" in self.newMission.getMtype():
             self.buy_rb.setChecked(True)
-        else:
+            self.buy_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
+            if "buy" in self.newMission.getMtype() or "Rating" in self.newMission.getMtype() or "FB" in "buy" in self.newMission.getMtype():
+                self.buy_sub_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[1])
+        elif "sell" in self.newMission.getMtype():
             self.sell_rb.setChecked(True)
+            self.sell_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
+        elif "op" in self.newMission.getMtype():
+            self.op_rb.setChecked(True)
+            self.op_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
+            if self.newMission.getMtype().split("_")[0] == "opCustom":
+                self.op_mission_type_custome_edit.setText("_".join(self.newMission.getMtype().split("_")[1:]))
+
+        self.mission_status_sel.setCurrentText(self.newMission.getStatus().split(":")[0])
 
         if self.newMission.getAssignmentType() == "auto":
             self.auto_rb.setChecked(True)
@@ -823,14 +821,6 @@ class MissionNewWin(QMainWindow):
         else:
             self.cus_alt_sm_type_sel.setCurrentText("Custom")
 
-        if self.newMission.getStatus() == "reviewed":
-            self.fb_reviewed_cb.setChecked(True)
-        elif self.newMission.getStatus() == "rated":
-            self.fb_rated_cb.setChecked(True)
-        elif self.newMission.getStatus() == "received":
-            self.received_cb.setChecked(True)
-        elif self.newMission.getStatus() == "bought":
-            self.bought_cb.setChecked(True)
 
         self.search_kw_edit.setText(self.newMission.getSearchKW())
         self.search_cat_edit.setText(self.newMission.getSearchCat())
@@ -890,6 +880,8 @@ class MissionNewWin(QMainWindow):
             self.show_skill_custom_action()
             self.selected_skill_action = self.skillCustomActionEdit.text()
 
+    def missionStatusSel_changed(self):
+        self.newMission.setStatus(self.mission_status_sel.currentText())
 
     def hide_mission_custom_app(self):
         self.missionCustomAppNameLabel.setVisible(False)
@@ -1079,6 +1071,8 @@ class MissionNewWin(QMainWindow):
         if self.buy_rb.isChecked():
             print("buy mission is selected....")
             self.show_buy_attributes()
+            self.hide_sell_attributes()
+            self.hide_op_attributes()
         else:
             self.hide_buy_attributes()
 
@@ -1087,15 +1081,19 @@ class MissionNewWin(QMainWindow):
         if self.sell_rb.isChecked():
             print("sell mission is selected....")
             self.show_sell_attributes()
+            self.hide_buy_attributes()
+            self.hide_op_attributes()
         else:
             self.hide_sell_attributes()
 
     def op_rb_checked_state_changed(self):
         if self.op_rb.isChecked():
             print("sell mission is selected....")
-            self.show_ob_attributes()
+            self.show_op_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
         else:
-            self.hide_ob_attributes()
+            self.hide_op_attributes()
 
     def show_buy_attributes(self):
         self.pseudo_store_label.setVisible(True)
@@ -1120,21 +1118,12 @@ class MissionNewWin(QMainWindow):
         self.search_cat_edit.setVisible(True)
         self.buy_mission_type_label.setVisible(True)
         self.buy_mission_type_sel.setVisible(True)
+        self.buy_sub_mission_type_label.setVisible(True)
+        self.buy_sub_mission_type_sel.setVisible(True)
         self.asin_label.setVisible(True)
         self.asin_edit.setVisible(True)
         self.product_image_label.setVisible(True)
         self.product_image_edit.setVisible(True)
-        self.bought_label.setVisible(True)
-        self.bought_cb.setVisible(True)
-        self.received_label.setVisible(True)
-        self.received_cb.setVisible(True)
-        self.fb_rated_label.setVisible(True)
-        self.fb_rated_cb.setVisible(True)
-        self.fb_reviewed_label.setVisible(True)
-        self.fb_reviewed_cb.setVisible(True)
-
-        self.mission_buy_status_label.setVisible(True)
-        self.mission_buy_status_sel.setVisible(True)
 
     def hide_buy_attributes(self):
         self.pseudo_store_label.setVisible(False)
@@ -1159,21 +1148,12 @@ class MissionNewWin(QMainWindow):
         self.search_cat_edit.setVisible(False)
         self.buy_mission_type_label.setVisible(False)
         self.buy_mission_type_sel.setVisible(False)
+        self.buy_sub_mission_type_label.setVisible(False)
+        self.buy_sub_mission_type_sel.setVisible(False)
         self.asin_label.setVisible(False)
         self.asin_edit.setVisible(False)
         self.product_image_label.setVisible(False)
         self.product_image_edit.setVisible(False)
-        self.bought_label.setVisible(False)
-        self.bought_cb.setVisible(False)
-        self.received_label.setVisible(False)
-        self.received_cb.setVisible(False)
-        self.fb_rated_label.setVisible(False)
-        self.fb_rated_cb.setVisible(False)
-        self.fb_reviewed_label.setVisible(False)
-        self.fb_reviewed_cb.setVisible(False)
-
-        self.mission_buy_status_label.setVisible(False)
-        self.mission_buy_status_sel.setVisible(False)
 
     def show_sell_attributes(self):
         self.sell_mission_type_label.setVisible(True)
