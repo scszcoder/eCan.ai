@@ -11,7 +11,6 @@ from FlowLayout import *
 from ebbot import *
 from missions import *
 
-
 class SkillListView(QListView):
     def __init__(self, parent):
         super(SkillListView, self).__init__()
@@ -219,6 +218,9 @@ class MissionNewWin(QMainWindow):
         self.buy_rb.toggled.connect(self.buy_rb_checked_state_changed)
 
         self.sell_rb = QRadioButton(QApplication.translate("QPushButton", "Sell Side"))
+        self.sell_rb.toggled.connect(self.sell_rb_checked_state_changed)
+        self.op_rb = QRadioButton(QApplication.translate("QPushButton", "Operation Side"))
+        self.op_rb.toggled.connect(self.op_rb_checked_state_changed)
 
         self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"), alignment=Qt.AlignLeft)
         self.manual_rb = QRadioButton(QApplication.translate("QPushButton", "Manual Assign(Bot and Schedule)"))
@@ -243,6 +245,15 @@ class MissionNewWin(QMainWindow):
 
         for st in self.parent.getSELLTYPES():
             self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
+
+
+        self.op_mission_type_label = QLabel(QApplication.translate("QLabel", "Operation Mission Type:"), alignment=Qt.AlignLeft)
+        self.op_mission_type_sel = QComboBox()
+        self.op_mission_type_custome_label = QLabel(QApplication.translate("QLabel", "Custom Operation Mission Type:"), alignment=Qt.AlignLeft)
+        self.op_mission_type_custome_edit = QLineEdit()
+
+        for st in self.parent.getOPTYPES():
+            self.op_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
         self.repeat_label = QLabel(QApplication.translate("QLabel", "Repeat every:"), alignment=Qt.AlignLeft)
         self.repeat_edit = QLineEdit()
@@ -290,6 +301,7 @@ class MissionNewWin(QMainWindow):
         self.buy_sell_button_group = QButtonGroup()
         self.buy_sell_button_group.addButton(self.buy_rb)
         self.buy_sell_button_group.addButton(self.sell_rb)
+        self.buy_sell_button_group.addButton(self.op_rb)
         # self.buy_sell_button_group.setExclusive(False)
 
 
@@ -297,6 +309,7 @@ class MissionNewWin(QMainWindow):
         self.pubAttrLine2Layout.addWidget(self.mission_type_label)
         self.pubAttrLine2Layout.addWidget(self.buy_rb)
         self.pubAttrLine2Layout.addWidget(self.sell_rb)
+        self.pubAttrLine2Layout.addWidget(self.op_rb)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2Layout)
 
         self.auto_manual_button_group = QButtonGroup()
@@ -525,8 +538,33 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine9Layout.addWidget(self.sell_mission_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine9Layout)
 
+        self.prvAttrLine10Layout = QHBoxLayout(self)
+        self.prvAttrLine10Layout.addWidget(self.op_mission_type_label)
+        self.prvAttrLine10Layout.addWidget(self.op_mission_type_sel)
+        self.prvAttrWidget.layout.addLayout(self.prvAttrLine10Layout)
+
+        self.prvAttrLine11Layout = QHBoxLayout(self)
+        self.prvAttrLine10Layout.addWidget(self.op_mission_type_custome_label)
+        self.prvAttrLine10Layout.addWidget(self.op_mission_type_custome_edit)
+        self.prvAttrWidget.layout.addLayout(self.prvAttrLine11Layout)
+
 
         self.prvAttrWidget.setLayout(self.prvAttrWidget.layout)
+
+        self.mission_status_label = QLabel(QApplication.translate("QLabel", "Mission Status:"), alignment=Qt.AlignLeft)
+        self.mission_status_sel = QComboBox()
+        self.mission_error_label = QLabel(QApplication.translate("QLabel", "Mission Error Reason:"), alignment=Qt.AlignLeft)
+        self.mission_error_edit = QLineEdit()
+
+        self.mission_buy_status_label = QLabel(QApplication.translate("QLabel", "Buy Mission Status:"), alignment=Qt.AlignLeft)
+        self.mission_buy_status_sel = QComboBox()
+
+        for st in self.parent.getSTATUSTYPES():
+            self.mission_status_sel.addItem(QApplication.translate("QComboBox", st))
+
+        for st in self.parent.getBUYSTATUSTYPES():
+            self.mission_buy_status_sel.addItem(QApplication.translate("QComboBox", st))
+
 
         self.bought_label = QLabel(QApplication.translate("QLabel", "Item Bought:"), alignment=Qt.AlignLeft)
         self.bought_cb = QCheckBox()
@@ -539,30 +577,27 @@ class MissionNewWin(QMainWindow):
 
 
         self.actItemsLine1Layout = QHBoxLayout(self)
-        self.actItemsLine1Layout.addWidget(self.bought_label)
-        self.actItemsLine1Layout.addWidget(self.bought_cb)
+        self.actItemsLine1Layout.addWidget(self.mission_status_label)
+        self.actItemsLine1Layout.addWidget(self.mission_status_sel)
         self.actItemsWidget.layout.addLayout(self.actItemsLine1Layout)
 
+        self.actItemsLine1ALayout = QHBoxLayout(self)
+        self.actItemsLine1ALayout.addWidget(self.mission_buy_status_label)
+        self.actItemsLine1ALayout.addWidget(self.mission_buy_status_sel)
+        self.actItemsWidget.layout.addLayout(self.actItemsLine1ALayout)
+
+
         self.actItemsLine2Layout = QHBoxLayout(self)
-        self.actItemsLine2Layout.addWidget(self.received_label)
-        self.actItemsLine2Layout.addWidget(self.received_cb)
+        self.actItemsLine2Layout.addWidget(self.mission_error_label)
+        self.actItemsLine2Layout.addWidget(self.mission_error_edit)
         self.actItemsWidget.layout.addLayout(self.actItemsLine2Layout)
 
-        self.actItemsLine3Layout = QHBoxLayout(self)
-        self.actItemsLine3Layout.addWidget(self.fb_rated_label)
-        self.actItemsLine3Layout.addWidget(self.fb_rated_cb)
-        self.actItemsWidget.layout.addLayout(self.actItemsLine3Layout)
-
-        self.actItemsLine4Layout = QHBoxLayout(self)
-        self.actItemsLine4Layout.addWidget(self.fb_reviewed_label)
-        self.actItemsLine4Layout.addWidget(self.fb_reviewed_cb)
-        self.actItemsWidget.layout.addLayout(self.actItemsLine4Layout)
 
         self.actItemsWidget.setLayout(self.actItemsWidget.layout)
 
         self.tabs.addTab(self.pubAttrWidget, QApplication.translate("QTabWidget", "Pub Attributes"))
         self.tabs.addTab(self.prvAttrWidget, QApplication.translate("QTabWidget", "Private Attributes"))
-        self.tabs.addTab(self.actItemsWidget, QApplication.translate("QTabWidget", "Action Items"))
+        self.tabs.addTab(self.actItemsWidget, QApplication.translate("QTabWidget", "Status"))
 
         self.layout.addWidget(self.tabs)
         self.layout.addLayout(self.bLayout)
@@ -578,6 +613,7 @@ class MissionNewWin(QMainWindow):
 
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
+        self.setWindowTitle("Mission Editor")
 
         self.buy_rb.setChecked(True)
 
@@ -597,8 +633,22 @@ class MissionNewWin(QMainWindow):
         if self.manual_rb.isChecked():
             if int(self.bid_edit.text()) != self.newMission.getBid():
                 self.newMission.setBid(int(self.bid_edit.text()))
-                self.newMission.setEstimatedStartTime(self.est_edit.text())
-                self.newMission.setEstimatedRunTime(self.ert_edit.text())
+
+                hours, minutes, seconds = map(int, self.est_edit.text().split(':'))
+                # Calculate total minutes
+                total_minutes = hours * 60 + minutes
+                slots = int(total_minutes/TIME_SLOT_MINS)+1
+
+                runtime = int(int(self.ert_edit.text())/(60*TIME_SLOT_MINS))+1
+
+                self.newMission.setEstimatedStartTime(slots)
+                self.newMission.setEstimatedRunTime(runtime)
+
+            self.newMission.setConfig(json.dumps({"bid": int(self.bid_edit.text()), "start_time": slots, "estRunTime":runtime}))
+            self.newMission.setAssignmentType("manual")
+        else:
+            self.newMission.setAssignmentType("auto")
+            self.newMission.setConfig("{}")
 
         if self.repeat_edit.text().isnumeric():
             self.newMission.setRetry(int(self.repeat_edit.text()))
@@ -735,6 +785,18 @@ class MissionNewWin(QMainWindow):
             self.auto_rb.setChecked(True)
         else:
             self.manual_rb.setChecked(True)
+            cfg = json.loads(self.newMission.getConfig())
+            if "start_time" in cfg:
+                hr = int((cfg["start_time"]-1)*TIME_SLOT_MINS/60)
+                min = (cfg["start_time"]-1)*TIME_SLOT_MINS - hr*60
+                self.est_edit.setText("{:02d}".format(hr)+":"+"{:02d}".format(min)+":00")
+
+            if "estRunTime" in cfg:
+                self.ert_edit.setText(str((cfg["estRunTime"])*60*TIME_SLOT_MINS))
+
+            if "bid" in cfg:
+                self.bid_edit.setText(cfg["bid"])
+
 
         if self.newMission.getBuyType() in self.parent.getBUYTYPES():
             self.buy_mission_type_sel.setCurrentText(self.newMission.getBuyType())
@@ -1017,10 +1079,23 @@ class MissionNewWin(QMainWindow):
         if self.buy_rb.isChecked():
             print("buy mission is selected....")
             self.show_buy_attributes()
-            self.hide_sell_attributes()
         else:
-            self.show_sell_attributes()
             self.hide_buy_attributes()
+
+
+    def sell_rb_checked_state_changed(self):
+        if self.sell_rb.isChecked():
+            print("sell mission is selected....")
+            self.show_sell_attributes()
+        else:
+            self.hide_sell_attributes()
+
+    def op_rb_checked_state_changed(self):
+        if self.op_rb.isChecked():
+            print("sell mission is selected....")
+            self.show_ob_attributes()
+        else:
+            self.hide_ob_attributes()
 
     def show_buy_attributes(self):
         self.pseudo_store_label.setVisible(True)
@@ -1058,6 +1133,9 @@ class MissionNewWin(QMainWindow):
         self.fb_reviewed_label.setVisible(True)
         self.fb_reviewed_cb.setVisible(True)
 
+        self.mission_buy_status_label.setVisible(True)
+        self.mission_buy_status_sel.setVisible(True)
+
     def hide_buy_attributes(self):
         self.pseudo_store_label.setVisible(False)
         self.pseudo_store_edit.setVisible(False)
@@ -1094,6 +1172,9 @@ class MissionNewWin(QMainWindow):
         self.fb_reviewed_label.setVisible(False)
         self.fb_reviewed_cb.setVisible(False)
 
+        self.mission_buy_status_label.setVisible(False)
+        self.mission_buy_status_sel.setVisible(False)
+
     def show_sell_attributes(self):
         self.sell_mission_type_label.setVisible(True)
         self.sell_mission_type_sel.setVisible(True)
@@ -1101,3 +1182,17 @@ class MissionNewWin(QMainWindow):
     def hide_sell_attributes(self):
         self.sell_mission_type_label.setVisible(False)
         self.sell_mission_type_sel.setVisible(False)
+
+
+    def show_op_attributes(self):
+        self.op_mission_type_label.setVisible(True)
+        self.op_mission_type_sel.setVisible(True)
+
+        self.op_mission_type_custome_label.setVisible(True)
+        self.op_mission_type_custome_edit.setVisible(True)
+
+    def hide_op_attributes(self):
+        self.op_mission_type_label.setVisible(False)
+        self.op_mission_type_sel.setVisible(False)
+        self.op_mission_type_custome_label.setVisible(False)
+        self.op_mission_type_custome_edit.setVisible(False)

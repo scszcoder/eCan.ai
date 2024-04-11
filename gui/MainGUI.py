@@ -139,6 +139,9 @@ class MainWindow(QMainWindow):
         self.SM_PLATFORMS = ['WhatsApp','Messenger','Facebook','Instagram', 'Snap', 'Telegraph','Google','Line','Wechat','Tiktok','QQ', 'Custom']
         self.BUY_TYPES = ['browse', 'buy', 'goodFB', 'badFB']
         self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
+        self.OP_TYPES = ['opProcure', 'opPromote', 'opAccount', 'opCustom']
+        self.STATUS_TYPES = ['Unassigned', 'Assigned', 'Error', 'Completed']
+        self.BUY_STATUS_TYPES = ['Searched', 'Incart', 'Paid', 'Arrived', 'FBDone', 'RVDone']
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
         self.tokens = inTokens
@@ -693,6 +696,15 @@ class MainWindow(QMainWindow):
 
     def getSELLTYPES(self):
         return self.SELL_TYPES
+
+    def getOPTYPES(self):
+        return self.OP_TYPES
+
+    def getSTATUSTYPES(self):
+        return self.STATUS_TYPES
+
+    def getBUYSTATUSTYPES(self):
+        return self.BUY_STATUS_TYPES
 
     def translateSiteName(self, site_text):
         if site_text in self.SITES_SH_DICT.keys():
@@ -4722,21 +4734,24 @@ class MainWindow(QMainWindow):
             bots = [b for b in self.bots if b.getBid() == mission.getBid()]
             if len(bots) > 0:
                 bot = bots[0]
-                user_prefix = bot.getEmail().split("@")[0]
-                mail_site_words = bot.getEmail().split("@")[1].split(".")
-                mail_site = mail_site_words[len(mail_site_words) - 2]
-                bot_mission_ads_profile = user_prefix+"_m"+str(mission.getMid()) + ".txt"
-
-                self.bot_cookie_site_lists[bot_mission_ads_profile] = [mail_site]
-                if mail_site == "gmail":
-                    self.bot_cookie_site_lists[bot_mission_ads_profile].append("google")
-
-                if mission.getSite() == "amz":
-                    self.bot_cookie_site_lists[bot_mission_ads_profile].append("amazon")
-                elif mission.getSite() == "ali":
-                    self.bot_cookie_site_lists[bot_mission_ads_profile].append("aliexpress")
+                if bot.getEmail() == "":
+                    print("Error: Bot("+str(bot.getBid())+") running ADS without an Account!!!!!")
                 else:
-                    self.bot_cookie_site_lists[bot_mission_ads_profile].append(mission.getSite().lower())
+                    user_prefix = bot.getEmail().split("@")[0]
+                    mail_site_words = bot.getEmail().split("@")[1].split(".")
+                    mail_site = mail_site_words[len(mail_site_words) - 2]
+                    bot_mission_ads_profile = user_prefix+"_m"+str(mission.getMid()) + ".txt"
+
+                    self.bot_cookie_site_lists[bot_mission_ads_profile] = [mail_site]
+                    if mail_site == "gmail":
+                        self.bot_cookie_site_lists[bot_mission_ads_profile].append("google")
+
+                    if mission.getSite() == "amz":
+                        self.bot_cookie_site_lists[bot_mission_ads_profile].append("amazon")
+                    elif mission.getSite() == "ali":
+                        self.bot_cookie_site_lists[bot_mission_ads_profile].append("aliexpress")
+                    else:
+                        self.bot_cookie_site_lists[bot_mission_ads_profile].append(mission.getSite().lower())
 
         print("just build cookie site list:", self.bot_cookie_site_lists)
 
