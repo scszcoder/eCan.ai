@@ -104,6 +104,7 @@ class BotNewWin(QMainWindow):
     # def __init__(self):
     #     super().__init__()
         self.mainWidget = QWidget()
+
         self.parent = parent
         self.homepath = parent.homepath
 
@@ -672,6 +673,7 @@ class BotNewWin(QMainWindow):
 
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
+        self.setWindowTitle("Bot Editor")
 
     def hide_role_custom_platform(self):
         self.role_custom_platform_label.setVisible(False)

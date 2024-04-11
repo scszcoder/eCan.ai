@@ -92,6 +92,7 @@ class PlatoonWindow(QMainWindow):
         self.mainWidget = QWidget()
         self.main_menu_font = QFont("Helvetica", 10)
         self.main_menu_bar_font = QFont("Helvetica", 12)
+        self.setWindowTitle("Platoon Editor")
 
         #creating QActions
 
