@@ -16,8 +16,8 @@ ecb_data_homepath = getECBotDataHome()
 
 SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
-    # "win_ads_amz_home_browse_search": lambda x,y,z: genStubWinADSAMZWalkSkill(x, y, z),
-    "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
+    "win_ads_amz_home_browse_search": lambda x,y,z: genStubWinADSAMZWalkSkill(x, y, z),
+    # "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSCollectOrderListSkill(x, y, z),
     "win_chrome_ebay_orders_update_tracking": lambda x, y, z: genWinADSEbayUpdateShipmentTrackingSkill(x, y, z),
@@ -317,7 +317,10 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
                 skf.write(psk_words)
                 skf.close()
         else:
-            print("Skill generator code is NOT Available for ", sk_full_name)
+            print("Private Skill", sk_full_name)
+            # for private skill, skill are build locally, psk should have been there, but for safety, regenerate if missing.
+            # regenerate should be from a .skd (skill diagram file), or alternatively, execute private .py file which uses
+            # python script to generate PSK file.
 
     except Exception as e:
         # Get the traceback information

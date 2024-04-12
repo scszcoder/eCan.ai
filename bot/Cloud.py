@@ -119,6 +119,34 @@ def get_file_with_presigned_url(dest_file, url):
             f.close()
 
 
+def gen_query_chat_request_string(query):
+    print("in query:", query)
+    query_string = """
+        query MyQuery {
+      queryChats (msgs:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ msgID: \"" + query[i]["msgID"] + "\", "
+        rec_string = rec_string + "user: \"" + query[i]["user"] + "\", "
+        rec_string = rec_string + "timeStamp: \"" + query[i]["timeStamp"] + "\", "
+        rec_string = rec_string + "product: \"" + query[i]["product"] + "\", "
+        rec_string = rec_string + "goal: \"" + query[i]["goal"] + "\", "
+        rec_string = rec_string + "background: \"" + query[i]["background"] + "\", "
+        rec_string = rec_string + "msg: \"" + query[i]["msg"] + "\" }"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+    ]) 
+    }"""
+    query_string = query_string + rec_string + tail_string
+    print(query_string)
+    return query_string
+
+
 def gen_file_op_request_string(query):
     print("in query:", query)
     query_string = """
@@ -1179,6 +1207,24 @@ def send_query_missions_request_to_cloud(session, token, q_settings):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryMissions"])
+
+
+    return jresponse
+
+
+
+def send_query_chat_request_to_cloud(session, token, chat_request):
+
+    queryInfo = gen_query_chat_request_string(chat_request)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        print("ERROR Type: ", jresp["errors"][0]["errorType"], "ERROR Info: ", jresp["errors"][0]["errorInfo"], )
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryChats"])
 
 
     return jresponse

@@ -158,12 +158,15 @@ class MissionNewWin(QMainWindow):
         self.skillCustomActionEdit = QLineEdit("")
 
         self.skillScrollLabel = QLabel(QApplication.translate("QLabel", "Required Skills:"), alignment=Qt.AlignLeft)
+        self.skillNoteLabel = QLabel(QApplication.translate("QLabel", ""), alignment=Qt.AlignLeft)
         self.skillScroll = QScrollArea()
         self.skillScroll.setWidget(self.skillListView)
         self.skillScrollArea = QWidget()
         self.skillScrollLayout = QVBoxLayout(self)
-
-        self.skillScrollLayout.addWidget(self.skillScrollLabel)
+        self.skillLabelLayout = QHBoxLayout(self)
+        self.skillLabelLayout.addWidget(self.skillScrollLabel)
+        self.skillLabelLayout.addWidget(self.skillNoteLabel)
+        self.skillScrollLayout.addLayout(self.skillLabelLayout)
         self.skillScrollLayout.addWidget(self.skillScroll)
         self.skillScrollArea.setLayout(self.skillScrollLayout)
 
@@ -602,14 +605,14 @@ class MissionNewWin(QMainWindow):
 
         if self.buy_rb.isChecked():
             if self.auto_rb.isChecked():
-                self.newMission.pubAttributes.setType("auto", "buy")
+                self.newMission.pubAttributes.setType("auto", "goodFB")
             else:
-                self.newMission.pubAttributes.setType("manual", "buy")
+                self.newMission.pubAttributes.setType("manual", "goodFB")
         elif self.sell_rb.isChecked():
             if self.auto_rb.isChecked():
-                self.newMission.pubAttributes.setType("auto", "sell")
+                self.newMission.pubAttributes.setType("auto", "sellFullfill")
             else:
-                self.newMission.pubAttributes.setType("manual", "sell")
+                self.newMission.pubAttributes.setType("manual", "sellFullfill")
 
 
         self.newMission.setBuyType(self.buy_mission_type_sel.currentText())
@@ -736,12 +739,12 @@ class MissionNewWin(QMainWindow):
         if self.newMission.getBuyType() in self.parent.getBUYTYPES():
             self.buy_mission_type_sel.setCurrentText(self.newMission.getBuyType())
         else:
-            self.buy_mission_type_sel.setCurrentText("buy")
+            self.buy_mission_type_sel.setCurrentText("goodFB")
 
         if self.newMission.getSellType() in self.parent.getSELLTYPES():
             self.sell_mission_type_sel.setCurrentText(self.newMission.getSellType())
         else:
-            self.sell_mission_type_sel.setCurrentText("sell")
+            self.sell_mission_type_sel.setCurrentText("sellFullfill")
 
         self.asin_edit.setText(self.newMission.getASIN())
         self.seller_edit.setText(self.newMission.getStore())
@@ -865,11 +868,11 @@ class MissionNewWin(QMainWindow):
         self.selected_skill_app_link = self.missionCustomAppLinkEdit.text()
 
     def addSkill(self):
-        if self.skill_app_sel.currentText() == 'Custom':
+        if self.mission_app_sel.currentText() == 'Custom':
             self.selected_skill_app = self.skillCustomAppNameEdit.text()
             self.selected_skill_app_link = self.skillCustomAppLinkEdit.text()
 
-        if self.skill_site_sel.currentText() == 'Custom':
+        if self.mission_site_sel.currentText() == 'Custom':
             self.selected_skill_site = self.skillCustomSiteNameEdit.text()
             self.selected_skill_site_link = self.skillCustomSiteLinkEdit.text()
 
@@ -879,16 +882,21 @@ class MissionNewWin(QMainWindow):
         sk_site = sk_words[2]
         sk_page = sk_words[3]
         sk_name = "_".join(sk_words[4:])
+
         this_skill = next((x for x in self.parent.skills if x.getPlatform() == sk_platform and x.getApp() == sk_app and x.getSite() == sk_site and x.getPage() == sk_page and x.getName() == sk_name), None)
+        if this_skill:
+            self.skillNoteLabel.setText("")
+            self.skillModel.appendRow(this_skill)
 
-        self.skillModel.appendRow(this_skill)
+            # automatically add dependency skills to the list as well
+            sk_dep = this_skill.getDependencies()
+            if len(sk_dep) > 0:
+                for skid in sk_dep:
+                    dep_skill = next((x for x in self.parent.skills if x.getSkid() == skid ), None)
+                    self.skillModel.appendRow(dep_skill)
+        else:
+            self.skillNoteLabel.setText("Skill not available to use: "+sk_name)
 
-        # automatically add dependency skills to the list as well
-        sk_dep = this_skill.getDependencies()
-        if len(sk_dep) > 0:
-            for skid in sk_dep:
-                dep_skill = next((x for x in self.parent.skills if x.getSkid() == skid ), None)
-                self.skillModel.appendRow(dep_skill)
 
 
     def removeSkill(self):
@@ -968,24 +976,24 @@ class MissionNewWin(QMainWindow):
         if self.selected_skill_item:
             platform, app, applink, site, sitelink, action = self.selected_skill_item.getData()
 
-            self.skill_platform_sel.setCurrentText(platform)
+            self.mission_platform_sel.setCurrentText(platform)
 
-            if self.skill_app_sel.findText(app) < 0:
+            if self.mission_app_sel.findText(app) < 0:
                 print("set custom app")
-                self.skill_app_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
+                self.mission_app_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
                 self.skillCustomAppNameEdit.setText(app)
                 self.skillCustomAppLinkEdit.setText(applink)
             else:
                 print("set menu app")
-                self.skill_app_sel.setCurrentText(app)
+                self.mission_app_sel.setCurrentText(app)
                 self.skillCustomActionEdit.setText("")
 
-            if self.skill_site_sel.findText(site) < 0:
-                self.skill_site_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
+            if self.mission_site_sel.findText(site) < 0:
+                self.mission_site_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
                 self.skillCustomSiteNameEdit.setText(site)
                 self.skillCustomSiteLinkEdit.setText(sitelink)
             else:
-                self.skill_site_sel.setCurrentText(site)
+                self.mission_site_sel.setCurrentText(site)
                 self.skillCustomActionEdit.setText("")
 
 

@@ -151,3 +151,53 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
         ex_stat = "ErrorEbaySellerFetchPageOfOrderList:" + str(pidx)
 
     return pagefull_of_orders
+
+def ebay_seller_get_customer_msg_thread(html_file,  pidx):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        pagefull_of_orders = {"page": pidx, "ol": None}
+        orders = []
+
+        # Use Esprima to parse your JavaScript code
+        # esprima_output = context.eval("esprima.parse('{}')".format(js_code))
+
+        # Output will be a dictionary representing the parsed JavaScript code
+        # print(esprima_output)
+
+        with open(html_file, 'rb') as fp:
+            soup = BeautifulSoup(fp, 'html.parser')
+
+            # all useful information are here:
+            # extract all div tags which contains data-index attribute which is a indication of a product in the product list.
+            prodItems = soup.findAll("script")
+            print(len(prodItems))
+
+            # Extract customer name
+            customer_name = soup.find('h1').find('a').get_text()
+
+            # Find all customer messages
+            customer_msgs = soup.find_all(id=lambda x: x and x.startswith("UserInputtedText"))
+            # Find all your messages
+            your_msgs = soup.find_all("p", string="Your previous message")
+
+            # Combining the messages into a list of JSON objects
+            messages = []
+            for i, msg in enumerate(customer_msgs):
+                messages.append({"from": customer_name, "msg_body": msg.get_text()})
+                if i < len(your_msgs):
+                    messages.append({"from": "myself", "msg_body": "Response to the above message"})
+
+            messages
+
+
+        pagefull_of_orders["ol"] = orders
+        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # print(json.dumps(pagefull_of_orders))
+        print("# of orders:", len(orders))
+        print([o.toJson() for o in orders])
+        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+    except Exception as e:
+        print(f"Exception info:{e}")
+        ex_stat = "ErrorEbaySellerFetchPageOfOrderList:" + str(pidx)
+
+    return pagefull_of_orders
