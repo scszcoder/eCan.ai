@@ -15,6 +15,7 @@ import pandas as pd
 from vehicles import *
 from unittests import *
 from SkillManagerGUI import *
+from ChatGui import *
 import os
 import openpyxl
 from datetime import datetime, date
@@ -136,8 +137,8 @@ class MainWindow(QMainWindow):
         self.SH_PLATFORMS_DICT = {'win': "windows",'mac': "mac",'linux': "linux" }
 
         self.SM_PLATFORMS = ['WhatsApp','Messenger','Facebook','Instagram', 'Snap', 'Telegraph','Google','Line','Wechat','Tiktok','QQ', 'Custom']
-        self.BUY_TYPES = ['buy', 'goodFB', 'badFB']
-        self.SELL_TYPES = ['sell', 'marketing', 'research', 'advertise']
+        self.BUY_TYPES = ['browse', 'buy', 'goodFB', 'badFB']
+        self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
         self.tokens = inTokens
@@ -191,6 +192,7 @@ class MainWindow(QMainWindow):
         self.selected_mission_item = None
         self.BotNewWin = None
         self.missionWin = None
+        self.chatWin = None
         self.trainNewSkillWin = None
         self.reminderWin = None
         self.platoonWin = None
@@ -200,8 +202,8 @@ class MainWindow(QMainWindow):
 
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.commanderName = ""
-        self.todaysReport = []
-        self.todaysReports = []
+        self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
+        self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
         self.tester = TestAll.Tester()
         self.wifis = []
@@ -648,9 +650,11 @@ class MainWindow(QMainWindow):
         # now hand daily tasks
         self.todays_work = {"tbd": [], "allstat": "working"}
         self.todays_completed = []
+        self.num_todays_task_groups = 0
         if not self.hostrole == "Platoon":
             # For commander creates
             self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
+            self.num_todays_task_groups = self.num_todays_task_groups + 1
             # point to the 1st task to run for the day.
             self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
 
@@ -1155,10 +1159,10 @@ class MainWindow(QMainWindow):
         # test_sqlite3(self)
         # test_misc()
         # test_scrape_amz_prod_list()
-        # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
         # test_run_mission(self)
         # test_processSearchWordLine()
-        test_UpdateBotADSProfileFromSavedBatchTxt()
+        # test_UpdateBotADSProfileFromSavedBatchTxt()
         # test_run_group_of_tasks(self)
 
         #the grand test,
@@ -1221,40 +1225,12 @@ class MainWindow(QMainWindow):
                     bodyobj = json.loads(uncompressed)
                     # bodyobj = uncompressed
 
-                    # body object will be a list of task groups[
-                    # {
-                    # "eastern": [{
-                    #       bid : 0,
-                    #       tz : "eastern",
-                    #       bw_works : [{
-                    #           mid : 0,
-                    #           name: "",
-                    #           cuspas : "",
-                    #           todos : null,
-                    #           start_time : null
-                    #       }],
-                    #       other_works : [],
-                    # }...],
-                    # "central": [],
-                    # "mountain": [],
-                    # "pacific": [],
-                    # "alaska": [],
-                    # "hawaii": []
-                    #}, ....
-                    #]
-                    # each task is a json, { skill steps. [...]
-                    # each step is a json
-                    ##print("resp body: ", bodyobj)
-                    #if len(bodyobj.keys()) > 0:
-                        #jbody = json.loads(jresp["body"])
-                        #jbody = json.loads(originalS)
-
                     print("bodyobj: ", json.dumps(bodyobj))
                     if len(bodyobj) > 0:
                         self.addNewlyAddedMissions(bodyobj)
                         # now that todays' newly added missions are in place, generate the cookie site list for the run.
                         self.build_cookie_site_lists()
-
+                        self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
                         self.assignWork(bodyobj["task_groups"])
                         self.logDailySchedule(uncompressed)
                     else:
@@ -1907,7 +1883,8 @@ class MainWindow(QMainWindow):
             worksettings = {"botid": -1, "midx": -1}
             runResult = "Completed"
 
-        return worksettings["botid"], worksettings["midx"], runResult
+        print("botid, mid:", worksettings["botid"], worksettings["mid"])
+        return worksettings["botid"], worksettings["mid"], runResult
 
 
     def update1MStat(self, midx, result):
@@ -2477,7 +2454,7 @@ class MainWindow(QMainWindow):
                               api_bots[j]["name"], api_bots[j]["pseudoname"], api_bots[j]["nickname"], api_bots[j]["addr"], api_bots[j]["shipaddr"], \
                               api_bots[j]["phone"], api_bots[j]["email"], api_bots[j]["epw"], api_bots[j]["backemail"], api_bots[j]["ebpw"], api_bots[j]["backemail_site"]))
                 j = j + 1
-
+            print("bot insert SQL:", sql, "DATA TUPLE:", data_tuple)
             self.dbCursor.executemany(sql, data_tuple)
 
             # Check if the INSERT query was successful
@@ -2491,10 +2468,18 @@ class MainWindow(QMainWindow):
             # self.saveBotJsonFile(jbody)
 
             #now read back just added bots and echo it back onto display...
-            bid_tuple = tuple([bot.getBid() for bot in new_bots])
+            bid_list = [bot.getBid() for bot in new_bots]
 
-            # Construct the SQL query with a parameterized IN clause
-            sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
+            if len(bid_list) == 1:
+                # If idlist has only one element, construct SQL query without IN clause
+                sql = f"SELECT * FROM bots WHERE botid = {bid_list[0]}"
+            else:
+                # Construct the SQL query with a parameterized IN clause
+                bid_tuple = tuple(bid_list)
+                sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
+                print("bid_tuple:", bid_tuple)
+
+            print("sql:", sql)
 
             res = self.dbCursor.execute(sql)
             db_data = self.dbCursor.fetchall()
@@ -2563,10 +2548,15 @@ class MainWindow(QMainWindow):
 
             #now read back just added bots and echo it back onto display...
             #now read back just added bots and echo it back onto display...
-            bid_tuple = tuple([bot.getBid() for bot in bots])
+            bid_list = [bot.getBid() for bot in new_bots]
 
-            # Construct the SQL query with a parameterized IN clause
-            sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
+            if len(bid_list) == 1:
+                # If idlist has only one element, construct SQL query without IN clause
+                sql = f"SELECT * FROM bots WHERE botid = {bid_list[0]}"
+            else:
+                # Construct the SQL query with a parameterized IN clause
+                bid_tuple = tuple(bid_list)
+                sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
 
             res = self.dbCursor.execute(sql)
             db_data = self.dbCursor.fetchall()
@@ -2659,10 +2649,16 @@ class MainWindow(QMainWindow):
             else:
                 print("Insertion failed.")
 
-            mid_tuple = tuple([mission.getMid() for mission in new_missions])
+            mid_list = [mission.getMid() for mission in new_missions]
+            print("mid_list:", mid_list)
+            if len(mid_list) == 1:
+                sql = f"SELECT * FROM missions WHERE mid = {mid_list[0]}"
+            else:
+                mid_tuple = tuple(mid_list)
+                # Construct the SQL query with a parameterized IN clause
+                sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
 
-            # Construct the SQL query with a parameterized IN clause
-            sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
+            print("sql read back sql:", sql)
             res = self.dbCursor.execute(sql)
             db_data = self.dbCursor.fetchall()
             print("Just Added Local DB Mission Row:", db_data)
@@ -2754,11 +2750,15 @@ class MainWindow(QMainWindow):
                 # now that add is successfull, update local file as well.
                 # self.writeMissionJsonFile()
 
-                mid_tuple = tuple([mission.getMid() for mission in missions])
+                mid_list = [mission.getMid() for mission in new_missions]
 
-                # Construct the SQL query with a parameterized IN clause
-                sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
-                # now read back just added bots and echo it back onto display...
+                if len(mid_list) == 1:
+                    sql = f"SELECT * FROM missions WHERE mid = {mid_list[0]}"
+                else:
+                    mid_tuple = tuple(mid_list)
+                    # Construct the SQL query with a parameterized IN clause
+                    sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
+
                 res = self.dbCursor.execute(sql)
                 db_data = self.dbCursor.fetchall()
                 print("Just Updated Local DB Mission Row:", db_data)
@@ -3143,11 +3143,14 @@ class MainWindow(QMainWindow):
             self.rcbotEditAction = self._createBotRCEditAction()
             self.rcbotCloneAction = self._createBotRCCloneAction()
             self.rcbotDeleteAction = self._createBotRCDeleteAction()
+            self.rcbotChatAction = self._createBotRCChatAction()
 
             self.popMenu.addAction(self.rcbotEditAction)
             self.popMenu.addAction(self.rcbotCloneAction)
             self.popMenu.addSeparator()
             self.popMenu.addAction(self.rcbotDeleteAction)
+            self.popMenu.addSeparator()
+            self.popMenu.addAction(self.rcbotChatAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
@@ -3159,6 +3162,9 @@ class MainWindow(QMainWindow):
                     self.cloneBot()
                 elif selected_act == self.rcbotDeleteAction:
                     self.deleteBot()
+                elif selected_act == self.rcbotChatAction:
+                    self.chatBot()
+
             return True
         elif event.type() == QEvent.ContextMenu and source is self.missionListView:
             #print("mission RC menu....")
@@ -3210,6 +3216,20 @@ class MainWindow(QMainWindow):
 
         return super().eventFilter(source, event)
 
+    def chatBot(self):
+        # bring up the chat windows with this bot.
+        # File actions
+        if self.chatWin:
+            print("populating Chat GUI............")
+            self.chatWin.loadChat(self.selected_bot_item)
+        else:
+            print("populating a newly created Chat GUI............")
+            self.chatWin = ChatWin(self)
+            print("done create win............", str(self.selected_bot_item.getBid()))
+            self.chatWin.setBot(self.selected_bot_item)
+
+        # self.chatWin.setMode("update")
+        self.chatWin.show()
 
     def _createCusMissionViewAction(self):
        new_action = QAction(self)
@@ -3349,6 +3369,12 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Delete"))
+        return new_action
+
+    def _createBotRCChatAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Chat"))
         return new_action
 
     def editBot(self):
@@ -4054,7 +4080,7 @@ class MainWindow(QMainWindow):
             if not botTodos == None:
                 print("working on..... ", botTodos["name"])
                 self.workingState = "Working"
-                if botTodos["name"] == "not fetch schedule":
+                if botTodos["name"] == "fetch schedule":
                     print("fetching schedule..........")
                     last_start = int(datetime.now().timestamp()*1)
 
@@ -4077,7 +4103,8 @@ class MainWindow(QMainWindow):
                         last_end = int(datetime.now().timestamp()*1)
                     # else:
                         # now need to chop off the 0th todo since that's done by now....
-                        current_run_report = self.genRunReport(last_start, last_end, current_bid, current_mid, run_result)
+                        #
+                        current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
 
                         # if all tasks in the task group are done, we're done with this group.
                         if botTodos["current widx"] >= len(botTodos["works"]):
@@ -4098,7 +4125,10 @@ class MainWindow(QMainWindow):
                                 # check whether we have collected all reports so far, there is 1 count difference between,
                                 # at this point the local report on this machine has not been added to toddaysReports yet.
                                 # this will be done in doneWithToday....
-                                if len(self.todaysPlatoonReports) == (len(self.todays_completed) - 2):
+                                print("n todaysPlatoonReports", len(self.todaysPlatoonReports), "n todays_completed", len(self.todays_completed),)
+                                print("todaysPlatoonReports", self.todaysPlatoonReports)
+                                print("todays_completed", self.todays_completed)
+                                if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
                                     print("Commander Done with today!!!!!!!!!")
                                     self.doneWithToday()
                 else:
@@ -4143,7 +4173,7 @@ class MainWindow(QMainWindow):
             "sd": 600,
             "ast": "2023-10-22 00:12:12",
             "aet": "2023-10-22 00:22:12",
-            "status": "completed",
+            "status": "Completed",
             "error": "",
         },
         {
@@ -4153,7 +4183,7 @@ class MainWindow(QMainWindow):
             "sd": 600,
             "ast": "2023-10-22 12:12:12",
             "aet": "2023-10-22 12:22:12",
-            "status": "running",
+            "status": "Running",
             "error": "",
         }])
         self.parent.vehicles.append(newV)
@@ -4234,6 +4264,7 @@ class MainWindow(QMainWindow):
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
             print("msg type:", type(msg), msg)
+            #msg should be in the following json format {"ip": self.ip, "type": "report", "content": []]}
             self.todaysPlatoonReports.append(msg)
 
             # now using ip to find the item added to self.self.todays_work["tbd"]
@@ -4258,7 +4289,7 @@ class MainWindow(QMainWindow):
             print("completd：", self.todays_completed)
 
             # keep statistics on all platoon runs.
-            if len(self.todaysPlatoonReports) == (len(self.todays_completed)):
+            if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
                 # check = all(item in List1 for item in List2)
                 # this means all reports are collected, ready to send to cloud.
                 self.doneWithToday()
@@ -4307,15 +4338,15 @@ class MainWindow(QMainWindow):
         results = []
         if test_mode:
             # just to test commander GUI can handle the result
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "scheduled", "error": ""}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Scheduled", "error": ""}
             results.append(result)
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "completed", "error": ""}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Completed", "error": ""}
             results.append(result)
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "running", "error": ""}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Running", "error": ""}
             results.append(result)
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "500", "aet": "2023-11-09 01:22:12", "status": "warned", "error": "505"}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "500", "aet": "2023-11-09 01:22:12", "status": "Warned", "error": "505"}
             results.append(result)
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "300", "aet": "2023-11-09 01:22:12", "status": "aborted", "error": "5"}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "300", "aet": "2023-11-09 01:22:12", "status": "Aborted", "error": "5"}
             results.append(result)
         else:
             for mid in mids:
@@ -4427,27 +4458,29 @@ class MainWindow(QMainWindow):
 
         print("GEN REPORT FOR WORKS:", works)
         if not self.hostrole == "CommanderOnly":
-            # for platoon or commander does work itself, need to gather current todo's report , each mission's run result
-            # for tzi in Tzs:
-            #     if len(works[tzi]) > 0:
-            #         for bi in range(len(works[tzi])):
-            #             if len(works[tzi][bi]["other_works"]) > 0:
-            #                 for oi in range(len(works[tzi][bi]["other_works"])):
-            #                     self.todaysReport.append({ "mid": works[tzi][bi]["bw_works"][wi]["mid"], "bid": works[tzi][bi]["bid"], "starttime": last_start, "endtime": last_end, "status": run_status})
-            #
-            #             if len(works[tzi][bi]["bw_works"]) > 0:
-            #                 for wi in range(len(works[tzi][bi]["bw_works"])):
-            #                     self.todaysReport.append({ "mid": works[tzi][bi]["bw_works"][wi]["mid"], "bid": works[tzi][bi]["bid"], "starttime": last_start, "endtime": last_end, "status": run_status})
-            #
-            # self.todaysReport.append({ "mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status})
             mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
+            print("mission_report:", mission_report)
 
             if self.hostrole != "Platoon":
                 # add generated report to report list....
-                self.todaysPlatoonReports.append(self.todaysReport)
+                print("commander gen run report.....", self.todaysReport)
+                self.todaysReport.append(mission_report)
+                # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
+                # on commander machine, todaysPlatoonReports contains a collection of reports from each host machine
+                if len(self.todaysReport) == len(works):
+                    rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
+                    self.todaysPlatoonReports.append(rpt)
+                    self.todaysReport = []
             else:
                 # self.todaysPlatoonReports.append(str.encode(json.dumps(rpt)))
-                self.todaysPlatoonReports.append(self.todaysReport)
+                print("platoon?? gen run report.....", self.todaysReport)
+                self.todaysReport.append(mission_report)
+                # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
+                # on platoon machine, todaysPlatoonReports contains a collection of individual task reports on this machine.
+                if len(self.todaysReport) == len(works):
+                    rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
+                    self.todaysPlatoonReports.append(rpt)
+                    self.todaysReport = []
 
         return self.todaysReport
 
@@ -4458,21 +4491,6 @@ class MainWindow(QMainWindow):
                 found.setStatus(rpt["status"])
                 found.setActualStartTime(rpt["starttime"])
                 found.setActualEndTime(rpt["endtime"])
-
-            # for tz, tzw in rpt:
-            #     if len(tzw) > 0:
-            #         if len(tzw["bw_works"]) > 0:
-            #             for m in tzw["bw_works"]:
-            #                 found = next((x for x in self.missions if x.getMid() == m["mid"]), None)
-            #                 if found:
-            #                     found.setStatus(m["status"])
-            #
-            #         if len(tzw["other_works"]) > 0:
-            #             for m in tzw["other_works"]:
-            #                 found = next((x for x in self.missions if x.getMid() == m["mid"]), None)
-            #                 if found:
-            #                     found.setStatus(m["status"])
-
 
     # all work done today, now
     # 1) send report to the network,
@@ -4485,9 +4503,10 @@ class MainWindow(QMainWindow):
         print("Done with today!")
 
         if not self.hostrole == "Platoon":
-            if self.hostrole == "Commander":
-                rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
-                self.todaysPlatoonReports.append(rpt)
+            # if self.hostrole == "Commander":
+            #     print("commander generate today's report")
+            #     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
+            #     self.todaysPlatoonReports.append(rpt)
 
             if len(self.todaysPlatoonReports) > 0:
                 # flatten the report data structure...
@@ -4501,7 +4520,7 @@ class MainWindow(QMainWindow):
 
             print("TO be sent to cloud side::", allTodoReports)
             # if this is a commmander, then send report to cloud
-            send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'])
+            # send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'])
         else:
             # if this is a platoon, send report to commander today's report is just an list mission status....
             rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
@@ -4516,7 +4535,7 @@ class MainWindow(QMainWindow):
             self.todays_work = {"tbd": [{"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []}]}
 
         self.todays_completed = []
-        self.todaysReports = []
+        self.todaysReports = []                     # per vehicle/host
         self.todaysPlatoonReports = []
 
     def obtainTZ(self):
