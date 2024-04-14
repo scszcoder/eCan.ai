@@ -53,7 +53,7 @@ def windowlauncher():
     app = QApplication(sys.argv)
 
     loop = QEventLoop(app)
-    # asyncio.set_event_loop(loop)
+    asyncio.set_event_loop(loop)
 
     global login
     login = Login(app, loop)
