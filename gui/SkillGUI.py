@@ -1361,6 +1361,7 @@ class SkillGUI(QMainWindow):
         self.mainWidget = QWidget()
         self.mainWidget.setLayout(self.layout)
         self.setCentralWidget(self.mainWidget)
+        self.setWindowTitle("Skill Editor")
 
 
         self.saveSkillMessageBox = QMessageBox()

@@ -241,7 +241,7 @@ def adressAddNameSpace(l, name_space, lvl):
 def runAllSteps(steps, mission, skill, mode="normal"):
     global last_step
     global next_step
-    run_result = "Completed:0"
+    run_result = DEFAULT_RUN_STATUS
     last_step = -1
     next_step = 0
     next_step_index = 0
@@ -283,11 +283,9 @@ def runAllSteps(steps, mission, skill, mode="normal"):
         else:
             break
 
-    if step_stat == DEFAULT_RUN_STATUS:
-        print("RUN COMPLETED!")
-    else:
-        print("RUN ABORTED!")
-        run_result = "Aborted:"+str(last_step)+":"+step_stat
+    if step_stat != DEFAULT_RUN_STATUS:
+        print("RUN Error!")
+        run_result = "Incomplete:"+step_stat+":"+str(last_step)
 
     return run_result
 
