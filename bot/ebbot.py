@@ -1,3 +1,4 @@
+import asyncio
 import platform
 import json
 from datetime import datetime, date
@@ -432,6 +433,10 @@ class EBBOT(QStandardItem):
         self.setIcon(self.icon)
 
         self.seller_inventories = []
+        self.msg_queue = asyncio.Queue()
+
+    def getMsgQ(self):
+        return self.msg_queue
 
     def setEmail(self, em):
             self.privateProfile.email = em

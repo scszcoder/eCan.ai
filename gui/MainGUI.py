@@ -1,3 +1,4 @@
+import asyncio
 import sqlite3
 
 from PySide6.QtCore import QParallelAnimationGroup, QPropertyAnimation, QAbstractAnimation, QThreadPool
@@ -105,6 +106,22 @@ class Expander(QWidget):
         contentAnimation.setStartValue(0)
         contentAnimation.setEndValue(contentHeight)
 
+
+class AsyncInterface:
+    """ Class to handle async tasks within the Qt Event Loop. """
+    def __init__(self,queue):
+        self.active_queue = queue
+        asyncio.create_task(self.worker_task())  # Start the worker task
+
+    def set_active_queue(self, bot):
+        self.active_queue = bot.getMsgQ()
+
+    async def worker_task(self):
+        """ Asynchronous worker task processing items from the queue. """
+        while True:
+            message = await self.queue.get()
+            print(f"Processed message from GUI: {message}")
+            self.queue.task_done()
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
@@ -663,6 +680,18 @@ class MainWindow(QMainWindow):
             self.num_todays_task_groups = self.num_todays_task_groups + 1
             # point to the 1st task to run for the day.
             self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
+
+        # self.async_interface = AsyncInterface()
+        self.gui_net_msg_queue = asyncio.Queue()
+        self.gui_chat_msg_queue = asyncio.Queue()
+        if not self.hostrole == "Platoon":
+            asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
+        else:
+            asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
+
+        # the message queue are
+        asyncio.create_task(self.runbotworks(self.gui_chat_msg_queue))
+        asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
 
     def addSkillRowsToSkillManager(self):
         self.skillManagerWin.addSkillRows(self.skills)
@@ -1793,14 +1822,20 @@ class MainWindow(QMainWindow):
 
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
-    def runRPA(self, worksTBD):
+    async def runRPA(self, worksTBD, scheduler_msg_queue):
         global rpaConfig
         global skill_code
 
         all_done = False
         try:
             worksettings = getWorkRunSettings(self, worksTBD)
-            print("worksettings: mid, bid", worksettings["botid"], worksettings["mid"])
+            print("worksettings: bid, mid", worksettings["botid"], worksettings["mid"])
+
+            bot_idx = next((i for i, b in enumerate(self.bots) if str(b.getBid()) == str(worksettings["botid"])), -1)
+            if bot_idx >= 0:
+                print("found BOT to be run......")
+                running_bot = self.bots[bot_idx]
+                bot_queue = running_bot.getMsgQ()
 
             rpaScripts = []
 
@@ -1873,20 +1908,18 @@ class MainWindow(QMainWindow):
             rpaScripts.append(rpa_script)
             print("rpaScripts:[", len(rpaScripts), "] ", rpaScripts)
 
-            #now run the steps
-            for script in rpaScripts:
-                # (steps, mission, skill, mode="normal"):
-                # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
-                # print("it_items: ", it_items)
-                # for it in it_items:
-                #     print("item: ", it.getSkid())
-                # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
-                # print("running skid:", rpaSkillIds[0], "len(self.skills): ", len(self.skills), "skill 0 skid: ", self.skills[0].getSkid())
-                # print("running skill: ", running_skill)
-                runResult = runAllSteps(script, self.missions[worksettings["midx"]], relevant_skills[0])
-                if runResult.split(":")[0] != "Completed":
-                    # some thing is wrong.... simply exit and claim this mission execution failed.
-                    break
+
+            # (steps, mission, skill, mode="normal"):
+            # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
+            # print("it_items: ", it_items)
+            # for it in it_items:
+            #     print("item: ", it.getSkid())
+            # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
+            # print("running skid:", rpaSkillIds[0], "len(self.skills): ", len(self.skills), "skill 0 skid: ", self.skills[0].getSkid())
+            # print("running skill: ", running_skill)
+            runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0]), bot_queue, scheduler_msg_queue)
+            runResult = await runStepsTask
+
 
             # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
             # the timer tick will trigger the run of the next mission on the list....
@@ -2822,6 +2855,19 @@ class MainWindow(QMainWindow):
                 self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
         else:
             print("Reconnected:", vinfo.peername)
+
+    def removeVehicle(self, peername):
+        print("removing vehicle:", peername)
+        found_v_idx = next((i for i, v in enumerate(self.vehicles) if v.getVid == peername), -1)
+
+        if found_v_idx > 0:
+            found_v = self.vehicles[found_v_idx]
+            self.runningVehicleModel.removeRow(found_v.row())
+            self.vehicles.pop(found_v_idx)
+
+            if self.platoonWin:
+                self.platoonWin.updatePlatoonWinWithMostRecentlyRemovedVehicle()
+
 
     def checkVehicles(self):
         print("adding already linked vehicles.....")
@@ -4095,80 +4141,107 @@ class MainWindow(QMainWindow):
                 vsettings["vlnxs"] = vsettings["vlnxs"] + 1
         return vsettings
 
-    def runbotworks(self):
+
+    # the message queue is for messsage from tcpip task to the GUI task.
+    async def servePlatoons(self, msgQueue):
+        while True:
+            net_message = await msgQueue.get()
+            msg_parts = net_message.split("!")
+            if msg_parts[1] == "net data":
+                self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+            elif msg_parts[1] == "connection":
+                # this is the initial connection msg from a client
+                if self.platoonWin == None:
+                    self.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
+
+                vinfo = json.loads(msg_parts[2])
+                self.addVehicle(vinfo["link"])
+            elif msg_parts[1] == "net loss":
+                # remove this link from the link list
+                self.removeVehicles()
+
+            msgQueue.task_done()
+            print("serving platoons.....")
+
+    # this is be run as an async task.
+    async def runbotworks(self, gui_chat_queue):
         # run all the work
-        botTodos = None
-        if self.workingState == "Idle":
-            botTodos = self.checkNextToRun()
-            self.showMsg("check todos....")
-            if not botTodos == None:
-                print("working on..... ", botTodos["name"])
-                self.workingState = "Working"
-                if botTodos["name"] == "fetch schedule":
-                    print("fetching schedule..........")
-                    last_start = int(datetime.now().timestamp()*1)
+        running = True
 
-                    botTodos["status"] = self.fetchSchedule("", self.get_vehicle_settings())
-                    last_end = int(datetime.now().timestamp()*1)
-                    # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
-                    # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
-                    # if "Completed" in botTodos["status"]:
-                    current_run_report = self.genRunReport(last_start, last_end, 0, 0, botTodos["status"])
-                    print("POP the daily initial fetch schedule task from queue")
-                    finished = self.todays_work["tbd"].pop(0)
-                    self.todays_completed.append(finished)
-                elif botTodos["name"] == "automation":
-                    # run 1 bot's work
-                    print("running RPA..............")
-                    if "Completed" not in botTodos["status"]:
-                        print("time to run RPA........", botTodos)
+        while running:
+            print("looping runbotworks......................")
+            botTodos = None
+            if self.workingState == "Idle":
+                botTodos = self.checkNextToRun()
+                self.showMsg("check todos....")
+                if not botTodos == None:
+                    print("working on..... ", botTodos["name"])
+                    self.workingState = "Working"
+                    if botTodos["name"] == "fetch schedule":
+                        print("fetching schedule..........")
                         last_start = int(datetime.now().timestamp()*1)
-                        current_bid, current_mid, run_result = self.runRPA(botTodos)
+
+                        botTodos["status"] = self.fetchSchedule("", self.get_vehicle_settings())
                         last_end = int(datetime.now().timestamp()*1)
-                    # else:
-                        # now need to chop off the 0th todo since that's done by now....
-                        #
-                        current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
+                        # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
+                        # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
+                        # if "Completed" in botTodos["status"]:
+                        current_run_report = self.genRunReport(last_start, last_end, 0, 0, botTodos["status"])
+                        print("POP the daily initial fetch schedule task from queue")
+                        finished = self.todays_work["tbd"].pop(0)
+                        self.todays_completed.append(finished)
+                    elif botTodos["name"] == "automation":
+                        # run 1 bot's work
+                        print("running RPA..............")
+                        if "Completed" not in botTodos["status"]:
+                            print("time to run RPA........", botTodos)
+                            last_start = int(datetime.now().timestamp()*1)
+                            current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_chat_queue)
+                            last_end = int(datetime.now().timestamp()*1)
+                        # else:
+                            # now need to chop off the 0th todo since that's done by now....
+                            #
+                            current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
 
-                        # if all tasks in the task group are done, we're done with this group.
-                        if botTodos["current widx"] >= len(botTodos["works"]):
-                            print("POP a finished task from queue after runRPA")
-                            finished = self.todays_work["tbd"].pop(0)
-                            print("JUST FINISHED A WORK GROUP:", finished)
-                            self.todays_completed.append(finished)
+                            # if all tasks in the task group are done, we're done with this group.
+                            if botTodos["current widx"] >= len(botTodos["works"]):
+                                print("POP a finished task from queue after runRPA")
+                                finished = self.todays_work["tbd"].pop(0)
+                                print("JUST FINISHED A WORK GROUP:", finished)
+                                self.todays_completed.append(finished)
 
-                            # update GUI display to move missions in this task group to the completed missions list.
-                            self.updateCompletedMissions(finished)
+                                # update GUI display to move missions in this task group to the completed missions list.
+                                self.updateCompletedMissions(finished)
 
 
-                        if len(self.todays_work["tbd"]) == 0:
-                            if self.hostrole == "Platoon":
-                                print("Platoon Done with today!!!!!!!!!")
-                                self.doneWithToday()
-                            else:
-                                # check whether we have collected all reports so far, there is 1 count difference between,
-                                # at this point the local report on this machine has not been added to toddaysReports yet.
-                                # this will be done in doneWithToday....
-                                print("n todaysPlatoonReports", len(self.todaysPlatoonReports), "n todays_completed", len(self.todays_completed),)
-                                print("todaysPlatoonReports", self.todaysPlatoonReports)
-                                print("todays_completed", self.todays_completed)
-                                if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
-                                    print("Commander Done with today!!!!!!!!!")
+                            if len(self.todays_work["tbd"]) == 0:
+                                if self.hostrole == "Platoon":
+                                    print("Platoon Done with today!!!!!!!!!")
                                     self.doneWithToday()
+                                else:
+                                    # check whether we have collected all reports so far, there is 1 count difference between,
+                                    # at this point the local report on this machine has not been added to toddaysReports yet.
+                                    # this will be done in doneWithToday....
+                                    print("n todaysPlatoonReports", len(self.todaysPlatoonReports), "n todays_completed", len(self.todays_completed),)
+                                    print("todaysPlatoonReports", self.todaysPlatoonReports)
+                                    print("todays_completed", self.todays_completed)
+                                    if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
+                                        print("Commander Done with today!!!!!!!!!")
+                                        self.doneWithToday()
+                    else:
+                        print("Unrecogizable todo....", botTodos["name"])
+                        print("POP a unrecognized task from queue")
+                        self.todays_work["tbd"].pop(0)
+
                 else:
-                    print("Unrecogizable todo....", botTodos["name"])
-                    print("POP a unrecognized task from queue")
-                    self.todays_work["tbd"].pop(0)
+                    # nothing to do right now. check if all of today's work are done.
+                    # if my own works are done and all platoon's reports are collected.
+                    if self.hostrole == "Platoon":
+                        if len(self.todays_work["tbd"]) == 0:
+                            self.doneWithToday()
 
-            else:
-                # nothing to do right now. check if all of today's work are done.
-                # if my own works are done and all platoon's reports are collected.
-                if self.hostrole == "Platoon":
-                    if len(self.todays_work["tbd"]) == 0:
-                        self.doneWithToday()
-
-        if self.workingState != "Idle":
-            self.workingState = "Idle"
+            if self.workingState != "Idle":
+                self.workingState = "Idle"
 
 
     #update a vehicle's missions status
@@ -4398,6 +4471,11 @@ class MainWindow(QMainWindow):
         print("mission status result:", results)
         return results
 
+    async def serveCommander(self, msgQueue):
+        while True:
+            net_message = await msgQueue.get()
+            self.processCommanderMsgs(net_message)
+            msgQueue.task_done()
 
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
@@ -4782,3 +4860,21 @@ class MainWindow(QMainWindow):
 
     def getADSProfileDir(self):
         return self.ads_profile_dir
+
+    def send_chat_to_local_bot(self, chat_msg):
+        # """ Directly enqueue a message to the asyncio task when the button is clicked. """
+        asyncio.create_task(self.gui_chat_msg_queue.put(chat_msg))
+
+    def update_chat_gui(self, rcvd_msg):
+        self.chatWin.updateDisplay(rcvd_msg)
+
+    # this is the interface to the chatting bots.
+    async def connectChat(self, msg_queue):
+        running = True
+        while running:
+            if not msg_queue.empty():
+                message = await msg_queue.get()
+                print(f"Rx Chat message from bot: {message}")
+                msg_queue.task_done()
+
+
