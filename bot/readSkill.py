@@ -106,6 +106,7 @@ vicrop = {
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
+    "ASK LLM": lambda x, y: processAskLLM(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),
@@ -326,7 +327,7 @@ def run1step(steps, si, mission, skill, stack):
             si,isat = vicrop[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = vicrop[step["type"]](step, si, mission, skill)
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM":
             si,isat = vicrop[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si,isat = vicrop[step["type"]](step, si, stack, stepKeys)

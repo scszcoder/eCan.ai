@@ -250,17 +250,15 @@ async def commanderFinder(topgui, thisloop, waitwin, net_queue):
 #         await asyncio.sleep(TICK)
 
 async def runCommanderLAN(topgui):
-    gui_queue = asyncio.Queue()
     await asyncio.gather(
         udpBroadcaster(topgui),
-        tcpServer(topgui, gui_queue),
+        tcpServer(topgui, topgui.get_msg_queue()),
         # topScheduler(topgui, gui_queue),
     )
 
 
 async def runPlatoonLAN(topgui, thisLoop, waitwin):
-    net_queue = asyncio.Queue()
     await asyncio.gather(
-        commanderFinder(topgui, thisLoop, waitwin, net_queue),
+        commanderFinder(topgui, thisLoop, waitwin, topgui.get_msg_queue()),
         # topScheduler(topgui, net_queue),
     )

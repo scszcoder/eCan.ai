@@ -125,13 +125,14 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, inTokens, tcpserver, ip, user, homepath, machine_role, lang):
+    def __init__(self, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
         super(MainWindow, self).__init__()
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
         print("HOME PATH is::", self.homepath)
+        self.gui_net_msg_queue = gui_msg_queue
         self.lang = lang
         self.tz = self.obtainTZ()
         self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_0.png'
@@ -145,6 +146,9 @@ class MainWindow(QMainWindow):
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
         self.SELLER_INVENTORY_FILE = ecb_data_homepath+"/resource/inventory.json"
+
+        self.gui_chat_msg_queue = asyncio.Queue()
+
         self.PLATFORMS = ['windows', 'mac', 'linux']
         self.APPS = ['chrome', 'edge','firefox','ads','multilogin','safari','Custom']
         self.SITES = ['Amazon','Etsy','Ebay','Temu','Shein','Walmart','Wayfair','Tiktok','Facebook','Google', 'AliExpress','Custom']
@@ -682,8 +686,7 @@ class MainWindow(QMainWindow):
             self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
 
         # self.async_interface = AsyncInterface()
-        self.gui_net_msg_queue = asyncio.Queue()
-        self.gui_chat_msg_queue = asyncio.Queue()
+
         if not self.hostrole == "Platoon":
             asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
         else:
@@ -4144,24 +4147,26 @@ class MainWindow(QMainWindow):
 
     # the message queue is for messsage from tcpip task to the GUI task.
     async def servePlatoons(self, msgQueue):
+        print("starting servePlatoons")
         while True:
-            net_message = await msgQueue.get()
-            msg_parts = net_message.split("!")
-            if msg_parts[1] == "net data":
-                self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
-            elif msg_parts[1] == "connection":
-                # this is the initial connection msg from a client
-                if self.platoonWin == None:
-                    self.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
-
-                vinfo = json.loads(msg_parts[2])
-                self.addVehicle(vinfo["link"])
-            elif msg_parts[1] == "net loss":
-                # remove this link from the link list
-                self.removeVehicles()
-
-            msgQueue.task_done()
-            print("serving platoons.....")
+            if not msgQueue.empty():
+                net_message = await msgQueue.get()
+                # msg_parts = net_message.split("!")
+                # if msg_parts[1] == "net data":
+                #     self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+                # elif msg_parts[1] == "connection":
+                #     # this is the initial connection msg from a client
+                #     if self.platoonWin == None:
+                #         self.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
+                #
+                #     vinfo = json.loads(msg_parts[2])
+                #     self.addVehicle(vinfo["link"])
+                # elif msg_parts[1] == "net loss":
+                #     # remove this link from the link list
+                #     self.removeVehicles()
+                #
+                # msgQueue.task_done()
+            await asyncio.sleep(1)
 
     # this is be run as an async task.
     async def runbotworks(self, gui_chat_queue):
@@ -4242,6 +4247,8 @@ class MainWindow(QMainWindow):
 
             if self.workingState != "Idle":
                 self.workingState = "Idle"
+
+            await asyncio.sleep(1)
 
 
     #update a vehicle's missions status
@@ -4476,6 +4483,7 @@ class MainWindow(QMainWindow):
             net_message = await msgQueue.get()
             self.processCommanderMsgs(net_message)
             msgQueue.task_done()
+            await asyncio.sleep(10)
 
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
@@ -4865,16 +4873,22 @@ class MainWindow(QMainWindow):
         # """ Directly enqueue a message to the asyncio task when the button is clicked. """
         asyncio.create_task(self.gui_chat_msg_queue.put(chat_msg))
 
+    # the message will be in the format of botid:send time stamp in yyyy:mm:dd hh:mm:ss format:msg in html format
+    # from network the message will have chatmsg: prepend to the message.
     def update_chat_gui(self, rcvd_msg):
         self.chatWin.updateDisplay(rcvd_msg)
 
-    # this is the interface to the chatting bots.
-    async def connectChat(self, msg_queue):
+    # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
+    async def connectChat(self, chat_msg_queue):
         running = True
         while running:
-            if not msg_queue.empty():
-                message = await msg_queue.get()
+            if not chat_msg_queue.empty():
+                message = await chat_msg_queue.get()
                 print(f"Rx Chat message from bot: {message}")
-                msg_queue.task_done()
+                self.update_chat_gui(message)
+                chat_msg_queue.task_done()
+
+            await asyncio.sleep(1)
+
 
 
