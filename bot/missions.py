@@ -3,7 +3,7 @@ from readSkill import *
 from datetime import datetime
 import shutil
 import os
-
+TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
 # start time for the day, example: 7am pacific time.
 # start time uncertainty give start time could be some many minutes earlier or late.

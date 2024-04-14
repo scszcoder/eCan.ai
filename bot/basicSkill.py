@@ -53,7 +53,7 @@ current_context = None
 
 screen_loc = (0, 0)
 
-DEFAULT_RUN_STATUS = "Success:0"
+DEFAULT_RUN_STATUS = "Completed:0"
 
 TEST_RUN_CNT = 0
 
