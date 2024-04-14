@@ -238,7 +238,7 @@ def adressAddNameSpace(l, name_space, lvl):
 # on psk side, what's fundamental instructions to support above:
 #
 
-def runAllSteps(steps, mission, skill, mode="normal"):
+async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="normal"):
     global last_step
     global next_step
     run_result = DEFAULT_RUN_STATUS
@@ -282,6 +282,12 @@ def runAllSteps(steps, mission, skill, mode="normal"):
             print("next_step_index: ", next_step_index, "len(stepKeys)-1: ", len(stepKeys)-1)
         else:
             break
+
+        # check whether there is any msging handling need.
+        if not in_msg_queue.empty():
+            message = await in_msg_queue.get()
+            print(f"RunAllSteps message: {message}")
+            in_msg_queue.task_done()
 
     if step_stat != DEFAULT_RUN_STATUS:
         print("RUN Error!")

@@ -131,6 +131,12 @@ class PlatoonWindow(QMainWindow):
         ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
         self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
 
+    def updatePlatoonWinWithMostRecentlyRemovedVehicle(self):
+        v = self.parent.vehicles[len(self.parent.vehicles)-1]
+        # print("adding most recently added vehicle tab")
+        # ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
+        # self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
+
     def updatePlatoonStatAndShow(self, rx_data):
         ip_last = rx_data["ip"].split(".")[len(rx_data["ip"].split(".")) - 1]
         tab_names = [self.tabs.tabText(i) for i in range(self.tabs.count())]

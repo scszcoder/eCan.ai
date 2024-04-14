@@ -190,12 +190,8 @@ class ChatWidget(QWidget):
         self.message_edit = MultiLineLineEdit(self)
 
         buttons_layout = QHBoxLayout()
-        self.remote_send_button = QPushButton("Remote")
-        self.remote_send_button.clicked.connect(lambda: self.addMessage(False))
         self.self_send_button = QPushButton("Me")
         self.self_send_button.clicked.connect(lambda: self.addMessage(True))
-
-        buttons_layout.addWidget(self.remote_send_button)
         buttons_layout.addWidget(self.self_send_button)
 
         self.main_layout.addWidget(self.scroll_area)
@@ -205,7 +201,7 @@ class ChatWidget(QWidget):
         self.setGeometry(300, 300, 400, 500)
         self.setWindowTitle('Chat Bubbles Example')
 
-    def addMessage(self, is_self):
+    def addMessage(self, is_self, msg):
         text = self.message_edit.text()
         if text:
             bubble = BubbleLabel(text, is_self, self.scroll_area_widget_contents)
@@ -223,14 +219,13 @@ class ChatWidget(QWidget):
         vertical_scroll_bar.setValue(vertical_scroll_bar.maximum())
 
 
-
 class ChatWin(QMainWindow):
     def __init__(self, parent):
         super(ChatWin, self).__init__(parent)
 
         self.friendsList = QListWidget()
         self.setupFriendsList()  # Populate the friends list
-
+        print("friends set up")
         self.chatWidget = ChatWidget()  # Assuming ChatWidget is your existing chat UI class
 
         # Use QSplitter for adjustable panels
@@ -245,7 +240,7 @@ class ChatWin(QMainWindow):
 
     def setupFriendsList(self):
         # Example: Add friends to the list
-        for i in range(10):  # Assuming 10 friends
+        for i in range(1):  # Assuming 10 friends
             item = QListWidgetItem(QIcon("c:/temp/bot0.png"), f"Friend {i + 1}")
             self.friendsList.addItem(item)
 
@@ -257,3 +252,7 @@ class ChatWin(QMainWindow):
 
     def setBot(self, item):
         print(f"Switched to conversation with {item.text()}")
+
+    def updateDisplay(self, msg):
+        self.chatWidget.addMessage(False, msg)
+
