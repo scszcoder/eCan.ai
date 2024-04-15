@@ -1923,7 +1923,6 @@ class MainWindow(QMainWindow):
             runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0]), bot_queue, scheduler_msg_queue)
             runResult = await runStepsTask
 
-
             # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
             # the timer tick will trigger the run of the next mission on the list....
             print("UPDATEing completed mmission status::", worksettings["midx"], "RUN result:", runResult)
@@ -4171,7 +4170,7 @@ class MainWindow(QMainWindow):
     # this is be run as an async task.
     async def runbotworks(self, gui_chat_queue):
         # run all the work
-        running = True
+        running = False
 
         while running:
             print("looping runbotworks......................")

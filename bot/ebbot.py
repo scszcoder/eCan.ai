@@ -415,6 +415,34 @@ class BOT_PUB_PROFILE():
 # make multi-lingual - how?
 # help --
 
+class CircularMessageQueue:
+    def __init__(self, max_size=8000):
+        self.queue = []
+        self.max_size = max_size
+
+    def add_message(self, message):
+        if len(self.queue) >= self.max_size:
+            self.queue.pop(0)
+        self.queue.append(message)
+
+    def get_messages(self):
+        return self.queue
+
+# a light weight twin of the EB_BOT
+class EBBOT_AGENT(QStandardItem):
+    def __init__(self, parent):
+        super().__init__()
+        self.parent = parent
+        self.chat_history = CircularMessageQueue()
+        self.bid = 0
+
+    def setBid(self, bid):
+        self.bid = bid
+
+    def addChat(self, msg):
+        self.chat_history.add_message(msg)
+
+
 
 class EBBOT(QStandardItem):
     def __init__(self, parent):
@@ -425,12 +453,14 @@ class EBBOT(QStandardItem):
 
         self.ebType = "AMZ"
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid())+":"+self.getFn()[:1]+" "+self.getLn())
+            self.icon_text = 'bot' + str(self.getBid())+":"+self.getFn()[:1]+" "+self.getLn()
+            self.setText(self.icon_text)
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
+            self.icon_text ='bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn()
+            self.setText(self.icon_text)
         self.setFont(parent.std_item_font)
-        self.icon = QIcon(parent.bot_icon_path)
-        self.setIcon(self.icon)
+        # self.icon = QIcon(parent.bot_icon_path)
+        self.setIcon(QIcon(parent.bot_icon_path))
 
         self.seller_inventories = []
         self.msg_queue = asyncio.Queue()
