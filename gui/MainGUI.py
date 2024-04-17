@@ -11,6 +11,7 @@ from LoggerGUI import *
 from ui_settings import *
 import TestAll
 import importlib
+import importlib.util
 import pandas as pd
 
 from vehicles import *
@@ -211,7 +212,7 @@ class MainWindow(QMainWindow):
         self.missionsToday = []
         self.platoons = []
         self.products = []
-        self.zipper = lzstring.LZString()
+        self.zipper = LZString()
         self.threadPool = QThreadPool()
         self.selected_bot_row = -1
         self.selected_mission_row = -1
@@ -664,15 +665,24 @@ class MainWindow(QMainWindow):
                 self.regenSkillPSKs()
 
         # Done with all UI stuff, now do the instruction set extension work.
-        sk_extension_file = self.homepath + "/resource/skills/my/skill_extension.json"
-        if os.path.isfile(sk_extension_file):
-            with open(sk_extension_file, 'r') as sk_extension:
-                addon = json.load(sk_extension)
-                added_module_names = addon['modules']
-                print("added module names:", added_module_names)
-                added_module0 = importlib.import_module(added_module_names[0])
-                vicrop_extension = getattr(added_module0, 'extended_vicrop')
-                vicrop.update(vicrop_extension)
+        rais_extensions_file = ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
+        added_handlers=[]
+        if os.path.isfile(rais_extensions_file):
+            with open(rais_extensions_file, 'r') as rais_extensions:
+                user_rais_modules = json.load(rais_extensions)
+                for i, user_module in enumerate(user_rais_modules):
+                    module_file = user_module["file"]
+                    added_ins = user_module['instructions']
+                    module_name = os.path.splitext(module_file)[0]
+                    spec = importlib.util.spec_from_file_location(module_name, module_file)
+                    # Create a module object from the spec
+                    module = importlib.util.module_from_spec(spec)
+                    # Load the module
+                    spec.loader.exec_module(module)
+
+                    for ins in added_ins:
+                        if hasattr(module, ins("handler")):
+                            RAIS[ins["instruction name"]] = getattr(module, ins("handler"))
 
         # now hand daily tasks
         self.todays_work = {"tbd": [], "allstat": "working"}
@@ -3247,6 +3257,7 @@ class MainWindow(QMainWindow):
             self.cusMissionCloneAction = self._createCusMissionCloneAction()
             self.cusMissionDeleteAction = self._createCusMissionDeleteAction()
             self.cusMissionUpdateAction = self._createCusMissionUpdateAction()
+            self.cusMissionRunAction = self._createRunMissionNowAction()
 
             self.popMenu.addAction(self.cusMissionEditAction)
             self.popMenu.addAction(self.cusMissionCloneAction)
@@ -3254,6 +3265,8 @@ class MainWindow(QMainWindow):
             self.popMenu.addAction(self.cusMissionDeleteAction)
             self.popMenu.addSeparator()
             self.popMenu.addAction(self.cusMissionUpdateAction)
+            self.popMenu.addSeparator()
+            self.popMenu.addAction(self.cusMissionRunAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
@@ -3267,6 +3280,9 @@ class MainWindow(QMainWindow):
                     self.deleteCusMission()
                 elif selected_act == self.cusMissionUpdateAction:
                     self.updateCusMissionStatus(self.selected_cus_mission_item)
+                elif selected_act == self.cusMissionRunAction:
+                    asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_chat_msg_queue))
+
             return True
         elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
             print("CLICKED on bot:", source.indexAt(event.pos()).row())
@@ -3329,6 +3345,12 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Update Status"))
+        return new_action
+
+    def _createRunMissionNowAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Run Now"))
         return new_action
 
     def editCusMission(self):
@@ -3417,14 +3439,28 @@ class MainWindow(QMainWindow):
     def updateCusMissionStatus(self, amission):
         # send this mission's status to Cloud
         api_missions = [amission]
-        jresp = send_update_missions_request_to_cloud(self.session, api_missions, self.tokens['AuthenticationResult']['IdToken'])
-        if "errorType" in jresp:
-            screen_error = True
-            print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
-        else:
-            jbody = json.loads(jresp["body"])
-            # now that delete is successfull, update local file as well.
-            self.writeMissionJsonFile()
+        # jresp = send_update_missions_request_to_cloud(self.session, api_missions, self.tokens['AuthenticationResult']['IdToken'])
+        # if "errorType" in jresp:
+        #     screen_error = True
+        #     print("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+        # else:
+        #     jbody = json.loads(jresp["body"])
+        #     # now that delete is successfull, update local file as well.
+        #     self.writeMissionJsonFile()
+
+    async def runCusMissionNow(self, amission, gui_chat_queue):
+        # check if psk is already there, if not generate psk, then run it.
+        print("run mission now....")
+        worksTBD = {"works": [{
+            "mid": amission.getMid(),
+            "name": "automation",
+            "bid": amission.getBid(),
+            "config": {},
+            "ads_xlsx_profile": ""
+        }], "current widx":0}
+
+        current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_chat_queue)
+
 
     def _createBotRCEditAction(self):
        new_action = QAction(self)
@@ -3540,17 +3576,18 @@ class MainWindow(QMainWindow):
 
 
     def newBotFromFile(self):
-        print("loading bots from a file...")
         filename, _ = QFileDialog.getOpenFileName(
             self,
             QApplication.translate("QFileDialog", "Open Bot Definition File"),
             '',
             QApplication.translate("QFileDialog", "Bot Files (*.json *.xlsx *.csv)")
         )
+        print("loading bots from a file...", filename)
+        bots_from_file=[]
         if filename != "":
             if "json" in filename:
                 api_bots = []
-                uncompressed = open(self.homepath + "/resource/testdata/newbots.json")
+                uncompressed = open(filename)
                 if uncompressed != None:
                     # print("body string:", uncompressed, "!", len(uncompressed), "::")
                     filebbots = json.load(uncompressed)
@@ -3602,8 +3639,11 @@ class MainWindow(QMainWindow):
                     new_bot.loadXlsxData(bjson)
                     bots_from_file.append(new_bot)
                     new_bot.genJson()
+            else:
+                print("ERROR: bot files must either be in .json format or .xlsx format!")
 
-        self.addNewBots(bots_from_file)
+        if len(bots_from_file) > 0:
+            self.addNewBots(bots_from_file)
 
     # data format conversion. nb is in EBMISSION data structure format., nbdata is json
     def fillNewMission(self, nmjson, nm):
@@ -3933,7 +3973,12 @@ class MainWindow(QMainWindow):
     # load locally stored skills
     def loadLocalSkills(self):
         skill_def_files = []
-        skdir = self.homepath + "/resource/skills/"
+        skid_files = []
+        psk_files = []
+        csk_files = []
+        json_files = []
+
+        skdir = self.ecb_data_homepath + "/my_skills/"
         # Iterate over all files in the directory
         # Walk through the directory tree recursively
         for root, dirs, files in os.walk(skdir):
@@ -3941,9 +3986,18 @@ class MainWindow(QMainWindow):
                 if file.endswith(".json"):
                     file_path = os.path.join(root, file)
                     skill_def_files.append(file_path)
-
+                elif file.endswith(".skd"):
+                    file_path = os.path.join(root, file)
+                    skid_files.append(file_path)
+                elif file.endswith(".psk"):
+                    file_path = os.path.join(root, file)
+                    psk_files.append(file_path)
+                elif file.endswith(".csk"):
+                    file_path = os.path.join(root, file)
+                    csk_files.append(file_path)
         # print("local skill files: ", skill_def_files)
 
+        # if json exists, use json to guide what to do
         for file_path in skill_def_files:
             with open(file_path) as json_file:
                 data = json.load(json_file)
@@ -3953,6 +4007,19 @@ class MainWindow(QMainWindow):
                 self.skills.append(new_skill)
 
         print("total skill files loaded: ", len(self.skills))
+        self.load_external_functions(skdir)
+        # genSkillCode(sk_full_name, privacy, root_path, start_step, theme)
+
+
+    def load_external_functions(self, my_skill_dir):
+        for filename in os.listdir(my_skill_dir):
+            if filename.endswith('.py') and not filename.startswith('_'):
+                path = os.path.join(my_skill_dir, filename)
+                module_name = os.path.splitext(filename)[0]
+                spec = importlib.util.spec_from_file_location(module_name, path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
 
     def matchSkill(self, sk_long_name, sk):
         sk_words = sk_long_name.split("_")
@@ -4891,3 +4958,81 @@ class MainWindow(QMainWindow):
 
 
 
+PUBLIC = {
+    'genStepHeader': genStepHeader,
+    'genStepOpenApp': genStepOpenApp,
+    'genStepSaveHtml': genStepSaveHtml,
+    'genStepExtractInfo': genStepExtractInfo,
+    'genStepFillRecipients': genStepFillRecipients,
+    'genStepSearchAnchorInfo': genStepSearchAnchorInfo,
+    'genStepSearchWordLine': genStepSearchWordLine,
+    'genStepSearchScroll': genStepSearchScroll,
+    'genStepRecordTxtLineLocation': genStepRecordTxtLineLocation,
+    'genStepMouseClick': genStepMouseClick,
+    'genStepKeyInput': genStepKeyInput,
+    'genStepTextInput': genStepTextInput,
+    'genStepCheckCondition': genStepCheckCondition,
+    'genStepGoto': genStepGoto,
+    'genStepLoop': genStepLoop,
+    'genStepStub': genStepStub,
+    'genStepListDir': genStepListDir,
+    'genStepCheckExistence': genStepCheckExistence,
+    'genStepCreateDir': genStepCreateDir,
+    'genStep7z': genStep7z,
+    'genStepTextToNumber': genStepTextToNumber,
+    'genStepEndException': genStepEndException,
+    'genStepExceptionHandler': genStepExceptionHandler,
+    'genStepWait': genStepWait,
+    'genStepCallExtern': genStepCallExtern,
+    'genStepCallFunction': genStepCallFunction,
+    'genStepReturn': genStepReturn,
+    'genStepUseSkill': genStepUseSkill,
+    'genStepOverloadSkill': genStepOverloadSkill,
+    'genStepCreateData': genStepCreateData,
+    'genStepCheckAppRunning': genStepCheckAppRunning,
+    'genStepBringAppToFront': genStepBringAppToFront,
+    'genStepFillData': genStepFillData,
+    'genStepAskLLM': genStepAskLLM,
+    'genException': genException,
+    'genWinChromeEtsyCollectOrderListSkill': genWinChromeEtsyCollectOrderListSkill,
+    'genStepEtsySearchOrders': genStepEtsySearchOrders,
+    'genWinChromeEtsyUpdateShipmentTrackingSkill': genWinChromeEtsyUpdateShipmentTrackingSkill,
+    'genWinEtsyHandleReturnSkill': genWinEtsyHandleReturnSkill,
+    'combine_duplicates': combine_duplicates,
+    'createLabelOrderFile': createLabelOrderFile,
+    'genStepEtsyScrapeOrders': genStepEtsyScrapeOrders,
+    'genWinRARLocalUnzipSkill': genWinRARLocalUnzipSkill,
+    'genStepPrintLabels': genStepPrintLabels,
+    'genWinFileLocalOpenSaveSkill': genWinFileLocalOpenSaveSkill,
+    'genWinADSEbayFullfillOrdersSkill': genWinADSEbayFullfillOrdersSkill,
+    'genWinADSEbayCollectOrderListSkill': genWinADSEbayCollectOrderListSkill,
+    'genWinADSEbayUpdateShipmentTrackingSkill': genWinADSEbayUpdateShipmentTrackingSkill,
+    'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
+    'genStepSetupADS': genStepSetupADS,
+    'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
+    'genWinADSRemoveProfilesSkill': genWinADSRemoveProfilesSkill,
+    'genWinADSBatchImportSkill': genWinADSBatchImportSkill,
+    'genADSLoadAmzHomePage': genADSLoadAmzHomePage,
+    'genADSPowerConnectProxy': genADSPowerConnectProxy,
+    'genADSPowerExitProfileSteps': genADSPowerExitProfileSteps,
+    'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
+    'genWinChromeAMZWalkSkill': genWinChromeAMZWalkSkill,
+    'genWinADSAMZWalkSkill': genWinADSAMZWalkSkill,
+    'genAMZScrollProductListToBottom': genAMZScrollProductListToBottom,
+    'genAMZScrollProductListToTop': genAMZScrollProductListToTop,
+    'genAMZScrollProductDetailsToTop': genAMZScrollProductDetailsToTop,
+    'genStepAMZMatchProduct': genStepAMZMatchProduct,
+    'genAMZBrowseProductListToBottom': genAMZBrowseProductListToBottom,
+    'genAMZBrowseProductListToLastAttention': genAMZBrowseProductListToLastAttention,
+    'genAMZBrowseDetails': genAMZBrowseDetails,
+    'genAMZBrowseAllReviewsPage': genAMZBrowseAllReviewsPage,
+    'genScroll1StarReviewsPage': genScroll1StarReviewsPage,
+    'genStepAMZScrapePLHtml': genStepAMZScrapePLHtml,
+    'genAMZBrowseProductLists': genAMZBrowseProductLists,
+    'genWinChromeAMZWalkSteps': genWinChromeAMZWalkSteps,
+    'genStepAMZScrapeDetailsHtml': genStepAMZScrapeDetailsHtml,
+    'genStepAMZScrapeReviewsHtml': genStepAMZScrapeReviewsHtml,
+    'genStepAMZSearchProducts': genStepAMZSearchProducts,
+    'genStepUpdateBotADSProfileFromSavedBatchTxt': genStepUpdateBotADSProfileFromSavedBatchTxt,
+    'genWinPrinterLocalReformatPrintSkill': genWinPrinterLocalReformatPrintSkill
+}

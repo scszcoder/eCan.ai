@@ -12,7 +12,7 @@ import webbrowser
 from Cloud import *
 from TrainGUI import *
 from BorderLayout import *
-import lzstring
+from lzstring import *
 from vehicles import *
 
 class IconDelegate(QStyledItemDelegate):
