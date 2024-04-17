@@ -524,7 +524,7 @@ def gen_remove_bots_string(removeOrders):
 
 
 
-def gen_add_missions_string(missions):
+def gen_add_missions_string(missions, test_settings={}):
     query_string = """
         mutation MyAMMutation {
       addMissions (input:[
@@ -568,6 +568,12 @@ def gen_add_missions_string(missions):
             rec_string = rec_string + ', '
         else:
             rec_string = rec_string + ']'
+
+    if len(test_settings) == 0:
+        rec_string = rec_string + ", settings: \"{ \\\"testmode\\\": false}\""
+    else:
+        rec_string = rec_string + ", settings: \"{ \\\"testmode\\\": false}\""
+
 
     tail_string = """
     ) 
@@ -695,6 +701,7 @@ def gen_add_skills_string(skills):
             rec_string = rec_string + "createdOn: \"" + str(skills[i]["createdOn"]) + "\", "
             rec_string = rec_string + "platform: \"" + skills[i]["platform"] + "\", "
             rec_string = rec_string + "app: \"" + skills[i]["app"] + "\", "
+            rec_string = rec_string + "site_name: \"" + skills[i]["site_name"] + "\", "
             rec_string = rec_string + "site: \"" + skills[i]["site"] + "\", "
             rec_string = rec_string + "page: \"" + skills[i]["page"] + "\", "
             rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
@@ -711,6 +718,7 @@ def gen_add_skills_string(skills):
             rec_string = rec_string + "createdOn: \"" + str(skills[i].getCreatedOn()) + "\", "
             rec_string = rec_string + "platform: \"" + skills[i].getPlatform() + "\", "
             rec_string = rec_string + "app: \"" + skills[i].getApp() + "\", "
+            rec_string = rec_string + "site_name: \"" + skills[i].getSiteName() + "\", "
             rec_string = rec_string + "site: \"" + skills[i].getSite() + "\", "
             rec_string = rec_string + "page: \"" + skills[i].getPage() + "\", "
             rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
