@@ -646,14 +646,16 @@ class MainWindow(QMainWindow):
             self.loadLocalMissions()
 
             # this will handle all skill bundled into software itself.
-            # self.loadLocalSkills()
+            self.loadLocalPrivateSkills()
             db_skills_results = self.SkillManagerWin.fetchMySkills()
+
             if 'body' in db_skills_results:
                 # print("db_skills_results:::::", db_skills_results)
                 db_skills = json.loads(db_skills_results["body"])
+                print("Cloud side skills fetched:", len(db_skills))
 
                 for db_skill in db_skills:
-                    # print("db skill:", db_skill)
+                    print("db skill:", db_skill)
                     db = WORKSKILL(self, db_skill["name"])
                     db.loadJson(db_skill)
                     self.skills.append(db)
@@ -666,14 +668,15 @@ class MainWindow(QMainWindow):
 
         # Done with all UI stuff, now do the instruction set extension work.
         rais_extensions_file = ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
+        rais_extensions_dir = ecb_data_homepath + "/my_rais_extensions/"
         added_handlers=[]
         if os.path.isfile(rais_extensions_file):
             with open(rais_extensions_file, 'r') as rais_extensions:
                 user_rais_modules = json.load(rais_extensions)
                 for i, user_module in enumerate(user_rais_modules):
-                    module_file = user_module["file"]
+                    module_file = rais_extensions_dir + user_module["file"]
                     added_ins = user_module['instructions']
-                    module_name = os.path.splitext(module_file)[0]
+                    module_name = os.path.splitext(user_module["file"])[0]
                     spec = importlib.util.spec_from_file_location(module_name, module_file)
                     # Create a module object from the spec
                     module = importlib.util.module_from_spec(spec)
@@ -681,8 +684,9 @@ class MainWindow(QMainWindow):
                     spec.loader.exec_module(module)
 
                     for ins in added_ins:
-                        if hasattr(module, ins("handler")):
-                            RAIS[ins["instruction name"]] = getattr(module, ins("handler"))
+                        if hasattr(module, ins["handler"]):
+                            RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
+
 
         # now hand daily tasks
         self.todays_work = {"tbd": [], "allstat": "working"}
@@ -3971,14 +3975,14 @@ class MainWindow(QMainWindow):
 
 
     # load locally stored skills
-    def loadLocalSkills(self):
+    def loadLocalPrivateSkills(self):
         skill_def_files = []
         skid_files = []
         psk_files = []
         csk_files = []
         json_files = []
 
-        skdir = self.ecb_data_homepath + "/my_skills/"
+        skdir = ecb_data_homepath + "/my_skills/"
         # Iterate over all files in the directory
         # Walk through the directory tree recursively
         for root, dirs, files in os.walk(skdir):
@@ -3986,39 +3990,43 @@ class MainWindow(QMainWindow):
                 if file.endswith(".json"):
                     file_path = os.path.join(root, file)
                     skill_def_files.append(file_path)
-                elif file.endswith(".skd"):
-                    file_path = os.path.join(root, file)
-                    skid_files.append(file_path)
-                elif file.endswith(".psk"):
-                    file_path = os.path.join(root, file)
-                    psk_files.append(file_path)
-                elif file.endswith(".csk"):
-                    file_path = os.path.join(root, file)
-                    csk_files.append(file_path)
+
         # print("local skill files: ", skill_def_files)
 
         # if json exists, use json to guide what to do
         for file_path in skill_def_files:
             with open(file_path) as json_file:
-                data = json.load(json_file)
-                # print("loading skill f: ", data["skid"], file_path)
-                new_skill = WORKSKILL(self, data["name"])
-                new_skill.loadJson(data)
+                sk_data = json.load(json_file)
+                print("loading skill f: ", sk_data["skid"], file_path)
+                new_skill = WORKSKILL(self, sk_data["name"])
+                new_skill.loadJson(sk_data)
                 self.skills.append(new_skill)
 
-        print("total skill files loaded: ", len(self.skills))
-        self.load_external_functions(skdir)
-        # genSkillCode(sk_full_name, privacy, root_path, start_step, theme)
+                this_skill_dir = skdir+sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"/"
+                gen_string = sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+sk_data["name"]
+                print("total skill files loaded: ", len(self.skills))
+                self.load_external_functions(skdir, sk_data["name"], gen_string, sk_data["generator"])
+                # no need to run genSkillCode, since once in table, will be generated later....
+                # genSkillCode(sk_full_name, privacy, root_path, start_step, theme)
+        print("Added Local Private Skills:", len(self.skills))
+
+    def load_external_functions(self, sk_dir, sk_name, gen_string, generator):
+        generator_script = sk_dir+sk_name+".py"
+        generator_diagram = sk_dir + sk_name + ".skd"
+        added_handlers = []
+        if os.path.isfile(generator_script):
+            spec = importlib.util.spec_from_file_location(sk_name, generator_script)
+            # Create a module object from the spec
+            module = importlib.util.module_from_spec(spec)
+            # Load the module
+            spec.loader.exec_module(module)
+
+            if hasattr(module, generator):
+                SkillGeneratorTable[gen_string] = getattr(module, generator)
+        elif os.path.isfile(generator_diagram):
+            print("gen psk from diagram.")
 
 
-    def load_external_functions(self, my_skill_dir):
-        for filename in os.listdir(my_skill_dir):
-            if filename.endswith('.py') and not filename.startswith('_'):
-                path = os.path.join(my_skill_dir, filename)
-                module_name = os.path.splitext(filename)[0]
-                spec = importlib.util.spec_from_file_location(module_name, path)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
 
 
     def matchSkill(self, sk_long_name, sk):

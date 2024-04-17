@@ -236,6 +236,7 @@ class WORKSKILL(QStandardItem):
         self.setIcon(self.icon)
         self.createdOn = datetime.today().strftime('%Y-%m-%d')
         self.description = "This skill does great automation."
+        self.generator = ""
 
         self.setText(self.name)
         self.icon = QIcon(self.homepath + '/resource/images/icons/skills_78.png')
@@ -422,7 +423,8 @@ class WORKSKILL(QStandardItem):
         self.createdOn = jd["createdOn"]
         self.platform = jd["platform"]
         self.app = jd["app"]
-        self.site_name = jd["site"]
+        self.site_name = jd["site_name"]
+        self.site = jd["site"]
         self.page = jd["page"]
         self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
         self.main = jd["main"]

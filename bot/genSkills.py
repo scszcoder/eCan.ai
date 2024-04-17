@@ -284,11 +284,12 @@ def setWorkSettingsSkill(worksettings, sk):
 
 # generate pubilc skills on windows platform.
 def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
+    global PUBLIC
     this_step = start_step
     sk_parts = sk_full_name.split("_")
     sk_prefix = "_".join(sk_parts[:4])
     sk_name = "_".join(sk_parts[4:])
-
+    print("sk_prefix", sk_prefix, "sk_name: ", sk_name)
     if privacy == "public":
         sk_file_name = root_path + "/resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
     else:
@@ -302,7 +303,10 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
 
     try:
         if sk_full_name in SkillGeneratorTable.keys():
-            this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
+            if privacy == "public":
+                this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
+            else:
+                this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme, PUBLIC)
 
             with open(sk_file_name, 'w+') as skf:
                 skf.write("\n")
