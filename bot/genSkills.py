@@ -26,7 +26,6 @@ SkillGeneratorTable = {
     "win_chrome_etsy_orders_fullfill_orders": lambda x,y,z: genWinChromeEtsyFullfillOrdersSkill(x, y, z),
     "win_chrome_etsy_orders_collect_orders": lambda x,y,z: genWinChromeEtsyCollectOrderListSkill(x, y, z),
     "win_chrome_etsy_orders_update_tracking": lambda x,y,z: genWinChromeEtsyUpdateShipmentTrackingSkill(x, y, z),
-    "win_chrome_goodsupply_label_bulk_buy": lambda x,y,z: genWinChromeGSLabelBulkBuySkill(x, y, z),
     "win_file_local_op_open_save_as": lambda x,y,z: genWinFileLocalOpenSaveSkill(x, y, z),
     "win_printer_local_print_reformat_print": lambda x,y,z: genWinPrinterLocalReformatPrintSkill(x, y, z),
     "win_rar_local_unzip_unzip_archive": lambda x,y,z: genWinRARLocalUnzipSkill(x, y, z),
@@ -293,7 +292,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     if privacy == "public":
         sk_file_name = root_path + "/resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
     else:
-        sk_file_name = root_path + "/resource/skills/my/" + sk_prefix + "/" + sk_name + ".psk"
+        sk_file_name = ecb_data_homepath + "/my_skills/" + sk_prefix + "/" + sk_name + ".psk"
 
     sk_file_dir = os.path.dirname(sk_file_name)
     os.makedirs(sk_file_dir, exist_ok=True)

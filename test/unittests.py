@@ -10,6 +10,7 @@ from adsPowerSkill import *
 global symTab
 import os
 import shutil
+import pyautogui
 
 
 def test_eb_orders_scraper():
@@ -912,6 +913,34 @@ def test_UpdateBotADSProfileFromSavedBatchTxt():
         "output": "useless"
     }
     processUpdateBotADSProfileFromSavedBatchTxt(stepjson, 1)
+
+
+def test_pyautogui():
+    startx = 500
+    starty = 300
+    for i in range(30):
+        pyautogui.moveTo(startx, starty)
+        pyautogui.click()
+        pyautogui.write("abc")
+        time.sleep(3)
+        startx = startx + 250
+        starty = starty + 5
+        pyautogui.moveTo(startx, starty)
+        time.sleep(3)
+        startx = startx + 3
+        starty = starty + 250
+        pyautogui.moveTo(startx, starty)
+        time.sleep(3)
+        startx = startx - 200
+        starty = starty + 2
+        pyautogui.moveTo(startx, starty)
+        time.sleep(3)
+        startx = startx + 2
+        starty = starty - 200
+
+
+
+
 
 
 

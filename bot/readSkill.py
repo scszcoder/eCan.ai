@@ -53,7 +53,7 @@ skill_stack = []
 #     local skill:  C:/Users/***/PycharmProjects/ecbot/resource/skills/public/win_chrome_amz_walk/scripts/skillname.psk
 #
 
-# SC - 2023-07-28 to make this instructionset extensible, make vicrop file based? if someone wants to extends the instruction set.
+# SC - 2023-07-28 to make this instructionset extensible, make RAIS file based? if someone wants to extends the instruction set.
 # simply add a file in certain DIR or add thru GUI settings section?
 #
 # for example, how does a customer supply its own label purchasing function? use patch scheme? create a function overload scheme? (a name to functions mapping tables of some sort)
@@ -61,7 +61,7 @@ skill_stack = []
 # How to add an external skill to be called?
 #
 
-# VItual-Computer-RObot-Processor
+# RAIS - Robotic Automation Instruction Set
 # SC 08/05/2023 - to extend this instruction set, have user create an extended IS json file, we'll reading this json file and attached it to
 # the existing one., the question really is about how to run it. the user would have a .py script file that contains the function
 # processXXXX itself, the question is how to make our code recognize to call extern on that???
@@ -75,7 +75,7 @@ skill_stack = []
 #        networked machines.
 # the development and testing of the IS should be done in-app or separately? if in app, need GUI support, where on GUI?
 # A: preferrably in app, but not high priority, initially can get by without having it in-app.
-vicrop = {
+RAIS = {
     "Halt": lambda x,y: processHalt(x, y),
     "Wait": lambda x,y: processWait(x, y),
     "Save Html": lambda x,y,z,k: processSaveHtml(x, y, z, k),
@@ -321,27 +321,27 @@ def run1step(steps, si, mission, skill, stack):
     if "type" in step:
         if step["type"] == "Halt":
             # run step using the funcion look up table.
-            si,isat = vicrop[step["type"]](step, si)
+            si,isat = RAIS[step["type"]](step, si)
         elif step["type"] == "Goto" or step["type"] == "Check Condition" or step["type"] == "Repeat":
             # run step using the funcion look up table.
-            si,isat = vicrop[step["type"]](step, si, stepKeys)
+            si,isat = RAIS[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
-            si,isat = vicrop[step["type"]](step, si, mission, skill)
+            si,isat = RAIS[step["type"]](step, si, mission, skill)
         elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM":
-            si,isat = vicrop[step["type"]](step, si, mission)
+            si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
-            si,isat = vicrop[step["type"]](step, si, stack, stepKeys)
+            si,isat = RAIS[step["type"]](step, si, stack, stepKeys)
         elif step["type"] == "Stub" or step["type"] == "Use Skill":
-            si,isat = vicrop[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
+            si,isat = RAIS[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
         elif step["type"] == "Call Function":
-            si,isat = vicrop[step["type"]](step, si, stack, function_table, stepKeys)
+            si,isat = RAIS[step["type"]](step, si, stack, function_table, stepKeys)
         elif "EXT:" in step["type"]:
             if step["type"].index("EXT:") == 0:
                 # this is an extension instruction, execute differently, simply call extern. as to what to actually call, it's all
                 # embedded in the step dictionary.
                 si,isat = processCallExtern(step, si)
         else:
-            si,isat = vicrop[step["type"]](step, si)
+            si,isat = RAIS[step["type"]](step, si, mission, skill)
 
     else:
         si = si + 1
