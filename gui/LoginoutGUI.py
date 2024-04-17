@@ -40,7 +40,7 @@ class Login(QDialog):
         self.ip = commanderIP
         self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
         self.lang = "en"
-
+        self.gui_net_msg_queue = asyncio.Queue()
         self.aws_srp = None
 
         self.mode = "Sign In"
@@ -210,6 +210,9 @@ class Login(QDialog):
         self.loop = cloop
 
     # async def launchLAN(self):
+
+    def get_msg_queue(self):
+        return self.gui_net_msg_queue
 
     def set_xport(self, xport):
         self.xport = xport
@@ -426,7 +429,7 @@ class Login(QDialog):
             if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
                 global commanderServer
 
-                self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath, self.machine_role, self.lang)
+                self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath, self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.setCog(self.cog)

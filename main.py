@@ -54,7 +54,7 @@ def windowlauncher():
     app = QApplication(sys.argv)
 
     loop = QEventLoop(app)
-    # asyncio.set_event_loop(loop)
+    asyncio.set_event_loop(loop)
 
     global login
     login = Login(app, loop)
@@ -103,7 +103,7 @@ if __name__ == '__main__':
     # test_batch_ads_profile_conversion()
     # test_run_group_of_tasks()
     # test_schedule_check()
-
+    # test_pyautogui()
     # print("all unit test done...")
 
     windowlauncher()

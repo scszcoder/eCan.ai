@@ -1,13 +1,15 @@
 import sys
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QFrame, QLineEdit, QPushButton, QLabel, QHBoxLayout
-from PySide6.QtGui import QPainter, QBrush, QColor, QPainterPath, QPolygonF, QPen
+from PySide6.QtGui import QPainter, QBrush, QColor, QPainterPath, QPolygonF, QPen, QStandardItemModel
 from PySide6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer
 from PySide6.QtWidgets import QApplication, QSplitter, QListWidget, QListWidgetItem, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QPushButton, QLabel, QScrollArea, QMainWindow
-from PySide6.QtWidgets import QTextBrowser
+from PySide6.QtWidgets import QTextBrowser, QListView
 from PySide6.QtGui import QIcon
 from PySide6.QtGui import QDesktopServices
 import re
 from math import cos, radians, sin
+from FlowLayout import *
+from ebbot import *
 
 class MultiLineLineEdit(QLineEdit):
     def __init__(self, parent=None):
@@ -171,9 +173,11 @@ class BubbleLabel(QFrame):
         painter.drawPath(path)
 
 
+
 class ChatWidget(QWidget):
-    def __init__(self):
+    def __init__(self, parent):
         super().__init__()
+        self.partent = parent
         self.initUI()
 
     def initUI(self):
@@ -190,12 +194,8 @@ class ChatWidget(QWidget):
         self.message_edit = MultiLineLineEdit(self)
 
         buttons_layout = QHBoxLayout()
-        self.remote_send_button = QPushButton("Remote")
-        self.remote_send_button.clicked.connect(lambda: self.addMessage(False))
         self.self_send_button = QPushButton("Me")
-        self.self_send_button.clicked.connect(lambda: self.addMessage(True))
-
-        buttons_layout.addWidget(self.remote_send_button)
+        self.self_send_button.clicked.connect(lambda: self.addMessage(True, self.message_edit.text()))
         buttons_layout.addWidget(self.self_send_button)
 
         self.main_layout.addWidget(self.scroll_area)
@@ -205,16 +205,20 @@ class ChatWidget(QWidget):
         self.setGeometry(300, 300, 400, 500)
         self.setWindowTitle('Chat Bubbles Example')
 
-    def addMessage(self, is_self):
-        text = self.message_edit.text()
+    def addMessage(self, is_self, msg):
+        text = msg
         if text:
             bubble = BubbleLabel(text, is_self, self.scroll_area_widget_contents)
             bubble.adjustSizeToContent()
             self.layout.addWidget(bubble, alignment=Qt.AlignRight if is_self else Qt.AlignLeft)
+            self.parent.addChatHis(text)
             self.message_edit.clear()
             self.scroll_area.ensureWidgetVisible(bubble)
             QTimer.singleShot(100, self.scrollToBottom)
             # self.scrollToBottom()
+
+            #now actually send the to bot agent. if the bot is on local machine, simply send it to its queue.
+            # if the bot agent is on a remote computer, send the message out via TCPIP.
 
     def scrollToBottom(self):
         # Assuming 'self.chatDisplay' is your QScrollArea or similar widget
@@ -223,19 +227,25 @@ class ChatWidget(QWidget):
         vertical_scroll_bar.setValue(vertical_scroll_bar.maximum())
 
 
-
 class ChatWin(QMainWindow):
     def __init__(self, parent):
         super(ChatWin, self).__init__(parent)
-
-        self.friendsList = QListWidget()
-        self.setupFriendsList()  # Populate the friends list
-
-        self.chatWidget = ChatWidget()  # Assuming ChatWidget is your existing chat UI class
+        self.parent = parent
+        self.teamList = BotListView(self)
+        self.teamList.installEventFilter(self)
+        self.botModel = QStandardItemModel(self.teamList)
+        self.teamList.setModel(self.botModel)
+        self.teamList.setViewMode(QListView.IconMode)
+        self.teamList.setMovement(QListView.Snap)
+        self.setupTeamList()  # Populate the friends list
+        self.chatWidget = ChatWidget(self)  # Assuming ChatWidget is your existing chat UI class
+        self.selected_index = -1
+        self.selected_agent = None
 
         # Use QSplitter for adjustable panels
         self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.addWidget(self.friendsList)
+        self.splitter.addWidget(self.teamList)
+        print("hello????")
         self.splitter.addWidget(self.chatWidget)
 
         # Set initial sizes (optional)
@@ -243,17 +253,64 @@ class ChatWin(QMainWindow):
 
         self.setCentralWidget(self.splitter)
 
-    def setupFriendsList(self):
+    def setupTeamList(self):
         # Example: Add friends to the list
-        for i in range(10):  # Assuming 10 friends
-            item = QListWidgetItem(QIcon("c:/temp/bot0.png"), f"Friend {i + 1}")
-            self.friendsList.addItem(item)
+        for bot in self.parent.bots:
+            print("bot agent:", bot.text())
+            bot_agent = EBBOT_AGENT(self)
+            bot_agent.setText(bot.text())
+            bot_agent.setIcon(bot.icon())
+            bot_agent.setBid(bot.getBid())
+            self.botModel.appendRow(bot_agent)
 
-        self.friendsList.itemDoubleClicked.connect(self.switchConversation)
+        self.teamList.clicked.connect(self.switchConversation)
 
-    def switchConversation(self, item):
-        # Logic to switch conversation
-        print(f"Switched to conversation with {item.text()}")
+    def switchConversation(self, index):
+        self.selected_agent = self.botModel.itemFromIndex(index)
+        self.selected_index = index
+        selected_bid = int(self.selected_agent.text().split(":")[0][3:])
+        print("switched talks to :", selected_bid)
+
+        # Clear current messages
+        for i in reversed(range(self.chatWidget.main_layout.count())):
+            self.chatWidget.main_layout.itemAt(i).widget().setParent(None)
+
+        # Add new messages
+        for message in self.selected_agent.chat_history.get_messages():
+            if "<" in message[:30]:
+                is_self = True
+                start_idx = [li for li, letter in enumerate(message) if letter == "<"][1] + 1
+            else:
+                is_self = False
+                start_idx = [li for li, letter in enumerate(message) if letter == ">"][1] + 1
+
+            chat_message = "["+message[5:19]+"]"+message[start_idx:]
+            self.chatWidget.addMessage(is_self, chat_message)
+        self.chatWidget.scroll_area.verticalScrollBar().setValue(self.chatWidget.scroll_area.verticalScrollBar().maximum())
+
+    def addChatHis(self, to_me, others, text):
+        recipients = ""
+        dtnow = datetime.now()
+        date_word = dtnow.isoformat()
+        if to_me:
+            # this is some one sending the message to a bot agent (to agent, this is incoming)
+            self.selected_agent.addChat(date_word+"<"+str(others[0])+"<"+text)
+        else:
+            # this a bot agent send message to some other entity (to agent, this is outgoing).
+            for i, aid in enumerate(others):
+                if i == len(others)-1:
+                    recipients = str(aid)
+                else:
+                    recipients = str(aid) + ","
+            self.selected_agent.addChat(date_word + ">"+recipients+">" + text)
+
 
     def setBot(self, item):
         print(f"Switched to conversation with {item.text()}")
+
+    def updateDisplay(self, msg):
+        self.chatWidget.addMessage(False, msg)
+
+    def loadChat(self, msg):
+        self.show()
+

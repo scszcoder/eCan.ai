@@ -12,7 +12,7 @@ import webbrowser
 from Cloud import *
 from TrainGUI import *
 from BorderLayout import *
-import lzstring
+from lzstring import *
 from vehicles import *
 
 class IconDelegate(QStyledItemDelegate):
@@ -130,6 +130,12 @@ class PlatoonWindow(QMainWindow):
         print("adding most recently added vehicle tab")
         ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
         self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
+
+    def updatePlatoonWinWithMostRecentlyRemovedVehicle(self):
+        v = self.parent.vehicles[len(self.parent.vehicles)-1]
+        # print("adding most recently added vehicle tab")
+        # ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
+        # self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
 
     def updatePlatoonStatAndShow(self, rx_data):
         ip_last = rx_data["ip"].split(".")[len(rx_data["ip"].split(".")) - 1]

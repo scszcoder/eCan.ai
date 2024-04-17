@@ -17,7 +17,7 @@ import webbrowser
 from Cloud import *
 from TrainGUI import *
 from BorderLayout import *
-import lzstring
+from lzstring import *
 from WorkSkill import *
 
 class IconDelegate(QStyledItemDelegate):
