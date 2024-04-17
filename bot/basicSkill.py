@@ -587,6 +587,24 @@ def genStepFillData(fill_type, src, sink, result, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+
+def genStepAskLLM(llm_type, llm_model, parameters, products, setup, query, response, result, stepN):
+    stepjson = {
+        "type": "Ask LLM",
+        "llm_type": llm_type,
+        "llm_model": llm_model,
+        "parameters": parameters,
+        "products": products,
+        "setup": setup,
+        "query": query,
+        "response": response,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 def genException():
     psk_words = ""
     this_step, step_words = genStepExceptionHandler("", "", 8000000)
@@ -2955,6 +2973,32 @@ def processBringAppToFront(step, i):
             ex_stat = "ErrorBringAppToFront:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorBringAppToFront: traceback information not available:" + str(e)
+        print(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processAskLLM(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["result"]] = True
+    dtnow = datetime.now()
+
+    date_word = dtnow.isoformat()
+    try:
+        qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
+               "goal": step["setup"], "background": "", "msg": symTab[step["query"]]}]
+        settings = mission.parent_settings
+        symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorAskLLM:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+        else:
+            ex_stat = "ErrorAskLLM: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
