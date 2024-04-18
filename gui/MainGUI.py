@@ -714,10 +714,10 @@ class MainWindow(QMainWindow):
         self.skillManagerWin.addSkillRows(self.skills)
 
     def regenSkillPSKs(self):
-        for sk in self.skills:
+        for ski, sk in enumerate(self.skills):
             # next_step is not used,
             sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
-            print("PSK FILE NAME:::::::::::::::::::::", sk_full_name)
+            print("PSK FILE NAME::::::::::"+str(ski)+"::::::"+sk.getPrivacy()+":::::", sk_full_name)
             next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
             print("PSK FILE:::::::::::::::::::::::::", psk_file)
             sk.setPskFileName(psk_file)
@@ -4003,9 +4003,9 @@ class MainWindow(QMainWindow):
                 self.skills.append(new_skill)
 
                 this_skill_dir = skdir+sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"/"
-                gen_string = sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+sk_data["name"]
+                gen_string = sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"_"+sk_data["name"]
                 print("total skill files loaded: ", len(self.skills))
-                self.load_external_functions(skdir, sk_data["name"], gen_string, sk_data["generator"])
+                self.load_external_functions(this_skill_dir, sk_data["name"], gen_string, sk_data["generator"])
                 # no need to run genSkillCode, since once in table, will be generated later....
                 # genSkillCode(sk_full_name, privacy, root_path, start_step, theme)
         print("Added Local Private Skills:", len(self.skills))
@@ -4014,6 +4014,7 @@ class MainWindow(QMainWindow):
         generator_script = sk_dir+sk_name+".py"
         generator_diagram = sk_dir + sk_name + ".skd"
         added_handlers = []
+        print("Generator:", sk_dir, sk_name, gen_string, generator, generator_script, generator_diagram)
         if os.path.isfile(generator_script):
             spec = importlib.util.spec_from_file_location(sk_name, generator_script)
             # Create a module object from the spec
@@ -4022,6 +4023,7 @@ class MainWindow(QMainWindow):
             spec.loader.exec_module(module)
 
             if hasattr(module, generator):
+                print("add key-val pair:", gen_string, generator)
                 SkillGeneratorTable[gen_string] = getattr(module, generator)
         elif os.path.isfile(generator_diagram):
             print("gen psk from diagram.")
@@ -4964,83 +4966,3 @@ class MainWindow(QMainWindow):
 
             await asyncio.sleep(1)
 
-
-
-PUBLIC = {
-    'genStepHeader': genStepHeader,
-    'genStepOpenApp': genStepOpenApp,
-    'genStepSaveHtml': genStepSaveHtml,
-    'genStepExtractInfo': genStepExtractInfo,
-    'genStepFillRecipients': genStepFillRecipients,
-    'genStepSearchAnchorInfo': genStepSearchAnchorInfo,
-    'genStepSearchWordLine': genStepSearchWordLine,
-    'genStepSearchScroll': genStepSearchScroll,
-    'genStepRecordTxtLineLocation': genStepRecordTxtLineLocation,
-    'genStepMouseClick': genStepMouseClick,
-    'genStepKeyInput': genStepKeyInput,
-    'genStepTextInput': genStepTextInput,
-    'genStepCheckCondition': genStepCheckCondition,
-    'genStepGoto': genStepGoto,
-    'genStepLoop': genStepLoop,
-    'genStepStub': genStepStub,
-    'genStepListDir': genStepListDir,
-    'genStepCheckExistence': genStepCheckExistence,
-    'genStepCreateDir': genStepCreateDir,
-    'genStep7z': genStep7z,
-    'genStepTextToNumber': genStepTextToNumber,
-    'genStepEndException': genStepEndException,
-    'genStepExceptionHandler': genStepExceptionHandler,
-    'genStepWait': genStepWait,
-    'genStepCallExtern': genStepCallExtern,
-    'genStepCallFunction': genStepCallFunction,
-    'genStepReturn': genStepReturn,
-    'genStepUseSkill': genStepUseSkill,
-    'genStepOverloadSkill': genStepOverloadSkill,
-    'genStepCreateData': genStepCreateData,
-    'genStepCheckAppRunning': genStepCheckAppRunning,
-    'genStepBringAppToFront': genStepBringAppToFront,
-    'genStepFillData': genStepFillData,
-    'genStepAskLLM': genStepAskLLM,
-    'genException': genException,
-    'genWinChromeEtsyCollectOrderListSkill': genWinChromeEtsyCollectOrderListSkill,
-    'genStepEtsySearchOrders': genStepEtsySearchOrders,
-    'genWinChromeEtsyUpdateShipmentTrackingSkill': genWinChromeEtsyUpdateShipmentTrackingSkill,
-    'genWinEtsyHandleReturnSkill': genWinEtsyHandleReturnSkill,
-    'combine_duplicates': combine_duplicates,
-    'createLabelOrderFile': createLabelOrderFile,
-    'genStepEtsyScrapeOrders': genStepEtsyScrapeOrders,
-    'genWinRARLocalUnzipSkill': genWinRARLocalUnzipSkill,
-    'genStepPrintLabels': genStepPrintLabels,
-    'genWinFileLocalOpenSaveSkill': genWinFileLocalOpenSaveSkill,
-    'genWinADSEbayFullfillOrdersSkill': genWinADSEbayFullfillOrdersSkill,
-    'genWinADSEbayCollectOrderListSkill': genWinADSEbayCollectOrderListSkill,
-    'genWinADSEbayUpdateShipmentTrackingSkill': genWinADSEbayUpdateShipmentTrackingSkill,
-    'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
-    'genStepSetupADS': genStepSetupADS,
-    'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
-    'genWinADSRemoveProfilesSkill': genWinADSRemoveProfilesSkill,
-    'genWinADSBatchImportSkill': genWinADSBatchImportSkill,
-    'genADSLoadAmzHomePage': genADSLoadAmzHomePage,
-    'genADSPowerConnectProxy': genADSPowerConnectProxy,
-    'genADSPowerExitProfileSteps': genADSPowerExitProfileSteps,
-    'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
-    'genWinChromeAMZWalkSkill': genWinChromeAMZWalkSkill,
-    'genWinADSAMZWalkSkill': genWinADSAMZWalkSkill,
-    'genAMZScrollProductListToBottom': genAMZScrollProductListToBottom,
-    'genAMZScrollProductListToTop': genAMZScrollProductListToTop,
-    'genAMZScrollProductDetailsToTop': genAMZScrollProductDetailsToTop,
-    'genStepAMZMatchProduct': genStepAMZMatchProduct,
-    'genAMZBrowseProductListToBottom': genAMZBrowseProductListToBottom,
-    'genAMZBrowseProductListToLastAttention': genAMZBrowseProductListToLastAttention,
-    'genAMZBrowseDetails': genAMZBrowseDetails,
-    'genAMZBrowseAllReviewsPage': genAMZBrowseAllReviewsPage,
-    'genScroll1StarReviewsPage': genScroll1StarReviewsPage,
-    'genStepAMZScrapePLHtml': genStepAMZScrapePLHtml,
-    'genAMZBrowseProductLists': genAMZBrowseProductLists,
-    'genWinChromeAMZWalkSteps': genWinChromeAMZWalkSteps,
-    'genStepAMZScrapeDetailsHtml': genStepAMZScrapeDetailsHtml,
-    'genStepAMZScrapeReviewsHtml': genStepAMZScrapeReviewsHtml,
-    'genStepAMZSearchProducts': genStepAMZSearchProducts,
-    'genStepUpdateBotADSProfileFromSavedBatchTxt': genStepUpdateBotADSProfileFromSavedBatchTxt,
-    'genWinPrinterLocalReformatPrintSkill': genWinPrinterLocalReformatPrintSkill
-}

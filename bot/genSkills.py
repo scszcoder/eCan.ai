@@ -14,6 +14,86 @@ import traceback
 
 ecb_data_homepath = getECBotDataHome()
 
+PUBLIC = {
+    'genStepHeader': genStepHeader,
+    'genStepOpenApp': genStepOpenApp,
+    'genStepSaveHtml': genStepSaveHtml,
+    'genStepExtractInfo': genStepExtractInfo,
+    'genStepFillRecipients': genStepFillRecipients,
+    'genStepSearchAnchorInfo': genStepSearchAnchorInfo,
+    'genStepSearchWordLine': genStepSearchWordLine,
+    'genStepSearchScroll': genStepSearchScroll,
+    'genStepRecordTxtLineLocation': genStepRecordTxtLineLocation,
+    'genStepMouseClick': genStepMouseClick,
+    'genStepKeyInput': genStepKeyInput,
+    'genStepTextInput': genStepTextInput,
+    'genStepCheckCondition': genStepCheckCondition,
+    'genStepGoto': genStepGoto,
+    'genStepLoop': genStepLoop,
+    'genStepStub': genStepStub,
+    'genStepListDir': genStepListDir,
+    'genStepCheckExistence': genStepCheckExistence,
+    'genStepCreateDir': genStepCreateDir,
+    'genStep7z': genStep7z,
+    'genStepTextToNumber': genStepTextToNumber,
+    'genStepEndException': genStepEndException,
+    'genStepExceptionHandler': genStepExceptionHandler,
+    'genStepWait': genStepWait,
+    'genStepCallExtern': genStepCallExtern,
+    'genStepCallFunction': genStepCallFunction,
+    'genStepReturn': genStepReturn,
+    'genStepUseSkill': genStepUseSkill,
+    'genStepOverloadSkill': genStepOverloadSkill,
+    'genStepCreateData': genStepCreateData,
+    'genStepCheckAppRunning': genStepCheckAppRunning,
+    'genStepBringAppToFront': genStepBringAppToFront,
+    'genStepFillData': genStepFillData,
+    'genStepAskLLM': genStepAskLLM,
+    'genException': genException,
+    'genWinChromeEtsyCollectOrderListSkill': genWinChromeEtsyCollectOrderListSkill,
+    'genStepEtsySearchOrders': genStepEtsySearchOrders,
+    'genWinChromeEtsyUpdateShipmentTrackingSkill': genWinChromeEtsyUpdateShipmentTrackingSkill,
+    'genWinEtsyHandleReturnSkill': genWinEtsyHandleReturnSkill,
+    'combine_duplicates': combine_duplicates,
+    'createLabelOrderFile': createLabelOrderFile,
+    'genStepEtsyScrapeOrders': genStepEtsyScrapeOrders,
+    'genWinRARLocalUnzipSkill': genWinRARLocalUnzipSkill,
+    'genStepPrintLabels': genStepPrintLabels,
+    'genWinFileLocalOpenSaveSkill': genWinFileLocalOpenSaveSkill,
+    'genWinADSEbayFullfillOrdersSkill': genWinADSEbayFullfillOrdersSkill,
+    'genWinADSEbayCollectOrderListSkill': genWinADSEbayCollectOrderListSkill,
+    'genWinADSEbayUpdateShipmentTrackingSkill': genWinADSEbayUpdateShipmentTrackingSkill,
+    'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
+    'genStepSetupADS': genStepSetupADS,
+    'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
+    'genWinADSRemoveProfilesSkill': genWinADSRemoveProfilesSkill,
+    'genWinADSBatchImportSkill': genWinADSBatchImportSkill,
+    'genADSLoadAmzHomePage': genADSLoadAmzHomePage,
+    'genADSPowerConnectProxy': genADSPowerConnectProxy,
+    'genADSPowerExitProfileSteps': genADSPowerExitProfileSteps,
+    'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
+    'genWinChromeAMZWalkSkill': genWinChromeAMZWalkSkill,
+    'genWinADSAMZWalkSkill': genWinADSAMZWalkSkill,
+    'genAMZScrollProductListToBottom': genAMZScrollProductListToBottom,
+    'genAMZScrollProductListToTop': genAMZScrollProductListToTop,
+    'genAMZScrollProductDetailsToTop': genAMZScrollProductDetailsToTop,
+    'genStepAMZMatchProduct': genStepAMZMatchProduct,
+    'genAMZBrowseProductListToBottom': genAMZBrowseProductListToBottom,
+    'genAMZBrowseProductListToLastAttention': genAMZBrowseProductListToLastAttention,
+    'genAMZBrowseDetails': genAMZBrowseDetails,
+    'genAMZBrowseAllReviewsPage': genAMZBrowseAllReviewsPage,
+    'genScroll1StarReviewsPage': genScroll1StarReviewsPage,
+    'genStepAMZScrapePLHtml': genStepAMZScrapePLHtml,
+    'genAMZBrowseProductLists': genAMZBrowseProductLists,
+    'genWinChromeAMZWalkSteps': genWinChromeAMZWalkSteps,
+    'genStepAMZScrapeDetailsHtml': genStepAMZScrapeDetailsHtml,
+    'genStepAMZScrapeReviewsHtml': genStepAMZScrapeReviewsHtml,
+    'genStepAMZSearchProducts': genStepAMZSearchProducts,
+    'genStepUpdateBotADSProfileFromSavedBatchTxt': genStepUpdateBotADSProfileFromSavedBatchTxt,
+    'genWinPrinterLocalReformatPrintSkill': genWinPrinterLocalReformatPrintSkill
+}
+
+
 SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
     "win_ads_amz_home_browse_search": lambda x,y,z: genStubWinADSAMZWalkSkill(x, y, z),
@@ -281,10 +361,8 @@ def setWorkSettingsSkill(worksettings, sk):
 
     worksettings["cargs"] = sk.getAppArgs()
 
-
 # generate pubilc skills on windows platform.
 def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
-    global PUBLIC
     this_step = start_step
     sk_parts = sk_full_name.split("_")
     sk_prefix = "_".join(sk_parts[:4])
@@ -306,6 +384,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
             if privacy == "public":
                 this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
             else:
+                print("gen private.....")
                 this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme, PUBLIC)
 
             with open(sk_file_name, 'w+') as skf:
