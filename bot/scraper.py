@@ -8,6 +8,7 @@ from calendar import isleap
 import cv2
 from productsData import *
 from scraperAmz import *
+from Logger import *
 
 
 
@@ -158,7 +159,7 @@ def find_file_name_box(sfn):
     template = cv2.imread('c:/temp/aidata/fileName1.jpg')
     icon_height = template.shape[0]
     icon_width = template.shape[1]
-    print("icon size: ", icon_height, " ", icon_width)
+    log3("icon size: "+str(icon_height)+" "+str(icon_width))
     result = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
     loc = np.where(result >= 0.85)
     count = 0
@@ -170,11 +171,11 @@ def find_file_name_box(sfn):
     if count > 0:
         match = (loc[0][0], loc[1][0])
 
-    print("found match: ", match)
+    log3("found match: "+json.dumps(match))
     if match:
         input_loc = (match[0] + int(0.5 * icon_height), match[1]+2*icon_width)
     else:
-        print("ERROR: unrecognized file dialog screen......")
+        log3("ERROR: unrecognized file dialog screen......")
 
     return input_loc
 
@@ -195,7 +196,7 @@ def get_last_names(html_file):
     last_names = []
     # parse the last name page to obtain a list of last names.
     soup = BeautifulSoup(html_file, 'html.parser')
-    print(soup)
+    log3(json.dumps(soup))
 
     atags = soup.find_all('a')
     pn_i = [i for i, t in enumerate(atags) if len(t.contents) == 1 and not t.contents[0].name]
@@ -215,10 +216,10 @@ def get_last_names(html_file):
         end_idx = end_name[0]
 
     last_names_i = [i for i, ln in enumerate(n) if i > start_idx and i < end_idx ]
-    print(last_names_i)
+    log3(json.dumps(last_names_i))
     last_names = np.array(n)[last_names_i].tolist()
-    print(last_names)
-    print(len(last_names))
+    log3(json.dumps(last_names))
+    log3(str(len(last_names)))
 
     return last_names
 
@@ -227,7 +228,7 @@ def get_first_name_pages(html_file):
     num_pages = 1
     # parse the last name page to obtain a list of last names.
     soup = BeautifulSoup(html_file, 'html.parser')
-    print(soup)
+    log3(json.dumps(soup))
 
     atags = soup.find_all('a')
     pn_i = [i for i, t in enumerate(atags) if len(t.contents) == 1 and not t.contents[0].name]
@@ -249,7 +250,7 @@ def get_first_names(html_file):
     full_names = []
     # parse the last name page to obtain a list of last names.
     soup = BeautifulSoup(html_file, 'html.parser')
-    print(soup)
+    log3(json.dumps(soup))
 
     atags = soup.find_all('a')
     pn_i = [i for i, t in enumerate(atags) if len(t.contents) == 1 and not t.contents[0].name]
@@ -269,10 +270,10 @@ def get_first_names(html_file):
         end_idx = end_name[0]
 
     last_names_i = [i for i, ln in enumerate(n) if i > start_idx and i < end_idx ]
-    print(last_names_i)
+    log3(json.dumps(last_names_i))
     full_names = np.array(n)[last_names_i].tolist()
-    print(full_names)
-    print(len(full_names))
+    log3(json.dumps(full_names))
+    log3(str(len(full_names)))
 
     return full_names
 
@@ -292,10 +293,10 @@ def get_details_info(html_file):
     days = get_month_days(usr.birth_year, usr.birth_month)
     usr.birth_day = random.randrange(1, days+1)
 
-    # print(agewords[0][1:4])     # ’age'
-    # print(agewords[1])          # age in number
-    # print(agewords[2][1:4])     # birth month
-    # print(agewords[3][0:4])     # birth year
+    # log3(agewords[0][1:4])     # ’age'
+    # log3(agewords[1])          # age in number
+    # log3(agewords[2][1:4])     # birth month
+    # log3(agewords[3][0:4])     # birth year
 
     for item in useful:
         atags = item.find_all('a')
@@ -305,7 +306,7 @@ def get_details_info(html_file):
                 usr.emails.append(re.search('[a-zA-Z].*\@.*\..*[a-zA-Z]', item.text).group())
             elif re.search('Age', item.text):
                 astring = re.search('Age', item.text).group()
-                print(astring)
+                log3(astring)
         else:
             for x in atags:
                 a = x.find_all('span')

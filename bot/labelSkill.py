@@ -6,6 +6,7 @@ from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from PyPDF2 import PdfReader
 from scrapeGoodSupply import *
+from Logger import *
 
 global symTab
 global STEP_GAP
@@ -309,7 +310,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, stepN, theme):
     dt_range_string = dt_yesterday_string + " - " + dt_today_string
     md_string = datetime.today().strftime('%m%d')
 
-    print("MD string is:", md_string)
+    log3("MD string is:"+md_string)
 
     this_step, step_words = genStepMouseClick("Triple Click", "", True, "screen_info", "apply", "anchor text", "Apply", [0, 0], "left", [1, 0], "box", 1, 0, [0, 0], this_step)
     psk_words = psk_words + step_words
@@ -538,7 +539,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("str", "hfname", "NA", hfname, this_step)
     psk_words = psk_words + step_words
 
-    print("SAVE HTML FILE: ", hfname)
+    log3("SAVE HTML FILE: "+hfname)
     this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', sk_work_settings['log_path'], hfname]", this_step)
     psk_words = psk_words + step_words
 
@@ -622,7 +623,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for buy shipping labels in bulk...." + psk_words)
+    log3("DEBUG", "generated skill for buy shipping labels in bulk...." + psk_words)
 
     return this_step, psk_words
 
@@ -695,7 +696,7 @@ def genStepGSExtractZippedFileName(screen_txt_var, outvar, statusvar, stepN):
 def processGSExtractZippedFileName(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("extracting from:", symTab[step["zipped_screen_text"]])
+        log3("extracting from:"+json.dumps(symTab[step["zipped_screen_text"]]))
         fn_txt = x = re.sub(' +', ' ', symTab[step["zipped_screen_text"]][0]["text"])
         fn_txts = fn_txt.split(" ")
 
@@ -704,9 +705,10 @@ def processGSExtractZippedFileName(step, i):
 
         # Use re.sub() to replace all occurrences of the pattern with "xls"
         symTab[step["result"]] = re.sub(pattern, '.xls', fn_txts[0])
-        # print("Extracted ZIPPED file name:", symTab[step["result"]])
+        # log3("Extracted ZIPPED file name:", symTab[step["result"]])
     except:
         ex_stat = "ErrorGSExtractZippedFileName:" + str(i)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -716,7 +718,7 @@ def searchTrackingCodeFromPdf(pdffile):
     reader = PdfReader(pdffile)
 
     # printing number of pages in pdf file
-    # print(len(reader.pages))
+    # log3(str(len(reader.pages)))
 
     # getting a specific page from the pdf file
     page = reader.pages[0]
@@ -728,6 +730,6 @@ def searchTrackingCodeFromPdf(pdffile):
     words = text.split()
     tc = ""
     tc = tc.join(words)
-    print("tracking code:["+tc+"]")
+    log3("tracking code:["+tc+"]")
     return tc
 

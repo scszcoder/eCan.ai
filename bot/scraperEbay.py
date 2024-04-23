@@ -10,6 +10,7 @@ import esprima
 from esprima.visitor import Visitor
 from basicSkill import *
 from ordersData import *
+from Logger import *
 
 
 
@@ -23,7 +24,7 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
         # esprima_output = context.eval("esprima.parse('{}')".format(js_code))
 
         # Output will be a dictionary representing the parsed JavaScript code
-        # print(esprima_output)
+        # log3(esprima_output)
 
         with open(html_file, 'rb') as fp:
             soup = BeautifulSoup(fp, 'html.parser')
@@ -31,12 +32,12 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
             # all useful information are here:
             # extract all div tags which contains data-index attribute which is a indication of a product in the product list.
             prodItems = soup.findAll("script")
-            print(len(prodItems))
+            log3(str(len(prodItems)))
 
 
 
             for item in prodItems:
-                # print("item: ", item)
+                # log3("item: "+json.dumps(item))
 
                 # found = re.findall("orderId.*feedbackScore", item.text)
                 pattern = r'orderId.*?feedbackScore'
@@ -44,7 +45,7 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
                 if found:
                     tokens = esprima.tokenize(item.text)
                     # js_tree = esprima.visitor.Visitor(item.text)
-                    print("js tree:", tokens)
+                    log3("js tree:"+json.dumps(tokens))
 
                     usefull = [t for i, t in enumerate(tokens) if t.type != "Identifier" and t.type != "Punctuator" and t.value != "\"textSpans\"" and t.value != "\"text\""]
                     nindex = 0
@@ -52,7 +53,7 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
                     node_stack = []
                     products = []
                     for node in usefull:
-                        # print("node: ", node.value)
+                        # log3("node: "+json.dumps(node.value))
                         # stuff we want to grab out of...
                         # creationDate
                         # Ship by ....Jul 12
@@ -89,7 +90,7 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
                         elif node.type == "String" and node.value == "\"displayTotalPrice\"":
                             product = OrderedProducts("", "", "", "")
                             product.setPrice(usefull[nindex + 1].value[2:-1])
-                            # print("PRICE:", usefull[nindex + 1].value[2:-1])
+                            # log3("PRICE:"+usefull[nindex + 1].value[2:-1])
                         elif node.type == "String" and node.value == "\"listingId\"":
                             product.setPid(usefull[nindex + 1].value[1:-1])
                         elif node.type == "String" and node.value == "\"title\"":
@@ -133,7 +134,7 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
 
                         nindex = nindex + 1
 
-                    # print(summery.toJson())
+                    # log3(json.dumps(summery.toJson()))
                     # product = OrderedProducts()
                     # order = ORDER()
 
@@ -141,14 +142,15 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
                     # orders.append(order)
 
         pagefull_of_orders["ol"] = orders
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
-        print([o.toJson() for o in orders])
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
+        log3(json.dumps([o.toJson() for o in orders]))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEbaySellerFetchPageOfOrderList:" + str(pidx)
+        log3(ex_stat)
 
     return pagefull_of_orders
 
@@ -162,7 +164,7 @@ def ebay_seller_get_customer_msg_thread(html_file,  pidx):
         # esprima_output = context.eval("esprima.parse('{}')".format(js_code))
 
         # Output will be a dictionary representing the parsed JavaScript code
-        # print(esprima_output)
+        # log3(json.dumps(esprima_output))
 
         with open(html_file, 'rb') as fp:
             soup = BeautifulSoup(fp, 'html.parser')
@@ -170,7 +172,7 @@ def ebay_seller_get_customer_msg_thread(html_file,  pidx):
             # all useful information are here:
             # extract all div tags which contains data-index attribute which is a indication of a product in the product list.
             prodItems = soup.findAll("script")
-            print(len(prodItems))
+            log3(str(len(prodItems)))
 
             # Extract customer name
             customer_name = soup.find('h1').find('a').get_text()
@@ -191,13 +193,14 @@ def ebay_seller_get_customer_msg_thread(html_file,  pidx):
 
 
         pagefull_of_orders["ol"] = orders
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
-        print([o.toJson() for o in orders])
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
+        log3(json.dumps([o.toJson() for o in orders]))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEbaySellerFetchPageOfOrderList:" + str(pidx)
+        log3(ex_stat)
 
     return pagefull_of_orders

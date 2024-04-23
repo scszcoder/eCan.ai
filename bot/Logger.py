@@ -1,4 +1,7 @@
 import sqlite3
+from datetime import datetime, date
+from envi import *
+import os
 
 # con = sqlite3.connect("mylog.db")
 # cur = con.cursor()
@@ -14,15 +17,36 @@ import sqlite3
 # res.fetchmany()
 # con.close()
 
+# log messages into console, file, and GUI
+def log3(msg, category='None', mask='None',gui_main=None):
+    ecb_data_homepath = getECBotDataHome()
+    now = datetime.now()  # current date and time
+    year = now.strftime("%Y")
+    month = now.strftime("%m")
+    day = now.strftime("%d")
+    dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
+    dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+    print("daily log file:::", dailyLogFile)
+    time = now.strftime("%H:%M:%S - ")
+    if os.path.isfile(dailyLogFile):
+        file1 = open(dailyLogFile, "a")  # append mode
 
-def log_1(msg, category='None', mask='None', file='None'):
-    # read details from the page.
-    if file == 'None':
-        print(msg)
-    else:
-        file1 = open(file, "a")
-        file1.write(msg)
+        file1.write(time + msg + "\n")
         file1.close()
+    else:
+        if not os.path.exists(dailyLogDir):
+            os.makedirs(dailyLogDir)
+
+        file1 = open(dailyLogFile, "w")  # append mode
+
+        file1.write(time + msg + "\n")
+        file1.close()
+
+    # read details from the page.
+    print(msg)
+
+    if gui_main:
+        gui_main.appendNetLogs([msg])
 
 
 def log2file(msg, category='None', mask='None', file='None'):

@@ -11,6 +11,7 @@ from pdf2image import convert_from_path
 # import win32print
 import datetime
 from basicSkill import *
+from Logger import *
 
 
 def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
@@ -29,7 +30,7 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -50,10 +51,11 @@ def genStepPrintLabels(labdir, printer, stat_name, stepN):
 def processPrintLabel(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Printing label, will do some processing before printing. .....")
+        log3("Printing label, will do some processing before printing. .....")
         symTab[step["print_status"]] = print_labels(step["label_dir"], step["printer"])
     except:
         ex_stat = "ErrorPrintLabel:" + str(i)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -143,10 +145,10 @@ def print_labels(label_dir, printer):
 
     today_string = yesterday.strftime("%Y%m%d")
     working_dir = 'C:/EbayOrders/Teco/orders/' + today_string + '/'
-    print(working_dir)
+    log3(working_dir)
     for file in os.listdir(working_dir):
         if file.startswith("ebay-label") and file.endswith(".pdf"):
-            print(file)
+            log3(file)
 
             # convert pdf to image
             images = convert_from_path(working_dir+file)
@@ -156,7 +158,7 @@ def print_labels(label_dir, printer):
                 images[i].save(working_dir+'page' + str(i) + '.jpg', 'JPEG')
 
             sub = file.split('_')
-            # print(sub)
+            # log3(json.dumps(sub))
             if len(sub) >= 5:
                 first = sub[1]
                 last = sub[2]
@@ -182,7 +184,7 @@ def print_labels(label_dir, printer):
                 for cntr in contours:
                     x, y, w, h = cv2.boundingRect(cntr)
                     cv2.rectangle(result, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                    print("x,y,w,h:", x, y, w, h)
+                    log3("x,y,w,h:"+str(x)+" "+str(y)+" "+str(w)+" "+str(h))
 
                 # save resulting image
                 # cv2.imwrite(working_dir+'rect.jpg', result)
@@ -236,7 +238,7 @@ def print_labels(label_dir, printer):
                 # print out the files.
                 # YOU CAN PUT HERE THE NAME OF YOUR SPECIFIC PRINTER INSTEAD OF DEFAULT
                 # currentprinter = win32print.GetDefaultPrinter()
-                # print(currentprinter)
+                # log3(currentprinter)
 
                 # the following command print silently.
                 # C:\"Program Files"\gs\gs9.54.0\bin\gswin64c.exe  -dPrinted -dNoCancel -dBATCH -dNOPAUSE -dNOSAFER -q -dNumCopies=1 -dQueryUser=3 -sDEVICE=mswinpr2  testImage.pdf
@@ -254,4 +256,4 @@ def print_labels(label_dir, printer):
                 ghostscript = args + wpdf_name
                 subprocess.call(ghostscript, shell=True)
             else:
-                print('file name format error:' + file)
+                log3('file name format error:' + file)

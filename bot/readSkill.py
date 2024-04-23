@@ -19,6 +19,7 @@ from amzSellerSkill import *
 from ebaySellerSkill import *
 from etsySellerSkill import *
 from labelSkill import *
+from Logger import *
 
 
 symTab["fout"] = ""
@@ -113,7 +114,7 @@ RAIS = {
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),
-    "Print Label": lambda x,y: processPrintLabel(x, y),
+    "print Label": lambda x,y: processPrintLabel(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
@@ -170,18 +171,18 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
             # reg = re.compile(r'"([^"]*)"')
             # #if reg.match('aaa"step 123":'):
             # if len(re.findall(r'"([^"]*)"', 'aaa"step 123":')) > 0:
-            #     print("FOUND MATCH")
+            #     log3("FOUND MATCH")
             # else:
-            #     print("NO MATCH")
-            print("NUM USEFUL:", str(len(useful_lines)))
+            #     log3("NO MATCH")
+            log3("NUM USEFUL:"+str(len(useful_lines)))
             for l in useful_lines:
                 #need to create prefix and add the step name.
                 # l = adressAddNameSpace(l, name_space, lvl)            # will do this later.
 
-                #print("USEFUL: ", l)
+                #log3("USEFUL: "+l)
                 slines = slines + l + "\n"
 
-            # print("SLINES:", slines)
+            # log3("SLINES:"+slines)
             this_skill_code = json.loads(slines)
 
             # call the sub skills
@@ -189,10 +190,10 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
             for key in step_keys:
                 if key == "header" or key == "dummy":
                     del this_skill_code[key]
-            # print("=============================================================")
-            # print("SKILL CODE:", len(this_skill_code.keys()), this_skill_code)
+            # log3("=============================================================")
+            # log3("SKILL CODE:"+str(len(this_skill_code.keys()))+json.dumps(this_skill_code))
     except OSError as err:
-        print("ERROR: Read PSK Error!", err)
+        log3("ERROR: Read PSK Error!"+json.dumps(err))
 
     return this_skill_code
 
@@ -200,11 +201,11 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
 def addNameSpaceToAddress(stepsJson, name_space, lvl):
     # add name space to json step names.
     steps_keys = list(stepsJson.keys())
-    print("name space:", name_space)
-    print("STEP KEYS::::", steps_keys)
+    log3("name space:"+name_space)
+    log3("STEP KEYS::::"+json.dumps(steps_keys))
     for old_key in steps_keys:
         new_key = adressAddNameSpace(old_key, name_space, lvl)
-        print("New Key:", new_key)
+        log3("New Key:"+json.dumps(new_key))
         stepsJson[new_key] = stepsJson[old_key]
         stepsJson.pop(old_key)
 
@@ -213,12 +214,12 @@ def adressAddNameSpace(l, name_space, lvl):
     if len(re.findall(r'step [0-9]+', l)) > 0:
 
         # need to handle "Use Skill" calling to sub-skill files.
-        # print("STEP line:", l)
+        # +json.dumps(("STEP line:"+l)
         step_word = re.findall(r'([^"]*)', l)[0]
-        # print("STEP word:", step_word)
+        # log3("STEP word:"+step_word)
         sn = step_word.split(' ')[1]
         global_sn = name_space + str(lvl) + "!" + sn
-        print("GLOBAL NS:", global_sn)
+        log3("GLOBAL NS:"+global_sn)
         # re.sub(r'"([^"]*)"', global_sn, l)
         l = re.sub(r'[0-9]+', global_sn, l)
 
@@ -248,11 +249,11 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     next_step_index = 0
     running = True
     run_stack = []
-    print("running all steps.....", mission)
+    log3("running all steps....."+json.dumps(mission))
     stepKeys = list(steps.keys())
     # for k in stepKeys:
-    #     print("steps: ", k, " -> ", steps[k])
-    print("=====================================")
+    #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
+    log3("=====================================")
     while next_step_index <= len(stepKeys)-1 and running:
         last_step = next_step_index
         next_step_index, step_stat = run1step(steps, next_step_index, mission, skill, run_stack)
@@ -270,7 +271,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
             # in case an exeption occurred, handle the exception.
             if in_exception:
-                print("EXCEPTION THROWN:")
+                log3("EXCEPTION THROWN:")
                 # push next_step_index onto exception stack.
                 exception_stack.append(next_step_index)
 
@@ -280,18 +281,18 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
             if mode == "debug":
                 input("hit any key to continue")
 
-            print("next_step_index: ", next_step_index, "len(stepKeys)-1: ", len(stepKeys)-1)
+            log3("next_step_index: "+str(next_step_index)+"len(stepKeys)-1: "+str(len(stepKeys)-1))
         else:
             break
 
         # check whether there is any msging handling need.
         if not in_msg_queue.empty():
             message = await in_msg_queue.get()
-            print(f"RunAllSteps message: {message}")
+            log3(f"RunAllSteps message: {message}")
             in_msg_queue.task_done()
 
     if step_stat != DEFAULT_RUN_STATUS:
-        print("RUN Error!")
+        log3("RUN Error!")
         run_result = "Incomplete:"+step_stat+":"+str(last_step)
 
     return run_result
@@ -302,9 +303,9 @@ def runNSteps(steps, prev_step, i_step, e_step, mission, skill, run_stack):
     last_step = prev_step
     next_step = i_step
     running = True
-    print("running N steps.....")
+    log3("running N steps.....")
     while next_step <= e_step and running:
-        print("len steps:", len(steps), "next step:", next_step)
+        log3("len steps:", len(steps), "next step:", next_step)
         run1step(steps, mission, skill, run_stack)
 
 
@@ -316,7 +317,7 @@ def run1step(steps, si, mission, skill, stack):
     stepKeys = list(steps.keys())
     step = steps[stepKeys[si]]
     last_si = si
-    print("============>running step [", si, "]: ",  step)
+    log3("============>running step ["+str(si)+"]: "+json.dumps(step))
 
     if "type" in step:
         if step["type"] == "Halt":
@@ -377,15 +378,16 @@ def continueRun(steps, settings):
 def processBrowse(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("browsing the page....")
+        log3("browsing the page....")
     except:
         ex_stat = "ErrorBrowse:" + str(i)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
 def is_uniq(word, allwords):
     matched = [x for x in allwords if word in x["text"]]
-    print("# matched: ", len(matched))
+    log3("# matched: "+str(len(matched)))
     if len(matched) == 1:
         return True
     else:
@@ -393,7 +395,7 @@ def is_uniq(word, allwords):
 
 # this function finds a unique line of text nearest to the specified target location on the screen.
 def find_phrase_at_target(screen_data, target_loc):
-    print("finding text around target loc: ", target_loc)
+    log3("finding text around target loc: "+json.dumps(target_loc))
     found_phrase = ""
     found_box = [0, 0, 0, 0]
     # first, filter out all shapes and non text contents.
@@ -408,15 +410,15 @@ def find_phrase_at_target(screen_data, target_loc):
 
     sorted_words = sorted(allwords, key=lambda w: p2p_distance(box_center(w["box"]), target_loc), reverse=False)
 
-    print("found paragraphs: ", len(paragrphs))
+    log3("found paragraphs: "+str(len(paragrphs)))
 
     # then sort by paragraph center's distance to target location.
     # box: (left, top, right, bottom)
     # paragrphs = sorted(paragrphs, key=lambda x: p2p_distance(loc_center(x["loc"]), target_loc), reverse=False)
     time.sleep(1)
-    print("w0: ", sorted_words[0], "dist: ", p2p_distance(box_center(sorted_words[0]["box"]), target_loc))
-    print("w1: ", sorted_words[1], "dist: ", p2p_distance(box_center(sorted_words[1]["box"]), target_loc))
-    print("w2: ", sorted_words[2], "dist: ", p2p_distance(box_center(sorted_words[2]["box"]), target_loc))
+    log3("w0: "+json.dumps(sorted_words[0])+" dist: "+json.dumps(p2p_distance(box_center(sorted_words[0]["box"]), target_loc)))
+    log3("w1: "+json.dumps(sorted_words[1])+" dist: "+json.dumps(p2p_distance(box_center(sorted_words[1]["box"]), target_loc)))
+    log3("w2: "+json.dumps(sorted_words[2])+" dist: "+json.dumps(p2p_distance(box_center(sorted_words[2]["box"]), target_loc)))
     # then find an unique line in that paragraph, if none found, go the next paragraph until find one.
     for w in sorted_words:
         # now filter out lines contains non alphabetical chars. and non-unique phrases.
@@ -424,17 +426,17 @@ def find_phrase_at_target(screen_data, target_loc):
         actual_w = w["text"].strip()
         if len(actual_w) >= 6:
             if is_uniq(actual_w, sorted_words):
-                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                log3("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
                 found_phrase = actual_w
                 found_box = w['box']
-                print("found the implicit marker: ", found_phrase, " loc: ", found_box)
+                log3("found the implicit marker: "+found_phrase+" loc: "+json.dumps(found_box))
                 break
 
     return(found_phrase, found_box)
 
 def find_marker_on_screen(screen_data, target_word):
     # first, filter out all shapes and non text contents.
-    print("finding.......", target_word)
+    log3("finding......."+target_word)
     paragraphs = [x for x in screen_data if x['name'] == 'paragraph']
     found_box = []
     found_loc = None
@@ -471,7 +473,7 @@ def processRecordTxtLineLocation(step, i):
         screen_data = symTab[scrn]
         symTab["last_screen_cal01"] = screen_data
         screen_size = (screen_data[len(screen_data) - 2]['loc'][3], screen_data[len(screen_data) - 2]['loc'][2])
-        print("screen_size: ", screen_size)
+        log3("screen_size: "+json.dumps(screen_size))
 
         if marker_text == "":
             # this means just grab any line closest to the target location.
@@ -481,7 +483,7 @@ def processRecordTxtLineLocation(step, i):
                 target_loc = (int(screen_size[0]*2/3), int(screen_size[1]*2/3))
                 found_phrase, found_box = find_phrase_at_target(screen_data, target_loc)
 
-                print("FOUND implicit marker: [", found_phrase, "] at location: ", found_box)
+                log3("FOUND implicit marker: ["+found_phrase+"] at location: "+json.dumps(found_box))
 
                 #mid = int(abc.get_box()[1] + 0.5*abc.get_box()[3])
                 # now filter out all lines above mid point and leave only text lines below the mid point,
@@ -489,7 +491,7 @@ def processRecordTxtLineLocation(step, i):
                 symTab["InternalMarker"] = found_phrase
 
         else:
-            print("FINDINg text: ", marker_text, " ............ ")
+            log3("FINDINg text: "+marker_text+" ............ ")
             if loc_word.isnumeric():
                 # percentage deal
                 target_loc = (int(screen_size[0] / 2), int(screen_size[1] * (int(loc_word)/100)))
@@ -504,14 +506,14 @@ def processRecordTxtLineLocation(step, i):
                 else:
                     target_loc = (int(screen_size[0] / 2), 0)
 
-            print("target_loc: ", target_loc)
+            log3("target_loc: "+json.dumps(target_loc))
 
             found_box = find_marker_on_screen(screen_data, marker_text)
-            print("found_loc: ", found_box)
+            log3("found_loc: "+json.dumps(found_box))
 
         # symTab[marker_loc] = box_center(found_paragraph["loc"])
         symTab[marker_loc] = box_center(found_box)
-        print("found text at loc: ", found_box, "stored in var: ", marker_loc, " with box center: ", symTab[marker_loc])
+        log3("found text at loc: "+json.dumps(found_box)+"stored in var: "+json.dumps(marker_loc)+" with box center: "+json.dumps(symTab[marker_loc]))
 
     except:
         ex_stat = "ErrorRecordTxtLineLocation:" + str(i)
@@ -526,15 +528,15 @@ def similar(a, b):
 # find a paragraph on screen that matches the target paragraph.
 def find_paragraph_match(target, screen_data):
     paragrphs = [x for x in screen_data if x['name'] == 'paragraph']
-    print("find_paragraph_match:", paragrphs)
-    print("Target:", target)
+    log3("find_paragraph_match:"+json.dumps(paragrphs))
+    log3("Target:"+json.dumps(target))
     # then sort by paragraph center's distance to target location.
     # box: (left, top, right, bottom)
     similarity = [similar(target['text'],  x['text']) for x in paragrphs]
-    print(similarity.index(max(similarity)), ",", similarity[similarity.index(max(similarity))], ", ", paragrphs[similarity.index(max(similarity))]['text'])
-    print("similarity: ", similarity)
+    log3(str(similarity.index(max(similarity))) + ","+str(similarity[similarity.index(max(similarity))])+", "+paragrphs[similarity.index(max(similarity))]['text'])
+    log3("similarity: "+json.dumps(similarity))
     matched = [x for x in paragrphs if similar(target['text'],  x['text']) > 0.95]
-    print("matched:", matched)
+    log3("matched:"+json.dumps(matched))
 
     if len(matched) > 0:
         return matched[0]
@@ -561,26 +563,26 @@ def processCalibrateScroll(step, i):
         screen_size = (screen_data[len(screen_data) - 2]['loc'][3], screen_data[len(screen_data) - 2]['loc'][2])
 
         target_loc = (int(screen_size[0] / 2), 0)
-        print("FINDing near target loc: ", target_loc)
+        log3("FINDing near target loc: "+json.dumps(target_loc))
         # find the template text that's nearest to refvloc
         if marker_text == "":
             marker_text = symTab["InternalMarker"]
-            print("finding implicit marker: [", symTab["InternalMarker"], "]")
+            log3("finding implicit marker: ["+symTab["InternalMarker"]+"]")
         found_box = find_marker_on_screen(screen_data, marker_text)
-        print("calibration scroll found location:: ", found_box, " vs. previous location::", prev_loc, " in var: ", step["last_record"])
+        log3("calibration scroll found location:: "+json.dumps(found_box)+" vs. previous location::"+json.dumps(prev_loc)+" in var: "+json.dumps(step["last_record"]))
         # matched_paragraph = find_paragraph_match(marker_paragraph, screen)
 
         if found_box:
             delta_v = abs(box_center(found_box)[1] - prev_loc[1])
-            print("abs delta v: ", delta_v, " for scrool_amount: ", scroll_amount)
+            log3("abs delta v: "+str(delta_v)+" for scrool_amount: "+str(scroll_amount))
             scroll_resolution = delta_v/scroll_amount
         else:
             scroll_resolution = 0
-            print("ERROR: scroll calibration FAILED!!!!")
+            log3("ERROR: scroll calibration FAILED!!!!")
 
         symTab[resolution] = scroll_resolution
         symTab[screen] = symTab["last_screen_cal01"]
-        print("scroll resolution is found as: ", scroll_resolution, " stored in var: ", resolution)
+        log3("scroll resolution is found as: "+str(scroll_resolution)+" stored in var: "+str(resolution))
 
     except:
         ex_stat = "ErrorCalibrateScroll:" + str(i)
@@ -602,19 +604,19 @@ def gen_addresses(stepcodes, nth_pass):
     global skill_table
     global function_table
     temp_stack = []
-    print("nth pass: ", nth_pass)
+    log3("nth pass: "+str(nth_pass))
     # go thruthe program as we see condition / loop / function def , push them onto stack, then pop them off as we see
     # else, end - if, end - loop, end - function....until at last the stack is empty again.
     # sk
     #skcode = json.loads(sk)
     stepkeys = list(stepcodes.keys())
-    print("total " + str(len(stepkeys)) + " steps.")
+    log3("total " + str(len(stepkeys)) + " steps.")
 
     if nth_pass == 1:
         # parse thru the json objects and work on stubs.
         for i in range(len(stepkeys)):
             stepName = stepkeys[i]
-            # print("working on: ", stepName)
+            # log3("working on: "+stepName)
 
             if i != 0:
                 prevStepName = stepkeys[i - 1]
@@ -631,11 +633,11 @@ def gen_addresses(stepcodes, nth_pass):
                 # build up function table, and skill table.
                 if "start skill" in stepcodes[stepName]["stub_name"]:
                     # this effectively includes the skill overload function. - SC
-                    print("ADDING TO SKILL TABLE: ", stepcodes[stepName]["func_name"], nextStepName)
+                    log3("ADDING TO SKILL TABLE: "+json.dumps(stepcodes[stepName]["func_name"])+" "+json.dumps(nextStepName))
                     skill_table[stepcodes[stepName]["func_name"]] = nextStepName
                 elif stepcodes[stepName]["stub_name"] == "start function":
                     # this effectively includes the skill overload function. - SC
-                    print(stepcodes[stepName]["func_name"])
+                    log3(json.dumps(stepcodes[stepName]["func_name"]))
                     function_table[stepcodes[stepName]["func_name"]] = nextStepName
 
     elif nth_pass == 2:
@@ -661,46 +663,46 @@ def gen_addresses(stepcodes, nth_pass):
                 if stepcodes[stepName]["stub_name"] == "else":
                     # pop from stack, modify else, then push back, assume condition step will be pushed onto stack. as it executes.
                     tempStepName = temp_stack.pop()
-                    print("poped out due to else step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
+                    log3("poped out due to else step["+str(len(temp_stack))+"]: "+json.dumps(tempStepName)+" ("+json.dumps(stepcodes[tempStepName])+")")
 
                     stepcodes[tempStepName]["if_else"] = nextStepName
                     # now replace with current stub with a goto statement and push this onto stack.
 
-                    print("replacing else with an empty Goto which will be filled up later...")
+                    log3("replacing else with an empty Goto which will be filled up later...")
                     stepcodes[stepName] = {"type": "Goto", "goto": ""}
 
                     temp_stack.append(stepName)
-                    print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
+                    log3("pushed step["+str(len(temp_stack))+"]: "+json.dumps(stepName)+"("+json.dumps(stepcodes[stepName])+")")
 
                 elif stepcodes[stepName]["stub_name"] == "end condition":
                     # pop from stack
-                    # print("before popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
+                    # log3("before popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
 
                     tempStepName = temp_stack.pop()
-                    print("popped out due to end condition step[", len(temp_stack), "]: ", tempStepName, "(", stepcodes[tempStepName], ")")
+                    log3("popped out due to end condition step["+str(len(temp_stack))+"]: "+json.dumps(tempStepName)+"("+json.dumps(stepcodes[tempStepName])+")")
 
                     if (stepcodes[tempStepName]["type"] == "Goto"):
                         # in case that this is a check condition with an else stub....
-                        print("popped goto.....")
+                        log3("popped goto.....")
                         stepcodes[tempStepName]["goto"] = nextStepName
                     elif ( stepcodes[tempStepName]["type"] == "Check Condition"):
                         # in case that this is a check condition without else stub....
                         stepcodes[tempStepName]["if_else"] = nextStepName
-                        print("replace if_else to:", nextStepName)
+                        log3("replace if_else to:"+json.dumps(nextStepName))
                         # so stub "else" will be replaced by a "Goto" step instead.
                         # stepcodes[stepName] = {"type": "Goto", "goto": nextStepName}
                 elif stepcodes[stepName]["stub_name"] == "break":
                     # push on to stack
                     temp_stack.append(stepName)
-                    print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
+                    log3("pushed step["+str(len(temp_stack))+"]: "+json.dumps(stepName)+"("+json.dumps(stepcodes[stepName])+")")
                 elif stepcodes[stepName]["stub_name"] == "end loop":
                     # pop from stack
                     loop_start_found = False
                     fi = 0
-                    print("working on: ", prevStepName, "(", stepcodes[prevStepName], ")")
+                    log3("working on: "+prevStepName+" ("+stepcodes[prevStepName]+")")
                     while not loop_start_found:
                         tempStepName = temp_stack.pop()
-                        print("popped out due to end looop step[", len(temp_stack), "]: ", fi, " :: ", tempStepName, "(", stepcodes[tempStepName], ")")
+                        log3("popped out due to end looop step["+str(len(temp_stack))+"]: "+str(fi)+" :: "+json.dumps(tempStepName)+"("+json.dumps(stepcodes[tempStepName])+")")
                         fi = fi + 1
                         if stepcodes[tempStepName]["type"] == "Repeat":
                             stepcodes[tempStepName]["end"] = nextStepName
@@ -716,7 +718,7 @@ def gen_addresses(stepcodes, nth_pass):
                     stepcodes[symTab[stepName]["name"]] = nextStepName
                 elif stepcodes[stepName]["stub_name"] == "end skill":
                     # add function name and address pair to stepcodes - kind of a symbal table here.
-                    print("END OF SKILL - do nothing...", stepcodes[stepName]["func_name"])
+                    log3("END OF SKILL - do nothing..."+json.dumps(stepcodes[stepName]["func_name"]))
                 elif stepcodes[stepName]["stub_name"] == "tag":
                     # this is for Goto statement, so that goto doesn't have to goto an explicict address,
                     # but can goto a String name instead. if any step is the goto target, just add
@@ -726,12 +728,12 @@ def gen_addresses(stepcodes, nth_pass):
             elif stepcodes[stepName]["type"] == "Check Condition":
                 # push ont stack
                 temp_stack.append(stepName)
-                print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
+                log3("pushed step["+str(len(temp_stack))+"]: "+stepName+"("+json.dumps(stepcodes[stepName])+")")
 
             elif stepcodes[stepName]["type"] == "Repeat":
                 # push on to stack
                 temp_stack.append(stepName)
-                print("pushed step[", len(temp_stack), "]: ", stepName, "(", stepcodes[stepName], ")")
+                log3("pushed step["+str(len(temp_stack))+"]: "+stepName+"("+json.dumps(stepcodes[stepName])+")")
 
     elif nth_pass == 3:
         #on 3nd pass replace all function call address. -- SC 2023/03/27 I don't think we need this pass anymore....at least for now..
@@ -757,16 +759,16 @@ def prepRun1Skill(name_space, skill_file, lvl = 0):
     global skill_code
     global function_table
     run_steps = readPSkillFile(name_space, skill_file, lvl)
-    print("DONE reading skill file...")
+    log3("DONE reading skill file...")
 
     # generate real address for stubs and functions. (essentially update the addresses or the closing brackets...)
     gen_addresses(run_steps, 1)
     # 2nd pass: resolve overload.
     gen_addresses(run_steps, 2)
-    print("DONE generating addressess...")
-    print("READY2RUN1: ", run_steps)
-    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    print("function table:", function_table)
+    log3("DONE generating addressess...")
+    log3("READY2RUN1: "+json.dumps(run_steps))
+    log3(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    log3("function table:"+json.dumps(function_table))
     return run_steps
 
 
@@ -775,7 +777,7 @@ def prepRunSkill(all_skill_codes):
     global skill_code
 
     for sk in all_skill_codes:
-        print("READING SKILL CODE:", sk["ns"], sk["skfile"])
+        log3("READING SKILL CODE:"+sk["ns"]+" "+sk["skfile"])
 
         f = open(sk["skfile"])
         run_steps = json.load(f)
@@ -793,9 +795,9 @@ def prepRunSkill(all_skill_codes):
     #2nd pass: resolve overload.
     gen_addresses(skill_code, 2)
 
-    print("DONE generating addressess...")
-    # print("READY2RUN: ", skill_code)
-    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    log3("DONE generating addressess...")
+    # log3("READY2RUN: ", skill_code)
+    log3(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     return skill_code
 
 def genNextStepNumber(currentN, steps=1):

@@ -938,6 +938,101 @@ def test_pyautogui():
         startx = startx + 2
         starty = starty - 200
 
+# main  generate schedule
+def run_genSchedules_test_case(host, session, token, tcn):
+    tcdir = ecb_data_homepath + "/testcases/tc"+str(tcn)+"/"
+    bots_json_file = tcdir+"newbots.json"
+    if os.path.exists(bots_json_file):
+        with open(bots_json_file, 'r') as bots_f:
+            botsJson = json.load(bots_f)
+
+        bots_f.close()
+
+    missions_json_file = tcdir+"newmissions.json"
+    if os.path.exists(missions_json_file):
+        with open(missions_json_file, 'r') as missions_f:
+            missionsJson = json.load(missions_f)
+
+        missions_f.close()
+
+    skills_json_file = tcdir+"newskills.json"
+    if os.path.exists(skills_json_file):
+        with open(skills_json_file, 'r') as skills_f:
+            skillsJson = json.load(skills_f)
+
+        skills_f.close()
+
+
+    expected_json_file = tcdir+"expected.json"
+    if os.path.exists(expected_json_file):
+        with open(expected_json_file, 'r') as expected_f:
+            expectedJson = json.load(expected_f)
+
+        expected_f.close()
+
+    schedule_test_settings = {
+        "testmode_cloud": True,
+        "test_stub": {
+            "testmode": True,
+            "allbots": botsJson,
+            "allmissions": missionsJson,
+            "allskills": skillsJson,
+            "test_genActionItems": True,
+            "test_getNextAvailableDate": True
+        }
+    }
+
+    jresp = send_schedule_request_to_cloud(session, token, "test", schedule_test_settings)
+    if "errorType" in jresp:
+        screen_error = True
+        print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+    else:
+        # very important to use compress and decompress on Base64
+        uncompressed = host.zipper.decompressFromBase64(jresp["body"])
+        # uncompressed = jresp["body"]
+        print("decomppressed response:", uncompressed, "!")
+        if uncompressed != "":
+            # print("body string:", uncompressed, "!", len(uncompressed), "::")
+            rcvd_schedule = json.loads(uncompressed)
+
+    result = check_expected_schedule(rcvd_schedule, expectedJson)
+
+    if result["passed"]:
+        print("Test case PASSED.")
+    else:
+        print("Test case FAILED.", result["cases"])
+
+
+
+def check_expected_schedule(rcvd, expected):
+    failed = False
+    failed_mids = []
+    # cross check task_groups with add_missions.
+
+    # check task_groups against expected.
+    # basically check bid, mid, timezone, starttime runtime
+    for tz in rcvd["task_groups"]:
+        if len(rcvd["task_groups"][tz]) > 0:
+            for botwork in rcvd["task_groups"][tz]:
+                if len(botwork["bw_works"]):
+                    for bw in botwork["bw_works"]:
+                        found = [sch for sch in expected if sch["bid"] == botwork["bid"] and sch["mid"] == bw["mid"] and sch["start_time"] == bw["start_time"] and sch["tz"] == tz]
+                        if len(found)==0:
+                            failed_mids.append(bw["mid"])
+
+
+                if len(botwork["other_works"]):
+                    for bw in botwork["other_works"]:
+                        found = [sch for sch in expected if sch["bid"] == botwork["bid"] and sch["mid"] == bw["mid"] and sch["start_time"] == bw["start_time"] and sch["tz"] == tz]
+                        if len(found)==0:
+                            failed_mids.append(bw["mid"])
+
+    if len(failed_mids) > 0:
+        failed = True
+
+    return {"passed": not failed, "cases": failed_mids}
+
+
 
 
 

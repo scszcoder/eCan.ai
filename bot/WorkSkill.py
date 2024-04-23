@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from PySide6.QtGui import QStandardItem, QIcon
-
+from Logger import *
 from readSkill import *
 
 # valid refMethod: "Absolute", "Anchor Offset"
@@ -265,10 +265,10 @@ class WORKSKILL(QStandardItem):
         self.cloud_skill = info_skill
 
     def gen_psk_file(self):
-        print("generating psk file:")
+        log3("generating psk file:")
 
     def gen_csk_file(self):
-        print("generating psk file:")
+        log3("generating psk file:")
 
     def gen_skill_files(self):
         self.gen_csk_file()

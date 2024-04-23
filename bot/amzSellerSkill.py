@@ -125,7 +125,7 @@ def genWinChromeAmzFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows amazon order fullfill..." + psk_words)
+    log3("DEBUG", "generated skill for windows amazon order fullfill..." + psk_words)
 
     return this_step, psk_words
 
@@ -167,7 +167,7 @@ def genWinChromeAmzCollectOrderListSkill(worksettings, stepN, theme):
     dt_string = str(int(dtnow.timestamp()))
     hfname = "etsyOrders" + dt_string + ".html"
 
-    print("SAVE HTML FILE: ", hfname)
+    log3("SAVE HTML FILE: "+hfname)
 
     # this_step, step_words = genStepCreateDir("sk_work_settings['log_path']", "expr", "fileStatus", this_step)
     # psk_words = psk_words + step_words
@@ -376,7 +376,7 @@ def genWinChromeAmzCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows amazon collect orders...." + psk_words)
+    log3("DEBUG", "generated skill for windows amazon collect orders...." + psk_words)
 
     return this_step, psk_words
 
@@ -584,7 +584,7 @@ def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows amzon update tracking info...." + psk_words)
+    log3("DEBUG", "generated skill for windows amzon update tracking info...." + psk_words)
 
     return this_step, psk_words
 
@@ -593,18 +593,18 @@ def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
 def processAMZScrapeOrdersHtml(step, i, mission, skill):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Extract Order List from HTML: ", step)
+        log3("Extract Order List from HTML: "+json.dumps(step))
 
         hfile = symTab[step["html_var"]]
-        print("hfile: ", hfile)
+        log3("hfile: "+hfile)
 
         pl = amz_seller_fetch_order_list(hfile, step["page_num"])
-        print("scrape product list result: ", pl)
+        log3("scrape product list result: "+json.dumps(pl)())
 
         att_pl = []
 
         for p in step["page_cfg"]["products"]:
-            print("current page config: ", p)
+            log3("current page config: "+json.dumsp(p))
             found = found_match(p, pl["pl"])
             if found:
                 # remove found from the pl
@@ -626,5 +626,6 @@ def processAMZScrapeOrdersHtml(step, i, mission, skill):
 
     except:
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
 
     return (i + 1), ex_stat

@@ -4,6 +4,7 @@ from adsPowerSkill import *
 import re
 from difflib import SequenceMatcher
 import traceback
+from Logger import *
 SAME_ROW_THRESHOLD = 16
 
 def genStepAMZCalScroll(sink, amount, screen, marker, prev_loc, stepN):
@@ -41,13 +42,13 @@ def genWinChromeAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
 
 def genStubWinADSAMZWalkSkill(worksettings, stepN, theme):
-    print("GENERATING WinADSAMZWalkSkill======>")
+    log3("GENERATING WinADSAMZWalkSkill======>")
 
     psk_words = "{"
     site_url = "https://www.amazon.com/"
@@ -64,14 +65,14 @@ def genStubWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    # print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
 
 
 def genWinADSAMZWalkSkill(worksettings, stepN, theme):
-    print("GENERATING WinADSAMZWalkSkill======>")
+    log3("GENERATING WinADSAMZWalkSkill======>")
     psk_words = "{"
     site_url = "https://www.amazon.com/"
 
@@ -331,7 +332,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    # print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -345,7 +346,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
 # SC - at moment this will just be a dumb function， just scroll x numbers of screens down
 def genAMZScrollProductListToBottom(stepN, worksettings, start):
     psk_words = ""
-    print("DEBUG", "gen_psk_for_scroll_to_bottom...")
+    log3("DEBUG", "gen_psk_for_scroll_to_bottom...")
 
     # create loop count var
     lcvarname = "scrollDownProductList"+str(stepN)
@@ -370,7 +371,7 @@ def genAMZScrollProductListToBottom(stepN, worksettings, start):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    print("scroll reached BOTTOM of the page")
+    log3("scroll reached BOTTOM of the page")
 
     return this_step, psk_words, "down_cnt"
 
@@ -381,7 +382,7 @@ def genAMZScrollProductListToBottom(stepN, worksettings, start):
 # this function has no screen read involved.....
 def genAMZScrollProductListToTop(down_cnt, stepN, worksettings):
     psk_words = ""
-    print("DEBUG", "gen_psk_for_scroll_to_top...")
+    log3("DEBUG", "gen_psk_for_scroll_to_top...")
 
 
     this_step, step_words = genStepCallExtern("global "+down_cnt+", up_cnt\nup_cnt = int("+down_cnt+"* 1.5)", "", "in_line", "", stepN)
@@ -404,14 +405,14 @@ def genAMZScrollProductListToTop(down_cnt, stepN, worksettings):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    print("scroll reached TOP of the page")
+    log3("scroll reached TOP of the page")
 
     return this_step,psk_words
 
 
 def genAMZScrollProductDetailsToTop(pagesize, stepN, work_settings):
     psk_words = ""
-    print("DEBUG", "gen_psk_for_scroll_to_bottom...")
+    log3("DEBUG", "gen_psk_for_scroll_to_bottom...")
     this_step, step_words = genStepCreateData("bool", "at_pd_top", "NA", False, stepN)
     psk_words = psk_words + step_words
 
@@ -427,7 +428,7 @@ def genAMZScrollProductDetailsToTop(pagesize, stepN, work_settings):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    print("scroll reached TOP of the product details page")
+    log3("scroll reached TOP of the product details page")
 
     return this_step,psk_words
 
@@ -455,7 +456,7 @@ def genStepAMZMatchProduct(screen, product_list, result, flag, stepN):
 def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, worksettings, theme):
     psk_words = ""
     prod_cnt = 0
-    print("DEBUG", "genAMZBrowseProductListToBottom...")
+    log3("DEBUG", "genAMZBrowseProductListToBottom...")
 
     this_step, step_words = genStepCreateData("bool", "atbottom", "NA", False, stepN)
     psk_words = psk_words + step_words
@@ -558,7 +559,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, worksettings, theme):
 def genAMZBrowseProductListToLastAttention(pl, stepN, worksettings, theme):
     psk_words = ""
     prod_cnt = 0
-    print("DEBUG", "genAMZBrowseProductListToLastAttention...")
+    log3("DEBUG", "genAMZBrowseProductListToLastAttention...")
 
     this_step, step_words = genStepCreateData("expr", "nAttentions", "NA", "len("+pl+"['attention'])", stepN)
     psk_words = psk_words + step_words
@@ -719,7 +720,7 @@ def genAMZBrowseProductListToLastAttention(pl, stepN, worksettings, theme):
 #       scroll down 1/2 screen.
 def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
     psk_words = ""
-    print("DEBUG", "genAMZBrowseDetails...")
+    log3("DEBUG", "genAMZBrowseDetails...")
 
 
     # now, starts to browse into the product details page.......................................
@@ -989,7 +990,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
 
 def genAMZPurchaseFlow(screen, purchase_flow, stepN):
     psk_words = ""
-    print("DEBUG", "genAMZPurchaseFlow...")
+    log3("DEBUG", "genAMZPurchaseFlow...")
 
     this_step, step_words = genStepWait(1, 0, 0, stepN)
     psk_words = psk_words + step_words
@@ -1000,7 +1001,7 @@ def genAMZPurchaseFlow(screen, purchase_flow, stepN):
 # extract review information from the current screen.
 def genExtractReview(scrn, stepN):
     # there are better ways to do this, like reading directly from html, so not going to do this the dumb way...
-    print("nop")
+    log3("nop")
 
 # this function generate code to scroll N pages of full reviews.
 def genAMZBrowseAllReviewsPage(level, stepN, worksettings, theme):
@@ -1110,7 +1111,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, worksettings, theme):
 
 def genScroll1StarReviewsPage(stepN, start):
     psk_words = ""
-    print("DEBUG", "genBrowse1StarReviewsPage...")
+    log3("DEBUG", "genBrowse1StarReviewsPage...")
 
     # create loop count var
     lcvarname = "scroll1Star" + str(stepN)
@@ -1134,13 +1135,13 @@ def genScroll1StarReviewsPage(stepN, start):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    print("scroll reached BOTTOM of the page")
+    log3("scroll reached BOTTOM of the page")
 
     return this_step, psk_words, rand_count
 
 
 def genAMZPurchase(cfg):
-    print("generating skill for making purchase")
+    log3("generating skill for making purchase")
 
 
 
@@ -1210,7 +1211,7 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genStepAMZScrapePLHtml("current_html_file", "plSearchResult", ith, pageCfgsName, this_step)
     psk_words = psk_words + step_words
 
-    print("gen flow: ", flows)
+    log3("gen flow: "+json.dumps(flows))
 
     this_step, step_words = genStepCallExtern("global numFlows\nnumFlows = len("+flows+")", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
@@ -1294,7 +1295,7 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     psk_words = psk_words + step_words
 
     # back up is always a quick scroll, will never browse along the way.
-    print("scroll up for fun....")
+    log3("scroll up for fun....")
     this_step, step_words = genAMZScrollProductListToTop(down_count_var, this_step, worksettings)
     psk_words = psk_words + step_words
 
@@ -1429,7 +1430,7 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepCreateData("string", "scroll_resolution", "NA", 250, this_step)
     psk_words = psk_words + step_words
 
-    print("DEBUG", "hello???")
+    log3("DEBUG", "hello???")
 
     # go thru each entry path.this will be the only loop that we unroll, all other loops within the session will be generated
     # as part of the psk. do we have to unroll??????
@@ -1597,7 +1598,7 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     #     this_step, step_words = genPurchase(run_config)
     #     psk_words = psk_words + step_words
 
-    print("DEBUG", "ready to add stubs...." + psk_words)
+    log3("DEBUG", "ready to add stubs...." + psk_words)
 
 
     return this_step, psk_words
@@ -1690,7 +1691,7 @@ def processAMZSearchProducts(step, i):
 def processAMZBrowseDetails(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Searching....", step["target"])
+        log3("Searching...."+step["target"])
 
         scrn = symTab[step["screen"]]
         rvs = extractAMZProductsFromScreen(scrn)
@@ -1708,7 +1709,7 @@ def processAMZBrowseDetails(step, i):
 def processAMZBrowseReviews(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Searching....", step["target"])
+        log3("Searching...."+step["target"])
 
         scrn = symTab[step["screen"]]
 
@@ -1780,7 +1781,7 @@ def match_product(summery, screen_data):
     ps = [element for index, element in enumerate(screen_data) if element["name"] == "paragraph"]
     title = re.sub(" +", " ", summery["title"])
     title_word_count = len(title.split())
-    # print("initial title word count: ", title_word_count)
+    # log3("initial title word count: "+str(title_word_count))
     eot = False
 
     # collect all lines.
@@ -1794,7 +1795,7 @@ def match_product(summery, screen_data):
         # go thru each line seg
 
     for p in ps:
-        print("START PARAGRAPH=========================================================")
+        log3("START PARAGRAPH=========================================================")
         lines = p["txt_struct"]
         lines = sorted(lines, key=lambda x: len(x["text"]), reverse=True)
         tail = ""
@@ -1803,10 +1804,10 @@ def match_product(summery, screen_data):
 
         # ttbm - title to be matched is a copy of title.
         ttbm = (title + '.')[:-1]
-        # print("TTBM BEFORE: ", ttbm)
+        # log3("TTBM BEFORE: "+ttbm)
         shortened = ttbm
         for l in lines:
-            print("LINE: ", l["text"])
+            log3("LINE: "+l["text"])
             #if a line segment contains 5 or more words and are contained in the title.
             eot = False         # end of title flag
             seg = l["text"].strip()
@@ -1816,14 +1817,14 @@ def match_product(summery, screen_data):
                 eot = True
 
             match = SequenceMatcher(None, seg, ttbm, ).find_longest_match(alo=0, ahi=len(seg), blo=0, bhi=len(ttbm))
-            print("SEQUENCE MATCHER RESULT:", match)
-            print(seg, "(", seg[match[0]:match[0]+match[2]], ") and ", ttbm, " ((", ttbm[match[1]:match[1]+match[2]], "))")
+            log3("SEQUENCE MATCHER RESULT:"+match)
+            log3(seg, "("+json.dumps(seg[match[0]:match[0]+match[2]])+") and "+ttbm+" (("+json.dumps(ttbm[match[1]:match[1]+match[2]])+"))")
             matched_word = seg[match[0]:match[0]+match[2]]
             matched_word = re.sub(r'([()\[\].:!])', r'\\\1', matched_word)
 
             matched_words = seg[match[0]:match[0]+match[2]].split()
-            print("matched_word:", matched_word, "<=>", ttbm)
-            print("matched_words:[", matched_words, "]", len(matched_words))
+            log3("matched_word:"+json.dumps(matched_word)+"<=>"+ttbm)
+            log3("matched_words:["+json.dumps(matched_words)+"]"+str(len(matched_words)))
 
             if len(matched_words) > 0:
                 if not eot:
@@ -1832,7 +1833,7 @@ def match_product(summery, screen_data):
 
                     matched_lines.append(matched_word)
                     match_count = match_count + len(matched_words)
-                    # print("title matched: ", l["text"], "#: ", len(l["words"]))
+                    # log3("title matched: ", l["text"], "#: ", len(l["words"]))
                 else:
                     last_matched_phrase = matched_words[len(matched_words) - 2] + " " + matched_words[len(matched_words) - 1]
                     # in case screen title is shorter than actual title, represented by ... in title.
@@ -1851,11 +1852,11 @@ def match_product(summery, screen_data):
         title_word_count = len(shortened.split())
         pmatchs.append({"p": p, "mls": matched_lines, "mwc": match_count, "twc": title_word_count})
 
-    print("ALL matches:: ", pmatchs)
+    log3("ALL matches:: "+json.dumps(pmatchs))
     ptmatched = sorted(pmatchs, key=lambda x: x["mwc"], reverse=True)
 
     pt_best_matched = ptmatched[0]
-    print("BEST matched:: ", pt_best_matched)
+    log3("BEST matched:: "+json.dumps(pt_best_matched))
     if pt_best_matched["mwc"] > pt_best_matched["twc"]-3:
         matched = True
 
@@ -1868,7 +1869,7 @@ def processAMZMatchProduct(step, i):
         scrn = symTab[step["screen"]]
 
         tbMatched = symTab[step["product_list"]]["attention"]  # contains anchor/info name, or the text string to matched against.
-        print("find to be paid attention: ", tbMatched)
+        log3("find to be paid attention: ", tbMatched)
 
         # now extract all products from the screen capture: scrn
         matched = []
@@ -1889,15 +1890,15 @@ def processAMZMatchProduct(step, i):
                     matched_tbm.append(tbm)
 
 
-        print(">>>>>>>>matched_tbm: ", matched_tbm)
-        print("--------->matched locations: ", matched)
+        log3(">>>>>>>>matched_tbm: ", matched_tbm)
+        log3("--------->matched locations: ", matched)
         #for the matched ones, remove from the attention list.
         for tbm in matched_tbm:
             symTab[step["product_list"]]["attention"].remove(tbm)
 
-        print("<<<<>>>>>>>>>>>>remaining attention: ", symTab[step["product_list"]]["attention"])
+        log3("<<<<>>>>>>>>>>>>remaining attention: ", symTab[step["product_list"]]["attention"])
         # see whether current screen contains the product to be cliced into.
-        print("Setting result("+step["result"]+") to be: ", matched)
+        log3("Setting result("+step["result"]+") to be: ", matched)
         symTab[step["result"]] = matched
         # search result should be put into the result variable.
         if len(matched) > 0:
@@ -1905,7 +1906,7 @@ def processAMZMatchProduct(step, i):
         else:
             symTab[step["flag"]] = False
 
-        print("RESULT of check: ", step["flag"], " :: ", symTab[step["flag"]])
+        log3("RESULT of check: ", step["flag"], " :: ", symTab[step["flag"]])
 
 
     except Exception as e:
@@ -1916,7 +1917,7 @@ def processAMZMatchProduct(step, i):
             ex_stat = "ErrorAMZMatchProduct:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorAMZMatchProduct traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1924,18 +1925,18 @@ def processAMZMatchProduct(step, i):
 def processExtractPurchaseOrder(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Searching....", step["target"])
+        log3("Searching....", step["target"])
 
         scrn = symTab[step["screen"]]
         template = step["template"]  # contains anchor/info name, or the text string to matched against.
 
         if step["target"] == "Anchor":
-            print("")
+            log3("")
         elif step["target"] == "Info":
-            print("")
+            log3("")
         elif step["target"] == "Text":
             template = step["template"]
-            print("")
+            log3("")
 
         # search result should be put into the result variable.
         symTab[step["result"]] = None
@@ -1996,7 +1997,7 @@ def processAMZCalcProductLayout(step, i):
             symTab[step["pl_page_layout"]] = "list"
         else:
             # this is inconclusive, should re-scroll and check.....
-            print("WARNING: inconclusive on the layout")
+            log3("WARNING: inconclusive on the layout")
 
 
     except Exception as e:
@@ -2007,7 +2008,7 @@ def processAMZCalcProductLayout(step, i):
             ex_stat = "ErrorAMZCalcProductLayout:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorAMZCalcProductLayout traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2036,22 +2037,22 @@ def found_match(p, pl):
         # most reviews
         rvsorted = sorted(pl, key=lambda x: x["summery"]["feedbacks"], reverse=True)
         matches = [rvsorted[0]]
-        print("MOST REVIEWS:", matches)
+        log3("MOST REVIEWS:", matches)
     elif p["selType"] == "mhr":
         # highest star ranking....
         rvsorted = sorted(pl, key=lambda x: x["summery"]["score"], reverse=True)
         matches = [rvsorted[0]]
-        print("HIGHEST RATED:", matches)
+        log3("HIGHEST RATED:", matches)
     elif p["selType"] == "ms":
         # most past week sales
         rvsorted = sorted(pl, key=lambda x: x["summery"]["weekly_sales"], reverse=True)
         matches = [rvsorted[0]]
-        print("MOST WEEK SALES:", matches)
+        log3("MOST WEEK SALES:", matches)
     elif p["selType"] == "cp":
         # cheapest price
         rvsorted = sorted(pl, key=lambda x: x["summery"]["price"], reverse=False)
         matches = [rvsorted[0]]
-        print("CHEAPEST PRICE:", matches)
+        log3("CHEAPEST PRICE:", matches)
     elif p["selType"] == "cus":
         matches = [{"summery": {"title": "CUSTOM", "rank": 4.5, "feedbacks": 1, "price": 0.01}}]
     else:
@@ -2082,23 +2083,23 @@ def found_match(p, pl):
 def processAMZScrapePLHtml(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Extract Product List from HTML: ", step)
+        log3("Extract Product List from HTML: ", step)
 
         hfile = symTab[step["html_var"]]
-        print("hfile: ", hfile)
+        log3("hfile: ", hfile)
 
         pl = amz_buyer_fetch_product_list(hfile, symTab[step["page_num"]])
-        print("scrape product list result: ", pl)
+        log3("scrape product list result: ", pl)
 
         att_pl = []
 
         # go thru all products in configuration
         for p in symTab[step["page_cfg"]]["products"]:
-            print("current page config: ", p)
+            log3("current page config: ", p)
             found = found_match(p, pl["pl"])
             if found:
                 # remove found from the pl
-                print("FOUND product:", found)
+                log3("FOUND product:", found)
                 if found["summery"]["title"] != "CUSTOM":
                     pl["pl"].remove(found)
                 else:
@@ -2122,7 +2123,7 @@ def processAMZScrapePLHtml(step, i, mission):
             # otherwise, extend the list with the new results.
             symTab[step["product_list"]].append({"products": pl, "attention": att_pl})
 
-        print("var step['product_list']: ", symTab[step["product_list"]])
+        log3("var step['product_list']: ", symTab[step["product_list"]])
 
 
 
@@ -2134,17 +2135,17 @@ def processAMZScrapePLHtml(step, i, mission):
             ex_stat = "ErrorAMZScrapePLHtml:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorAMZScrapePLHtml traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
 def processAMZScrapeDetailsHtml(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Extract Product Details from HTML")
+        log3("Extract Product Details from HTML")
 
         hfile = symTab[step["html_var"]]
-        print("hfile: ", hfile)
+        log3("hfile: "+hfile)
 
         if step["result"] in symTab:
             # if new, simply assign the result.
@@ -2163,17 +2164,17 @@ def processAMZScrapeDetailsHtml(step, i):
             ex_stat = "ErrorAMZScrapeDetailsHtml:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorAMZScrapeDetailsHtml traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
 def processAMZScrapeReviewsHtml(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Extract Product Reviews from HTML")
+        log3("Extract Product Reviews from HTML")
 
         hfile = symTab[step["html_var"]]
-        print("hfile: ", hfile)
+        log3("hfile: "+hfile)
 
         if step["result"] in symTab:
             # if new, simply assign the result.
@@ -2192,6 +2193,6 @@ def processAMZScrapeReviewsHtml(step, i):
             ex_stat = "ErrorAMZScrapeReviewsHtml:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorAMZScrapeReviewsHtml traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
