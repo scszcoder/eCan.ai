@@ -11,6 +11,9 @@ from skill.steps.enum_step_type import EnumStepType
 from skill.steps.step_goto import StepGoto
 from skill.steps.step_header import StepHeader
 from skill.steps.step_stub import StepStub, EnumStubName
+# from typing import TYPE_CHECKING
+# if TYPE_CHECKING:
+from skill.steps.step_base import StepBase
 
 
 class SkFCSkd:
@@ -69,10 +72,10 @@ class SkFCSkd:
 
         return sk_info, psk_words
 
-    def decode_diagram_items(self, items, context_menu: QMenu = None):
+    def decode_diagram_items(self, encoded_items, context_menu: QMenu = None):
         arrow_diagram_items = []
         diagram_items = []
-        for item in items:
+        for item in encoded_items:
             diagram_item = None
             str_item_type = item["item_type"]
             enum_item_type = EnumItemType[str_item_type]
@@ -231,3 +234,55 @@ class SkFCSkd:
         return this_step, sorted_steps_stack
 
 # SkFCSkd().gen_psk_file(skd_file, psk_file_dir)
+
+
+class StepItems:
+    def __init__(self):
+        self.steps = []
+        self.step_map = {}
+
+    def add_step(self, step: StepBase, key: str):
+        if key in self.step_map:
+            raise ValueError(f"Key '{key}' already exists in the collection.")
+
+        self.steps.append(step)
+        self.step_map[key] = step
+
+    def get_step_by_key(self, key: str) -> StepBase:
+        if key not in self.step_map:
+            raise KeyError(f"Key '{key}' not found in the collection.")
+
+        return self.step_map[key]
+
+    def __len__(self):
+        return len(self.steps)
+
+    def __iter__(self):
+        return iter(self.steps)
+
+
+# class StepQueue:
+#     def __init__(self):
+#         super().__init__()
+#         self.queue = []
+#
+#     def enqueue(self, step: StepBase):
+#         self.queue.append(step)
+#
+#     def dequeue(self):
+#         if len(self.queue) < 1:
+#             return None
+#         return self.queue.pop(0)
+#
+#     def size(self):
+#         return len(self.queue)
+#
+#     def insert(self, position, step: StepBase):
+#         self.queue.insert(position, step)
+#
+#     def find(self, value):
+#         try:
+#             position = self.queue.index(value)
+#             return position
+#         except ValueError:
+#             return -1
