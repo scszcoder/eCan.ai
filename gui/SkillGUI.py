@@ -56,7 +56,7 @@ class SkillListView(QListView):
     def mousePressEvent(self, e):
         if e.type() == QEvent.MouseButtonPress:
             if e.button() == Qt.LeftButton:
-                print("row:", self.indexAt(e.pos()).row())
+                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.updateSelectedRole(self.selected_row)
 
@@ -123,10 +123,10 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         """
         Executed when the mouse moves over the shape (NOT PRESSED).
         """
-        # print("hover move", moveEvent.pos())
+        # self.parent.showMsg("hover move"+json.dumps(moveEvent.pos()))
         if self.isSelected():
             handle = self.handleAt(moveEvent.pos())
-            #print("hover selected....", handle)
+            #self.parent.showMsg("hover selected....", handle)
             cursor = Qt.ArrowCursor if handle is None else self.handleCursors[handle]
             self.setCursor(cursor)
             #self.setCursor(Qt.ClosedHandCursor)
@@ -136,7 +136,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         """
         Executed when the mouse leaves the shape (NOT PRESSED).
         """
-        # print("hover left")
+        # self.parent.showMsg("hover left")
         self.setCursor(Qt.ArrowCursor)
         super(BSQGraphicsRectItem, self).hoverLeaveEvent(moveEvent)
 
@@ -146,36 +146,36 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         """
         self.updateHandlesPos()
         orig_position = self.scenePos()
-        print("press orginal: ", orig_position)
-        #print("rect pressed....", self.parentView.drawStartPos)
+        self.parent.showMsg("press orginal: "+json.dumps(orig_position))
+        #self.parent.showMsg("rect pressed...."+json.dumps(self.parentView.drawStartPos))
         # self.handleSelected = self.handleAt(self.parentView.drawStartPos)
-        print("mouseEvent.pos()", mouseEvent.pos())
+        self.parent.showMsg("mouseEvent.pos()"+json.dumps(mouseEvent.pos()))
         self.pressLocalPos = mouseEvent.pos()
         self.handleSelected = self.handleAt(mouseEvent.pos())
-        print("parentView.drawStartPos", self.parentView.drawStartPos)
+        self.parent.showMsg("parentView.drawStartPos"+json.dumps(self.parentView.drawStartPos))
         self.handleSelected = self.handleAt(mouseEvent.pos())
         print("handle @ press ...", self.handleSelected)
-        print("rect @ press ...", self.rect())
+        self.parent.showMsg("rect @ press ..."+json.dumps(self.rect()))
         print("all handles:", self.handles)
         currentMousePos = self.parentView.drawStartPos
         currentMousePos.setX(currentMousePos.x() - orig_position.x())
         currentMousePos.setY(currentMousePos.y() - orig_position.y())
         self.handleSelected = self.handleAt(currentMousePos)
 
-        print("currentMousePos ...", currentMousePos)
+        self.parent.showMsg("currentMousePos ..."+json.dumps(currentMousePos))
         #self.handleSelected = self.handleAt(self.parentView.drawStartPos)
         print("handle @ press ...", self.handleSelected)
         if self.handleSelected:
-            print("rect resizing...")
+            self.parent.showMsg("rect resizing...")
             self.mode = "resizing"
             self.parentView.set_mode(self.mode)
             #self.mousePressPos = mouseEvent.pos()
             self.mousePressPos = self.parentView.drawStartPos
             self.mousePressRect = self.boundingRect()
-            # print("mousePressRect: ", self.mousePressRect)
+            # self.parent.showMsg("mousePressRect: ", self.mousePressRect)
         # super().mousePressEvent(mouseEvent)
         else:
-            print("Moving.....")
+            self.parent.showMsg("Moving.....")
             if self.contains(currentMousePos):
                 self.mode = "moving"
                 # self.mousePressPos = mouseEvent.pos()
@@ -185,13 +185,13 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
                 self.mode = "selecting"
 
         self.parentView.set_mode(self.mode)
-        print("rect pressed....", self.mousePressPos, " rect: ", self.rect())
+        self.parent.showMsg("rect pressed...."+json.dumps(self.mousePressPos)+" rect: "+json.dumps(self.rect()))
 
     def mouseReleaseEvent(self, mouseEvent):
         """
         Executed when the mouse is released from the item.
         """
-        print("rect released....", mouseEvent.pos())
+        self.parent.showMsg("rect released...."+json.dumps(mouseEvent.pos()))
         self.releaseLocalPos = mouseEvent.pos()
         #super().mouseReleaseEvent(mouseEvent)
 
@@ -200,12 +200,12 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         self.mouseReleaseRect = self.boundingRect()
 
         orig_position = self.scenePos()
-        print("orig_position: ", orig_position, ":::", self.pos())
-        print("press_position: ", self.mousePressPos)
-        print("release_position: ", self.mouseReleasePos)
+        self.parent.showMsg("orig_position: "+json.dumps(orig_position)+":::"+json.dumps(self.pos()))
+        self.parent.showMsg("press_position: "+json.dumps(self.mousePressPos))
+        self.parent.showMsg("release_position: "+json.dumps(self.mouseReleasePos))
 
         if self.mode == "moving":
-            print("move releasing...")
+            self.parent.showMsg("move releasing...")
             updated_cursor_x = self.releaseLocalPos.x() - self.pressLocalPos.x() + orig_position.x()
             updated_cursor_y = self.releaseLocalPos.y() - self.pressLocalPos.y() + orig_position.y()
             self.setPos(QPointF(updated_cursor_x, updated_cursor_y))
@@ -217,7 +217,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             self.updateHandlesPos()
             print("rect @ release ...", self.rect(), "pos:", self.pos())
         elif self.mode == "resizing":
-            print("resize releasing...")
+            self.parent.showMsg("resize releasing...")
             self.interactiveResize(self.mouseReleasePos)
 
         self.mode = "quiet"
@@ -250,14 +250,14 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         Perform shape interactive resize.
         """
         offset = self.handleSize + self.handleSpace
-        #print("offset is ", offset)
+        #self.parent.showMsg("offset is ", offset)
         boundingRect = self.boundingRect()
         rect = self.rect()
-        #print("bounding rect...", boundingRect, "self rect...", rect)
+        #self.parent.showMsg("bounding rect...", boundingRect, "self rect...", rect)
         diff = QPointF(0, 0)
 
         self.prepareGeometryChange()
-        #print("resize handle selected:", self.handleSelected)
+        #self.parent.showMsg("resize handle selected:", self.handleSelected)
         if self.handleSelected == self.handleTopLeft:
 
             fromX = self.mousePressRect.left()
@@ -270,7 +270,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             boundingRect.setTop(toY)
             rect.setLeft(boundingRect.left() + offset)
             rect.setTop(boundingRect.top() + offset)
-            #print("rect TL:", rect)
+            #self.parent.showMsg("rect TL:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleTopMiddle:
@@ -280,7 +280,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             diff.setY(toY - fromY)
             boundingRect.setTop(toY)
             rect.setTop(boundingRect.top() + offset)
-            #print("rect TM:", rect)
+            #self.parent.showMsg("rect TM:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleTopRight:
@@ -295,7 +295,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             boundingRect.setTop(toY)
             rect.setRight(boundingRect.right() - offset)
             rect.setTop(boundingRect.top() + offset)
-            #print("rect TR:", rect)
+            #self.parent.showMsg("rect TR:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleMiddleLeft:
@@ -305,7 +305,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             diff.setX(toX - fromX)
             boundingRect.setLeft(toX)
             rect.setLeft(boundingRect.left() + offset)
-            #print("rect ML:", rect)
+            #self.parent.showMsg("rect ML:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleMiddleRight:
@@ -314,7 +314,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             diff.setX(toX - fromX)
             boundingRect.setRight(toX)
             rect.setRight(boundingRect.right() - offset)
-            #print("rect MR:", rect)
+            #self.parent.showMsg("rect MR:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleBottomLeft:
@@ -329,19 +329,19 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             boundingRect.setBottom(toY)
             rect.setLeft(boundingRect.left() + offset)
             rect.setBottom(boundingRect.bottom() - offset)
-            #print("rect BL:", rect)
+            #self.parent.showMsg("rect BL:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleBottomMiddle:
 
             fromY = self.mousePressRect.bottom()
-            # print("fromY:", fromY, "mouse y: ", mousePos.y(), "mouse press y: ", self.mousePressPos.y(), "toY", toY)
+            # self.parent.showMsg("fromY:", fromY, "mouse y: ", mousePos.y(), "mouse press y: ", self.mousePressPos.y(), "toY", toY)
             toY = fromY + mousePos.y() - self.mousePressPos.y()
             diff.setY(toY - fromY)
             boundingRect.setBottom(toY)
             rect.setBottom(boundingRect.bottom() - offset)
-            # print("fromY:", fromY, "mouse y: ", mousePos.y(), "mouse press y: ", self.mousePressPos.y(), "toY", toY)
-            #print("rect BM:", rect)
+            # self.parent.showMsg("fromY:", fromY, "mouse y: ", mousePos.y(), "mouse press y: ", self.mousePressPos.y(), "toY", toY)
+            #self.parent.showMsg("rect BM:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleBottomRight:
@@ -356,7 +356,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             boundingRect.setBottom(toY)
             rect.setRight(boundingRect.right() - offset)
             rect.setBottom(boundingRect.bottom() - offset)
-            #print("rect BR:", rect)
+            #self.parent.showMsg("rect BR:"+json.dumps(rect))
             self.setRect(rect)
 
         self.updateHandlesPos()
@@ -415,7 +415,7 @@ class BSQGraphicsScene(QGraphicsScene):
     def mousePressEvent(self, event):
         selected = self.selectedItems()
         if len(selected) == 0:
-            print("scene press nothing selected....")
+            self.parent.showMsg("scene press nothing selected....")
             # rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]))
             # rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
             # rect.setPen(self.parentWin.udBoxPen)
@@ -424,9 +424,9 @@ class BSQGraphicsScene(QGraphicsScene):
             # self.rects.append(rect)
         else:
             # redraw selected item with selected pen.
-            print("selected scene press")
+            self.parent.showMsg("selected scene press")
             for ri in selected:
-                print("pos:", self.parent().pbview.drawStartPos)
+                self.parent.showMsg("pos:"+json.dumps(self.parent().pbview.drawStartPos))
                 #ri.mousePressEvent(event.pos())
                 ri.mousePressEvent(event)
 
@@ -437,7 +437,7 @@ class BSQGraphicsScene(QGraphicsScene):
     def mouseReleaseEvent(self, event):
         selected = self.selectedItems()
         if len(selected) == 0:
-            print("scene release nothing selected....")
+            self.parent.showMsg("scene release nothing selected....")
             # rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]))
             # rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
             # rect.setPen(self.parentWin.udBoxPen)
@@ -446,18 +446,18 @@ class BSQGraphicsScene(QGraphicsScene):
             # self.rects.append(rect)
         else:
             # redraw selected item with selected pen.
-            print("scene release")
+            self.parent.showMsg("scene release")
             for ri in selected:
                 ri.mouseReleaseEvent(event)
 
     def mouseMoveEvent(self, event):
-        # print("scene moving....")
+        # self.parent.showMsg("scene moving....")
         selected = self.selectedItems()
         if len(selected) > 0:
             # redraw selected item with selected pen.
             if event.buttons() == Qt.LeftButton:
                 for ri in selected:
-                    #print("resizing.....", event.scenePos(), "   ", self.parent().pbview.mapToScene(event.scenePos().toPoint()))
+                    #self.parent.showMsg("resizing.....", event.scenePos(), "   ", self.parent().pbview.mapToScene(event.scenePos().toPoint()))
                     #ri.interactiveResize(self.parent().pbview.mapToScene(event.pos().toPoint()))
                     #ri.interactiveResize(self.parent().pbview.mapToScene(event.scenePos().toPoint()))
                     ri.interactiveResize(event.scenePos().toPoint())
@@ -472,7 +472,7 @@ class BSQGraphicsScene(QGraphicsScene):
         return result
 
     def mouseDoubleClickEvent(self, event):
-        print("mouse double clicked.....")
+        self.parent.showMsg("mouse double clicked.....")
 
 
 # BS stands for Bot Skill
@@ -488,11 +488,11 @@ class BSQGraphicsView(QGraphicsView):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            print("rubber band: ", self.rubberBandRect())
+            self.parent.showMsg("rubber band: "+json.dumps(self.rubberBandRect()))
             self.drawEndPos = self.mapToScene(event.pos())
-            print("mouse released at: ", self.drawEndPos, "in mode: ", self.mode)
+            self.parent.showMsg("mouse released at: "+json.dumps(self.drawEndPos)+"in mode: "+self.mode)
             rectPos = self.parentWin.formRectPos(self.drawStartPos, self.drawEndPos)
-            print("rect area: ", rectPos)
+            self.parent.showMsg("rect area: "+json.dumps(rectPos))
             selpath = QPainterPath()
             # selpath.addRect(self.rubberBandRect())
             if self.mode == "quiet":
@@ -500,9 +500,9 @@ class BSQGraphicsView(QGraphicsView):
                 self.scene().setSelectionArea(selpath, Qt.ReplaceSelection, Qt.ContainsItemShape, QTransform(1, 0, 0, 0, 1, 0, 0, 0, 1))
 
             selected = self.scene().selectedItems()
-            print("# selected: ", selected)
+            self.parent.showMsg("# selected: "+json.dumps(selected))
             if len(selected) == 0:
-                print("at release, nothing selected....")
+                self.parent.showMsg("at release, nothing selected....")
                 rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]), self)
                 rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
                 rect.setPen(self.parentWin.udBoxPen)
@@ -517,12 +517,12 @@ class BSQGraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            print("view press event", event.pos(), "::", event.screenPos(), ":::", event.scenePosition())
+            self.parent.showMsg("view press event"+json.dumps(event.pos())+"::"+json.dumps(event.screenPos())+":::"+json.dumps(event.scenePosition()))
             self.drawStartPos = self.mapToScene(event.pos())
             self.drawStartScenePos = self.mapToScene(event.scenePosition().toPoint())
             #self.drawStartPos = self.mapToScene(event.scenePosition().toPoint())
             selected = self.scene().selectedItems()
-            print("# selected: ", selected)
+            self.parent.showMsg("# selected: "+json.dumps(selected))
         elif event.button() == Qt.RightButton:
             self.rightClickPos = self.mapToScene(event.pos())
 
@@ -598,7 +598,7 @@ class SkillGUI(QMainWindow):
         self.load_image_file(file_name)
 
         img_size = self.pic.pixmap().size()
-        print("image size: " + str(img_size.width()) + ", " + str(img_size.height()))
+        self.parent.parent.showMsg("image size: " + str(img_size.width()) + ", " + str(img_size.height()))
 
         # self.pbscene = QGraphicsScene()
         self.pbscene = BSQGraphicsScene(self)
@@ -1390,9 +1390,9 @@ class SkillGUI(QMainWindow):
 
         # app = QApplication.instance()
         # screen = app.primaryScreen()
-        # #print('Screen: %s' % screen.name())
+        # #self.parent.showMsg('Screen: %s' % screen.name())
         # size = screen.size()
-        # print('Size: %d x %d' % (size.width(), size.height()))
+        # self.parent.showMsg('Size: %d x %d' % (size.width(), size.height()))
 
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
@@ -1693,24 +1693,24 @@ class SkillGUI(QMainWindow):
         self.cog = cog
 
     def start_train(self):
-        print("start training...")
+        self.parent.showMsg("start training...")
         file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step1.png"
         self.req_train(file_name)
 
     def train_next_step(self):
         self.step_count = self.step_count + 1
         file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step" + str(self.step_count) + ".png"
-        print("next step... ", self.step_count)
+        self.parent.showMsg("next step... "+str(self.step_count))
         self.req_train(file_name)
 
     def train_prev_step(self):
         self.step_count = self.step_count - 1
         file_name = self.home_path + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
-        print("prev step... ", self.step_count)
+        self.parent.showMsg("prev step... "+str(self.step_count))
         self.req_train(file_name)
 
     def re_train_step(self):
-        print("refresh... ", self.step_count)
+        self.parent.showMsg("refresh... "+str(self.step_count))
         file_name = self.home_path + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
         self.req_train(file_name)
 
@@ -1731,9 +1731,9 @@ class SkillGUI(QMainWindow):
         print("result:", result)
         result_json = json.loads(result)
         resp = json.loads(result_json["data"]["reqTrain"])
-        print("resp:", resp["body"])
+        self.parent.showMsg("resp:"+json.dumps(resp["body"]))
         bdata = json.loads(resp["body"])
-        print("bdata:", bdata["data"], "##", len(bdata["data"]))
+        self.parent.showMsg("bdata:"+json.dumps(bdata["data"])+"##"+str(len(bdata["data"])))
         self.draw_rects(bdata["data"])
 
     def draw_rects(self, screen_contents):
@@ -1754,12 +1754,12 @@ class SkillGUI(QMainWindow):
             #self.rects.append(rect)
 
     def select_contents(self):
-        print("selected: ", self.pbview.rubberBandRect())
+        self.parent.showMsg("selected: "+json.dumps(self.pbview.rubberBandRect()))
 
     def eventFilter(self, source, event):
-        # print("source:", source, " event: ", event)
+        # self.parent.showMsg("source:", source, " event: ", event)
         if event.type() == QEvent.ContextMenu and source is self.pbview:
-            print("right clicking...")
+            self.parent.showMsg("right clicking...")
             self.popMenu = QMenu(self)
             self.setAnchorAction = self._createSetAnchorAction()
             self.setUDAction = self._createSetUDAction()
@@ -1773,11 +1773,11 @@ class SkillGUI(QMainWindow):
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
                 if selected_act == self.setAnchorAction:
-                    print("set anchor")
+                    self.parent.showMsg("set anchor")
                 elif selected_act == self.setUDAction:
-                    print("set UD")
+                    self.parent.showMsg("set UD")
                 elif selected_act == self.clearBBAction:
-                    print("clear BB", len(self.pbscene.current_items))
+                    self.parent.showMsg("clear BB"+str(len(self.pbscene.current_items)))
                     if len(self.pbscene.current_items) > 0:
                         self.pbscene.removeItem(self.pbscene.current_items[0])
 
@@ -1786,7 +1786,7 @@ class SkillGUI(QMainWindow):
             return True
 
         if event.type() == QEvent.ContextMenu and source is self.pbskAnchorListView:
-            #print("bot RC menu....")
+            #self.parent.showMsg("bot RC menu....")
             self.popMenu = QMenu(self)
             self.anchorEditAction = self._createAnchorEditAction()
             self.anchorCloneAction = self._createAnchorCloneAction()
@@ -1809,7 +1809,7 @@ class SkillGUI(QMainWindow):
                     self.deleteAnchor()
             return True
         elif event.type() == QEvent.ContextMenu and source is self.pbskDataListView:
-            #print("mission RC menu....")
+            #self.parent.showMsg("mission RC menu....")
             self.popMenu = QMenu(self)
             self.userDataEditAction = self._createUserDataEditAction()
             self.userDataCloneAction = self._createUserDataCloneAction()
@@ -1832,7 +1832,7 @@ class SkillGUI(QMainWindow):
                     self.deleteUserData()
             return True
         elif event.type() == QEvent.ContextMenu and source is self.pbskStepListView:
-            # print("mission RC menu....")
+            # self.parent.showMsg("mission RC menu....")
             self.popMenu = QMenu(self)
             self.stepEditAction = self._createStepEditAction()
             self.stepCloneAction = self._createStepCloneAction()
@@ -1942,7 +1942,7 @@ class SkillGUI(QMainWindow):
         skill_name = self.app + "_" + self.domain + "_" + self.page
         if self.pbtabs.currentIndex() == 0:
             if self.pbInfoSel.currentText() == "Anchor":
-                print("add a new anchor....")
+                self.parent.showMsg("add a new anchor....")
                 self.newAnchor = ANCHOR(self.pbInfoNameEdit.text(), self.pbATSel.currentText())
                 if self.newAnchor.get_type() == "Image":
                     skill_name = ""
@@ -1978,10 +1978,10 @@ class SkillGUI(QMainWindow):
                     self.newAnchor.add_ref(self.pbRef3NameEdit.text(), refx, refy)
                     refx, refy = self.get_ref4xy()
                     self.newAnchor.add_ref(self.pbRef4NameEdit.text(), refx, refy)
-                    print("ready to add....")
+                    self.parent.showMsg("ready to add....")
                 self.anchorListModel.appendRow(self.newAnchor)
             elif self.pbInfoSel.currentText() == "Useful Data":
-                print("add a new user info....")
+                self.parent.showMsg("add a new user info....")
                 self.newUserInfo = USER_INFO(self.pbInfoNameEdit.text())
                 self.newUserInfo.set_type(self.pbDTSel.currentText())
                 self.newUserInfo.set_nlines(self.pbNEdit.text())
@@ -2014,7 +2014,7 @@ class SkillGUI(QMainWindow):
                 self.dataListModel.appendRow(self.newUserInfo)
 
         elif self.pbtabs.currentIndex() == 1:
-            print("add a new step....")
+            self.parent.showMsg("add a new step....")
             pbActionSel_text = self.pbActionSel.currentText()
             new_step = PROCEDURAL_STEP(pbActionSel_text)
             if pbActionSel_text == 'App Page Open':
@@ -2042,7 +2042,7 @@ class SkillGUI(QMainWindow):
             self.stepListModel.appendRow(new_step)
 
     def ia_save(self):
-        print("save images to files....")
+        self.parent.showMsg("save images to files....")
         # save the json
         privacy = "public"
         if privacy == "public":
@@ -2139,7 +2139,7 @@ class SkillGUI(QMainWindow):
         return ijson
 
     def ia_remove(self):
-        print("remove a piece of information....")
+        self.parent.showMsg("remove a piece of information....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         if self.pbtabs.currentIndex() == 0:
             if self.pbInfoSel.currentText() == "Anchor":
@@ -2152,7 +2152,7 @@ class SkillGUI(QMainWindow):
             elif self.pbInfoSel.currentText() == "Useful Data":
                 self.newUserInfo = USER_INFO(self.pbInfoNameEdit.text())
         elif self.pbtabs.currentIndex() == 1:
-            print("hohoho")
+            self.parent.showMsg("hohoho")
 
     def show_ref1(self, visible: bool):
         self.pbRef1NameLabel.setVisible(visible)
@@ -2290,16 +2290,16 @@ class SkillGUI(QMainWindow):
     def load_skill_file(self):
         # bring out the load file dialog
         my_skill_dir_path = app_info.app_home_path + "/resource/skills/my"
-        print(my_skill_dir_path)
+        self.parent.showMsg(my_skill_dir_path)
         options = QFileDialog.Options()
         file_name, _ = QFileDialog.getOpenFileName(self, "Open File", my_skill_dir_path, "All Files (*.skd);;SKD Files (*.skd)",
                                                    options=options)
         if file_name:
-            print("Selected file:", file_name)
+            self.parent.showMsg("Selected file:"+file_name)
             with open(file_name, 'r') as f:
                 data = json.load(f)
 
-                print(f'JSON data loaded from {file_name}: {data}')
+                self.parent.showMsg(f'JSON data loaded from {file_name}: {data}')
                 self.skFCWidget.decode_json(json.dumps(data))
                 self.edit_mode = "edit"
 
@@ -2313,7 +2313,7 @@ class SkillGUI(QMainWindow):
             my_skill_img_dir = app_info.app_home_path + "/resource/skills/my/" + sk_prefix + "/" + skname + "/images/"
             if not os.path.exists(my_skill_dir_path):
                 os.makedirs(my_skill_dir_path)
-                print("Folder created:", my_skill_dir_path)
+                self.parent.showMsg("Folder created:"+my_skill_dir_path)
 
             skd_file_path = my_skill_dir_path + skname + ".skd"
 
@@ -2321,7 +2321,7 @@ class SkillGUI(QMainWindow):
             if skd_file_path:
                 with open(skd_file_path, 'w') as file:
                     file.write(skd_data)
-                    print(f'save skd file to {skd_file_path}')
+                    self.parent.showMsg(f'save skd file to {skd_file_path}')
 
             worksettings = self.get_work_settings()
             psk_words = self.skFCWidget.skfc_scene.gen_psk_words(worksettings)
@@ -2329,11 +2329,11 @@ class SkillGUI(QMainWindow):
             if psk_file_path:
                 with open(psk_file_path, 'w') as file:
                     file.write(psk_words)
-                    print(f'save psk file to {psk_file_path}')
+                    self.parent.showMsg(f'save psk file to {psk_file_path}')
 
             if self.saveSkMBCheckboxCloud.isChecked():
                 # save to cloud here.
-                print("saving this skill to cloud ")
+                self.parent.showMsg("saving this skill to cloud ")
                 upload_file(self.session, skd_file_path, self.cog.id_token, "skill")
                 upload_file(self.session, psk_file_path, self.cog.id_token, "skill")
                 # upload_file(self.session, csk_file_path, self.cog.id_token, "skill")
@@ -2361,7 +2361,7 @@ class SkillGUI(QMainWindow):
                     if this_skill:
                         result = send_update_skills_request_to_cloud(self.session, [this_skill], self.cog.id_token)
                     else:
-                        print("WARNING: SKILL TO BE UPDATED NOT FOUND!")
+                        self.parent.showMsg("WARNING: SKILL TO BE UPDATED NOT FOUND!")
 
 
 
@@ -2415,7 +2415,7 @@ class SkillGUI(QMainWindow):
 
         worksettings = getWorkSettings(self.parent.parent, workTBD)
 
-        print(f"work settings {worksettings}")
+        self.parent.showMsg(f"work settings {worksettings}")
 
         return worksettings
 
@@ -2431,7 +2431,7 @@ class SkillGUI(QMainWindow):
         if psk_file_path:
             with open(psk_file_path, 'w') as file:
                 file.write(psk_words)
-                print(f'save trial psk file to temp file: {psk_file_path}')
+                self.parent.showMsg(f'save trial psk file to temp file: {psk_file_path}')
 
         # self.runStopped = False
         all_skill_codes = [{"ns": "B0M20231225!!", "skfile": psk_file_path}]
@@ -2491,10 +2491,10 @@ class SkillGUI(QMainWindow):
         return new_action
 
     def editAnchor(self):
-        print("edit anchor")
+        self.parent.showMsg("edit anchor")
 
     def cloneAnchor(self):
-        print("clone anchor")
+        self.parent.showMsg("clone anchor")
 
     def deleteAnchor(self):
         # File actions
@@ -2519,13 +2519,13 @@ class SkillGUI(QMainWindow):
                     self.anchorListModel.removeRow(item.row())
 
         #self.botModel.removeRow(self.selected_bot_row)
-        #print("delete bot" + str(self.selected_bot_row))
+        #self.parent.showMsg("delete bot" + str(self.selected_bot_row))
 
     def editUserData(self):
-        print("edit user data")
+        self.parent.showMsg("edit user data")
 
     def cloneUserData(self):
-        print("clone user data")
+        self.parent.showMsg("clone user data")
 
     def deleteUserData(self):
         # File actions
@@ -2549,13 +2549,13 @@ class SkillGUI(QMainWindow):
                     self.dataListModel.removeRow(item.row())
 
         #self.botModel.removeRow(self.selected_bot_row)
-        #print("delete bot" + str(self.selected_bot_row))
+        #self.parent.showMsg("delete bot" + str(self.selected_bot_row))
 
     def editStep(self):
-        print("edit step")
+        self.parent.showMsg("edit step")
 
     def cloneStep(self):
-        print("clone step")
+        self.parent.showMsg("clone step")
 
     def deleteStep(self):
         # File actions
@@ -2579,9 +2579,9 @@ class SkillGUI(QMainWindow):
                     self.stepListModel.removeRow(item.row())
 
         #self.botModel.removeRow(self.selected_bot_row)
-        #print("delete bot" + str(self.selected_bot_row))
+        #self.parent.showMsg("delete bot" + str(self.selected_bot_row))
 
     def appDomainPage_changed(self):
         # when app, domain, page changed, that means, we need a different .csk file.
-        print("app, domain, page changed....")
+        self.parent.showMsg("app, domain, page changed....")
 

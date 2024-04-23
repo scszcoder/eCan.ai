@@ -21,7 +21,7 @@ class RoleListView(QListView):
     def mousePressEvent(self, e):
         if e.type() == QEvent.MouseButtonPress:
             if e.button() == Qt.LeftButton:
-                print("row:", self.indexAt(e.pos()).row())
+                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.updateSelectedRole(self.selected_row)
 
@@ -58,7 +58,7 @@ class InterestsListView(QListView):
     def mousePressEvent(self, e):
         if e.type() == QEvent.MouseButtonPress:
             if e.button() == Qt.LeftButton:
-                print("row:", self.indexAt(e.pos()).row())
+                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.updateSelectedInterest(self.selected_row)
 
@@ -811,7 +811,7 @@ class BotNewWin(QMainWindow):
         self.pln_edit.setText(bot.getPseudoLastName())
         self.pfn_edit.setText(bot.getPseudoFirstName())
         self.backem_site_edit.setText(bot.getBackEmSite())
-        print("hihii???")
+        self.parent.showMsg("hihii???")
         # self.pnn_edit.setText(bot.getNickName())
         self.phone_edit.setText(bot.getPhone())
         # self.icon_path_edit.setText(bot.getIconLink())
@@ -853,7 +853,7 @@ class BotNewWin(QMainWindow):
         all_roles = bot.getLevels()
         if all_roles != "":
             roles = all_roles.split(",")
-            print("ROLES:", roles)
+            self.parent.showMsg("ROLES:"+json.dumps(roles))
             if len(roles) > 0:
                 role_parts = roles[0].split(":")
                 role_platform = role_parts[0]
@@ -892,12 +892,12 @@ class BotNewWin(QMainWindow):
         isc1_options = ['any']
         isc2_options = ['any']
         isc3_options = ['any']
-        print("bot intests:", bot.getInterests())
+        self.parent.showMsg("bot intests:"+json.dumps(bot.getInterests()))
         all_ints = bot.getInterests()
 
         if all_ints != "":
             ints = all_ints.split(",")
-            print("ints:", ints)
+            self.parent.showMsg("ints:"+json.dumps(ints))
 
             if len(ints) > 0:
                 if ints[0] == "":
@@ -905,29 +905,29 @@ class BotNewWin(QMainWindow):
                 else:
                     top_int = ints[0]
                 int_parts = top_int.split("|")
-                print("int_parts:", int_parts)
+                self.parent.showMsg("int_parts:"+json.dumps(int_parts))
                 int_platform = int_parts[0]
-                print("int_platform:", int_platform)
+                self.parent.showMsg("int_platform:"+json.dumps(int_platform))
                 if len(int_parts)>1:
                     int_mc = int_parts[1]
                 else:
                     int_mc = "any"
-                print("int_mc:", int_mc)
+                self.parent.showMsg("int_mc:"+int_mc)
                 if len(int_parts)>2:
                     int_sc1 = int_parts[2]
                 else:
                     int_sc1 = "any"
-                print("int_sc1:", int_sc1)
+                self.parent.showMsg("int_sc1:"+int_sc1)
                 if len(int_parts)>3:
                     int_sc2 = int_parts[3]
                 else:
                     int_sc2 = "any"
-                print("int_sc2:", int_sc2)
+                self.parent.showMsg("int_sc2:"+int_sc2)
                 if len(int_parts)>4:
                     int_sc3 = int_parts[4]
                 else:
                     int_sc3 = "any"
-                print("getting all int parts.", int_sc3)
+                self.parent.showMsg("getting all int parts."+int_sc3)
                 if int_platform in intp_options:
                     self.interest_platform_sel.setCurrentText(int_platform)
                 else:
@@ -965,7 +965,7 @@ class BotNewWin(QMainWindow):
             self.selected_interest_row = 0
             self.selected_interest_item = self.interestModel.item(self.selected_interest_row)
 
-        print("bot intests loaded......")
+        self.parent.showMsg("bot intests loaded......")
 
 
     def setOwner(self, owner):
@@ -973,7 +973,7 @@ class BotNewWin(QMainWindow):
         self.newBot.setOwner(owner)
 
     def saveBot(self):
-        print("saving bot....")
+        self.parent.showMsg("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         #if self.mode == "new":
         #    self.newBot = EBBOT(self)
@@ -1003,14 +1003,13 @@ class BotNewWin(QMainWindow):
         self.fillInterests()
 
         if self.mode == "new":
-            print("adding new bot....")
+            self.parent.showMsg("adding new bot....")
             self.parent.addNewBots([self.newBot])
         elif self.mode == "update":
-            print("update a bot....")
+            self.parent.showMsg("update a bot....")
             self.parent.updateBots([self.newBot])
 
         self.close()
-        # print(self.parent)
 
     def fillRoles(self):
         self.newBot.setRoles("")
@@ -1022,7 +1021,7 @@ class BotNewWin(QMainWindow):
                 self.newBot.setRoles(self.newBot.getRoles() + role_words)
             else:
                 self.newBot.setRoles(self.newBot.getRoles() + "," + role_words)
-            print("roles>>>>>", self.newBot.getRoles())
+            self.parent.showMsg("roles>>>>>"+json.dumps(self.newBot.getRoles()))
 
     def fillInterests(self):
         self.newBot.setInterests("")
@@ -1034,12 +1033,12 @@ class BotNewWin(QMainWindow):
                 self.newBot.setInterests(self.newBot.getInterests() + int_words)
             else:
                 self.newBot.setInterests(self.newBot.getInterests() + "," + int_words)
-            print("interests>>>>>", self.newBot.getInterests())
+            self.parent.showMsg("interests>>>>>"+json.dumpa(self.newBot.getInterests()))
 
     def selFile(self):
         # File actions
         fdir = self.fsel.getExistingDirectory()
-        print(fdir)
+        self.parent.showMsg(fdir)
         return fdir
 
     def setMode(self, mode):
@@ -1222,7 +1221,7 @@ class BotNewWin(QMainWindow):
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.ContextMenu and source is self.roleListView:
-            print("role menu....", source)
+            self.parent.showMsg("role menu...."+json.dumps(source))
             self.popMenu = QMenu(self)
             self.pop_menu_font = QFont("Helvetica", 10)
             self.popMenu.setFont(self.pop_menu_font)
@@ -1244,7 +1243,7 @@ class BotNewWin(QMainWindow):
                     self.deleteRole()
             return True
         elif event.type() == QEvent.ContextMenu and source is self.interestListView:
-            print("interest menu....")
+            self.parent.showMsg("interest menu....")
             self.popMenu = QMenu(self)
             self.pop_menu_font = QFont("Helvetica", 10)
             self.popMenu.setFont(self.pop_menu_font)
@@ -1265,7 +1264,7 @@ class BotNewWin(QMainWindow):
                     self.deleteInterest()
             return True
         # else:
-        #     print("unknwn.... RC menu....", source, " EVENT: ", event)
+        #     self.parent.showMsg("unknwn.... RC menu....", source, " EVENT: ", event)
         return super().eventFilter(source, event)
 
 

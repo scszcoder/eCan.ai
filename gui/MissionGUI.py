@@ -21,7 +21,7 @@ class SkillListView(QListView):
     def mousePressEvent(self, e):
         if e.type() == QEvent.MouseButtonPress:
             if e.button() == Qt.LeftButton:
-                print("row:", self.indexAt(e.pos()).row())
+                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
                 self.selected_row = self.indexAt(e.pos()).row()
                 # self.parent.updateSelectedSkill(self.selected_row)
 
@@ -620,7 +620,7 @@ class MissionNewWin(QMainWindow):
             self.setWindowTitle('Updating a mission')
 
     def saveMission(self):
-        print("saving bot....")
+        self.parent.showMsg("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
 
         if self.manual_rb.isChecked():
@@ -697,7 +697,7 @@ class MissionNewWin(QMainWindow):
         site_sh = self.parent.translateSiteName(site_text)
         self.newMission.setSite(site_text)
 
-        print("Setting CusPAS:", platform_sh+","+app_sh+","+site_sh)
+        self.parent.showMsg("Setting CusPAS:"+platform_sh+","+app_sh+","+site_sh)
         self.newMission.setCusPAS(platform_sh+","+app_sh+","+site_sh)
         self.fillSkills()
 
@@ -705,10 +705,10 @@ class MissionNewWin(QMainWindow):
 
 
         if self.mode == "new":
-            print("adding new mission....")
+            self.parent.showMsg("adding new mission....")
             self.parent.addNewMissions([self.newMission])
         elif self.mode == "update":
-            print("update a mission....")
+            self.parent.showMsg("update a mission....")
             self.parent.updateMissions([self.newMission])
 
         self.close()
@@ -738,14 +738,14 @@ class MissionNewWin(QMainWindow):
             skid = self.selected_skill_item.getSkid()
             sk_word = sk_word + "," + str(skid)
 
-        print("skills>>>>>", sk_word)
+        self.parent.showMsg("skills>>>>>"+sk_word)
 
         self.newMission.setSkills(sk_word)
 
     def selFile(self):
         # File actions
         fdir = self.fsel.getExistingDirectory()
-        print(fdir)
+        self.parent.showMsg(fdir)
         return fdir
 
     def setOwner(self, owner):
@@ -754,7 +754,7 @@ class MissionNewWin(QMainWindow):
 
     def setMission(self, mission):
         self.newMission = mission
-        print("setting mission id:", str(self.newMission.getMid()))
+        self.parent.showMsg("setting mission id:"+str(self.newMission.getMid()))
         self.mid_edit.setText(str(self.newMission.getMid()))
         self.ticket_edit.setText(str(self.newMission.getTicket()))
         self.bid_edit.setText(str(self.newMission.getBid()))
@@ -851,7 +851,7 @@ class MissionNewWin(QMainWindow):
 
 
     def missionAppSel_changed(self):
-        print("app changed....")
+        self.parent.showMsg("app changed....")
         if self.mission_app_sel.currentText() != 'Custom':
             self.hide_mission_custom_app()
             self.selected_mission_app = self.mission_app_sel.currentText()
@@ -998,7 +998,7 @@ class MissionNewWin(QMainWindow):
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.ContextMenu and source is self.skillListView:
-            #print("bot RC menu....")
+            #self.parent.showMsg("bot RC menu....")
             self.popMenu = QMenu(self)
             self.skillUpdateAction = self._createSkillUpdateAction()
             self.skillDeleteAction = self._createSkillDeleteAction()
@@ -1017,10 +1017,10 @@ class MissionNewWin(QMainWindow):
                     self.updateSelectedSkill(self.selected_skill_row)
             return True
 
-            ##print(event.)
+            ##self.parent.showMsg(event.)
 
         # else:
-        #     print("unknwn.... RC menu....", source, " EVENT: ", event)
+        #     self.parent.showMsg("unknwn.... RC menu....", source, " EVENT: ", event)
         return super().eventFilter(source, event)
 
 
@@ -1033,12 +1033,12 @@ class MissionNewWin(QMainWindow):
             self.mission_platform_sel.setCurrentText(platform)
 
             if self.mission_app_sel.findText(app) < 0:
-                print("set custom app")
+                self.parent.showMsg("set custom app")
                 self.mission_app_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
                 self.skillCustomAppNameEdit.setText(app)
                 self.skillCustomAppLinkEdit.setText(applink)
             else:
-                print("set menu app")
+                self.parent.showMsg("set menu app")
                 self.mission_app_sel.setCurrentText(app)
                 self.skillCustomActionEdit.setText("")
 
@@ -1060,7 +1060,7 @@ class MissionNewWin(QMainWindow):
 
     def genNewTicket(self):
         # get a new ticket using parent's DB connection.
-        print("new ticket number is: ")
+        self.parent.showMsg("new ticket number is: ")
 
     def buildSkillSelList(self):
         for sk in self.parent.skills:
@@ -1069,7 +1069,7 @@ class MissionNewWin(QMainWindow):
 
     def buy_rb_checked_state_changed(self):
         if self.buy_rb.isChecked():
-            print("buy mission is selected....")
+            self.parent.showMsg("buy mission is selected....")
             self.show_buy_attributes()
             self.hide_sell_attributes()
             self.hide_op_attributes()
@@ -1079,7 +1079,7 @@ class MissionNewWin(QMainWindow):
 
     def sell_rb_checked_state_changed(self):
         if self.sell_rb.isChecked():
-            print("sell mission is selected....")
+            self.parent.showMsg("sell mission is selected....")
             self.show_sell_attributes()
             self.hide_buy_attributes()
             self.hide_op_attributes()
@@ -1088,7 +1088,7 @@ class MissionNewWin(QMainWindow):
 
     def op_rb_checked_state_changed(self):
         if self.op_rb.isChecked():
-            print("sell mission is selected....")
+            self.parent.showMsg("sell mission is selected....")
             self.show_op_attributes()
             self.hide_buy_attributes()
             self.hide_sell_attributes()

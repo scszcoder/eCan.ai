@@ -6,6 +6,7 @@ from PyPDF2 import PdfReader
 import subprocess
 import os
 from basicSkill import *
+from Logger import *
 
 global symTab
 global STEP_GAP
@@ -38,7 +39,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    print("fopen_f_path: ", fopen_f_path, "fopen_f_name: ", fopen_f_name)
+    log3("fopen_f_path: "+fopen_f_path+"fopen_f_name: "+fopen_f_name)
 
     # readn screen
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "op", "top", theme, this_step, None)
@@ -115,7 +116,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
