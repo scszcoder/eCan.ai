@@ -3,6 +3,8 @@ from readSkill import *
 from datetime import datetime
 import shutil
 import os
+from Logger import *
+
 TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
 # start time for the day, example: 7am pacific time.
@@ -369,7 +371,7 @@ class EBMISSION(QStandardItem):
                                 "token": self.parent.tokens['AuthenticationResult']['IdToken'],
                                 "uid": self.parent.uid}
         self.setText('mission' + str(self.getMid()))
-        print("What??????????", parent.mission_icon_path)
+        log3("What??????????"+parent.mission_icon_path)
         self.icon = QIcon(parent.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
@@ -642,13 +644,13 @@ class EBMISSION(QStandardItem):
             skill_ids = []
         else:
             skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
-        print("mission skill ids: ", skill_ids)
+        log3("mission skill ids: "+json.dumps(skill_ids))
         sk_names = []
         for s in skill_ids:
             skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
                 sk_names.append(self.parent.skills[skidx].getName())
-        print("skill names:", sk_names)
+        log3("skill names:"+json.dumps(sk_names))
         return sk_names
 
     def getPSKFileNames(self):
@@ -657,14 +659,14 @@ class EBMISSION(QStandardItem):
         else:
             skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
 
-        print("mission skill ids: ", skill_ids)
+        log3("mission skill ids: "+json.dumps(skill_ids))
         psk_names = []
         for s in skill_ids:
             skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
                 psk_names.append(self.parent.skills[skidx].getPskFileName())
 
-        print("procedural skill names:", psk_names)
+        log3("procedural skill names:"+json.dumps(psk_names))
         return psk_names
 
     def getCSKFileNames(self):
@@ -672,14 +674,14 @@ class EBMISSION(QStandardItem):
             skill_ids = []
         else:
             skill_ids = [int(skid_word) for skid_word in self.pubAttributes.skills.split(",")]
-        print("mission skill ids: ", skill_ids)
+        log3("mission skill ids: "+json.dumps(skill_ids))
         csk_names = []
         for s in skill_ids:
             skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
                 csk_names.append(self.parent.skills[skidx].getCskFileName())
 
-        print("Content skill names:", csk_names)
+        log3("Content skill names:"+json.dumps(csk_names))
         return csk_names
 
 
@@ -781,6 +783,7 @@ class EBMISSION(QStandardItem):
         self.setText('mission' + str(self.getMid()))
 
     def setNetRespJsonData(self, nrjd):
+        # whatever come off cloud matters only to the public attributes part.
         self.pubAttributes.loadNetRespJson(nrjd)
         self.setText('mission' + str(self.getMid()))
 
@@ -790,8 +793,8 @@ class EBMISSION(QStandardItem):
                 "pubAttributes": self.pubAttributes.genJson(),
                 "privateAttributes": self.privateAttributes.genJson()
                 }
-        print("GENERATED JSON:", jsd)
-        print("after dump:", json.dumps(jsd))
+        log3("GENERATED JSON:"+json.dumps(jsd))
+        log3("after dump:"+json.dumps(jsd))
         return jsd
 
     def loadNetRespJson(self, jd):
@@ -878,16 +881,21 @@ class EBMISSION(QStandardItem):
         self.setCustomerID(jd["customer"])
         self.setPlatoon(jd["platoon"])
 
+    def loadJsonData(self, jd):
+        self.pubAttributes.loadJson(jd["pubAttributes"])
+        self.privateAttributes.loadJson(jd["privateAttributes"])
+
+
 
     async def run(self):
         run_result = None
-        print("running.....")
+        log3("running.....")
         for si in range(len(self.pubAttributes.skills)):
-            print("si:", si)
-            print("skill:", self.pubAttributes.skills[si])
+            log3("si:"+str(si))
+            log3("skill:"+json.dumps(self.pubAttributes.skills[si]))
             self.pubAttributes.skills[si].loadSkill()
-            print("run all steps .....", self.pubAttributes.skills[si].get_all_steps())
-            print("settings:", self.parent_settings)
+            log3("run all steps ....."+json.dumps(self.pubAttributes.skills[si].get_all_steps()))
+            log3("settings:"+json.dumps(self.parent_settings))
             runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.parent_settings)
 
         return run_result

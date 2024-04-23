@@ -7,6 +7,7 @@ import random
 from calendar import isleap
 import cv2
 from productsData import *
+from Logger import *
 
 
 def convNFB(nfb_txt):
@@ -18,12 +19,12 @@ def convNFB(nfb_txt):
 
     numb_num_parts = nfb_num_txt.split(",")
     nfb_word = ''.join(numb_num_parts)
-    # print("nfb: " + str(nfb_word))
+    # log3("nfb: " + str(nfb_word))
     return int(nfb_word)
 
 def convPrice(price_txt):
     price_num_txt = price_txt.split("$")[1].replace(",", "")
-    # print("converted price: " + price_num_txt)
+    # log3("converted price: " + price_num_txt)
     return float(price_num_txt)
 
 
@@ -35,7 +36,7 @@ def convWeeklySales(ws_txt):
         nsales = int(ws_word)*1000
     else:
         nsales = int(ws_word)
-    # print("weekly sales: ", nsales)
+    # log3("weekly sales: "+str(nsales))
     return nsales
 
 #idx - which page out of all pages of search result.
@@ -49,7 +50,7 @@ def amz_buyer_fetch_product_list(html_file, idx):
         # all useful information are here:
         #extract all div tags which contains data-index attribute which is a indication of a product in the product list.
         prodItems = soup.findAll("div", attrs={"data-index":True})
-        print("# of div tags: ", len(prodItems))
+        log3("# of div tags: "+str(len(prodItems)))
         # ageuseful = soup.findAll('span', {"class": 'content-value'})
         # agewords = ageuseful[0].text.split(' ')
         # usr.birth_year = int(agewords[3][0:4])
@@ -57,48 +58,48 @@ def amz_buyer_fetch_product_list(html_file, idx):
         # days = get_month_days(usr.birth_year, usr.birth_month)
         # usr.birth_day = random.randrange(1, days+1)
 
-        # print(agewords[0][1:4])     # ’age'
-        # print(agewords[1])          # age in number
-        # print(agewords[2][1:4])     # birth month
-        # print(agewords[3][0:4])     # birth year
+        # log3(agewords[0][1:4])     # ’age'
+        # log3(agewords[1])          # age in number
+        # log3(agewords[2][1:4])     # birth month
+        # log3(agewords[3][0:4])     # birth year
 
         for item in prodItems:
             if item.get('data-asin') != None and item.get('data-asin') != "":
-                # print(item.get('data-asin'))
+                # log3(item.get('data-asin'))
 
                 sum_infos = item.findAll("span", attrs={"class": lambda t: t in ('a-size-base-plus a-color-base a-text-normal', 'a-size-medium a-color-base a-text-normal', 'a-size-base', 'a-icon-alt', 'a-size-base s-underline-text', 'a-price', 'a-color-base', 'a-badge-text', 'a-offscreen')})
-                # print("SUM INFO::: ", sum_infos)
+                # log3("SUM INFO::: "+json.dumps(sum_infos))
                 price_set = False
                 weekly_set = False
-                # print("LEN SUM_INFOS: ", len(sum_infos))
+                # log3("LEN SUM_INFOS: "+str(len(sum_infos)))
                 summery = PRODUCT_SUMMERY()
                 for sum_info in sum_infos:
-                    # print("class: ", sum_info.get('class'))
+                    # log3("class: "+sum_info.get('class'))
                     if " ".join(sum_info.get('class')) == 'a-size-base-plus a-color-base a-text-normal' or " ".join(sum_info.get('class')) == 'a-size-medium a-color-base a-text-normal':
                         summery.setTitle(sum_info.text)
-                        # print("Title: ", sum_info.text)
+                        # log3("Title: "+sum_info.text)
                     elif sum_info.get('class')[0] == 'a-icon-alt':
                         summery.setScore(float(sum_info.text.split(" ")[0]))
-                        # print("Score: ", sum_info.text)
+                        # log3("Score: "+sum_info.text)
                     elif " ".join(sum_info.get('class')) == 'a-size-base s-underline-text':
                         summery.setFeedbacks(convNFB(sum_info.text))
-                        # print("Feedback: ", sum_info.text)
+                        # log3("Feedback: "+sum_info.text)
                     elif sum_info.get('class')[0] == 'a-offscreen':
                         if price_set == False:
                             summery.setPrice(convPrice(sum_info.text))
                             price_set = True
-                            # print("Price: ", sum_info.text)
+                            # log3("Price: "+sum_info.text)
 
                     elif " ".join(sum_info.get('class')) == 'a-size-base a-color-secondary':
                         if weekly_set == False:
-                            # print("weekly: ", sum_info.text)
+                            # log3("weekly: "+sum_info.text)
                             if "bought in" in sum_info.text:
                                 summery.setWeekSales(convWeeklySales(sum_info.text))
                             else:
                                 summery.setWeekSales(-1)
                             weekly_set = True
                     elif sum_info.get('class')[0] == 'a-badge-text':
-                            print("Found A Badge::: ", sum_info.text)
+                            log3("Found A Badge::: "+sum_info.text)
                             if sum_info.text == "Amazon's ":
                                 summery.addBadge("Amazon's Choice")
                             elif sum_info.text != "Choice":
@@ -112,10 +113,10 @@ def amz_buyer_fetch_product_list(html_file, idx):
                     elif sum_info.get('class')[len(sum_info.get('class'))-1] == 'a-color-base':
                         if re.search('FREE', sum_info.text):
                             summery.setFreeDelivery(True)
-                            # print("free delivery: ", sum_info.text)
+                            # log3("free delivery: "+sum_info.text)
 
 
-                # print(summery.toJson())
+                # log3(json.dumps(summery.toJson()))
                 product = PRODUCT()
                 product.setSummery(summery)
                 products.append(product.toJson())
@@ -123,9 +124,9 @@ def amz_buyer_fetch_product_list(html_file, idx):
     if len(products) < 54:
         pagefull_of_pl["layout"] = "list"
     pagefull_of_pl["pl"] = products
-    print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    print(json.dumps(pagefull_of_pl))
-    print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+    log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    log3(json.dumps(pagefull_of_pl))
+    log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
     return pagefull_of_pl
 
 
@@ -208,18 +209,18 @@ def processAmzScrapeOrders(step, i):
                 if a_tag:
                     href = a_tag['href']
                     page_number = href.split('=')[-1].split('#')[0]
-                    print("Current Page Number:", page_number)
+                    log3("Current Page Number:"+str(page_number))
                 else:
-                    print("No <a> tag found within the <li> tag.")
+                    log3("No <a> tag found within the <li> tag.")
             else:
-                print("No <li> tag with class 'a-last' found.")
+                log3("No <li> tag with class 'a-last' found.")
 
 
             # extract number of pages info
             orderItems = soup.findAll("tr")
             orderList = []
             if len(orderItems) > 0:
-                print("found page items.")
+                log3("found page items.")
 
                 for oi in orderItems:
                     oneOrder={}
@@ -257,19 +258,20 @@ def processAmzScrapeOrders(step, i):
             pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
         else:
             pagefull_of_orders["num_pages"] = 1
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
         for o in orders:
-            print(o.toJson())
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+            log3(json.dumps(o.toJson()))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
 
         symTab[step["result"]] = pagefull_of_orders
 
 
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
 
     return next_i, ex_stat
 
@@ -305,12 +307,11 @@ def processAmzScrapeShipToAddress(step, i):
             # Here, I assume that address lines contain all the required information, you may need to further parse it if needed
 
             # Printing extracted information
-            print("Recipient's Name:", recipient_name)
-            print("Address Line 1:", address_lines[0])
-            print("Address Line 2:",
-                  address_lines[1] if len(address_lines) > 1 else "")  # Assuming there are at most 2 lines for the address
-            print("City, State, Zip:", address_lines[2])
-            print("Contact Phone:", contact_phone)
+            log3("Recipient's Name:"+recipient_name)
+            log3("Address Line 1:"+address_lines[0])
+            log3("Address Line 2:"+(address_lines[1] if len(address_lines) > 1 else ""))  # Assuming there are at most 2 lines for the address
+            log3("City, State, Zip:"+address_lines[2])
+            log3("Contact Phone:"+contact_phone)
 
             city_state_zip = address_lines[-1].split(',')
 
@@ -326,19 +327,20 @@ def processAmzScrapeShipToAddress(step, i):
             pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
         else:
             pagefull_of_orders["num_pages"] = 1
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
         for o in orders:
-            print(o.toJson())
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+            log3(json.dumps(o.toJson()))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
 
         symTab[step["result"]] = pagefull_of_orders
 
 
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
 
     return next_i, ex_stat
 
@@ -383,25 +385,26 @@ def processAmzScrapeCustomerMsgThread(step, i):
 
             # Print the messages
             for message in messages:
-                print(message)
+                log3(json.dumps(message))
 
 
         if len(option_tags) > 0:
             pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
         else:
             pagefull_of_orders["num_pages"] = 1
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
         for o in orders:
-            print(o.toJson())
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+            log3(json.dumps(o.toJson()))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
 
         symTab[step["result"]] = pagefull_of_orders
 
 
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
 
     return next_i, ex_stat

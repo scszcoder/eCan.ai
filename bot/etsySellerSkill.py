@@ -6,6 +6,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
 from envi import *
 from config.app_info import app_info
+from Logger import *
 
 SAME_ROW_THRESHOLD = 16
 tracking_code = ""
@@ -125,7 +126,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -167,7 +168,7 @@ def genWinChromeEtsyCollectOrderListSkill(worksettings, stepN, theme):
     dt_string = str(int(dtnow.timestamp()))
     hfname = "etsyOrders" + dt_string + ".html"
 
-    print("SAVE HTML FILE: ", hfname)
+    log3("SAVE HTML FILE: "+hfname)
 
     # this_step, step_words = genStepCreateDir("sk_work_settings['log_path']", "expr", "fileStatus", this_step)
     # psk_words = psk_words + step_words
@@ -376,7 +377,7 @@ def genWinChromeEtsyCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -396,7 +397,7 @@ def genStepEtsySearchOrders(screen, orderDataName, errFlagName, stepN):
 def processEtsySearchOrders(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Searching....", step["target_types"])
+        log3("Searching...."+step["target_types"])
         global in_exception
         scrn = symTab[step["screen"]]
         target_names = step["names"]           #contains anchor/info name, or the text string to matched against.
@@ -408,7 +409,7 @@ def processEtsySearchOrders(step, i):
         found = []
         n_targets_found = 0
 
-        print("status: ", symTab[step["status"]])
+        log3("status: "+symTab[step["status"]])
 
         # didn't find anything, check fault situation.
         if symTab[step["status"]] == False:
@@ -627,7 +628,7 @@ def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -730,7 +731,7 @@ def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
         for cell in row:
             cell.number_format = '@'  # text format
 
-    print("saving to file: ", ofname)
+    log3("saving to file: "+ofname)
     ofdir = os.path.dirname(ofname)
     if not os.path.exists(ofdir):
         os.makedirs(ofdir)
@@ -764,7 +765,7 @@ def processPrepGSOrder(step, i):
         # collaps all pages of order list into a single list or orders.
         flatlist=[element for sublist in new_orders for element in sublist["ol"]]
 
-        print("FLAT LIST: ", flatlist)
+        log3("FLAT LIST: "+json.dumps(flatlist))
 
         # combine orders into same person and address into 1 order.
         combined = combine_duplicates(flatlist)
@@ -901,7 +902,7 @@ def match_name(img_name, txt_name):
 def processEtsyGetOrderClickedStatus(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Get Order Clicked Status .....")
+        log3("Get Order Clicked Status .....")
         # first extract name, city, state from the text information
         txt_blocs = symTab[step["shipTo"]][symTab[step["shipToIndex"]]]["text"].split("\n")
 
@@ -923,7 +924,7 @@ def processEtsyGetOrderClickedStatus(step, i):
 def processEtsySetOrderClickedStatus(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Opening App .....", step["target_link"] + " " + step["cargs"])
+        log3("Opening App ....."+step["target_link"] + " " + step["cargs"])
         symTab[step["orders"]][symTab[step["foundOrderIndex"]]].setChecked(True)
 
     except:
@@ -945,25 +946,25 @@ def contains_states(line):
 def processEtsyRemoveAlreadyExpanded(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Remove expanded state .....")
+        log3("Remove expanded state .....")
         # first extract name, city, state from the text information
         # then find a match of name, city, state from the orders data.
 
-        # print("SUMMERY:", symTab[step["shipToSummeries"]])
-        # print("{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}")
-        # print("SHIP TO:", symTab[step["shipTos"]])
+        # log3("SUMMERY:", symTab[step["shipToSummeries"]])
+        # log3("{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}")
+        # log3("SHIP TO:", symTab[step["shipTos"]])
 
         for summery in symTab[step["shipToSummeries"]]:
             summery_lines = summery["text"].split("\n")
-            # print("summery lines:", summery_lines)
+            # log3("summery lines:", summery_lines)
             state_line_number = next((idx for idx, l in enumerate(summery_lines) if contains_states(l)), -1)
-            # print("summery line number:", state_line_number)
+            # log3("summery line number:", state_line_number)
             if state_line_number == -1:
                 symTab[step["shipTos"]].pop(0)
             else:
                 break
 
-        # print("SHIPTOnow becomes:", symTab[step["shipTos"]])
+        # log3("SHIPTOnow becomes:"+json.dumps(symTab[step["shipTos"]]))
 
     except:
         ex_stat = "ErrorEtsyRemoveAlreadyExpanded:" + str(i)
@@ -1015,26 +1016,26 @@ def processEtsyFindScreenOrder(step, i):
         found = -1
         orders = symTab[step["orders_var"]]
         nth = symTab[step["nth_var"]]
-        print("nth:", nth, "orders", orders)
+        log3("nth:"+str(nth)+"orders"+json.dumps(orders))
 
         template = symTab[step["order_ids_var"]][nth]["text"].strip()
         button_loc = symTab[step["complete_buttons_var"]][nth]["loc"]
         ref_loc = symTab[step["order_ids_var"]][nth]["associates"][0]["loc"]
 
         oid_template = template.split(" ")[0]
-        print("ALL orders:")
+        log3("ALL orders:")
         for o in orders:
-            print("OID:"+o.getOid()+"!")
+            log3("OID:"+str(o.getOid())+"!")
 
-        print("template:", "["+oid_template+"]", "button_loc:", button_loc, "ref_loc:", ref_loc)
+        log3("template:", "["+str(oid_template)+"]"+"button_loc:"+json.dumps(button_loc)+"ref_loc:"+json.dumps(ref_loc))
         # just for sanity cross-check
         if button_loc == ref_loc:
             found = next((idx for idx, order in enumerate(orders) if oid_template in order.getOid()), -1)
-            print("Found:", found)
+            log3("Found:"+json.dumps(found))
             if found > 0:
                 orders[found].setStatus("TC updated")
         else:
-            print("ERROR: nth order number doesn't match nth complete order button....")
+            log3("ERROR: nth order number doesn't match nth complete order button....")
 
         tobeUpdated = [ o for o in orders if o.getStatus() == "label generated"]
         symTab[step["n_more_var"]] = len(tobeUpdated)
@@ -1043,6 +1044,7 @@ def processEtsyFindScreenOrder(step, i):
 
     except:
         ex_stat = "ErrorEtsyFindScreenOrder:" + str(i)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 

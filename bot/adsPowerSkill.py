@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import copy
 import json
+from Logger import *
 
 from basicSkill import *
 
@@ -28,7 +29,7 @@ DEFAULT_SITE_LIST = ["google", "gmail", "amazon"]
 #input
 def genADSPowerLaunchSteps(worksettings, stepN, theme):
     psk_words = ""
-    print("DEBUG", "genAMZBrowseDetails...", worksettings, "stepN:", stepN)
+    log3("DEBUG", "genAMZBrowseDetails..."+json.dumps(worksettings)+"stepN:"+str(stepN))
 
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, stepN)
     psk_words = psk_words + step_words
@@ -127,7 +128,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 
 def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     psk_words = ""
-    print("DEBUG", "genAMZBrowseDetails...", worksettings, "stepN:", stepN)
+    log3("DEBUG", "genAMZBrowseDetails..."+json.dumps(worksettings)+"stepN:"+str(stepN))
 
     # now read screen, if there is log in, then click on log in.
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, stepN, None)
@@ -249,7 +250,8 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
 
 def genADSPowerConnectProxy(worksettings, stepN, theme):
     psk_words = ""
-    print("DEBUG", "genADSPowerConnectProxy...", worksettings, "stepN:", stepN)
+    log3("DEBUG", "genADSPowerConnectProxy..."+json.dumps(worksettings)+"stepN:"+str(stepN))
+
 
     # check the 1st tab to make sure the connection to internet thru proxy is normal, the way to check
     # is to check wither there is a valid IP address, there is IPV4 and IPV6, and/or the green dot around
@@ -326,7 +328,7 @@ def genADSPowerConnectProxy(worksettings, stepN, theme):
 
 def genADSLoadAmzHomePage(worksettings, stepN, theme):
     psk_words = ""
-    print("DEBUG", "genADSPowerConnectProxy...", worksettings, "stepN:", stepN)
+    log3("DEBUG", "genADSPowerConnectProxy..."+json.dumps(worksettings)+"stepN:"+str(stepN))
 
     this_step, step_words = genStepWait(3, 0, 0, stepN)
     psk_words = psk_words + step_words
@@ -769,7 +771,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows ads power batch import profiles....." + psk_words)
+    log3("DEBUG", "generated skill for windows ads power batch import profiles....." + psk_words)
 
     return this_step, psk_words
 
@@ -797,7 +799,7 @@ def genWinADSRemoveProfilesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows ads power profile remove....." + psk_words)
+    log3("DEBUG", "generated skill for windows ads power profile remove....." + psk_words)
 
     return this_step, psk_words
 
@@ -821,7 +823,7 @@ def genWinADSOpenProfileSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows ads power open...." + psk_words)
+    log3("DEBUG", "generated skill for windows ads power open...." + psk_words)
 
     return this_step, psk_words
 
@@ -866,7 +868,7 @@ def extractBatchOfProfiles(bots, all_profiles_xls, batch_xls):
             ex_stat = "ErrorKeyInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
 
 # for All tasks, divide them into batches based on ADS batch limit, for example, low cost ADS supports
@@ -931,13 +933,13 @@ def formADSProfileBatchesFor1Vehicle(vTasks, commander):
                 other["bid"] = bid
                 all_works.append(other)
 
-        print("after flatten and aggregation, total of ", len(all_works), "tasks in this group!")
+        log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
 
         ads_profile_batches_fnames = gen_ads_profile_batchs(commander, commander.getIP(), time_ordered_works)
 
-        print("all_ads_batches===>", ads_profile_batches_fnames)
-        print("time_ordered_works===>", time_ordered_works)
+        log3("all_ads_batches===>"+json.dumps(ads_profile_batches_fnames))
+        log3("time_ordered_works===>"+json.dumps(time_ordered_works))
 
     except Exception as e:
         # Get the traceback information
@@ -947,7 +949,7 @@ def formADSProfileBatchesFor1Vehicle(vTasks, commander):
             ex_stat = "ErrorFormADSProfileBatchesFor1Vehicle:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorFormADSProfileBatchesFor1Vehicle: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     # sorted_all_ads_batches = sorted(all_ads_batches, key=lambda x: x["start_time"], reverse=False)
     # flattened_ads_tasks = [item for one_ads_batch in all_ads_batches for item in one_ads_batch]
@@ -1012,7 +1014,7 @@ def readTxtProfile(fname):
 
         if len(pfJson.keys()) > 0:
             pfJsons.append(pfJson)
-    print("["+str(len(pfJsons))+"] profiles read.....")
+    log3("["+str(len(pfJsons))+"] profiles read.....")
     file.close()
     return pfJsons
 
@@ -1051,14 +1053,14 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
             else:
                 # just use some default list.
                 site_list = DEFAULT_SITE_LIST
-            print("found a match, filter a json cookie....")
+            log3("found a match, filter a json cookie....")
             pfJson = copy.deepcopy(original_pfJson)
             removeUselessCookies(pfJson, site_list)
             pfJson["cookie"]=json.dumps(pfJson["cookie"])
             new_pfJsons.append(pfJson)
 
     df = pd.DataFrame(new_pfJsons)
-    print("writing to:", fname)
+    log3("writing to:"+fname)
     # Write DataFrame to Excel file
     df.to_excel(fname, index=False)
 
@@ -1077,7 +1079,7 @@ def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
         removeUselessCookies(pfJson, site_list)
         pfJson["cookie"]=json.dumps(pfJson["cookie"])
     df = pd.DataFrame(pfJsons)
-    print("writing to:", xlsx_name)
+    log3("writing to:"+xlsx_name)
     # Write DataFrame to Excel file
     df.to_excel(xlsx_name, index=False)
 
@@ -1111,17 +1113,17 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
         dirname = os.path.dirname(fname)
         xls_name = dirname + "/" + basename.split(".")[0]+".xlsx"
         pfjsons = readTxtProfile(fname)
-        print("reading in # jsons:", len(pfjsons))
+        log3("reading in # jsons:"+str(len(pfjsons)))
         genProfileXlsx(pfjsons, xls_name, site_lists.keys(), site_lists)
         pf_idx = pf_idx + 1
 
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
 def gen_ads_profile_batchs(commander, host_ip, task_groups):
-    print("commander ads batch size:", commander.getADSBatchSize())
+    log3("commander ads batch size:"+str(commander.getADSBatchSize()))
     # ads_profile_dir = commander.getADSProfileDir()
     ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
-    print("time_ordered_works:", task_groups)
+    log3("time_ordered_works:"+json.dumps(task_groups))
     pfJsons_batches = []
     bot_pfJsons=[]
     v_ads_profile_batch_xlsxs = []
@@ -1147,7 +1149,7 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
             found_bot = found_bots[0]
             bot_txt_profile_name = ads_profile_dir + "/" + found_bot.getEmail().split("@")[0]+".txt"
             bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
-            print("bot_mid_key:", bot_mid_key, "bot_txt_profile_name:", bot_txt_profile_name, "w_idx:", w_idx, "batch_size:", commander.getADSBatchSize())
+            log3("bot_mid_key:"+bot_mid_key+"bot_txt_profile_name:"+bot_txt_profile_name+"w_idx:"+str(w_idx)+"batch_size:"+str(commander.getADSBatchSize()))
 
             if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
                 newly_read = readTxtProfile(bot_txt_profile_name)
@@ -1187,18 +1189,18 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
 def update_individual_profile_from_batch_saved_txt(batch_profiles_txt):
     pfJsons = readTxtProfile(batch_profiles_txt)
     pf_dir = os.path.dirname(batch_profiles_txt)
-    # print("pf_dir", pf_dir)
-    # print("pfJsons", pfJsons)
+    # log3("pf_dir:"+pf_dir)
+    # log3("pfJsons:"+json.dumps(pfJsons))
     for pfJson in pfJsons:
         # each pfJson is a json for the bot-mission pair
         # xlsx_file_path = pf_dir + "/" + pfJson["username"].split("@")[0]+".xlsx"
         txt_file_path = pf_dir + "/" + pfJson["username"].split("@")[0] + ".txt"
-        # print("txt_file_path:", txt_file_path)
+        # log3("txt_file_path:"+txt_file_path)
         # genProfileXlsx([pfJson], xlsx_file_path, site_list)
 
         # existing is a bot's current profile, the cookie section contains all cookies this bot has collected so far.
         existing = readTxtProfile(txt_file_path)
-        # print("existing:", existing)
+        # log3("existing:"+json.dumps(existing))
         existing_cookies = existing[0]["cookie"]
         new_cookies = pfJson["cookie"]
 
@@ -1252,7 +1254,7 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
         # Get the file with the latest modification time
         latest_file = max(files, key=lambda file: os.path.getmtime(os.path.join(step["batch_txt_dir"], file)))
         latest_file = step["batch_txt_dir"] + "/" + latest_file
-        print("latest_file:", latest_file)
+        log3("latest_file:"+latest_file)
 
 
         # now save for roll back if ever needed.
@@ -1270,7 +1272,7 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
             ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1308,6 +1310,6 @@ def processADSGenXlsxBatchProfiles(step, i):
             ex_stat = "ErrorADSGenXlsxBatchProfiles:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorADSGenXlsxBatchProfiles: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat

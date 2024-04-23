@@ -1,4 +1,5 @@
 from basicSkill import *
+from Logger import *
 
 
 def genWinWiFiLocalReconnectLanSkill(worksettings, stepN, theme):
@@ -57,6 +58,6 @@ def genWinWiFiLocalReconnectLanSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
