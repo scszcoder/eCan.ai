@@ -82,15 +82,16 @@ class Expander(QWidget):
         row += 1
         mainLayout.addWidget(self.contentArea, row, 0, 1, 3)
         self.setLayout(self.mainLayout)
+        self.toggleButton.clicked.connect(self.start_animation)
 
-    def start_animation(checked):
+    def start_animation(self, checked):
         arrow_type = Qt.DownArrow if checked else Qt.RightArrow
         direction = QAbstractAnimation.Forward if checked else QAbstractAnimation.Backward
-        toggleButton.setArrowType(arrow_type)
+        self.toggleButton.setArrowType(arrow_type)
         self.toggleAnimation.setDirection(direction)
         self.toggleAnimation.start()
 
-        self.toggleButton.clicked.connect(start_animation)
+
 
     def setContentLayout(self, contentLayout):
         # Not sure if this is equivalent to self.contentArea.destroy()
@@ -217,9 +218,6 @@ class MainWindow(QMainWindow):
         self.trainNewSkillWin = None
         self.reminderWin = None
         self.platoonWin = None
-        self.SkillManagerWin = SkillManagerWindow(self)
-        self.SettingsWin = SettingsWidget(self)
-        self.netLogWin = CommanderLogWin(self)
 
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QTextEdit()
@@ -227,7 +225,6 @@ class MainWindow(QMainWindow):
         self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
         self.logConsoleLayout = QVBoxLayout()
 
-        # self.logConsoleBox.setContentLayout(self.logConsoleLayout)
 
         # self.toggle_button = QToolButton(
         #     text="log console", checkable=True, checked=False
@@ -239,11 +236,12 @@ class MainWindow(QMainWindow):
         # self.toggle_button.setArrowType(Qt.RightArrow)
         # self.toggle_button.pressed.connect(self.on_tg_pressed)
 
-        # self.logConsoleLayout.addWidget(self.toggle_button)
         self.logConsoleLayout.addWidget(self.logConsole)
-        # self.logConsoleBox.setLayout(self.logConsoleLayout)
-
         self.logConsoleBox.setContentLayout(self.logConsoleLayout)
+
+        self.SkillManagerWin = SkillManagerWindow(self)
+        self.SettingsWin = SettingsWidget(self)
+        self.netLogWin = CommanderLogWin(self)
 
         self.commanderName = ""
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
@@ -706,7 +704,7 @@ class MainWindow(QMainWindow):
             self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
 
         # self.async_interface = AsyncInterface()
-
+        self.showMsg("ready to spawn mesg server task")
         if not self.hostrole == "Platoon":
             asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
         else:
@@ -714,7 +712,11 @@ class MainWindow(QMainWindow):
 
         # the message queue are
         asyncio.create_task(self.runbotworks(self.gui_chat_msg_queue))
+        self.showMsg("spawned runbot task")
+
         asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
+
+        self.showMsg("spawned chat task")
 
     def addSkillRowsToSkillManager(self):
         self.skillManagerWin.addSkillRows(self.skills)
@@ -4258,14 +4260,12 @@ class MainWindow(QMainWindow):
     # this is be run as an async task.
     async def runbotworks(self, gui_chat_queue):
         # run all the work
-        running = False
+        running = True
 
         while running:
-            self.showMsg("looping runbotworks......................")
             botTodos = None
             if self.workingState == "Idle":
                 botTodos = self.checkNextToRun()
-                self.showMsg("check todos....")
                 if not botTodos == None:
                     self.showMsg("working on..... "+botTodos["name"])
                     self.workingState = "Working"
