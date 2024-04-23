@@ -245,7 +245,7 @@ class ChatWin(QMainWindow):
         # Use QSplitter for adjustable panels
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self.teamList)
-        print("hello????")
+        self.parent.showMsg("hello????")
         self.splitter.addWidget(self.chatWidget)
 
         # Set initial sizes (optional)
@@ -256,7 +256,7 @@ class ChatWin(QMainWindow):
     def setupTeamList(self):
         # Example: Add friends to the list
         for bot in self.parent.bots:
-            print("bot agent:", bot.text())
+            self.parent.showMsg("bot agent:"+bot.text())
             bot_agent = EBBOT_AGENT(self)
             bot_agent.setText(bot.text())
             bot_agent.setIcon(bot.icon())
@@ -269,7 +269,7 @@ class ChatWin(QMainWindow):
         self.selected_agent = self.botModel.itemFromIndex(index)
         self.selected_index = index
         selected_bid = int(self.selected_agent.text().split(":")[0][3:])
-        print("switched talks to :", selected_bid)
+        self.parent.showMsg("switched talks to :"+str(selected_bid))
 
         # Clear current messages
         for i in reversed(range(self.chatWidget.main_layout.count())):
@@ -306,7 +306,7 @@ class ChatWin(QMainWindow):
 
 
     def setBot(self, item):
-        print(f"Switched to conversation with {item.text()}")
+        self.parent.showMsg(f"Switched to conversation with {item.text()}")
 
     def updateDisplay(self, msg):
         self.chatWidget.addMessage(False, msg)

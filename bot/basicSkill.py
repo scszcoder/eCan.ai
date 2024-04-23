@@ -16,6 +16,8 @@ import socket
 import sys
 import traceback
 from ping3 import ping, verbose_ping
+from Logger import *
+
 if sys.platform == 'win32':
     import win32gui
     import win32con
@@ -366,7 +368,7 @@ def genStepStub(sname, fname, fargs, stepN):
     }
 
     if sname == "start skill":
-        print("GEN STEP STUB START SKILL: ", fname)
+        log3("GEN STEP STUB START SKILL: "+fname)
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
@@ -621,16 +623,16 @@ def get_top_visible_window():
         def winEnumHandler(hwnd, ctx):
             if win32gui.IsWindowVisible(hwnd):
                 n = win32gui.GetWindowText(hwnd)
-                # print("windows: ", n)
+                # log3("windows: "+str(n))
                 if n:
                     names.append(n)
 
         win32gui.EnumWindows(winEnumHandler, None)
 
-        # print(names)
+        # log3(",".join(names))
         window_handle = win32gui.FindWindow(None, names[0])
         window_rect = win32gui.GetWindowRect(window_handle)
-        print("top window: ", names[0], " rect: ", window_rect)
+        log3("top window: "+names[0]+" rect: "+json.dumps(window_rect))
 
         return names[0], window_rect
     elif sys.platform == 'darwin':
@@ -648,7 +650,7 @@ def get_top_visible_window():
             if window_owner_name == active_app_name:
                 window_name = window.get('kCGWindowName', 'Unknown')
                 mac_window_rect = window.get('kCGWindowBounds', {'X': 0, 'Y': 0, 'Width': 0, 'Height': 0})
-                print(f"Window: {window_owner_name}-{window_name}, Rect: {mac_window_rect}")
+                log3(f"Window: {window_owner_name}-{window_name}, Rect: {mac_window_rect}")
                 # 转换为 (left, top, right, bottom) 格式
                 left = mac_window_rect['X']
                 top = mac_window_rect['Y']
@@ -657,7 +659,7 @@ def get_top_visible_window():
 
                 window_rect.extend([round(left), round(top), round(right), round(bottom)])
 
-                print(f"Window Rect: ({window_rect[0], window_rect[1], window_rect[2], window_rect[3]})")
+                log3(f"Window Rect: ({window_rect[0], window_rect[1], window_rect[2], window_rect[3]})")
 
                 break
 
@@ -678,7 +680,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     im0.save(sfile)
     screen_loc = (window_rect[0], window_rect[1])
 
-    print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     #upload screen to S3
     upload_file(settings["session"], sfile, settings["token"], "screen")
@@ -688,7 +690,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     csk_name = sk_settings["skfname"].replace("psk", "csk")
     m_csk_names = [csk_name]
 
-    print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     # request an analysis of the uploaded screen
     # some example options usage:
@@ -717,24 +719,24 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     if options != "":
         request[0]["options"] = symTab[options]
 
-    print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     result = req_cloud_read_screen(settings["session"], request, settings["token"])
-    print("result::: ", result)
+    log3("result::: "+json.dumps(result))
     jresult = json.loads(result['body'])
-    # print("cloud result data: ", jresult["data"])
-    print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    # log3("cloud result data: "+json.dumps(jresult["data"]))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     if "errors" in jresult:
         screen_error = True
-        print("ERROR Type: ", jresult["errors"][0]["errorType"], "ERROR Info: ", jresult["errors"][0]["errorInfo"], )
+        log3("ERROR Type: "+json.dumps(jresult["errors"][0]["errorType"])+"ERROR Info: "+json.dumps(jresult["errors"][0]["errorInfo"]))
     else:
-        # print("cloud result data body: ", result["body"])
+        # log3("cloud result data body: "+json.dumps(result["body"]))
         jbody = json.loads(result["body"])
         # for p in jbody["data"]:
         #     if p["name"] == "paragraph":
         #         for tl in p["txt_struct"]:
-        #             print("TXT LINE: ", tl["text"])
+        #             log3("TXT LINE: "+tl["text"])
 
 
 
@@ -769,7 +771,7 @@ def restore_current_context(context):
 def processHalt(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Due to supply time lag, this mission is halted till  hours later....")
+        log3("Due to supply time lag, this mission is halted till  hours later....")
         #should kick off a timer to wait .
     except:
         ex_stat = "ErrorHalt:" + str(i)
@@ -779,7 +781,7 @@ def processHalt(step, i):
 def processDone(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Mission accomplished!")
+        log3("Mission accomplished!")
     except:
         ex_stat = "ErrorDone:" + str(i)
 
@@ -788,20 +790,20 @@ def processDone(step, i):
 def processWait(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("waiting...... make mouse pointer wonder a little bit!")
+        log3("waiting...... make mouse pointer wonder a little bit!")
         wtime = 1
         if step["time"] == "":
             # calculate wait based on page contents, and reading speed.
-            print("waiting for last screen ", wtime, " seconds....")
+            log3("waiting for last screen "+str(wtime)+" seconds....")
             # screen = symTab["last_screen"]
         else:
             wtime = step["time"]
-            print("waiting for ", wtime, " seconds....")
+            log3("waiting for "+str(wtime)+" seconds....")
 
         if step["random_max"] > 0:
             wtime = random.randrange(step["random_min"], step["random_max"])
 
-        print("actually waiting for ", wtime, " seconds....")
+        log3("actually waiting for "+str(wtime)+" seconds....")
         time.sleep(wtime)
 
     except:
@@ -813,9 +815,9 @@ def processWait(step, i):
 
 def processExtractInfo(step, i, mission, skill):
     # mission_id, session, token, top_win, skill_name, uid
-    print("Extracting info....", mission, " SK: ", skill)
-    print("mission[", mission.getMid(), "] cuspas: ", mission.getCusPAS())
-    print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3("Extracting info...."+json.dumps(mission)+" SK: "+json.dumps(skill))
+    log3("mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS())
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     global screen_error
 
@@ -829,11 +831,11 @@ def processExtractInfo(step, i, mission, skill):
         else:
             page_layout = ""
 
-        print("page layout is: [", page_layout, "]")
+        log3("page layout is: ["+page_layout+"]")
 
         date_word = dtnow.strftime("%Y%m%d")
         dt_string = str(int(dtnow.timestamp()))
-        print("date string:", dt_string)
+        log3("date string:"+dt_string)
 
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
@@ -842,7 +844,7 @@ def processExtractInfo(step, i, mission, skill):
 
         date_word = dtnow.strftime("%Y%m%d")
         dt_string = str(int(dtnow.timestamp()))
-        print("date string:", dt_string)
+        log3("date string:"+dt_string)
         sfile = "C:/Users/songc/PycharmProjects/testdata/"
         #sfile = sfile + settings["uid"] + "/win/adspower/"
         #sfile = sfile + "scrn" + settings["uid"] + "_" + dt_string + ".png"
@@ -851,15 +853,15 @@ def processExtractInfo(step, i, mission, skill):
         else:
             ppword = mission.parent_settings["uid"]
 
-        print("mission[", mission.getMid(), "] cuspas: ", mission.getCusPAS(), "step settings:", step["settings"])
+        log3("mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS()+"step settings:"+json.dumps(step["settings"]))
 
         if type(step["settings"]) == str:
             step_settings = symTab[step["settings"]]
-            print("SETTINGS FROM STRING....", step_settings)
+            log3("SETTINGS FROM STRING...."+json.dumps(step_settings))
         else:
             step_settings = step["settings"]
 
-        print("STEP SETTINGS", step_settings)
+        log3("STEP SETTINGS"+json.dumps(step_settings))
         platform = step_settings["platform"]
         app = step_settings["app"]
         site = step_settings["site"]
@@ -876,15 +878,15 @@ def processExtractInfo(step, i, mission, skill):
         fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
         fdir = fdir + step_settings["skname"] + "/images/"
         sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
-        print("sfile: ", sfile)
+        log3("sfile: "+sfile)
 
 
-        print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
         result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"])
         symTab[step["data_sink"]] = result
-        print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     except Exception as e:
         # Get the traceback information
@@ -894,7 +896,7 @@ def processExtractInfo(step, i, mission, skill):
             ex_stat = "ErrorExtractInfo:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i+1), ex_stat
 
@@ -915,7 +917,7 @@ def processExtractInfo(step, i, mission, skill):
 def processFillRecipients(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("txts var:", symTab[step["texts_var"]])
+        log3("txts var:"+json.dumps(symTab[step["texts_var"]]))
         for txt_bloc in symTab[step["texts_var"]]:
             fullname = txt_bloc[0].strip()
             city_state_zip = txt_bloc[len(txt_bloc)-1].strip().split(",")
@@ -938,7 +940,7 @@ def processFillRecipients(step, i):
                 match.setRecipientAddrState(zip)
             else:
                 # need to add a recipient
-                print("ERROR, how could the name be not found?")
+                log3("ERROR, how could the name be not found?")
 
             # once found, update the relavant field. such as
     except Exception as e:
@@ -949,7 +951,7 @@ def processFillRecipients(step, i):
             ex_stat = "ErrorFillRecipients:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorFillRecipients traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i+1), ex_stat
 
@@ -964,33 +966,33 @@ def processTextInput(step, i):
     global current_context
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        # print("Keyboard typing......", nthSearch, type(nthSearch), type(run_config), run_config, list(run_config.keys()))
+        # log3("Keyboard typing......", nthSearch, type(nthSearch), type(run_config), run_config, list(run_config.keys()))
 
         if step["txt_ref_type"] == "direct":
             txt_to_be_input = step["text"]
         else:
-            print("assign expression:", "txt_to_be_input = "+step["text"])
+            log3("assign expression:"+"txt_to_be_input = "+step["text"])
             exec("global input_texts\ninput_texts = "+step["text"])
             txt_to_be_input = input_texts
-            print("after assignment:", txt_to_be_input)
+            log3("after assignment:"+txt_to_be_input)
             exec("global txt_to_be_input\ntxt_to_be_input = "+step["text"])
 
-        print("typing.....", txt_to_be_input)
+        log3("typing....."+txt_to_be_input)
         time.sleep(2)
         # pyautogui.click()
         if step["text_type"] == "var":
-            print("about to TYPE in:", symTab[txt_to_be_input])
+            log3("about to TYPE in:"+symTab[txt_to_be_input])
             pyautogui.write(symTab[txt_to_be_input], interval=0.25)
         else:
             if len(txt_to_be_input) > 0:
-                print("direct type in:", txt_to_be_input[0])
+                log3("direct type in:"+txt_to_be_input[0])
                 pyautogui.write(txt_to_be_input[0], interval=step["speed"])
             else:
                 pyautogui.write("Do not know", interval=step["speed"])
 
         time.sleep(1)
         if step['key_after'] != "":
-            print("after typing, pressing:", step['key_after'], "then wait for:", step['wait_after'])
+            log3("after typing, pressing:"+step['key_after']+"then wait for:"+str(step['wait_after']))
             pyautogui.press(step['key_after'])
             time.sleep(1)
             pyautogui.press("enter")
@@ -1014,7 +1016,7 @@ def processTextInput(step, i):
             ex_stat = "ErrorTextInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorTextInput traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i+1), ex_stat
 
@@ -1025,14 +1027,14 @@ def calc_loc(box, cell_w, cell_h, origin):
     ri = round((box[1] - origin[1])/cell_h)
 
     loc =[ci, ri]
-    # print("location:", loc)
+    # log3("location:", loc)
     return loc
 
 # calculate an object’s sequence in a virtual table, given the object's position, origin, table cell width, table cell height, and row width.
 def calc_seq(box, cell_w, cell_h, origin, ncols):
     loc = calc_loc(box, cell_w, cell_h, origin)
     seq = loc[1] * ncols + loc[0]
-    print("sequence:", seq)
+    log3("sequence:"+str(seq))
     return seq
 
 # sort a list of boxes spatially, if we already know they're placed in a tabular fasion. (i.e. rows and cols, roughtly)
@@ -1047,11 +1049,11 @@ def convert_to_2d_array(object_list):
 
     xs = [o[0] for o in object_list]
     xs.sort()
-    print("xs:", xs)
+    log3("xs:"+json.dumps(xs))
 
     ys = [o[1] for o in object_list]
     ys.sort()
-    print("ys:", ys)
+    log3("ys:"+json.dumps(ys))
 
     xgroups = group_1D(xs)
 
@@ -1062,7 +1064,7 @@ def convert_to_2d_array(object_list):
     for x, y in zip(xgrp_avgs[0::], xgrp_avgs[1::]):
         xgaps.append(y - x)
 
-    print("xgrp_avgs:", xgrp_avgs, "xgaps:", xgaps)
+    log3("xgrp_avgs:"+json.dumps(xgrp_avgs)+"xgaps:"+json.dumps(xgaps))
 
     ygrp_avgs = [sum(grp)/len(grp) for grp in ygroups]
     ygaps = []
@@ -1072,23 +1074,23 @@ def convert_to_2d_array(object_list):
     xgap = min(xgaps)
     ygap = min(ygaps)
 
-    print("ygrp_avgs:", ygrp_avgs, "ygaps:", ygaps)
+    log3("ygrp_avgs:"+json.dumps(ygrp_avgs)+"ygaps:"+json.dumps(ygaps))
 
 
     rows = round((ygrp_avgs[len(ygrp_avgs)-1] - ygrp_avgs[0])/ygap) + 1
     cols = round((xgrp_avgs[len(xgrp_avgs)-1] - xgrp_avgs[0])/xgap) + 1
 
-    print("cols:", cols)
-    print("rows:", rows)
+    log3("cols:"+json.dumps(cols))
+    log3("rows:"+json.dumps(rows))
 
     # Find calculate the origial list member's table index (col., row) (i.e. (x, y) coordinate)
     coords = [calc_loc(o, xgap, ygap, [xgrp_avgs[0], ygrp_avgs[0]]) for o in object_list]
-    print("coords:", coords)
+    log3("coords:"+json.dumps(coords))
 
     xy_sorted = sorted(object_list, key=lambda x: calc_seq(x, xgap, ygap, [xgrp_avgs[0], ygrp_avgs[0]], cols), reverse=False)
-    print("x-y sorted:", xy_sorted)
+    log3("x-y sorted:"+json.dumps(xy_sorted))
     coords = [calc_loc(o, xgap, ygap, [xgrp_avgs[0], ygrp_avgs[0]]) for o in xy_sorted]
-    print("coords:", coords)
+    log3("coords:"+json.dumps(coords))
 
     return xy_sorted
 
@@ -1120,7 +1122,7 @@ def group_1D(int_list, threshold=25):
 # target_type
 # nth - which target， if multiple are found
 def find_clickable_object(sd, target, template, target_type, nth):
-    print("LOOKING FOR:", target, "   ", template,  "   ", target_type, "   ", nth)
+    log3("LOOKING FOR:"+json.dumps(target)+"   "+json.dumps(template)+"   "+json.dumps(target_type)+"   "++json.dumps(nth))
     found = {"loc": None}
     if target != "paragraph":
         reg = re.compile(target+"[0-9]+")
@@ -1130,38 +1132,38 @@ def find_clickable_object(sd, target, template, target_type, nth):
         targets = [x for x in sd if template in x["text"] and x["type"] == target_type and x["name"] == target]
     # grab all instances of the target object.
 
-    print("found targets::", len(targets))
+    log3("found targets::"+str(len(targets)))
     objs = []
 
     # convert possible string to integer
     for o in targets:
         if o["name"] == "paragraph":
             lines = [l for l in o["txt_struct"] if (l["text"] == template or re.search(template, l["text"]))]
-            print("found lines::", len(lines))
+            log3("found lines::"+str(len(lines)))
             if len(lines) > 0:
                 for li, l in enumerate(lines):
                     pat_words = template.strip().split()
                     lreg = re.compile(pat_words[0])
-                    print("checking line:", l, pat_words)
+                    log3("checking line:"+json.dumps(l)+json.dumps(pat_words))
                     start_word = next((x for x in l["words"] if re.search(pat_words[0], x["text"])), None)
-                    print("start_word:", start_word)
+                    log3("start_word:"+json.dumps(start_word))
                     if start_word:
                         if len(pat_words) > 1:
                             lreg = re.compile(pat_words[len(pat_words)-1])
                             end_word = next((x for x in l["words"] if x["text"] == pat_words[len(pat_words)-1] or lreg.match(x["text"])), None)
-                            print("multi word end_word:", end_word)
+                            log3("multi word end_word:"+json.dumps(end_word))
                         else:
                             end_word = start_word
-                            print("single word")
+                            log3("single word")
 
                         objs.append({"loc": [int(start_word["box"][1]), int(start_word["box"][0]), int(end_word["box"][3]), int(end_word["box"][2])]})
-                        print("objs:", objs)
+                        log3("objs:"+json.dumps(objs))
         else:
-            print("non paragraph:", o)
+            log3("non paragraph:"+json.dumps(o))
             o["loc"] = [int(o["loc"][0]), int(o["loc"][1]), int(o["loc"][2]), int(o["loc"][3])]
             objs.append({"loc": o["loc"]})
 
-    print("objs:", objs)
+    log3("objs:"+json.dumps(objs))
     if len(objs) > 1:
         # need to organized found objects into rows and cols, then access the nth object.
         xsorted = sorted(objs, key=lambda x: x["loc"][0], reverse=False)
@@ -1176,7 +1178,7 @@ def find_clickable_object(sd, target, template, target_type, nth):
         for ob in ysorted:
             ri = math.floor((ob["loc"][1] - ysorted[0]["loc"][1])/cell_height)
             ci =  math.floor((ob["loc"][0] - xsorted[0]["loc"][0])/cell_width)
-            print("Filling in row:", ri, " col:", ci)
+            log3("Filling in row:"+str(ri)+" col:"+str(ci))
             my_array[ri, ci] = ob
 
         # now, take out the nth element
@@ -1193,11 +1195,11 @@ def find_clickable_object(sd, target, template, target_type, nth):
         elif type(nth) == str:
             # nth is a variable
             if "[" not in nth and "]" not in nth:
-                print("nth as a variable name is:", symTab[nth])
+                log3("nth as a variable name is:"+str(symTab[nth]))
                 found = objs[symTab[nth]]
-                print("found object:", found)
+                log3("found object:"+json.dumps(found))
         elif type(nth) == int:
-            print("nth as an integer is:", nth)
+            log3("nth as an integer is:"+str(nth))
             found = objs[nth]
         # the code is incomplete at the moment....
     elif len(objs) == 1:
@@ -1206,7 +1208,7 @@ def find_clickable_object(sd, target, template, target_type, nth):
     return found["loc"]
 
 def get_clickable_loc(box, off_from, offset, offset_unit):
-    print("get_clickable_loc: ", box, " :: ", off_from, " :: ", offset, " :: ", offset_unit)
+    log3("get_clickable_loc: "+json.dumps(box)+" :: "+json.dumps(off_from)+" :: "+json.dumps(offset)+" :: "+offset_unit)
     center = box_center(box)
     if offset_unit == "box":
         box_length = box[3] - box[1]
@@ -1225,14 +1227,14 @@ def get_clickable_loc(box, off_from, offset, offset_unit):
         click_loc = (center[1], box[2] + int(offset[1]*box_height))
     else:
         #offset from center case
-        print("CENTER: ", center, "OFFSET:", offset)
+        log3("CENTER: "+json.dumps(center)+"OFFSET:"+json.dumps(offset))
         click_loc = ((center[1] + int(offset[0]*box_length), center[0] + int(offset[1]*box_height)))
 
     return click_loc
 
 
 def get_post_move_offset(box, offset, offset_unit):
-    print("calc post move offset:", offset_unit, box, offset)
+    log3("calc post move offset:"+json.dumps(offset_unit)+" "+json.dumps(box)+" "+json.dumps(offset))
     if offset_unit == "box":
         box_length = box[3] - box[2]
         box_height = box[2] - box[0]
@@ -1265,7 +1267,7 @@ def is_float(string):
 def processMouseClick(step, i):
     global page_stack
     global current_context
-    print("Mouse Clicking .....")
+    log3("Mouse Clicking .....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["target_type"] != "direct" and step["target_type"] != "expr":
@@ -1278,42 +1280,42 @@ def processMouseClick(step, i):
             if step["text"] != "":
                 if step["text"] in symTab:
                     step["text"] = symTab[step["text"]]
-            print("finding: ", step["text"], " target name: ", target_name, " text to be matched:["+step["text"]+"]")
-            # print("from data: ", sd)
+            log3("finding: "+step["text"]+" target name: "+target_name+" text to be matched:["+step["text"]+"]")
+            # log3("from data: "+json.dumps(sd))
             obj_box = find_clickable_object(sd, target_name, step["text"], step["target_type"], step["nth"])
-            print("obj_box: ", obj_box)
+            log3("obj_box: "+json.dumps(obj_box))
             loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
             post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
             post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
-            print("indirect calculated locations:", loc, "post_offset:(", post_offset[0], ",", post_offset[1], ")", "post_loc:", post_loc)
+            log3("indirect calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset[0])+","+str(post_offset[1])+") post_loc:"+json.dumps(post_loc))
 
         else:
             # the location is already calculated directly and stored here.
             if step["target_type"] == "direct":
-                print("obtain directly..... from a variable which is a box type i.e. [l, t, r, b]")
+                log3("obtain directly..... from a variable which is a box type i.e. [l, t, r, b]")
                 box = symTab[step["target_name"]]
                 loc = box_center(box)
                 post_offset_x = (box[2] - box[0]) * step["post_move"][0]
                 post_offset_y = (box[3] - box[1]) * step["post_move"][1]
                 post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y]
             else:
-                print("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]", step["target_name"])
+                log3("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]"+step["target_name"])
                 exec("global click_target\nclick_target = " + step["target_name"])
-                print("box: ", symTab["target_name"])
+                log3("box: "+json.dumps(symTab["target_name"]))
                 box = [symTab["target_name"][1], symTab["target_name"][0], symTab["target_name"][3], symTab["target_name"][2]]
                 loc = box_center(box)
                 post_offset_y = (symTab["target_name"][2] - symTab["target_name"][0]) * step["post_move"][0]
                 post_offset_x = (symTab["target_name"][3] - symTab["target_name"][1]) * step["post_move"][1]
                 post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
 
-            print("direct calculated locations:", loc, "post_offset:(", post_offset_x, ",", post_offset_y, ")", "post_loc:", post_loc)
+            log3("direct calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset_x)+","+str(post_offset_y)+")"+"post_loc:"+json.dumps(post_loc))
 
         window_name, window_rect = get_top_visible_window()
-        print("top windows rect:", window_rect)
+        log3("top windows rect:"+json.dumps(window_rect))
 
         # loc[0] = int(loc[0]) + window_rect[0]
         loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
-        print("global loc@ ", loc[0], " ,  ", loc[1])
+        log3("global loc@ "+str(loc[0])+" ,  "+str(loc[1]))
 
         pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
 
@@ -1339,7 +1341,7 @@ def processMouseClick(step, i):
             pyautogui.dragTo(loc[0], loc[1], duration=2)
 
         time.sleep(1)
-        print("post click moveto :(", int(post_loc[0]) + window_rect[0], ",", int(post_loc[1]) + window_rect[1], ")")
+        log3("post click moveto :("+str(int(post_loc[0]) + window_rect[0])+","+str(int(post_loc[1]) + window_rect[1])+")")
         pyautogui.moveTo(int(post_loc[0]) + window_rect[0], int(post_loc[1]) + window_rect[1])
         if step["post_wait"] > 0:
             time.sleep(step["post_wait"]-1)
@@ -1361,7 +1363,7 @@ def processMouseClick(step, i):
             ex_stat = "ErrorMouseClick:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorMouseClick: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1373,7 +1375,7 @@ def processKeyInput(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         keys = step["action_value"].split(',')
-        print("Keyboard Action..... hot keys", keys)
+        log3("Keyboard Action..... hot keys"+json.dumps(keys))
         if len(keys) == 4:
             pyautogui.hotkey(keys[0], keys[1], keys[2], keys[3])
         elif len(keys) == 3:
@@ -1402,7 +1404,7 @@ def processKeyInput(step, i):
             ex_stat = "ErrorKeyInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1418,7 +1420,7 @@ def processKeyInput(step, i):
 # p1,p2 in tuple format (x, y)
 def p2p_distance(p1, p2):
     dist = int(math.sqrt((p1[0]-p2[0])*(p1[0]-p2[0]) + (p1[1]-p2[1])*(p1[1]-p2[1])))
-    # print("p2p distance: ", dist)
+    # log3("p2p distance: "+json.dumps(dist))
     return dist
 
 # loc: (top, left, bottom, right)
@@ -1431,33 +1433,33 @@ def box_center(box):
 
 def processMouseScroll(step, i):
     screen_data = symTab[step["screen"]]
-    # print("screen_data: ", screen_data)
+    # log3("screen_data: "+json.dumps(screen_data))
     ex_stat = DEFAULT_RUN_STATUS
     try:
         screen_vsize = screen_data[len(screen_data) - 2]['loc'][2]
 
         if step["unit"] == "screen":
-            print("SCREEN SIZE: ", screen_data[len(screen_data) - 2]['loc'], "resolution var: ", step["resolution"], " val: ", symTab[step["resolution"]])
+            log3("SCREEN SIZE: "+json.dumps(screen_data[len(screen_data) - 2]['loc'])+"resolution var: "+json.dumps(step["resolution"])+" val: "+json.dumps(symTab[step["resolution"]]))
             if type(step["amount"]) is str:
                 scroll_amount = int(((symTab[step["amount"]]/100)*screen_vsize)/symTab[step["resolution"]])
             else:
                 scroll_amount = int(((step["amount"]/100)*screen_vsize)/symTab[step["resolution"]])
-                print("screen size based scroll amount:", scroll_amount)
+                log3("screen size based scroll amount:"+str(scroll_amount))
         elif step["unit"] == "raw":
             if type(step["amount"]) is str:
                 scroll_amount = symTab[step["amount"]]
             else:
                 scroll_amount = step["amount"]
         else:
-            print("ERROR: unrecognized scroll unit!!!")
+            log3("ERROR: unrecognized scroll unit!!!")
 
         if step["action"] == "Scroll Down":
             scroll_amount = 0 - scroll_amount
 
         if "scroll_resolution" in symTab:
-            print("Calculated Scroll Amount: ", scroll_amount, "scroll resoution: ", symTab["scroll_resolution"])
+            log3("Calculated Scroll Amount: "+str(scroll_amount)+"scroll resoution: "+str(symTab["scroll_resolution"]))
         else:
-            print("Calculated Scroll Amount: ", scroll_amount, "scroll resoution: NOT YET AVAILABLE")
+            log3("Calculated Scroll Amount: "+str(scroll_amount)+"scroll resoution: NOT YET AVAILABLE")
 
         if step["random_max"] != step["random_min"]:
             if step["action"] == "Scroll Down":
@@ -1465,7 +1467,7 @@ def processMouseScroll(step, i):
             else:
                 scroll_amount = scroll_amount + random.randrange(step["random_min"], step["random_max"])
 
-        print("after randomized Scroll Amount: ", scroll_amount)
+        log3("after randomized Scroll Amount: "+str(scroll_amount))
         mouse.scroll(0, scroll_amount)
 
         time.sleep(step["postwait"])
@@ -1483,13 +1485,13 @@ def processMouseScroll(step, i):
             ex_stat = "ErrorMouseScroll:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorMouseScroll: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
 
 def processOpenApp(step, i):
-    print("Opening App .....", step["target_link"] + " " + step["cargs"])
+    log3("Opening App ....." + step["target_link"] + " " + step["cargs"])
     ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["target_type"] == "browser":
@@ -1502,7 +1504,7 @@ def processOpenApp(step, i):
             else:
                 # in case of "expr" type.
                 exec("global oa_args\noa_args = " + step["cargs"])
-                print("running shell", symTab["oa_exe"], "on :", step["cargs"], "with val["+symTab["oa_args"]+"]")
+                log3("running shell"+symTab["oa_exe"]+"on :"+step["cargs"]+"with val["+symTab["oa_args"]+"]")
                 subprocess.Popen([symTab["oa_exe"], symTab["oa_args"]])
         time.sleep(step["wait"])
 
@@ -1515,7 +1517,7 @@ def processOpenApp(step, i):
             ex_stat = "ErrorOpenApp:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorOpenApp: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1526,7 +1528,7 @@ def extract_variable_names(code_line):
         # Wrap the code in a valid Python expression using eval()
         tree = ast.parse(code_line)
     except Exception as e:
-        print("Error:", e)
+        log3("Error:"+json.dumps(e))
         return []  # Return empty list if parsing fails
 
     # Traverse the AST and extract variable names
@@ -1541,31 +1543,31 @@ def extract_variable_names(code_line):
 # data_name: name of the variable.
 # key_name, key_value, could be a dictionary with a key-value paire.
 def processCreateData(step, i):
-    print("Creating Data .....")
+    log3("Creating Data .....")
     global mission_vars
     ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["key_name"] == "NA":
             # this is the case of direct assignment.
-            # print("NOT AN DICT ENTRY ASSIGNMENT")
+            # log3("NOT AN DICT ENTRY ASSIGNMENT")
             if step["data_type"] == "expr":
-                print("TBEx: ", step["data_name"] + " = " + step["key_value"])
+                log3("TBEx: "+json.dumps(step["data_name"]) + " = "+json.dumps(step["key_value"]))
                 # symTab[step["data_name"]] = None
                 # exec("global sk_work_settings")
                 # exec("global "+step["data_name"])
                 simple_expression = step["data_name"] + " = " + step["key_value"]
                 expr_vars = extract_variable_names(simple_expression)
-                print("vars in the expression:", expr_vars)
+                log3("vars in the expression:"+json.dumps(expr_vars))
                 executable = "global"
                 for expr_var in expr_vars:
-                    # print("woooooohahahahahah", executable)
+                    # log3("woooooohahahahahah"+json.dumps(executable))
                     executable = executable + " " + expr_var
                     if expr_vars.index(expr_var) != len(expr_vars) - 1:
                         executable = executable + ","
                 executable = executable + "\n" + simple_expression
-                print("full executable statement:", executable)
+                log3("full executable statement:"+executable)
                 exec(executable)
-                print(step["data_name"] + " is now: ", symTab[step["data_name"]])
+                log3(step["data_name"] + " is now: "+json.dumps(symTab[step["data_name"]]))
             else:
                 symTab[step["data_name"]] = step["key_value"]
         else:
@@ -1585,7 +1587,7 @@ def processCreateData(step, i):
             ex_stat = "ErrorCreateData:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorCreateData: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1613,7 +1615,7 @@ def processTextToNumber(step, i):
             ex_stat = "ErrorText2Number:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorText2Number: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1625,7 +1627,7 @@ def processTextToNumber(step, i):
 # result: the destination variable when operation is a "pop" in which case, "from" is the index, "to" is the list variable name.
 # fill_type: "assign"/"copy"/"append"/"prepend"/"merge"/"clear"/"pop":
 def processFillData(step, i):
-    print("Filling Data .....", step)
+    log3("Filling Data ....."+json.dumps(step))
     ex_stat = DEFAULT_RUN_STATUS
     try:
         # if not re.match("\[.*\]|\{.*\}", step["from"]):
@@ -1634,19 +1636,19 @@ def processFillData(step, i):
             source = from_words[0]
         else:
             source = step["from"]
-        print("source var:", source)
+        log3("source var:"+json.dumps(source))
 
         if type(step["to"]) is str:
             to_words = re.split('\[|\(|\{', step["to"])
             sink = to_words[0]
         else:
             sink = step["to"]
-        print("sink var:", sink)
+        log3("sink var:"+json.dumps(sink))
 
         if step["result"] != "":
             res_words = re.split('\[|\(|\{', step["result"])
             res = to_words[0]
-            print("res var:", res)
+            log3("res var:"+json.dumps(res))
 
         if step["fill_type"] == "assign":
             statement = "global " + source + ", " + sink + "; " + step["to"] + " = " + step["from"]
@@ -1676,7 +1678,7 @@ def processFillData(step, i):
                 statement = "global " + sink + "; " + step["to"] + " = " + json.dumps(step["from"])
             else:
                 statement = "global " + sink + "; " + step["to"] + " = " + str(step["from"])
-        print("Statement: ", statement)
+        log3("Statement: ", statement)
         exec(statement)
 
 
@@ -1689,7 +1691,7 @@ def processFillData(step, i):
             ex_stat = "ErrorFillData:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorFillData: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1698,7 +1700,7 @@ def processEndException(step, i, step_keys):
     global exception_stack
     global page_stack
     global in_exception
-    print("Return from Exception .....")
+    log3("Return from Exception .....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
         # basically do a rollback, and resume running from the last rollback point.
@@ -1720,7 +1722,7 @@ def processEndException(step, i, step_keys):
             ex_stat = "ErrorException:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorException: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return idx, ex_stat
 
@@ -1749,12 +1751,12 @@ def processExceptionHandler(step, i, step_keys):
                 break
 
         if net_connected:
-            print("reconnected, set up to resume from the rollback point")
+            log3("reconnected, set up to resume from the rollback point")
             # hit refresh page. Ctrl-F5
             pyautogui.hotkey("ctrl", "f5")
 
         else:
-            print("MISSION failed...")
+            log3("MISSION failed...")
 
 
 
@@ -1766,7 +1768,7 @@ def processExceptionHandler(step, i, step_keys):
             ex_stat = "ErrorExceptionHandler:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorExceptionHandler: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -1780,14 +1782,14 @@ def evalCondition(condition):
     global cmp_result
     fault = False
     root = ast.parse(condition)
-    print(ast.dump(ast.parse(condition)))
-    print("root:", root)
+    log3(ast.dump(ast.parse(condition)))
+    log3("root:"+json.dumps(root))
     # extract all variable names in the condition statement expression
     varnames = sorted({node.id for node in ast.walk(root) if isinstance(node, ast.Name)})
-    print("varnames:", varnames)
+    log3("varnames:"+json.dumps(varnames))
     # now filter out special keywords such int, str, float what's left should be variable names.
     varnames = list(filter(lambda k: not (k == "float" or k == "int" or k == "str" or k == "len"), varnames))
-    print("filtered varnames:", varnames)
+    log3("filtered varnames:"+json.dumps(varnames))
     prefix = "global "
     for varname in varnames:
         if varname in symTab:
@@ -1798,9 +1800,9 @@ def evalCondition(condition):
 
     prefix = prefix + "cmp_result\ncmp_result = ("
     condition = prefix + condition + ")"
-    print("TBE: " + condition)
+    log3("TBE: " + condition)
     exec(condition)
-    print("TBE result: ", cmp_result)
+    log3("TBE result: "+json.dumps(cmp_result))
 
     return cmp_result
 
@@ -1810,7 +1812,7 @@ def evalCondition(condition):
 # "if_else": ifelse,
 # "if_end": ifend
 def processCheckCondition(step, i, step_keys):
-    print("Check Condition.....")
+    log3("Check Condition.....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
         condition = step["condition"]
@@ -1819,7 +1821,7 @@ def processCheckCondition(step, i, step_keys):
             idx = i + 1
         else:
             idx = step_keys.index(step["if_else"])
-            print("else: ", step["if_else"], "else idx: ", idx)
+            log3("else: "+json.dumps(step["if_else"])+"else idx: "+str(idx))
 
 
     except Exception as e:
@@ -1830,7 +1832,7 @@ def processCheckCondition(step, i, step_keys):
             ex_stat = "ErrorCheckCondition:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorCheckCondition: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
 
     return idx, ex_stat
@@ -1842,7 +1844,7 @@ def processCheckCondition(step, i, step_keys):
 # "count": repeat count,
 # "end": loop end marker.
 def processRepeat(step, i,  step_keys):
-    print("Looping.....: ", step)
+    log3("Looping.....: "+json.dumps(step))
     ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["count"].isnumeric():
@@ -1865,7 +1867,7 @@ def processRepeat(step, i,  step_keys):
             # update loop counter, before jumping back to condition here.
             # lcvar_name = "lcv_" + step["lc_name"]+str(i)
             lcvar_name = step["lc_name"]
-            print("repeat counter: ", symTab[lcvar_name], "target count: ", step["count"])
+            log3("repeat counter: "+symTab[lcvar_name]+"target count: "+str(step["count"]))
             if symTab[lcvar_name] < int(step["count"]):
                 symTab[lcvar_name] = symTab[lcvar_name] + 1
                 end_idx = i + 1
@@ -1885,13 +1887,13 @@ def processRepeat(step, i,  step_keys):
             ex_stat = "ErrorRepeat:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorRepeat: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return end_idx, ex_stat
 
 # assumption: data is in form of a single json which can be easily dumped.
 def processLoadData(step, i):
-    print("Loading Data .....")
+    log3("Loading Data .....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
         with open(step["file_link"], 'r') as f:
@@ -1907,13 +1909,13 @@ def processLoadData(step, i):
             ex_stat = "ErrorLoadData:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorLoadData: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i+1), ex_stat
 
 
 def processSaveData(step, i):
-    print("Saving Data .....")
+    log3("Saving Data .....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
         with open(step["file_link"], 'w') as f:
@@ -1929,7 +1931,7 @@ def processSaveData(step, i):
             ex_stat = "ErrorSaveData:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorSaveData: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i+1), ex_stat
 
@@ -1939,7 +1941,7 @@ def processSaveData(step, i):
 # entity: "are we calling a script or function?"
 # output: output data variable
 def processCallExtern(step, i):
-    print("Run External Script/code as strings .....")
+    log3("Run External Script/code as strings .....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["entity"] == "file":
@@ -1955,13 +1957,13 @@ def processCallExtern(step, i):
             cmdline.extend(args)
             oargs = ["capture_output=True", "text=True"]
             cmdline.extend(oargs)
-            print("command line: ", cmdline)
+            log3("command line: "+json.dumps(cmdline))
             result = subprocess.call(cmdline, shell=True)
         else:
             # execute a string as raw python code.
             result = exec(step["file"])
             if "nNRP" in step["file"]:
-                print("nNRP: ", symTab["nNRP"])
+                log3("nNRP: "+json.dumps(symTab["nNRP"]))
         # if symTab[step["fill_method"]] == "assign":
         #     symTab[step["output"]] = result
         # elif symTab[step["fill_method"]] == "copy_obj":
@@ -1979,7 +1981,7 @@ def processCallExtern(step, i):
             ex_stat = "ErrorCallExtern:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorCallExtern: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i+1), ex_stat
 
@@ -2009,16 +2011,16 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
 
         fin_par = stack.pop()
         symTab["fin"] = symTab[fin_par]
-        print("getting skill call input parameter: ", fin_par, " [val: ", symTab[fin_par])
-        print("current skill table: ", sk_table)
+        log3("getting skill call input parameter: "+json.dumps(fin_par)+" [val: "+json.dumps(symTab[fin_par]))
+        log3("current skill table: "+json.dumps(sk_table))
 
         # start execuation on the function, find the function name's address, and set next pointer to it.
         # the function name address key value pair was created in gen_addresses
         skname = step["skill_path"] + "/" + step["skill_name"]
-        print("skname:", skname)
+        log3("skname:"+skname)
         idx = step_keys.index(sk_table[skname])
-        print("idx:", idx)
-        print("step_keys:", step_keys)
+        log3("idx:"+str(idx))
+        log3("step_keys:"+json.dumps(step_keys))
 
 
     except Exception as e:
@@ -2029,7 +2031,7 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
             ex_stat = "ErrorUseSkill:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorUseSkill: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return idx, ex_stat
 
@@ -2070,7 +2072,7 @@ def processOverloadSkill(step, i, stack, step_keys):
             ex_stat = "ErrorOverloadSkill:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorOverloadSkill: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return idx, ex_stat
 
@@ -2098,7 +2100,7 @@ def processCallFunction(step, i, stack, func_table, step_keys):
 
         fin_par = stack.pop()
         symTab["fin"] = symTab[fin_par]
-        print("geting function call input parameter: ", fin_par, " [val: ", symTab[fin_par])
+        log3("geting function call input parameter: "+json.dumps(fin_par)+" [val: "+json.dumps(symTab[fin_par]))
 
         # start execuation on the function, find the function name's address, and set next pointer to it.
         # the function name address key value pair was created in gen_addresses
@@ -2114,7 +2116,7 @@ def processCallFunction(step, i, stack, func_table, step_keys):
             ex_stat = "ErrorCallFunction:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorCallFunction: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return idx, ex_stat
 
@@ -2127,8 +2129,8 @@ def processReturn(step, i, stack, step_keys):
 
         if return_var_name != "":
             symTab[return_var_name] = symTab[step["val_var_name"]]
-            # print("return var.....", step["val_var_name"], "[val:", symTab[step["val_var_name"]])
-            # print("return result to .....", return_var_name, "[val:", symTab[return_var_name])
+            # log3("return var.....", step["val_var_name"], "[val:", symTab[step["val_var_name"]])
+            # log3("return result to .....", return_var_name, "[val:", symTab[return_var_name])
 
         # restoer original fin and fout.
         symTab["fin"] = stack.pop()
@@ -2137,7 +2139,7 @@ def processReturn(step, i, stack, step_keys):
 
         #  set the pointer to the return to pointer.
         next_i = stack.pop()
-        print("after return, will run @", next_i)
+        plog3rint("after return, will run @"+str(next_i))
 
 
 
@@ -2149,7 +2151,7 @@ def processReturn(step, i, stack, step_keys):
             ex_stat = "ErrorReturn:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorReturn: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return next_i, ex_stat
 
@@ -2177,7 +2179,7 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
             next_i = stack.pop()
 
         if step["stub_name"] == "end skill":
-            print("end of a skill", step["func_name"], "reached.")
+            log3("end of a skill "+step["func_name"]+" reached.")
             if len(sk_stack) == 0:
                 #set next_i to be a huage number, that wuold stop the code.
                 next_i = MAX_STEPS
@@ -2198,7 +2200,7 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
                 if TEST_RUN_CNT > 1:
                     ex_stat = "ErrorStub: Manually Set Error"
 
-                print("TEST_RUN_CNT ex_stat:", TEST_RUN_CNT, "[" + ex_stat + "]")
+                log3("TEST_RUN_CNT ex_stat:"+str(TEST_RUN_CNT)+"[" + ex_stat + "]")
                 TEST_RUN_CNT = TEST_RUN_CNT + 1
 
 
@@ -2211,7 +2213,7 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
             ex_stat = "ErrorStub:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorStub: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return next_i, ex_stat
 
@@ -2219,7 +2221,7 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
 def processGoto(step, i,  step_keys):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("stepGOTO:", step["goto"])
+        log3("stepGOTO:"+step["goto"])
         if "step B" in step["goto"] and "!" in step["goto"] :
             next_step_index = step_keys.index(step["goto"])
         else:
@@ -2235,7 +2237,7 @@ def processGoto(step, i,  step_keys):
             ex_stat = "ErrorGoTo:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorGoTo: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return next_step_index, ex_stat
 
@@ -2256,7 +2258,7 @@ def processListDir(step, i):
             ex_stat = "ErrorListDir:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorListDir: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2268,13 +2270,13 @@ def processCheckExistence(step, i):
             fn = symTab[step["file"]]
         else:
             fn = step["file"]
-        print("check existence for :", fn, "of type:", step["fntype"])
+        log3("check existence for :"+fn+" of type:"+step["fntype"])
         if "dir" in  step["fntype"]:
             symTab[step["result"]] = os.path.isdir(fn)
         else:
             symTab[step["result"]] = os.path.isfile(fn)
 
-        print("Existence is:", symTab[step["result"]])
+        log3("Existence is:"+json.dumps(symTab[step["result"]]))
 
 
 
@@ -2286,7 +2288,7 @@ def processCheckExistence(step, i):
             ex_stat = "ErrorCheckExistence:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorCheckExistence: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2305,13 +2307,13 @@ def processCreateDir(step, i):
         else:
             newdir = dir_tbc
 
-        print("Creating dir:", newdir)
+        log3("Creating dir:"+newdir)
         if not os.path.exists(newdir):
             #create only if the dir doesn't exist
             os.makedirs(newdir)
-            print("Created.....")
+            log3("Created.....")
         else:
-            print("Already existed.")
+            log3("Already existed.")
 
 
 
@@ -2323,7 +2325,7 @@ def processCreateDir(step, i):
             ex_stat = "ErrorCreateDir:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorCreateDir: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2352,9 +2354,9 @@ def process7z(step, i):
 
         elif step["action"] == "unzip":
             if output_dir != "":
-                print("executing....", exe + " e " + input + " -o" + output_dir)
+                log3("executing...."+ exe + " e " + input + " -o" + output_dir)
                 # output_dir = "-o"+output_dir
-                print("outputdir:", output_dir)
+                log3("outputdir:"+output_dir)
                 # extremely key here, there should be no "" around Program Files....
                 cmd = ['C:/Program Files/7-Zip/7z.exe', 'e', input,  f'-o{output_dir}']
                 symTab[step["result"]] = subprocess.Popen(cmd)
@@ -2373,7 +2375,7 @@ def process7z(step, i):
             ex_stat = "Error7z:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "Error7z: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2387,12 +2389,12 @@ def process7z(step, i):
 # "result": result, result varaibel continas result.
 # "status": flag - flag variable contains result
 def processSearchAnchorInfo(step, i):
-    print("Searching....", step["target_types"])
+    log3("Searching...."+json.dumps(step["target_types"]))
     global in_exception
     ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
-        print("SEARCH SCREEN INFO:", scrn)
+        log3("SEARCH SCREEN INFO:"+json.dumps(scrn))
         logic = step["logic"]
         fault_names = ["site_not_reached", "bad_request"]
         fault_found = []
@@ -2400,7 +2402,7 @@ def processSearchAnchorInfo(step, i):
         found = []
         n_targets_found = 0
 
-        # print("Searching screen....", scrn)
+        # log3("Searching screen...."+json.dumps(scrn))
 
         if not (type(step["names"]) is list):
             target_names = [step["names"]]  # make it a list.
@@ -2410,14 +2412,14 @@ def processSearchAnchorInfo(step, i):
             target_types = step["target_types"]
 
         for idx in range(len(target_names)):
-            print("ith target:", idx, target_types[idx], target_names[idx])
+            log3("ith target:"+str(idx)+" "+target_types[idx]+" "+target_names[idx])
             if step["name_type"] != "direct":
                 exec("global temp_target_name\ntemp_target_name= " + target_names[idx])
                 target_names[idx] = temp_target_name
 
         # now do the search
         for target_name, target_type in zip(target_names, target_types):
-            print("searching: ", target_name, ", ", target_type, "==================")
+            log3("searching: "+target_name+", "+target_type+"==================")
             targets_found = [element for index, element in enumerate(scrn) if
                              element["name"] == target_name and element["type"] == target_type]
             if len(targets_found) > 0:
@@ -2427,7 +2429,7 @@ def processSearchAnchorInfo(step, i):
         # reg = re.compile(target_names + "[0-9]+")
         # found = [element for index, element in enumerate(scrn["data"]) if reg.match(element["name"]) and element["type"] == target_types]
 
-        print("found.... ", found)
+        log3("found.... "+json.dumps(found))
         # search result should be put into the result variable.
         symTab[step["result"]] = found
 
@@ -2443,7 +2445,7 @@ def processSearchAnchorInfo(step, i):
             else:
                 symTab[step["status"]] = True
 
-        print("status: ", symTab[step["status"]])
+        log3("status: "+json.dumps(symTab[step["status"]]))
 
         # didn't find anything, check fault situation.
         if symTab[step["status"]] == False:
@@ -2464,7 +2466,7 @@ def processSearchAnchorInfo(step, i):
             ex_stat = "ErrorSearchAnchorInfo:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorSearchAnchorInfo: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2490,7 +2492,7 @@ def matched_loc(pattern, text):
 # "breakpoint": break_here,
 # "status": flag
 def processSearchWordLine(step, i):
-    print("Searching....words and/or lines", step["name_types"])
+    log3("Searching....words and/or lines"+json.dumps(step["name_types"]))
     global in_exception
     p_stat = ""
     ex_stat = DEFAULT_RUN_STATUS
@@ -2502,7 +2504,7 @@ def processSearchWordLine(step, i):
         found = []
         n_targets_found = 0
 
-        # print("Searching screen....", scrn)
+        # log3("Searching screen...."+dumps(scrn))
         if not (type(step["names"]) is list):
             target_names = [step["names"]]  # make it a list.
             name_types = [step["name_types"]]
@@ -2510,18 +2512,18 @@ def processSearchWordLine(step, i):
             target_names = step["names"]
             name_types = step["name_types"]
 
-        print("target_names:", target_names, "name_types:", name_types)
+        log3("target_names:"+json.dumps(target_names)+"name_types:"+json.dumps(name_types))
         for idx in range(len(target_names)):
             if "direct" not in name_types[idx]:
                 exec("global temp_target_name\ntemp_target_name= " + target_names[idx])
                 target_names[idx] = temp_target_name
-                print("ith target:", idx, name_types[idx], target_names[idx])
+                log3("ith target:"+str(idx)+" "+name_types[idx]+" "+target_names[idx])
 
         # now do the search
         # all_lines = [element["txt_struct"] for index, element in enumerate(scrn) if element["name"] == "paragraph" and element["type"] == "info"]
         all_paragraphs = [element for index, element in enumerate(scrn) if element["name"] == "paragraph" and element["type"] == "info"]
-        print("all_paragraphs:", all_paragraphs)
-        print("==============================================================")
+        log3("all_paragraphs:"+json.dumps(all_paragraphs))
+        log3("==============================================================")
         # go thru each to be matched pattern and search paragraph by paragraph.
         all_found = []
         for target_name, name_type in zip(target_names, name_types):
@@ -2531,14 +2533,14 @@ def processSearchWordLine(step, i):
                 for line in p["txt_struct"]:
                     lmatch = re.search(target_name, line["text"])
                     if lmatch:
-                        print("line matched:", line["text"])
+                        log3("line matched:"+line["text"])
                         start_index = lmatch.start()
                         end_index = lmatch.end()
                         matched_pattern = line["text"][start_index:end_index]
                         matched_words = matched_pattern.split()
                         first_word = matched_words[0]
                         last_word = None
-                        print("matched_words", matched_words, "first_word", first_word, "last_word", last_word)
+                        log3("matched_words"+json.dumps(matched_words)+"first_word"+json.dumps(first_word)+"last_word"+json.dumps(last_word))
                         if len(matched_words) >  1:
                             last_word = matched_words[len(matched_words)-1]
 
@@ -2547,30 +2549,30 @@ def processSearchWordLine(step, i):
                         if last_word:
                             match_ends = [word for index, word in enumerate(line["words"]) if last_word in word["text"]]
 
-                        print("match_starts", match_starts)
+                        log3("match_starts"+json.dumps(match_starts))
                         for match_start in match_starts:
                             if last_word:
                                 match_end = next((x for x in match_ends if x["box"][0] > match_start["box"][2] ), None)
                                 matched_loc = [match_start["box"][0], match_start["box"][1], match_end["box"][2], match_end["box"][3]]
-                                print("match more than 1 word")
+                                log3("match more than 1 word")
                             else:
                                 matched_loc = match_start["box"]
-                                print("match only 1 word")
+                                log3("match only 1 word")
 
                             found.append({"txt": matched_pattern, "box": matched_loc})
                 else:
                     p_stat = "pattern NOT FOUND in paragraph"
-                    print(p_stat, p["text"])
+                    log3(p_stat+">>"+p["text"])
 
             # line up the matched location top to bottom.
             if len(found) > 0:
-                print("found here", found)
+                log3("found here"+json.dumps(found))
                 sorted_found = sorted(found, key=lambda w: w["box"][1], reverse=False)
                 all_found.extend(sorted_found)
 
-            print("======================+++++++++++++++++++++++++++++++++++")
+            log3("======================+++++++++++++++++++++++++++++++++++")
 
-        print("all found.... ", all_found)
+        log3("all found.... "+json.dumps(all_found))
         # search result should be put into the result variable.
         symTab[step["result"]] = all_found
 
@@ -2579,7 +2581,7 @@ def processSearchWordLine(step, i):
         else:
             symTab[step["status"]] = True
 
-        print("status: ", symTab[step["status"]])
+        log3("status: "+symTab[step["status"]])
 
         # didn't find anything, check fault situation.
         if symTab[step["status"]] == False:
@@ -2600,7 +2602,7 @@ def processSearchWordLine(step, i):
             ex_stat = "ErrorSearchWordLine:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorSearchWordLine: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2620,7 +2622,7 @@ def processSearchWordLine(step, i):
 # "flag": flag
 def processSearchScroll(step, i):
 
-    print("Searching....", step["anchor"])
+    log3("Searching...."+json.dumps(step["anchor"]))
     ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
@@ -2630,31 +2632,31 @@ def processSearchScroll(step, i):
         target_loc = int(step["target_loc"])/100
         scroll_resolution = step["resolution"]
         screensize = (scrn[len(scrn)-2]["loc"][2], scrn[len(scrn)-2]["loc"][3])
-        print("screen size: ", screensize, "scroll resolution: ", symTab[scroll_resolution], " target_loc:", target_loc)
+        log3("screen size: "+json.dumps(screensize)+"scroll resolution: "+str(symTab[scroll_resolution])+" target_loc:"+json.dumps(target_loc))
 
         at_loc_top_v = int(screensize[0]*at_loc_top)
         at_loc_bottom_v = int(screensize[0] * at_loc_bottom)
         target_loc_v = int(screensize[0]*target_loc)
-        print(" target_loc_V: ", target_loc_v, "at_loc_top_v: ", at_loc_top_v, "at_loc_bottom_v: ", at_loc_bottom_v)
+        log3(" target_loc_V: "+str(target_loc_v)+"at_loc_top_v: "+str(at_loc_top_v)+"at_loc_bottom_v: "+str(at_loc_bottom_v))
 
         # find all images matches the name and above the at_loc
-        print("finding....:", anchor)
+        log3("finding....:"+json.dumps(anchor))
         anyancs = [element for index, element in enumerate(scrn) if element["name"] == anchor]
-        print("found any anchorss: ", anyancs)
+        log3("found any anchorss: "+json.dumps(anyancs))
         ancs = [element for index, element in enumerate(scrn) if element["name"] == anchor and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
-        print("found anchorss in bound: ", ancs)
+        log3("found anchorss in bound: "+json.dumps(ancs))
         if len(ancs) > 0:
             # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
             vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
-            print("FFOUND: ", vsorted[0])
+            log3("FFOUND: "+json.dumps(vsorted[0]))
             offset = round((target_loc_v - vsorted[0]["loc"][2])/symTab[scroll_resolution])
-            print("calculated offset: ", offset, "setting flag var [", step["flag"], "] to be TRUE....")
+            log3("calculated offset: "+str(offset)+"setting flag var ["+str(step["flag"])+"] to be TRUE....")
             symTab[step["flag"]] = True
         else:
             # if anchor is not on the page, set the flag and scroll down 90 of a screen
             offset = 0-round(screensize[0]*0.5/symTab[scroll_resolution])
             symTab[step["flag"]] = False
-            print("KEEP scrolling calculated offset: ", offset, "setting flag var [", step["flag"], "] to be FALSE....")
+            log3("KEEP scrolling calculated offset: "+str(offset)+"setting flag var ["+str(step["flag"])+"] to be FALSE....")
 
         mouse.scroll(0, offset)
         time.sleep(step["postwait"])
@@ -2668,7 +2670,7 @@ def processSearchScroll(step, i):
             ex_stat = "ErrorSearchScroll:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorSearchScroll: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2680,7 +2682,7 @@ def processSearchScroll(step, i):
 def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    print("DEBUG", "gen_psk_for_scroll_down_until...")
+    log3("DEBUG", "gen_psk_for_scroll_down_until...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
@@ -2717,15 +2719,15 @@ def get_html_file_dir_loc(result):
     target_name = "refresh"
     target_type = "anchor icon"
     # target_type = "anchor text"
-    print("result: ", result)
+    log3("result: "+json.dumps(result))
     # for e in result:
-    #     print(e)
+    #     log3(json.dumps(e))
 
     # now do the search
     targets_found = [element for index, element in enumerate(result) if
                      element["name"] == target_name and element["type"] == target_type]
 
-    print("targets_found: ", targets_found)
+    log3("targets_found: "+json.dumps(targets_found))
     if len(targets_found) > 0:
         # sort found by vertical location.
         refresh_icon_loc = targets_found[len(targets_found)-1]['loc']
@@ -2733,10 +2735,10 @@ def get_html_file_dir_loc(result):
         posY = int(refresh_icon_loc[0]) + int((int(refresh_icon_loc[2]) - int(refresh_icon_loc[0]))/2)
         target_loc = [posX, posY]
     else:
-        print("ERROR: screen read unexpected FAILED TO FOUND DIR INPUT BOX")
+        log3("ERROR: screen read unexpected FAILED TO FOUND DIR INPUT BOX")
         target_loc = [0, 0]
 
-    print("target_loc: ", target_loc)
+    log3("target_loc: "+json.dumps(target_loc))
 
     return target_loc
 
@@ -2749,12 +2751,12 @@ def get_html_file_name_loc(result):
     target_text1 = "name:"
     target_text2 = "name"
 
-    print("result: ", result)
+    log3("result: "+json.dumps(result))
     # now do the search
     targets_found = [element for index, element in enumerate(result) if
                      element["type"] == target_type and (re.search(target_text1, element["text"]) or re.search(target_text2, element["text"]))]
 
-    print("targets_found: ", targets_found)
+    log3("targets_found: "+json.dumps(targets_found))
 
     if len(targets_found) > 0:
         # sort found by vertical location.
@@ -2773,7 +2775,7 @@ def get_html_file_name_loc(result):
             target_loc = [0, 0]
 
     else:
-        print("ERROR: screen read unexpected FAILED TO FOUND FILE NAME INPUT BOX")
+        log3("ERROR: screen read unexpected FAILED TO FOUND FILE NAME INPUT BOX")
         target_loc = [0, 0]
 
     return target_loc
@@ -2784,13 +2786,13 @@ def get_save_button_loc(result):
     target_name = "cancel"
     # target_type = "anchor icon"
     target_type = "anchor text"
-    print("result: ", result)
+    log3("result: "+json.dumps(result))
 
     # now do the search
     targets_found = [element for index, element in enumerate(result) if
                      element["name"] == target_name and element["type"] == target_type]
 
-    print("targets_found: ", targets_found)
+    log3("targets_found: "+json.dumps(targets_found))
 
     if len(targets_found) > 0:
         # sort found by vertical location.
@@ -2799,7 +2801,7 @@ def get_save_button_loc(result):
         posY = target_loc[0] + int((target_loc[2] - target_loc[0])/2)
         target_loc = [posX, posY]
     else:
-        print("ERROR: screen read unexpected FAILED TO FOUND SAVE BUTTON")
+        log3("ERROR: screen read unexpected FAILED TO FOUND SAVE BUTTON")
         target_loc = [0, 0]
 
     return target_loc
@@ -2808,13 +2810,13 @@ def get_save_button_loc(result):
 # save web page into html file.
 def processSaveHtml(step, i, mission, skill):
     global screen_loc
-    print("Saving web page to a local html file .....", step)
+    log3("Saving web page to a local html file ....."+json.dumps(step))
     ex_stat = DEFAULT_RUN_STATUS
     try:
         dtnow = datetime.now()
 
         date_word = dtnow.strftime("%Y%m%d")
-        print("date word:", date_word)
+        log3("date word:"+date_word)
 
         fdir = ecb_data_homepath + "/runlogs/"
         fdir = fdir + date_word + "/"
@@ -2832,7 +2834,7 @@ def processSaveHtml(step, i, mission, skill):
         hfile = fdir + "/" + step["local"]
 
         symTab[step["html_var"]] = hfile
-        print("hfile: ", hfile)
+        log3("hfile: "+hfile)
 
 
         # now save the web page into a file.
@@ -2846,15 +2848,15 @@ def processSaveHtml(step, i, mission, skill):
 
         # get ready the html file path and the file name
         html_file_dir_name = fdir
-        print("html_file_dir_name: ", html_file_dir_name)
+        log3("html_file_dir_name: "+html_file_dir_name)
 
         html_file_name = step["local"].split(".")[0]
-        print("html_file_name: ", html_file_name)
+        log3("html_file_name: "+html_file_name)
 
 
         # locate the html file directory path input text box
         html_file_dir_loc = get_html_file_dir_loc(symTab[step["data_sink"]])
-        print("html_file_dir_loc: ", html_file_dir_loc)
+        log3("html_file_dir_loc: "+json.dumps(html_file_dir_loc))
         pyautogui.moveTo(html_file_dir_loc[0]+screen_loc[0], html_file_dir_loc[1]+screen_loc[1])
         # pyautogui.click(clicks=2)
         pyautogui.click()
@@ -2868,7 +2870,7 @@ def processSaveHtml(step, i, mission, skill):
 
         # locate the file name input text box
         html_file_name_loc = get_html_file_name_loc(symTab[step["data_sink"]])
-        print("html_file_name_loc: ", html_file_name_loc)
+        log3("html_file_name_loc: "+json.dumps(html_file_name_loc))
         pyautogui.moveTo(html_file_name_loc[0]+screen_loc[0], html_file_name_loc[1]+screen_loc[1])
         pyautogui.click()
         time.sleep(2)
@@ -2883,7 +2885,7 @@ def processSaveHtml(step, i, mission, skill):
 
         # locate the save button
         save_button_loc = get_save_button_loc(symTab[step["data_sink"]])
-        print("save_button_loc: ", save_button_loc)
+        log3("save_button_loc: "+json.dumps(save_button_loc))
         pyautogui.moveTo(save_button_loc[0]+screen_loc[0], save_button_loc[1]+screen_loc[1])
         time.sleep(2)
         pyautogui.click()
@@ -2900,7 +2902,7 @@ def processSaveHtml(step, i, mission, skill):
             ex_stat = "ErrorSaveHtml:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorSaveHtml: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return ni, ex_stat
 
@@ -2915,7 +2917,7 @@ def processCheckAppRunning(step, i):
             def winEnumHandler(hwnd, ctx):
                 if win32gui.IsWindowVisible(hwnd):
                     n = win32gui.GetWindowText(hwnd)
-                    # print("windows: ", n)
+                    # log3("windows: "+str(n))
                     if n:
                         names.append(n)
 
@@ -2934,7 +2936,7 @@ def processCheckAppRunning(step, i):
             ex_stat = "ErrorCheckAppRunning:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorCheckAppRunning: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2949,7 +2951,7 @@ def processBringAppToFront(step, i):
             def winEnumHandler(hwnd, ctx):
                 if win32gui.IsWindowVisible(hwnd):
                     n = win32gui.GetWindowText(hwnd)
-                    # print("windows: ", n)
+                    # log3("windows: "+str(n))
                     if n:
                         names.append(n)
 
@@ -2963,7 +2965,7 @@ def processBringAppToFront(step, i):
                 win32gui.SetForegroundWindow(hwnd)
                 symTab[step["result"]] = True
             else:
-                print(f"Error: Window with title '{win_title}' not found.")
+                log3(f"Error: Window with title '{win_title}' not found.")
 
     except Exception as e:
         # Get the traceback information
@@ -2973,7 +2975,7 @@ def processBringAppToFront(step, i):
             ex_stat = "ErrorBringAppToFront:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorBringAppToFront: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2999,6 +3001,6 @@ def processAskLLM(step, i, mission):
             ex_stat = "ErrorAskLLM:" + json.dumps(traceback_info, indent=4) + " " + str(e)
         else:
             ex_stat = "ErrorAskLLM: traceback information not available:" + str(e)
-        print(ex_stat)
+        log3(ex_stat)
 
     return (i + 1), ex_stat

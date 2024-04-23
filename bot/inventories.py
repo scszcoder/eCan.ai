@@ -1,4 +1,5 @@
-
+import json
+from Logger import *
 
 
 class INV_PRODUCT:
@@ -58,7 +59,7 @@ class INVENTORY:
         self.products.append(prod)
 
     def getAllowedBids(self):
-        print("geting allowed BID:", self.allowed_bids)
+        log3("geting allowed BID:"+json.dumps(self.allowed_bids))
         return self.allowed_bids
 
     def getSeller(self):

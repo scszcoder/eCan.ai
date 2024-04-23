@@ -10,6 +10,7 @@ from ordersData import *
 from basicSkill import *
 import esprima
 from esprima.visitor import Visitor
+from Logger import *
 
 global symTab
 global STEP_GAP
@@ -56,10 +57,10 @@ def processEtsyScrapeOrders(step, i):
             pageItems = soup.findAll("div", attrs={"class": "wt-select wt-mr-xs-2"})
             option_tags = []
             if len(pageItems) > 0:
-                print("found page items.")
+                log3("found page items.")
                 for pi in pageItems:
                     option_tags = pi.findAll("option")
-                    print(option_tags)
+                    log3(json.dumps(option_tags))
 
             # extract page number info
             ahItems = soup.findAll("a", attrs={"class": "text-gray active"})
@@ -70,7 +71,7 @@ def processEtsyScrapeOrders(step, i):
                     for piece in pieces:
                         if "page" in piece:
                             page_number = int(piece.split("=")[1])
-                            print("found page number: ", page_number)
+                            log3("found page number: "+str(page_number))
                             break
 
                 if page_number > 1:
@@ -79,7 +80,7 @@ def processEtsyScrapeOrders(step, i):
             # extract total number of orders
             scriptItems = soup.findAll("script")
             for item in scriptItems:
-                # print("item: ", item)
+                # log3("item: "+json.dumps(item))
 
                 # found = re.findall("orderId.*feedbackScore", item.text)
                 pattern = r'order_count'
@@ -88,17 +89,17 @@ def processEtsyScrapeOrders(step, i):
                     order_count = -1
                     tokens = esprima.tokenize(item.text)
                     usefull = [t for i, t in enumerate(tokens) if t.type != "Identifier" and t.type != "Punctuator" and t.value != "\"textSpans\"" and t.value != "\"text\""]
-                    # print(usefull)
+                    # log3(json.dumps(usefull))
                     i = 0
                     useful_i = -9
                     for x in usefull:
                         if x.value == "\"order_count\"":
-                            # print(x)
+                            # log3(json.dumps(x))
                             useful_i = i
 
                         if i == useful_i + 1 and x.type == "Numeric":
                             order_count = int(x.value)
-                            print("order count: ", order_count)
+                            log3("order count: "+str(order_count))
                             break
 
                         i = i + 1
@@ -161,13 +162,13 @@ def processEtsyScrapeOrders(step, i):
                     if len(recipient_loc_tags) == 3:
                         order = ORDER("", "", "", "", "", "", "")
                         products = []
-                        print("recipient_loc_tags:", recipient_loc_tags)
+                        log3("recipient_loc_tags:"+json.dumps(recipient_loc_tags))
                         recipient = OrderPerson("", "", "", "", "", "", "")
                         recipient.setFullName(recipient_loc_tags[0].text)
                         recipient.setCity(recipient_loc_tags[1].text)
                         recipient.setState(recipient_loc_tags[2].text)
                     else:
-                        print("no unexpanded addr....")
+                        log3("no unexpanded addr....")
 
                     # oid_tags = item.findAll("span", attrs={"data-test-id": 'unsanitize'})
 
@@ -175,7 +176,7 @@ def processEtsyScrapeOrders(step, i):
                 aItems = item.findAll("a", attrs={"class": "text-gray-darkest break-word"})
                 for aitem in aItems:
                     product = OrderedProduct("", "", "", "")
-                    print("product title:", aitem["title"])
+                    log3("product title:"+aitem["title"])
                     product.setPTitle(aitem['title'])
                     products.append(product)
 
@@ -185,13 +186,13 @@ def processEtsyScrapeOrders(step, i):
                 ulItems = item.findAll("ul", attrs={"class": "list-unstyled text-body-smaller"})
                 for ulItems in ulItems:
                     liItems = ulItems.findAll("li", attrs={"class": "clearfix"})
-                    print(" # of products: ", len(products), "# of liItems:", len(liItems))
+                    log3(" # of products: "+str(len(products))+"# of liItems:"+str(len(liItems)))
                     liidx = 0
                     for lii in liItems:
                         if liidx == 0:
                             qItems = lii.findAll("span", attrs={"class": 'strong'})
                             if len(qItems) > 0:
-                                print("Quantity:", qItems[0].text, "pidx:", pidx)
+                                log3("Quantity:"+qItems[0].text+"pidx:"+str(pidx))
                                 if qItems[0].text.isnumeric():
                                     products[pidx].setQuantity(qItems[0].text)
                         else:
@@ -208,12 +209,12 @@ def processEtsyScrapeOrders(step, i):
 
                 # obtain order ID, each order will have only 1 of these.
                 aItems = item.findAll("a", attrs={"aria-current": "page", "class": "text-gray active"})
-                print("orderID: ", aItems[1].text)
+                log3("orderID: "+aItems[1].text)
                 order.setOid(aItems[1].text)
 
                 # obtain total price of the order, each order will have only 1 of these.
                 aItems = item.findAll("span", attrs={"class": "display-inline-block"})
-                print("total price: ", float(aItems[0].text[1:]))
+                log3("total price: "+str(float(aItems[0].text[1:])))
                 order.setTotalPrice(float(aItems[0].text[1:]))
 
                 order.setProducts(products)
@@ -233,19 +234,20 @@ def processEtsyScrapeOrders(step, i):
             pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
         else:
             pagefull_of_orders["num_pages"] = 1
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
         for o in orders:
-            print(o.toJson())
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+            log3(json.dumps(o.toJson()))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
 
         symTab[step["result"]] = pagefull_of_orders
 
 
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
 
     return next_i, ex_stat
 
@@ -274,10 +276,10 @@ def processEtsyScrapeMsgLists(step, i):
             pageItems = soup.findAll("div", attrs={"class": "wt-select wt-mr-xs-2"})
             option_tags = []
             if len(pageItems) > 0:
-                print("found page items.")
+                log3("found page items.")
                 for pi in pageItems:
                     option_tags = pi.findAll("option")
-                    print(option_tags)
+                    log3(json.dumps(option_tags))
 
             # extract page number info
             ahItems = soup.findAll("a", attrs={"class": "text-gray active"})
@@ -288,7 +290,7 @@ def processEtsyScrapeMsgLists(step, i):
                     for piece in pieces:
                         if "page" in piece:
                             page_number = int(piece.split("=")[1])
-                            print("found page number: ", page_number)
+                            log3("found page number: "+str(page_number))
                             break
 
                 if page_number > 1:
@@ -297,7 +299,7 @@ def processEtsyScrapeMsgLists(step, i):
             # extract total number of orders
             scriptItems = soup.findAll("script")
             for item in scriptItems:
-                # print("item: ", item)
+                # log3("item: "+json.dumps(item))
 
                 # found = re.findall("orderId.*feedbackScore", item.text)
                 pattern = r'order_count'
@@ -306,17 +308,17 @@ def processEtsyScrapeMsgLists(step, i):
                     order_count = -1
                     tokens = esprima.tokenize(item.text)
                     usefull = [t for i, t in enumerate(tokens) if t.type != "Identifier" and t.type != "Punctuator" and t.value != "\"textSpans\"" and t.value != "\"text\""]
-                    # print(usefull)
+                    # log3(json.dumps(usefull))
                     i = 0
                     useful_i = -9
                     for x in usefull:
                         if x.value == "\"order_count\"":
-                            # print(x)
+                            # log3(json.dumps(x))
                             useful_i = i
 
                         if i == useful_i + 1 and x.type == "Numeric":
                             order_count = int(x.value)
-                            print("order count: ", order_count)
+                            log3("order count: "+str(order_count))
                             break
 
                         i = i + 1
@@ -379,13 +381,13 @@ def processEtsyScrapeMsgLists(step, i):
                     if len(recipient_loc_tags) == 3:
                         order = ORDER("", "", "", "", "", "", "")
                         products = []
-                        print("recipient_loc_tags:", recipient_loc_tags)
+                        log3("recipient_loc_tags:"+json.dumps(recipient_loc_tags))
                         recipient = OrderPerson("", "", "", "", "", "", "")
                         recipient.setFullName(recipient_loc_tags[0].text)
                         recipient.setCity(recipient_loc_tags[1].text)
                         recipient.setState(recipient_loc_tags[2].text)
                     else:
-                        print("no unexpanded addr....")
+                        log3("no unexpanded addr....")
 
                     # oid_tags = item.findAll("span", attrs={"data-test-id": 'unsanitize'})
 
@@ -393,7 +395,7 @@ def processEtsyScrapeMsgLists(step, i):
                 aItems = item.findAll("a", attrs={"class": "text-gray-darkest break-word"})
                 for aitem in aItems:
                     product = OrderedProduct("", "", "", "")
-                    print("product title:", aitem["title"])
+                    log3("product title:"+aitem["title"])
                     product.setPTitle(aitem['title'])
                     products.append(product)
 
@@ -403,13 +405,13 @@ def processEtsyScrapeMsgLists(step, i):
                 ulItems = item.findAll("ul", attrs={"class": "list-unstyled text-body-smaller"})
                 for ulItems in ulItems:
                     liItems = ulItems.findAll("li", attrs={"class": "clearfix"})
-                    print(" # of products: ", len(products), "# of liItems:", len(liItems))
+                    log3(" # of products: "+str(len(products))+"# of liItems:"+str(len(liItems)))
                     liidx = 0
                     for lii in liItems:
                         if liidx == 0:
                             qItems = lii.findAll("span", attrs={"class": 'strong'})
                             if len(qItems) > 0:
-                                print("Quantity:", qItems[0].text, "pidx:", pidx)
+                                log3("Quantity:"+qItems[0].text+"pidx:"+str(pidx))
                                 if qItems[0].text.isnumeric():
                                     products[pidx].setQuantity(qItems[0].text)
                         else:
@@ -426,12 +428,12 @@ def processEtsyScrapeMsgLists(step, i):
 
                 # obtain order ID, each order will have only 1 of these.
                 aItems = item.findAll("a", attrs={"aria-current": "page", "class": "text-gray active"})
-                print("orderID: ", aItems[1].text)
+                log3("orderID: "+aItems[1].text)
                 order.setOid(aItems[1].text)
 
                 # obtain total price of the order, each order will have only 1 of these.
                 aItems = item.findAll("span", attrs={"class": "display-inline-block"})
-                print("total price: ", float(aItems[0].text[1:]))
+                log3("total price: "+str(float(aItems[0].text[1:])))
                 order.setTotalPrice(float(aItems[0].text[1:]))
 
                 order.setProducts(products)
@@ -451,19 +453,20 @@ def processEtsyScrapeMsgLists(step, i):
             pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
         else:
             pagefull_of_orders["num_pages"] = 1
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
         for o in orders:
-            print(o.toJson())
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+            log3(json.dumps(o.toJson()))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
 
         symTab[step["result"]] = pagefull_of_orders
 
 
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
 
     return next_i, ex_stat
 
@@ -518,7 +521,7 @@ def processEtsyScrapeMsgThread(step, i):
             message_json = json.dumps(message_list, indent=4)
 
             # Print JSON
-            print(message_json)
+            log3(message_json)
 
         pagefull_of_orders["ol"] = orders
 
@@ -531,19 +534,20 @@ def processEtsyScrapeMsgThread(step, i):
             pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
         else:
             pagefull_of_orders["num_pages"] = 1
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
         for o in orders:
-            print(o.toJson())
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+            log3(json.dumps(o.toJson()))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
 
         symTab[step["result"]] = pagefull_of_orders
 
 
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
 
     return next_i, ex_stat
 
@@ -584,10 +588,10 @@ def processEtsyScrapeNewMsgs(step, i):
                 customer_name = conversation.find("h3").get_text().strip()
 
                 # Print the customer name (or id)
-                print("Customer Name (or ID):", customer_name)
+                log3("Customer Name (or ID):"+customer_name)
 
             # Print the number of new messages that need a response
-            print("New messages that need a response:", new_messages_to_respond)
+            log3("New messages that need a response:"+new_messages_to_respond)
 
         pagefull_of_orders["ol"] = orders
 
@@ -600,18 +604,19 @@ def processEtsyScrapeNewMsgs(step, i):
             pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
         else:
             pagefull_of_orders["num_pages"] = 1
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
         # print(json.dumps(pagefull_of_orders))
-        print("# of orders:", len(orders))
+        log3("# of orders:"+str(len(orders)))
         for o in orders:
-            print(o.toJson())
-        print("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+            log3(json.dumps(o.toJson()))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
 
         symTab[step["result"]] = pagefull_of_orders
 
 
     except Exception as e:
-        print(f"Exception info:{e}")
+        log3(f"Exception info:{e}")
         ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
 
     return next_i, ex_stat

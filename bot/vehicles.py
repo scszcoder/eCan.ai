@@ -8,7 +8,7 @@ from WorkSkill import *
 from readSkill import *
 import os
 from ebbot import *
-
+from Logger import *
 
 
 class VEHICLE(QStandardItem):
@@ -87,7 +87,7 @@ class VEHICLE(QStandardItem):
 
 
     def genJson(self):
-        print("generating Json..........>>>>")
+        log3("generating Json..........>>>>")
         jsd = {
                 "vid": self.id,
                 "ip": self.ip,
@@ -97,7 +97,7 @@ class VEHICLE(QStandardItem):
                 "bot_ids": self.bot_ids,
                 "status": self.status
                 }
-        print(json.dumps(jsd))
+        log3(json.dumps(jsd))
         return jsd
 
 

@@ -6,6 +6,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
 from envi import *
 from config.app_info import app_info
+from Logger import *
 
 SAME_ROW_THRESHOLD = 16
 
@@ -109,7 +110,7 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
 
     #extract tracking code from labels and update them into etsy_orders data struture.
 
-    gen_etsy_test_data()
+    # gen_etsy_test_data()
 
     # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
     # now update tracking coded back to the orderlist
@@ -124,7 +125,7 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows ebay order fullfill operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows ebay order fullfill operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -165,7 +166,7 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
     dt_string = str(int(dtnow.timestamp()))
     hfname = "etsyOrders" + dt_string + ".html"
 
-    print("SAVE HTML FILE: ", hfname)
+    log3("SAVE HTML FILE: "+hfname)
 
     # this_step, step_words = genStepCreateDir("sk_work_settings['log_path']", "expr", "fileStatus", this_step)
     # psk_words = psk_words + step_words
@@ -374,7 +375,7 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -594,7 +595,7 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -616,18 +617,18 @@ def genStepEbayScrapeOrdersHtml(html_var, page_cfg, page_num, product_list, step
 def processEbayScrapeOrdersHtml(step, i, mission, skill):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        print("Extract Order List from HTML: ", step)
+        log3("Extract Order List from HTML: "+json.dumps(step))
 
         hfile = symTab[step["html_var"]]
-        print("hfile: ", hfile)
+        log3("hfile: "+hfile)
 
         pl = ebay_seller_fetch_page_of_order_list(hfile, step["page_num"])
-        print("scrape product list result: ", pl)
+        log3("scrape product list result: "+json.dumps(pl))
 
         att_pl = []
 
         for p in step["page_cfg"]["products"]:
-            print("current page config: ", p)
+            log3("current page config: "+json.dumps(p))
             found = found_match(p, pl["pl"])
             if found:
                 # remove found from the pl
@@ -654,9 +655,10 @@ def processEbayScrapeOrdersHtml(step, i, mission, skill):
             # otherwise, extend the list with the new results.
             symTab[step["product_list"]].append({"products": pl, "attention": att_pl})
 
-        print("var step['product_list']: ", symTab[step["product_list"]])
+        log3("var step['product_list']: "+json.dumps(symTab[step["product_list"]]))
     except:
         ex_stat = "ErrorEbayScrapeOrdersHtml:" + str(i)
+        log3(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -754,7 +756,7 @@ def genWinADSEbayHandleReturnsSkill(worksettings, stepN, theme):
 
     #extract tracking code from labels and update them into etsy_orders data struture.
 
-    gen_etsy_test_data()
+    # gen_etsy_test_data()
 
     # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
     # now update tracking coded back to the orderlist
@@ -769,6 +771,6 @@ def genWinADSEbayHandleReturnsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
 
     return this_step, psk_words

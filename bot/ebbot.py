@@ -2,7 +2,7 @@ import asyncio
 import platform
 import json
 from datetime import datetime, date
-
+from Logger import *
 from PySide6.QtGui import QStandardItem, QIcon
 
 
@@ -74,7 +74,7 @@ class BOT_SETTINGS():
                 "machine": self.machine,
                 "browser": self.browser
             }
-        print("genJson:", json.dumps(jd))
+        log3("genJson:"+json.dumps(jd))
         return jd
 
 
@@ -171,7 +171,7 @@ class BOT_PRIVATE_PROFILE():
         self.backup_email_site = site
 
     def setBirthday(self, bdtxt):
-        print("SETTING BIRTHDAY:", bdtxt)
+        log3("SETTING BIRTHDAY:"+bdtxt)
         self.privateProfile.birthday = bdtxt
         format = '%Y-%m-%d'
 
@@ -276,7 +276,7 @@ class BOT_PUB_PROFILE():
 
     def setPseudoName(self, pn):
         name_words = pn.split()
-        print("name_words", len(name_words), ":", name_words)
+        log3("name_words"+str(len(name_words))+":"+json.dumps(name_words))
         if len(name_words) >= 2:
             self.pseudo_first_name = name_words[0]
             self.pseudo_last_name = name_words[len(name_words)-1]
@@ -663,13 +663,13 @@ class EBBOT(QStandardItem):
             self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
 
     def genJson(self):
-        print("generating Json..........>>>>")
+        log3("generating Json..........>>>>")
         jsd = {
                 "pubProfile": self.pubProfile.genJson(),
                 "privateProfile": self.privateProfile.genJson(),
                 "settings": self.settings.genJson()
                 }
-        print(json.dumps(jsd))
+        log3(json.dumps(jsd))
         return jsd
 
     def updateDisplay(self):

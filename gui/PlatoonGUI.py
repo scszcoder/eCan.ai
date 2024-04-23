@@ -44,7 +44,7 @@ class PlatoonListView(QListView):
     def mousePressEvent(self, e):
         if e.type() == QEvent.MouseButtonDblClick:
             if e.button() == Qt.LeftButton:
-                print("row:", self.indexAt(e.pos()).row())
+                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.fetchVehicleStatus([self.selected_row])
 
@@ -108,7 +108,7 @@ class PlatoonWindow(QMainWindow):
 
         if entrance != "conn":
             for v in self.parent.vehicles:
-                print("adding vehicle tab")
+                self.parent.showMsg("adding vehicle tab")
                 ip_last = v.getIP().split(".")[len(v.getIP().split("."))-1]
                 self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon"+ip_last)
 
@@ -127,13 +127,13 @@ class PlatoonWindow(QMainWindow):
     # this function is called when a new vehicle is added to the platoonWin.
     def updatePlatoonWinWithMostRecentlyAddedVehicle(self):
         v = self.parent.vehicles[len(self.parent.vehicles)-1]
-        print("adding most recently added vehicle tab")
+        self.parent.showMsg("adding most recently added vehicle tab")
         ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
         self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
 
     def updatePlatoonWinWithMostRecentlyRemovedVehicle(self):
         v = self.parent.vehicles[len(self.parent.vehicles)-1]
-        # print("adding most recently added vehicle tab")
+        # self.parent.showMsg("adding most recently added vehicle tab")
         # ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
         # self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
 
@@ -145,7 +145,7 @@ class PlatoonWindow(QMainWindow):
             tab_index = tab_names.index(new_tab_name)
         else:
             # need to add a new tab.
-            print("adding a new tab....")
+            self.parent.showMsg("adding a new tab....")
             # find vehicle based on IP address.
             found_v = next((v  for v in self.parent.vehicles if v.getIP().split(".")[len(v.getIP().split(".")) - 1] == ip_last), None)
             if found_v:
@@ -159,7 +159,7 @@ class PlatoonWindow(QMainWindow):
         self.tabs.setCurrentIndex(tab_index)
 
     def fill1TableRow(self, rowIdx, rowDataJson, model):
-        print("filling table row #", rowIdx)
+        self.parent.showMsg("filling table row #"+str(rowIdx))
 
         text_item = QStandardItem(str(rowDataJson["mid"]))
         model.setItem(rowIdx, 0, text_item)
@@ -297,12 +297,12 @@ class PlatoonWindow(QMainWindow):
 
     def runAll(self):
         # Logic for removing a bot, remove the data and remove the file.
-        print("runn all")
+        self.parent.showMsg("runn all")
 
     def eventFilter(self, source, event):
-        print("Source:", source)
+        self.parent.showMsg("Source:"+source)
         if event.type() == QEvent.ContextMenu and source in self.platoonTableViews:
-            #print("bot RC menu....")
+            #self.parent.showMsg("bot RC menu....")
             self.popMenu = QMenu(self)
             self.platoonRefreshAction = self._createPlatoonRefreshMissionsStatAction()
             self.platoonHaltAction = self._createPlatoonHaltMissionsAction()
@@ -319,23 +319,23 @@ class PlatoonWindow(QMainWindow):
             self.popMenu.setFont(self.main_menu_font)
 
             selected_act = self.popMenu.exec_(event.globalPos())
-            print("selected:", selected_act)
+            self.parent.showMsg("selected:"+selected_act)
 
             if selected_act:
-                self.selected_mission_row = source.rowAt(event.pos().y())
-                print("selected row:", self.selected_mission_row)
-                if self.selected_mission_row == -1:
-                    self.selected_mission_row = source.model().rowCount() - 1
+                self.selected_vehicle_row = source.rowAt(event.pos().y())
+                self.parent.showMsg("selected row:"+str(self.selected_vehicle_row))
+                if self.selected_vehicle_row == -1:
+                    self.selected_vehicle_row = source.model().rowCount() - 1
                 self.selected_mission_column = source.columnAt(event.pos().x())
                 if self.selected_mission_column == -1:
                     self.selected_mission_column = source.model().columnCount() - 1
 
-                print("selected col :", self.selected_mission_column)
-                self.selected_mission_item = self.parent.runningVehicleModel.item(self.selected_mission_row)
-                print("selected item1 :", self.selected_mission_item)
+                self.parent.showMsg("selected col :"+str(self.selected_mission_column))
+                self.selected_vehicle_item = self.parent.runningVehicleModel.item(self.selected_vehicle_row)
+                self.parent.showMsg("selected item1 :"+self.selected_vehicle_item)
 
                 platoon_idx = self.platoonTableViews.index(source)
-                print("selected platoon_idx :", platoon_idx)
+                self.parent.showMsg("selected platoon_idx :"+str(platoon_idx))
 
                 if platoon_idx < 0 or platoon_idx >= self.parent.runningVehicleModel.rowCount():
                     platoon_idxs = []
@@ -343,19 +343,19 @@ class PlatoonWindow(QMainWindow):
                     platoon_idxs = [platoon_idx]
 
 
-                self.selected_mission_item = source.model().item(self.selected_mission_row, 0)
-                print("selected item2 :", self.selected_mission_item)
+                self.selected_vehicle_item = source.model().item(self.selected_vehicle_row, 0)
+                self.parent.showMsg("selected item2 :"+self.selected_vehicle_item)
 
-                if self.selected_mission_item:
-                    mid = int(self.selected_mission_item.text())
+                if self.selected_vehicle_item:
+                    mid = int(self.selected_vehicle_item.text())
                     mids = [mid]
                 else:
                     mids = []
 
-                print("selected mids :", mids)
+                self.parent.showMsg("selected mids :"+json.dumps(mids))
 
                 if selected_act == self.platoonRefreshAction:
-                    print("set to refresh status...", platoon_idxs, mids)
+                    self.parent.showMsg("set to refresh status..."+json.dumps(platoon_idxs)+" "+json.dumps(mids))
                     self.parent.sendPlatoonCommand("refresh", platoon_idxs, mids)
                 elif selected_act == self.platoonHaltAction:
                     self.parent.sendPlatoonCommand("halt", platoon_idxs, mids)
