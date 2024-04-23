@@ -8,9 +8,6 @@ from gui.skfc.diagram_item_arrow import DiagramArrowItem
 from gui.skfc.skfc_skd import SkFCSkd
 from gui.skfc.skfc_undo_stack import (AddDiagramItemCommand, RemoveDiagramItemCommand, ChangeColorCommand,
                                       ChangeFontCommand)
-# from typing import TYPE_CHECKING
-# if TYPE_CHECKING:
-#     from skill.steps.step_base import StepBase
 
 
 class SkFCScene(QGraphicsScene):
@@ -369,30 +366,3 @@ class SkFCScene(QGraphicsScene):
         psk_words = skfc_skd.gen_psk_body(sk_info, start_diagram_item, worksettings)
 
         return psk_words
-
-
-# class StepQueue:
-#     def __init__(self):
-#         self.queue = []
-#
-#     def enqueue(self, step: StepBase):
-#         self.queue.append(step)
-#
-#     def dequeue(self):
-#         if len(self.queue) < 1:
-#             return None
-#         return self.queue.pop(0)
-#
-#     def size(self):
-#         return len(self.queue)
-#
-#     def insert(self, position, step: StepBase):
-#         self.queue.insert(position, step)
-#
-#     def find(self, value):
-#         try:
-#             position = self.queue.index(value)
-#             return position
-#         except ValueError:
-#             return -1
-#
