@@ -138,7 +138,9 @@ class MainWindow(QMainWindow):
         self.gui_net_msg_queue = gui_msg_queue
         self.lang = lang
         self.tz = self.obtainTZ()
-        self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_0.png'
+        self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_1.png'
+        self.sell_icon_path = self.homepath + '/resource/images/icons/c_robot64_0.png'
+        self.buy_bot_icon_path = self.homepath + '/resource/images/icons/c_robot64_1.png'
         self.mission_icon_path = self.homepath + '/resource/images/icons/c_mission96_1.png'
         self.mission_success_icon_path = self.homepath + '/resource/images/icons/successful_launch0_48.png'
         self.mission_failed_icon_path = self.homepath + '/resource/images/icons/failed_launch0_48.png'
@@ -1353,11 +1355,11 @@ class MainWindow(QMainWindow):
 
 
     def showMsg(self, msg):
-        MsgText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\" >"
+        MsgText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\">"
         MsgText += msg
         MsgText += "</span>"
         # self.netLogWin.appendLogs([MsgText])
-        print(MsgText)
+        print(msg)
         self.appendNetLogs([MsgText])
         self.appendDailyLogs([msg])
 
@@ -1367,10 +1369,8 @@ class MainWindow(QMainWindow):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        print("homepath:::", self.homepath)
         dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
         dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
-        print("daily log file:::", dailyLogFile)
         time = now.strftime("%H:%M:%S - ")
         if os.path.isfile(dailyLogFile):
             file1 = open(dailyLogFile, "a")  # append mode
@@ -1455,7 +1455,7 @@ class MainWindow(QMainWindow):
                     break
             if mconfig:
                 break
-
+        print("SETTING CONFIG:", mconfig)
         blank_m.setConfig(mconfig)
 
     # after fetching today's schedule, update missions data structure since some walk/buy routine will be created.
@@ -1463,12 +1463,26 @@ class MainWindow(QMainWindow):
     def addNewlyAddedMissions(self, resp_data):
         # for each received work mission, check whether they're in the self.missions already, if not, create them and
         # add to the missions list.
+        mb_words = ""
         task_groups = resp_data["task_groups"]
-        newly_added_missions = resp_data["added_missions"]
+        for tg in task_groups:
+            for tz in tg:
+                for wg in tg[tz]:
+                    for w in wg["bw_works"]:
+                        mb_words = mb_words + "M"+str(w["mid"])+"B"+str(wg["bid"]) + ", "
 
+                    for w in wg["other_works"]:
+                        mb_words = mb_words + "M"+str(w["mid"])+"B"+str(wg["bid"]) + ", "
+
+        print(mb_words)
+
+
+        newly_added_missions = resp_data["added_missions"]
+        print("Added MS:"+json.dumps(["M"+str(m["mid"])+"B"+str(m["botid"]) for m in newly_added_missions]))
         for m in newly_added_missions:
             new_mission = EBMISSION(self)
             self.fill_mission(new_mission, m, task_groups)
+            new_mission.updateDisplay()
             self.missions.append(new_mission)
             self.missionModel.appendRow(new_mission)
             self.showMsg("adding mission.... "+str(new_mission.getRetry()))
@@ -1598,7 +1612,10 @@ class MainWindow(QMainWindow):
         v_task_groups = self.groupTaskGroupsByOS(task_groups)    #result will {"win": win_tgs, "mac": mac_tgs, "linux": linux_tgs}
         v_groups = self.groupVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
         self.showMsg("v task_groups:::::: "+json.dumps(v_task_groups))
-        self.showMsg("Vehicle groups:::::: "+json.dumps(v_groups))
+        for key in v_groups:
+            if len(v_groups[key]) > 0:
+                for k, v in enumerate(v_groups[key]):
+                    self.showMsg("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n")
 
         for platform in v_task_groups.keys():
             p_task_groups = v_task_groups[platform]
@@ -1606,7 +1623,7 @@ class MainWindow(QMainWindow):
 
             if len(p_task_groups) > 0:
                 tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(p_task_groups[0])
-                self.showMsg("bids, mid "+tg_botids+" "+json.dumps(tg_mids))
+                self.showMsg("bids, mid "+json.dumps(tg_botids)+" "+json.dumps(tg_mids))
                 resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
                 self.showMsg("test code here..... "+resource_string)
 
@@ -1701,7 +1718,7 @@ class MainWindow(QMainWindow):
             elif "Completed" not in self.todays_work["tbd"][0]["status"]:
                 # in case the 1st todos is an automation task.
                 self.showMsg("self.todays_work[\"tbd\"][0] : "+json.dumps(self.todays_work["tbd"][0]))
-                self.showMsg("time right now is: "+self.time2ts(pt))
+                self.showMsg("time right now is: "+str(self.time2ts(pt)))
 
                 # determin next task group:
                 current_work_idx = self.todays_work["tbd"][0]["current widx"]
@@ -1870,104 +1887,110 @@ class MainWindow(QMainWindow):
             # generate walk skills on the fly.
             running_mission = self.missions[worksettings["midx"]]
             self.showMsg("current RUNNING MISSION: "+json.dumps(running_mission.genJson()))
-            rpaSkillIdWords = running_mission.getSkills().split(",")
-            self.showMsg("current RUNNING MISSION SKILL: "+json.dumps(running_mission.getSkills()))
-            rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
+            if running_mission.getSkills() != "":
+                rpaSkillIdWords = running_mission.getSkills().split(",")
+                self.showMsg("current RUNNING MISSION SKILL: "+json.dumps(running_mission.getSkills()))
+                rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
-            self.showMsg("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+type(rpaSkillIds[0])+" "+" running mission id: "+str(running_mission.getMid()))
+                self.showMsg("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(running_mission.getMid()))
 
-            # get skills data structure by IDs
-            self.showMsg("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]))
-            relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
-            relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
-            self.showMsg("relevant skills ids: "+json.dumps(relevant_skill_ids))
-            dependent_skids=[]
-            for sk in relevant_skills:
-                dependent_skids = dependent_skids + sk.getDependencies()
-            self.showMsg("all dependencies: "+json.dumps(dependent_skids))
+                # get skills data structure by IDs
+                self.showMsg("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]))
+                relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
+                relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
+                self.showMsg("relevant skills ids: "+json.dumps(relevant_skill_ids))
+                dependent_skids=[]
+                for sk in relevant_skills:
+                    dependent_skids = dependent_skids + sk.getDependencies()
+                self.showMsg("all dependencies: "+json.dumps(dependent_skids))
 
-            dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
-            relevant_skills = relevant_skills + dependent_skills
-            relevant_skill_ids = relevant_skill_ids + dependent_skids
+                dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
+                relevant_skills = relevant_skills + dependent_skills
+                relevant_skill_ids = relevant_skill_ids + dependent_skids
 
-            if len(relevant_skill_ids) < len(rpaSkillIds):
-                s = set(relevant_skill_ids)
-                missing = [x for x in rpaSkillIds if x not in s]
-                self.showMsg("ERROR: Required Skills not found:"+json.dumps(missing))
-
-
-            all_skill_codes = []
-            step_idx = 0
-            for sk in relevant_skills:
-                self.showMsg("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName())
-                setWorkSettingsSkill(worksettings, sk)
-                # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
-
-                # readPSkillFile will remove comments. from the file
-                pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
-
-                # now regen address and update settings, after running, pskJson will be updated.
-                step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
-
-                addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
-
-                self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
-
-                # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
-                rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + "rsk"
-                self.showMsg("rskFileName: "+rskFileName+" step_idx: "+str(step_idx))
-                with open(rskFileName, "w") as outfile:
-                    json.dump(pskJson, outfile)
-                outfile.close()
-
-                all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
-
-            self.showMsg("all_skill_codes: "+json.dumps(all_skill_codes))
+                if len(relevant_skill_ids) < len(rpaSkillIds):
+                    s = set(relevant_skill_ids)
+                    missing = [x for x in rpaSkillIds if x not in s]
+                    self.showMsg("ERROR: Required Skills not found:"+json.dumps(missing))
 
 
-            rpa_script = prepRunSkill(all_skill_codes)
-            self.showMsg("generated psk: "+json.dumps(rpa_script))
+                all_skill_codes = []
+                step_idx = 0
+                for sk in relevant_skills:
+                    self.showMsg("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName())
+                    setWorkSettingsSkill(worksettings, sk)
+                    # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
 
-            # doing this just so that the code below can run multiple codes if needed. but in reality
-            # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
-            # this has to be corrected because, the following append would just have multiple same
-            # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
-            # forseaable future.
-            rpaScripts.append(rpa_script)
-            self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
+                    # readPSkillFile will remove comments. from the file
+                    pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
+
+                    # now regen address and update settings, after running, pskJson will be updated.
+                    step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+
+                    addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
+
+                    self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
+
+                    # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
+                    rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + "rsk"
+                    self.showMsg("rskFileName: "+rskFileName+" step_idx: "+str(step_idx))
+                    with open(rskFileName, "w") as outfile:
+                        json.dump(pskJson, outfile)
+                    outfile.close()
+
+                    all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
+
+                self.showMsg("all_skill_codes: "+json.dumps(all_skill_codes))
 
 
-            # (steps, mission, skill, mode="normal"):
-            # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
-            # self.showMsg("it_items: "+json.dumps(it_items))
-            # for it in it_items:
-            #     self.showMsg("item: "+str(it.getSkid()))
-            # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
-            # self.showMsg("running skid:"+str(rpaSkillIds[0])+"len(self.skills): "+str(len(self.skills))+"skill 0 skid: "+str(self.skills[0].getSkid()))
-            # self.showMsg("running skill: "+json.dumps(running_skill))
-            runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0]), bot_queue, scheduler_msg_queue)
-            runResult = await runStepsTask
+                rpa_script = prepRunSkill(all_skill_codes)
+                self.showMsg("generated psk: "+json.dumps(rpa_script))
 
-            # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
-            # the timer tick will trigger the run of the next mission on the list....
-            self.showMsg("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult)
-            self.update1MStat(worksettings["midx"], runResult)
+                # doing this just so that the code below can run multiple codes if needed. but in reality
+                # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
+                # this has to be corrected because, the following append would just have multiple same
+                # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
+                # forseaable future.
+                rpaScripts.append(rpa_script)
+                self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
 
-            self.update1WorkRunStatus(worksTBD, worksettings["midx"])
+
+                # (steps, mission, skill, mode="normal"):
+                # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
+                # self.showMsg("it_items: "+json.dumps(it_items))
+                # for it in it_items:
+                #     self.showMsg("item: "+str(it.getSkid()))
+                # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
+                # self.showMsg("running skid:"+str(rpaSkillIds[0])+"len(self.skills): "+str(len(self.skills))+"skill 0 skid: "+str(self.skills[0].getSkid()))
+                # self.showMsg("running skill: "+json.dumps(running_skill))
+                runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], bot_queue, scheduler_msg_queue))
+                runResult = await runStepsTask
+
+                # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
+                # the timer tick will trigger the run of the next mission on the list....
+                self.showMsg("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult)
+                self.update1MStat(worksettings["midx"], runResult)
+
+                self.update1WorkRunStatus(worksTBD, worksettings["midx"])
+            else:
+                self.showMsg("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1")
+                self.update1MStat(worksettings["midx"], "Incomplete: ERRORRunRPA:-1")
+                self.update1WorkRunStatus(worksTBD, worksettings["midx"])
+                raise Exception('ERROR: NO SKILL TO RUN!')
 
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
             # Extract the file name and line number from the last entry in the traceback
             if traceback_info:
-                ex_stat = "ErrorSearchWordLine:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+                ex_stat = "ErrorRanRPA:" + traceback.format_exc() + " " + str(e)
             else:
-                ex_stat = "ErrorSearchWordLine: traceback information not available:" + str(e)
+                ex_stat = "ErrorRanRPA: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
-            worksettings = {"botid": -1, "midx": -1}
-            runResult = "Completed:0"
+            worksettings = {"botid": -1, "midx": -1, "mid": -1}
+            runResult = "Error:No Skill."
 
-        self.showMsg("botid, mid:"+str(worksettings["botid"])+ " "+str(worksettings["mid"]))
+        self.showMsg("botid, mid:"+str(worksettings["botid"]) + " "+str(worksettings["mid"]))
         return worksettings["botid"], worksettings["mid"], runResult
 
 
@@ -1976,7 +1999,7 @@ class MainWindow(QMainWindow):
         self.missions[midx].setStatus(result)
         retry_count = self.missions[midx].getNRetries()
         self.missions[midx].setNRetries(retry_count + 1)
-        self.showMsg("update1MStat:"+str(midx)+str(self.missions[midx].getMid())+str(self.missions[midx].getNRetries()))
+        self.showMsg("update1MStat:"+str(midx)+":"+str(self.missions[midx].getMid())+":"+str(self.missions[midx].getNRetries()))
 
     #update next mission pointer, return -1 if exceed the end of it.
     def update1WorkRunStatus(self, worksTBD, midx):
@@ -2852,8 +2875,8 @@ class MainWindow(QMainWindow):
 
     def addBotsMissionsFromCommander(self, botsJson, missionsJson):
 
-        self.showMsg("BOTS String:"+type(botsJson)+json.dumps(botsJson))
-        self.showMsg("Missions String:"+type(missionsJson)+json.dumps(missionsJson))
+        self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
+        self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
         for bjs in botsJson:
             self.newBot = EBBOT(self)
             self.newBot.loadJson(bjs)
@@ -3049,7 +3072,7 @@ class MainWindow(QMainWindow):
 
 
     def getBotsInventory(self, botid):
-        self.showMsg("botid type:"+type(botid)+" "+str(len(self.inventories)))
+        self.showMsg("botid type:"+str(botid)+" "+str(len(self.inventories)))
         self.showMsg(json.dumps(self.inventories[0].products[0].genJson()))
         found = next((x for x in self.inventories if botid in x.getAllowedBids()), None)
         return found
@@ -3264,7 +3287,7 @@ class MainWindow(QMainWindow):
 
             return True
         elif event.type() == QEvent.ContextMenu and source is self.missionListView:
-            #self.showMsg("mission RC menu....")
+            self.showMsg("mission RC menu....")
             self.popMenu = QMenu(self)
             self.pop_menu_font = QFont("Helvetica", 10)
             self.popMenu.setFont(self.pop_menu_font)
@@ -3288,6 +3311,7 @@ class MainWindow(QMainWindow):
                 self.selected_mission_row = source.indexAt(event.pos()).row()
                 self.selected_cus_mission_item = self.missionModel.item(self.selected_mission_row)
                 if selected_act == self.cusMissionEditAction:
+                    print("edit mission clicked....")
                     self.editCusMission()
                 elif selected_act == self.cusMissionCloneAction:
                     self.cloneCusMission()
@@ -3303,7 +3327,7 @@ class MainWindow(QMainWindow):
             self.showMsg("CLICKED on bot:"+str(source.indexAt(event.pos()).row()))
         #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
-            #self.showMsg("mission RC menu....")
+            self.showMsg("completed mission RC menu....")
             self.popMenu = QMenu(self)
             self.pop_menu_font = QFont("Helvetica", 10)
             self.popMenu.setFont(self.pop_menu_font)
@@ -3376,7 +3400,7 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("populating a newly created mission GUI............")
             self.missionWin = MissionNewWin(self)
-            self.showMsg("done create win............"+str(self.selected_mission_item.getMid()))
+            self.showMsg("done create mission win............"+str(self.selected_mission_item.getMid()))
             self.missionWin.setMission(self.selected_mission_item)
 
         self.missionWin.setMode("update")
@@ -3689,7 +3713,7 @@ class MainWindow(QMainWindow):
                         screen_error = True
                         self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
                     else:
-                        self.showMsg("jresp type: "+type(jresp)+" "+str(len(jresp["body"])))
+                        self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
                         jbody = jresp["body"]
                         # now that add is successfull, update local file as well.
 
@@ -3869,7 +3893,7 @@ class MainWindow(QMainWindow):
                         screen_error = True
                         self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
                     else:
-                        self.showMsg("jresp type: "+type(jresp)+" "+str(len(jresp["body"])))
+                        self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
                         jbody = jresp["body"]
                         # now that add is successfull, update local file as well.
 
@@ -4290,10 +4314,13 @@ class MainWindow(QMainWindow):
                             last_start = int(datetime.now().timestamp()*1)
                             current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_chat_queue)
                             last_end = int(datetime.now().timestamp()*1)
+
                         # else:
                             # now need to chop off the 0th todo since that's done by now....
                             #
-                            current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
+                            print("total # of works:"+str(len(botTodos["works"])))
+                            if current_mid >= 0:
+                                current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
 
                             # if all tasks in the task group are done, we're done with this group.
                             if botTodos["current widx"] >= len(botTodos["works"]):
@@ -4454,7 +4481,7 @@ class MainWindow(QMainWindow):
 
         elif msg["type"] == "report":
             # collect report, the report should be already organized in json format and ready to submit to the network.
-            self.showMsg("msg type:"+type(msg))
+            self.showMsg("msg type:"+str(type(msg)))
             #msg should be in the following json format {"ip": self.ip, "type": "report", "content": []]}
             self.todaysPlatoonReports.append(msg)
 
@@ -4491,7 +4518,7 @@ class MainWindow(QMainWindow):
         finished_midxs = []
         finished_missions = []
 
-        self.showMsg("all mission ids:", json.dumps([m.getMid() for m in self.missions]))
+        self.showMsg("all mission ids:"+json.dumps([m.getMid() for m in self.missions]))
 
         if len(finished_works) > 0:
             for bi in range(len(finished_works)):
@@ -4509,19 +4536,17 @@ class MainWindow(QMainWindow):
 
         for midx in sorted_finished_midxs:
             found_mission = self.missions[midx]
-            self.showMsg("just finished mission status:"+found_mission.getStatus())
+            self.showMsg("just finished mission ["+str(found_mission.getMid())+"] status:"+found_mission.getStatus())
             if "Completed" in found_mission.getStatus():
                 found_mission.setMissionIcon(QIcon(self.mission_success_icon_path))
             else:
                 found_mission.setMissionIcon(QIcon(self.mission_failed_icon_path))
 
-            for item in self.missionModel.findItems('mission' + str(found_mission.getMid())):
+            for item in self.missionModel.findItems('mission' + str(found_mission.getMid()) + ":Bot" + str(
+                found_mission.getBid()) + ":" + found_mission.pubAttributes.ms_type + ":" + found_mission.pubAttributes.site):
                 cloned_item = item.clone()
                 self.missionModel.removeRow(item.row())
-
-            self.showMsg("leftover mission ids:"+json.dumps([m.getMid() for m in self.missions]))
-
-            self.completedMissionModel.appendRow(cloned_item)
+                self.completedMissionModel.appendRow(cloned_item)
 
     def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
@@ -4911,7 +4936,7 @@ class MainWindow(QMainWindow):
         formatted_today = today.strftime('%Y-%m-%d')
         # first, filter out today's missions by createon parameter.
         for m in self.missions:
-            self.showMsg("mission" + str(m.getMid()) + " created ON:", m.getBD().split(" ")[0] + " today:" + formatted_today)
+            self.showMsg("mission" + str(m.getMid()) + " created ON:" + m.getBD().split(" ")[0] + " today:" + formatted_today)
         missions_today = list(filter(lambda m: formatted_today == m.getBD().split(" ")[0], self.missions))
         # first ,clear today's bot cookie site list dictionary
         self.bot_cookie_site_lists = {}

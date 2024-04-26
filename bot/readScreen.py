@@ -1,7 +1,6 @@
 import platform
 import sys
 import random
-import boto3
 from crontab import CronTab
 import pyautogui
 

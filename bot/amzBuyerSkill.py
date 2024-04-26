@@ -1914,7 +1914,7 @@ def processAMZMatchProduct(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorAMZMatchProduct:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorAMZMatchProduct:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAMZMatchProduct traceback information not available:" + str(e)
         log3(ex_stat)
@@ -2005,7 +2005,7 @@ def processAMZCalcProductLayout(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorAMZCalcProductLayout:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorAMZCalcProductLayout:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAMZCalcProductLayout traceback information not available:" + str(e)
         log3(ex_stat)
@@ -2132,7 +2132,7 @@ def processAMZScrapePLHtml(step, i, mission):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorAMZScrapePLHtml:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorAMZScrapePLHtml:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAMZScrapePLHtml traceback information not available:" + str(e)
         log3(ex_stat)
@@ -2161,7 +2161,7 @@ def processAMZScrapeDetailsHtml(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorAMZScrapeDetailsHtml:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorAMZScrapeDetailsHtml:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAMZScrapeDetailsHtml traceback information not available:" + str(e)
         log3(ex_stat)

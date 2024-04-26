@@ -152,48 +152,49 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
     global steps
     step_keys = []
     global skill_code
-    this_skill_code = None
+    this_skill_code = {}
     try:
-        with open(skill_file, "r") as json_as_string:
-            # inj = json.load(json_as_string)
-            # Call this as a recursive function if your json is highly nested
+        if not os.path.exists(skill_file):
+            with open(skill_file, "r") as json_as_string:
+                # inj = json.load(json_as_string)
+                # Call this as a recursive function if your json is highly nested
 
-            # get rid of comments.
-            lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
-            json_as_string.close()
+                # get rid of comments.
+                lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+                json_as_string.close()
 
-            # get rid of empty lines.
-            #new_list = list(filter(lambda x: x != '', list_with_empty_strings))
-            useful_lines = list(filter(lambda x: x.rstrip(), lines))
-            slines = ""
-            key = ""
-            # reg = re.compile("step +[0-9]")
-            # reg = re.compile(r'"([^"]*)"')
-            # #if reg.match('aaa"step 123":'):
-            # if len(re.findall(r'"([^"]*)"', 'aaa"step 123":')) > 0:
-            #     log3("FOUND MATCH")
-            # else:
-            #     log3("NO MATCH")
-            log3("NUM USEFUL:"+str(len(useful_lines)))
-            for l in useful_lines:
-                #need to create prefix and add the step name.
-                # l = adressAddNameSpace(l, name_space, lvl)            # will do this later.
+                # get rid of empty lines.
+                #new_list = list(filter(lambda x: x != '', list_with_empty_strings))
+                useful_lines = list(filter(lambda x: x.rstrip(), lines))
+                slines = ""
+                key = ""
+                # reg = re.compile("step +[0-9]")
+                # reg = re.compile(r'"([^"]*)"')
+                # #if reg.match('aaa"step 123":'):
+                # if len(re.findall(r'"([^"]*)"', 'aaa"step 123":')) > 0:
+                #     log3("FOUND MATCH")
+                # else:
+                #     log3("NO MATCH")
+                log3("NUM USEFUL:"+str(len(useful_lines)))
+                for l in useful_lines:
+                    #need to create prefix and add the step name.
+                    # l = adressAddNameSpace(l, name_space, lvl)            # will do this later.
 
-                #log3("USEFUL: "+l)
-                slines = slines + l + "\n"
+                    #log3("USEFUL: "+l)
+                    slines = slines + l + "\n"
 
-            # log3("SLINES:"+slines)
-            this_skill_code = json.loads(slines)
+                # log3("SLINES:"+slines)
+                this_skill_code = json.loads(slines)
 
-            # call the sub skills
-            step_keys = list(this_skill_code.keys())
-            for key in step_keys:
-                if key == "header" or key == "dummy":
-                    del this_skill_code[key]
-            # log3("=============================================================")
-            # log3("SKILL CODE:"+str(len(this_skill_code.keys()))+json.dumps(this_skill_code))
+                # call the sub skills
+                step_keys = list(this_skill_code.keys())
+                for key in step_keys:
+                    if key == "header" or key == "dummy":
+                        del this_skill_code[key]
+                # log3("=============================================================")
+                # log3("SKILL CODE:"+str(len(this_skill_code.keys()))+json.dumps(this_skill_code))
     except OSError as err:
-        log3("ERROR: Read PSK Error!"+json.dumps(err))
+        log3("ERROR: Read PSK Error!"+str(err))
 
     return this_skill_code
 
@@ -244,12 +245,13 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     global last_step
     global next_step
     run_result = DEFAULT_RUN_STATUS
+    step_stat = DEFAULT_RUN_STATUS
     last_step = -1
     next_step = 0
     next_step_index = 0
     running = True
     run_stack = []
-    log3("running all steps....."+json.dumps(mission))
+    log3("running all steps....."+json.dumps(mission.genJson()))
     stepKeys = list(steps.keys())
     # for k in stepKeys:
     #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
