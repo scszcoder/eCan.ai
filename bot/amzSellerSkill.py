@@ -108,18 +108,15 @@ def genWinChromeAmzFullfillOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "gs_input", "labels_dir", this_step)
     # psk_words = psk_words + step_words
 
-    #extract tracking code from labels and update them into etsy_orders data struture.
-
-    gen_etsy_test_data()
 
     # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
     # now update tracking coded back to the orderlist
-    this_step, step_words = genStepUseSkill("update_tracking", "public/win_chrome_etsy_orders", "gs_input", "total_label_cost", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepUseSkill("update_tracking", "public/win_chrome_etsy_orders", "gs_input", "total_label_cost", this_step)
+    # psk_words = psk_words + step_words
 
     # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
-    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_list", "", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_list", "", this_step)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_chrome_amz_orders/fullfill_orders", "", this_step)
     psk_words = psk_words + step_words

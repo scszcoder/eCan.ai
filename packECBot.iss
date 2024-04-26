@@ -280,16 +280,22 @@ begin
   
   S := S + 'Usage Mode:' + NewLine + Space;
   case UsagePage.SelectedValueIndex of
-    0: S := S + 'CommanderOnly';
-    1: S := S + 'Commander';
-    2: S := S + 'Platoon';
+    0: begin 
+        S := S + 'CommanderOnly'; 
+        Role := 'CommanderOnly'; 
+      end;
+    1: begin S := S + 'Commander'; Role := 'Commander'; end;
+    2: begin S := S + 'Platoon'; Role := 'Platoon'; end;
   end;
   S := S + NewLine + NewLine;
   
   S := S + MemoDirInfo + NewLine;
   S := S + Space + DataDirPage.Values[0] + ' (personal data files)' + NewLine;
 
+  S := S + NewLine + NewLine;
+
   Result := S;
+
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -299,6 +305,7 @@ begin
   if CurStep = ssPostInstall then
   begin
     Log('Writing "' + Value + '" to file...');
+    RoleLine := '{"machine_role":"'+Role+'"}';
     SaveStringToFile(UserDataDir+'\role.json', RoleLine, False);
   end;
 end;
@@ -322,9 +329,9 @@ begin
   RegWriteStringValue(HKEY_CURRENT_USER, 'Environment', 'ECBOT_DATA_HOME', UserDataDir);
   RegWriteStringValue(HKEY_CURRENT_USER, 'Environment', 'ECBOT_HOME', ExpandConstant('{app}'));
   role := GetPreviousData('UsageMode', '');
-  lines := ['{"machine_role":"'+role+'"}'];
-  RoleLine := '{"machine_role":"'+role+'"}';
-  SaveStringsToFile(ExpandConstant('{commonappdata}\role.json'), ['{hello:123}'], False);
+  lines := ['{"machine_role":"'+IntToStr(UsagePage.SelectedValueIndex)+'"}'];
+  RoleLine := '{"machine_role":"'+Role+'"}';
+  SaveStringToFile(ExpandConstant('{userappdata}')+'\role.json', RoleLine, False);
 end;
 
 

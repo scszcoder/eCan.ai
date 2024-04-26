@@ -5,7 +5,7 @@
 AppName=ECBot
 AppVersion=1.5
 WizardStyle=modern
-DefaultDirName={autopf}\ECBot
+DefaultDirName={autopf}
 UninstallDisplayIcon={app}\ECBot.exe
 SetupIconFile=installer.ico
 OutputDir=Installer
@@ -251,9 +251,9 @@ begin
   
   S := S + 'Usage Mode:' + NewLine + Space;
   case UsagePage.SelectedValueIndex of
-    0: S := S + 'CommanderOnly';
-    1: S := S + 'Commander';
-    2: S := S + 'Platoon';
+    0: begin S := S + 'CommanderOnly'; Role:= 'CommanderOnly'; end;
+    1: begin S := S + 'Commander'; Role:= 'Commander'; end;
+    2: begin S := S + 'Platoon'; Role:= 'Platoon'; end;
   end;
   S := S + NewLine + NewLine;
   
@@ -270,6 +270,7 @@ begin
   if CurStep = ssPostInstall then
   begin
     Log('Writing "' + Value + '" to file...');
+    RoleLine := '{"machine_role":"'+Role+'"}';
     SaveStringToFile(UserDataDir+'\role.json', RoleLine, False);
   end;
 end;
@@ -298,7 +299,7 @@ begin
   JLines := ['{"machine_role":"'+role+'"}'];
   lines := ['{"machine_role":"'+role+'"}'];
   RoleLine := '{"machine_role":"'+role+'"}';
-  SaveStringsToFile(ExpandConstant('{commonappdata}\role.json'), ['{hello:123}'], False);
+  SaveStringsToFile(ExpandConstant('{commonappdata}\role.json'), lines, False);
 end;
 
 

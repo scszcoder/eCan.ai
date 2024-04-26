@@ -4,6 +4,8 @@ from datetime import datetime
 import shutil
 import os
 from Logger import *
+import pytz
+import tzlocal
 
 TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
@@ -237,7 +239,7 @@ class M_Pub_Attributes():
         cuspas = self.cuspas.split(",")
         self.platform = cuspas[0]
         self.app = cuspas[1]
-        site = cuspas[2]
+        self.site = cuspas[2]
 
         if self.app == "ads":
             full_app_name = "AdsPower Global"
@@ -254,37 +256,37 @@ class M_Pub_Attributes():
         else:
             self.app_exe = shutil.which(full_app_name)
 
-        if "amz" in site:
-            self.site = "Amazon"
+        if "amz" in self.site.lower():
+            self.site = "amazon"
             self.site_html = "https://www.amazon.com"
-        elif "etsy" in self.cuspas:
+        elif "etsy" in self.cuspas.lower():
             self.site = "etsy"
             self.site_html = "https://www.etsy.com"
-        elif "ebay" in self.cuspas:
+        elif "ebay" in self.cuspas.lower():
             self.site = "ebay"
             self.site_html = "https://www.ebay.com"
-        elif "tiktok" in self.cuspas:
+        elif "tiktok" in self.cuspas.lower():
             self.site = "tiktok"
             self.site_html = "https://www.tiktok.com"
-        elif "youtube" in self.cuspas:
+        elif "youtube" in self.cuspas.lower():
             self.site = "youtube"
             self.site_html = "https://www.youtube.com"
-        elif "facebook" in self.cuspas:
+        elif "facebook" in self.cuspas.lower():
             self.site = "facebook"
             self.site_html = "https://www.facebook.com"
-        elif "instagram" in self.cuspas:
+        elif "instagram" in self.cuspas.lower():
             self.site = "youtube"
             self.site_html = "https://www.instagram.com"
-        elif "temu" in self.cuspas:
+        elif "temu" in self.cuspas.lower():
             self.site = "temu"
             self.site_html = "https://www.temu.com"
-        elif "shein" in self.cuspas:
+        elif "shein" in self.cuspas.lower():
             self.site = "shein"
             self.site_html = "https://www.shein.com"
-        elif "walmart" in self.cuspas:
+        elif "walmart" in self.cuspas.lower():
             self.site = "walmart"
             self.site_html = "https://www.walmart.com"
-        elif "ali" in self.cuspas:
+        elif "ali" in self.cuspas.lower():
             self.site = "aliexpress"
             self.site_html = "https://www.aliexpress.com"
 
@@ -370,8 +372,7 @@ class EBMISSION(QStandardItem):
                                 "session": self.parent.session,
                                 "token": self.parent.tokens['AuthenticationResult']['IdToken'],
                                 "uid": self.parent.uid}
-        self.setText('mission' + str(self.getMid()))
-        log3("What??????????"+parent.mission_icon_path)
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
         self.icon = QIcon(parent.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
@@ -395,7 +396,7 @@ class EBMISSION(QStandardItem):
 
     def setMid(self, mid):
         self.pubAttributes.missionId = mid
-        self.setText('mission' + str(mid))
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def getTicket(self):
         return self.pubAttributes.ticket
@@ -426,6 +427,7 @@ class EBMISSION(QStandardItem):
 
     def setMtype(self, mtype):
         self.pubAttributes.ms_type = mtype
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def setBuyType(self, buy_type):
         self.pubAttributes.buy_type = buy_type
@@ -450,6 +452,7 @@ class EBMISSION(QStandardItem):
 
     def setBid(self, bid):
         self.pubAttributes.bot_id = bid
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def getStatus(self):
         return self.pubAttributes.status
@@ -517,7 +520,7 @@ class EBMISSION(QStandardItem):
     def setActualStartTime(self, ast):
         if type(ast) == int:
             self.pubAttributes.actual_start_time_in_ms = ast
-            datetime_obj = datetime.fromtimestamp(ast, tz=datetime.timezone.utc)
+            datetime_obj = datetime.fromtimestamp(ast, tz=tzlocal.get_localzone())
             # Format the datetime object as a string in AWS datetime format
             aws_datetime_str = datetime_obj.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
             self.pubAttributes.actual_start_time = aws_datetime_str
@@ -540,7 +543,7 @@ class EBMISSION(QStandardItem):
     def setActualEndTime(self, aet):
         if type(aet) == int:
             self.pubAttributes.actual_end_time_in_ms = aet
-            datetime_obj = datetime.fromtimestamp(aet, tz=datetime.timezone.utc)
+            datetime_obj = datetime.fromtimestamp(aet, tz=tzlocal.get_localzone())
             # Format the datetime object as a string in AWS datetime format
             aws_datetime_str = datetime_obj.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
             self.pubAttributes.actual_end_time = aws_datetime_str
@@ -774,18 +777,13 @@ class EBMISSION(QStandardItem):
         self.privateAttributes.price = price
 
     def updateDisplay(self):
-        self.setText('mission' + str(self.getMid()))
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     # self.
     def setJsonData(self, ppJson):
         self.pubAttributes.loadJson(ppJson["pubAttributes"])
         self.privateAttributes.loadJson(ppJson["privateAttributes"])
-        self.setText('mission' + str(self.getMid()))
-
-    def setNetRespJsonData(self, nrjd):
-        # whatever come off cloud matters only to the public attributes part.
-        self.pubAttributes.loadNetRespJson(nrjd)
-        self.setText('mission' + str(self.getMid()))
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def genJson(self):
         jsd = {
@@ -793,16 +791,14 @@ class EBMISSION(QStandardItem):
                 "pubAttributes": self.pubAttributes.genJson(),
                 "privateAttributes": self.privateAttributes.genJson()
                 }
-        log3("GENERATED JSON:"+json.dumps(jsd))
-        log3("after dump:"+json.dumps(jsd))
         return jsd
 
     def loadNetRespJson(self, jd):
         self.pubAttributes.loadNetRespJson(jd)
-        self.setText('mission' + str(self.getMid()))
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def updateDisplay(self):
-        self.setText('mission' + str(self.getMid()))
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
@@ -850,7 +846,7 @@ class EBMISSION(QStandardItem):
         self.setPrice(dbd[34])
         self.setCustomerID(dbd[35])
         self.setPlatoon(dbd[36])
-
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadXlsxData(self, jd):
         self.setMid(jd["mid"])
@@ -880,6 +876,7 @@ class EBMISSION(QStandardItem):
         self.setPrice(jd["price"])
         self.setCustomerID(jd["customer"])
         self.setPlatoon(jd["platoon"])
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadJsonData(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])

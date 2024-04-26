@@ -893,7 +893,7 @@ def processExtractInfo(step, i, mission, skill):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorExtractInfo:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorExtractInfo:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
         log3(ex_stat)
@@ -948,7 +948,7 @@ def processFillRecipients(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorFillRecipients:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorFillRecipients:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorFillRecipients traceback information not available:" + str(e)
         log3(ex_stat)
@@ -1013,7 +1013,7 @@ def processTextInput(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorTextInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorTextInput:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorTextInput traceback information not available:" + str(e)
         log3(ex_stat)
