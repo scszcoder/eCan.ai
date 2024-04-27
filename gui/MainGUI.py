@@ -637,14 +637,21 @@ class MainWindow(QMainWindow):
 
         # get current wifi ssid and store it.
         self.showMsg("OS platform: "+self.platform)
-        if self.platform=="win":
+        wifi_info = None
+        if self.platform == "win":
             wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
+        elif self.platform == 'dar':
+            wifi_info = subprocess.check_output(['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'])
+
+        if wifi_info:
             wifi_data = wifi_info.decode('utf-8')
             wifi_lines = wifi_data.split("\n")
             ssidline = [l for l in wifi_lines if " SSID" in l]
             if len(ssidline) == 1:
                 ssid = ssidline[0].split(":")[1].strip()
                 self.wifis.append(ssid)
+        else:
+            print("***wifi info is None!")
 
         if (self.machine_role != "Platoon"):
             # load skills into memory.
