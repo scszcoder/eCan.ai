@@ -32,18 +32,19 @@ myname = socket.gethostname()
 
 
 class CommanderTCPServerProtocol(asyncio.Protocol):
-    def __init__(self, topgui, on_con_lost, msg_queue):
+    def __init__(self, topgui, on_con_lost):
         self.topgui = topgui
         self.on_con_lost = on_con_lost
-        self.msg_queue = msg_queue
+        self.msg_queue = topgui.get_msg_queue()
+        print("tcp server protocol initialized....")
 
     def connection_made(self, transport):
         self.peername = transport.get_extra_info('peername')
         print('Connection from Platoon {}'.format(self.peername))
         self.transport = transport
-        new_link = {"ip": self.peername, "name": platform.node(), "link": self}
+        new_link = {"ip": self.peername, "name": platform.node(), "transport": transport}
         fieldLinks.append(new_link)
-        asyncio.create_task(self.msg_queue.put(self.peername + "!connection!" + json.dumps(new_link)))
+        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"))
         # if not self.topgui.mainwin == None:
         #     if self.topgui.mainwin.platoonWin == None:
         #         self.topgui.mainwin.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
@@ -52,7 +53,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
     def data_received(self, data):
         message = data.decode()
         if not self.topgui.mainwin == None:
-            asyncio.create_task(self.msg_queue.put(self.peername+"!net data!"+message))
+            asyncio.create_task(self.msg_queue.put(self.peername[0]+"!net data!"+message))
             # self.topgui.mainwin.appendNetLogs(['Data received: {!r}'.format(message)])
             # self.topgui.mainwin.processPlatoonMsgs(message, self.peername)
 
@@ -73,11 +74,12 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
 
 # main platoon side communication protocol
 class communicatorProtocol(asyncio.Protocol):
-    def __init__(self, topgui, message, on_con_lost, msg_queue):
+    def __init__(self, topgui, message, on_con_lost):
         self.message = message
         self.on_con_lost = on_con_lost
         self.topgui = topgui
-        self.msg_queue = msg_queue
+        self.msg_queue = topgui.get_msg_queue
+        print("comm protocol initialized.....")
 
     def connection_made(self, transport):
         self.peername = transport.get_extra_info('peername')
@@ -101,7 +103,7 @@ class communicatorProtocol(asyncio.Protocol):
         asyncio.create_task(self.msg_queue.put(self.peername + "!net loss!"))
 
 
-async def tcpServer(topgui, net_queue):
+async def tcpServer(topgui):
     # Get a reference to the event loop as we plan to use
     # low-level APIs.
     hostname = socket.gethostname()
@@ -117,8 +119,10 @@ async def tcpServer(topgui, net_queue):
         myip, TCP_PORT)
     print("commanderServer: ", commanderServer)
 
+    # while True:
+    #     await asyncio.sleep(COMMANDER_UDP_PERIOD)
     async with commanderServer:
-        await commanderServer.serve_forever()
+        await commanderServer.serve_forever(),
 
 def udp_receiver():
     # Create a UDP socket
@@ -159,8 +163,8 @@ async def udpBroadcaster(topgui):
     usock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     while not over:
-        if not topgui.mainwin == None:
-            topgui.mainwin.appendNetLogs(["broadcast"])
+        # if not topgui.mainwin == None:
+        #     topgui.mainwin.appendNetLogs(["broadcast"])
         print("Broadcasting...", 'Commander Calling:' + myip)
         usock.sendto(message, ('255.255.255.255', UDP_PORT))
         await asyncio.sleep(COMMANDER_UDP_PERIOD)
@@ -175,8 +179,44 @@ async def udpBroadcaster(topgui):
     # finally:
     #     transport.close()
 
+
+async def udp_broadcast():
+    udp_port = 4868
+    broadcast_interval = 5
+
+    message = "Hello, this is the server broadcasting its presence."
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+    while True:
+        sock.sendto(message.encode(), ('255.255.255.255', udp_port))
+        print(f"Broadcast message sent every {broadcast_interval} seconds")
+        await asyncio.sleep(broadcast_interval)
+
+
+async def tcp_server():
+    async def handle_echo(reader, writer):
+        while True:
+            data = await reader.read(100)
+            message = data.decode()
+            addr = writer.get_extra_info('peername')
+            print(f"Received {message} from {addr}")
+            if not data:
+                break
+            writer.write(data)
+            await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle_echo, '192.168.1.111', 4898)
+    addr = server.sockets[0].getsockname()
+    print(f'Serving on {addr}')
+    async with server:
+        await server.serve_forever()
+
+
 # this is the udp receiver on the platoon side.
-async def commanderFinder(topgui, thisloop, waitwin, net_queue):
+async def commanderFinder(topgui, thisloop, waitwin):
     global commanderXport
     over = False
     hostname = socket.gethostname()
@@ -208,7 +248,7 @@ async def commanderFinder(topgui, thisloop, waitwin, net_queue):
             on_con_lost = loop.create_future()
 
             commanderXport, platoonProtocol = await loop.create_connection(
-                lambda: communicatorProtocol(topgui, '', on_con_lost, net_queue),
+                lambda: communicatorProtocol(topgui, '', on_con_lost),
                 commanderIP, TCP_PORT
             )
             topgui.set_xport(commanderXport)
@@ -228,37 +268,27 @@ async def commanderFinder(topgui, thisloop, waitwin, net_queue):
 
         await asyncio.sleep(PLATOON_UDP_PERIOD)
 
-# top level work scheduler on the commander side.
-# async def topScheduler(topgui, net_queue):
-#     executor = ThreadPoolExecutor(max_workers=1)
-#     running = True
-#
-#     while running:
-#         if not topgui.mainwin == None:
-#             await asyncio.get_running_loop().run_in_executor(executor, topgui.mainwin.runbotworks)
-#             # topgui.mainwin.runbotworks()
-#         await asyncio.sleep(TICK)
-
-# async def topScheduler(topgui, net_queue):
-#     executor = ThreadPoolExecutor(max_workers=1)
-#     running = True
-#
-#     while running:
-#         if not topgui.mainwin == None:
-#             await asyncio.get_running_loop().run_in_executor(executor, topgui.mainwin.runbotworks)
-#             # topgui.mainwin.runbotworks()
-#         await asyncio.sleep(TICK)
+# async def runCommanderLAN():
+#     await asyncio.gather(
+#         # udpBroadcaster(topgui),
+#         # tcpServer(topgui),
+#         tcp_server(),
+#         # udp_broadcast,
+#         # topScheduler(topgui, gui_queue),
+#     )
 
 async def runCommanderLAN(topgui):
     await asyncio.gather(
         udpBroadcaster(topgui),
-        tcpServer(topgui, topgui.get_msg_queue()),
-        # topScheduler(topgui, gui_queue),
+        tcpServer(topgui),
+        # tcp_server(),
+        # udp_broadcast(),
     )
+    # await tcpServer(topgui)
 
 
 async def runPlatoonLAN(topgui, thisLoop, waitwin):
     await asyncio.gather(
-        commanderFinder(topgui, thisLoop, waitwin, topgui.get_msg_queue()),
+        commanderFinder(topgui, thisLoop, waitwin),
         # topScheduler(topgui, net_queue),
     )

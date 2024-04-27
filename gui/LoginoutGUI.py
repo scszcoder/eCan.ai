@@ -33,7 +33,7 @@ ROLE_FILE = ecb_data_homepath + "/role.json"
 
 
 class Login(QDialog):
-    def __init__(self, inApp, cloop, parent=None):
+    def __init__(self, parent=None):
         self.cog = None
         self.mainwin = None
         self.xport = None
@@ -206,8 +206,6 @@ class Login(QDialog):
         log_layout.addWidget(self.buttonLogin)
         log_layout.addWidget(self.signup_label)
         layout.addLayout(log_layout)
-
-        self.loop = cloop
 
     # async def launchLAN(self):
 

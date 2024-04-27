@@ -637,21 +637,24 @@ class MainWindow(QMainWindow):
 
         # get current wifi ssid and store it.
         self.showMsg("OS platform: "+self.platform)
-        if self.platform=="win":
-            wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
-            wifi_data = wifi_info.decode('utf-8')
-            wifi_lines = wifi_data.split("\n")
-            ssidline = [l for l in wifi_lines if " SSID" in l]
-            if len(ssidline) == 1:
-                ssid = ssidline[0].split(":")[1].strip()
-                self.wifis.append(ssid)
+        # if self.platform=="win":
+        #     wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
+        #     wifi_data = wifi_info.decode('utf-8')
+        #     wifi_lines = wifi_data.split("\n")
+        #     ssidline = [l for l in wifi_lines if " SSID" in l]
+        #     if len(ssidline) == 1:
+        #         ssid = ssidline[0].split(":")[1].strip()
+        #         self.wifis.append(ssid)
 
+
+        self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
             # load skills into memory.
             self.loadLocalBots()
             self.loadLocalMissions()
 
             # this will handle all skill bundled into software itself.
+            self.showMsg("load local private skills")
             self.loadLocalPrivateSkills()
             db_skills_results = self.SkillManagerWin.fetchMySkills()
 
@@ -673,6 +676,7 @@ class MainWindow(QMainWindow):
                 self.regenSkillPSKs()
 
         # Done with all UI stuff, now do the instruction set extension work.
+        self.showMsg("set up rais extensions ")
         rais_extensions_file = ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
         rais_extensions_dir = ecb_data_homepath + "/my_rais_extensions/"
         added_handlers=[]
@@ -693,7 +697,7 @@ class MainWindow(QMainWindow):
                         if hasattr(module, ins["handler"]):
                             RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
 
-
+        self.showMsg("set up fetching schedule ")
         # now hand daily tasks
         self.todays_work = {"tbd": [], "allstat": "working"}
         self.todays_completed = []
@@ -1662,7 +1666,7 @@ class MainWindow(QMainWindow):
                                     file_contents = fileTBSent.read()
                                     cmd = {"cmd": "reqSendFile", "file_name": profile, "file_contents": file_contents.decode('latin1')}
                                     cmd_str = json.dumps(cmd)
-                                    v_groups[platform][i].getFieldLink()["link"].transport.write(cmd.encode("utf-8"))
+                                    v_groups[platform][i].getFieldLink()["transport"].write(cmd.encode("utf-8"))
 
                             task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
                             # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
@@ -1677,7 +1681,7 @@ class MainWindow(QMainWindow):
                         schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
                         self.showMsg("SCHEDULE::: "+schedule)
 
-                        v_groups[platform][i].getFieldLink()["link"].transport.write(schedule.encode("utf-8"))
+                        v_groups[platform][i].getFieldLink()["transport"].write(schedule.encode("utf-8"))
 
         # now that a new day starts, clear all reports data structure
         self.todaysReports = []
@@ -1987,8 +1991,7 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorRanRPA: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
-            worksettings = {"botid": -1, "midx": -1, "mid": -1}
-            runResult = "Error:No Skill."
+            runResult = "Incomplete: ERRORRunRPA:-1"
 
         self.showMsg("botid, mid:"+str(worksettings["botid"]) + " "+str(worksettings["mid"]))
         return worksettings["botid"], worksettings["mid"], runResult
@@ -2922,7 +2925,7 @@ class MainWindow(QMainWindow):
     def checkVehicles(self):
         self.showMsg("adding already linked vehicles.....")
         for i in range(len(fieldLinks)):
-            self.showMsg("a fieldlink....."+json.dumps(fieldLinks[i]))
+            self.showMsg("a fieldlink....."+json.dumps(fieldLinks[i]["ip"]))
             newVehicle = VEHICLE(self)
             newVehicle.setIP(fieldLinks[i]["ip"][0])
             newVehicle.setFieldLink(fieldLinks[i])
@@ -2978,9 +2981,7 @@ class MainWindow(QMainWindow):
         #self.BotNewWin.resize(400, 200)
         #self.platoonWin.show()
         self.showMsg("sending commands.....")
-        self.showMsg("tcp connections....."+json.dumps(fieldLinks))
-        self.showMsg("tcp server....."+json.dumps(self.tcpServer))
-        self.showMsg("commander server....."+json.dumps(commanderServer))
+        self.showMsg("tcp connections....."+json.dumps([flk["ip"] for flk in fieldLinks]))
 
         if len(idxs) == 0:
             idxs = range(self.runningVehicleModel.rowCount())
@@ -2990,7 +2991,7 @@ class MainWindow(QMainWindow):
             self.showMsg("Currently, there are ("+str(len(fieldLinks))+") connection to this server.....")
             for i in range(len(fieldLinks)):
                 if i in idxs:
-                    fieldLinks[i]["link"].transport.write(cmd.encode('utf8'))
+                    fieldLinks[i]["transport"].write(cmd.encode('utf8'))
                     self.showMsg("cmd sent on link:"+str(i))
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
@@ -4279,6 +4280,7 @@ class MainWindow(QMainWindow):
                 #     self.removeVehicles()
                 #
                 # msgQueue.task_done()
+            print("listening to platoons")
             await asyncio.sleep(1)
 
     # this is be run as an async task.
@@ -4362,6 +4364,7 @@ class MainWindow(QMainWindow):
             if self.workingState != "Idle":
                 self.workingState = "Idle"
 
+            print("running bot works whenever there is some to run....")
             await asyncio.sleep(1)
 
 
@@ -4592,10 +4595,11 @@ class MainWindow(QMainWindow):
 
     async def serveCommander(self, msgQueue):
         while True:
-            net_message = await msgQueue.get()
-            self.processCommanderMsgs(net_message)
-            msgQueue.task_done()
-            await asyncio.sleep(10)
+            if not msgQueue.empty():
+                net_message = await msgQueue.get()
+                self.processCommanderMsgs(net_message)
+                msgQueue.task_done()
+            await asyncio.sleep(1)
 
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
@@ -4685,7 +4689,7 @@ class MainWindow(QMainWindow):
 
             if self.hostrole != "Platoon":
                 # add generated report to report list....
-                self.showMsg("commander gen run report....."+json.dumps(self.todaysReport))
+                # self.showMsg("commander gen run report....."+json.dumps(self.todaysReport))
                 self.todaysReport.append(mission_report)
                 # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
                 # on commander machine, todaysPlatoonReports contains a collection of reports from each host machine
@@ -4695,7 +4699,7 @@ class MainWindow(QMainWindow):
                     self.todaysReport = []
             else:
                 # self.todaysPlatoonReports.append(str.encode(json.dumps(rpt)))
-                self.showMsg("platoon?? gen run report....."+json.dumps(self.todaysReport))
+                # self.showMsg("platoon?? gen run report....."+json.dumps(self.todaysReport))
                 self.todaysReport.append(mission_report)
                 # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
                 # on platoon machine, todaysPlatoonReports contains a collection of individual task reports on this machine.
@@ -5000,5 +5004,6 @@ class MainWindow(QMainWindow):
                 self.update_chat_gui(message)
                 chat_msg_queue.task_done()
 
+            print("polling chat msg queue....")
             await asyncio.sleep(1)
 

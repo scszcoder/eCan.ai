@@ -76,3 +76,7 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --workpath "C:/Users/songc/ECBot_build" ^
 --distpath "C:/Users/songc/ECBotApp" ^
 "C:/Users/songc/PycharmProjects/ecbot/main.py"
+cd C:\Users\songc\ECBotApp
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\packECBot.iss
+
+
