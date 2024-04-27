@@ -1679,7 +1679,7 @@ class MainWindow(QMainWindow):
                         tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(p_task_groups[i])
                         resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
                         schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
-                        self.showMsg("SCHEDULE::: "+schedule)
+                        self.showMsg("SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"]+"] SCHEDULE::: "+schedule)
 
                         v_groups[platform][i].getFieldLink()["transport"].write(schedule.encode("utf-8"))
 
@@ -4265,22 +4265,23 @@ class MainWindow(QMainWindow):
         while True:
             if not msgQueue.empty():
                 net_message = await msgQueue.get()
-                # msg_parts = net_message.split("!")
-                # if msg_parts[1] == "net data":
-                #     self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
-                # elif msg_parts[1] == "connection":
-                #     # this is the initial connection msg from a client
-                #     if self.platoonWin == None:
-                #         self.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
-                #
-                #     vinfo = json.loads(msg_parts[2])
-                #     self.addVehicle(vinfo["link"])
-                # elif msg_parts[1] == "net loss":
-                #     # remove this link from the link list
-                #     self.removeVehicles()
-                #
-                # msgQueue.task_done()
-            print("listening to platoons")
+                self.showMsg("received queued msg from platoon..... " + net_message)
+                msg_parts = net_message.split("!")
+                if msg_parts[1] == "net data":
+                    self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+                elif msg_parts[1] == "connection":
+                    # this is the initial connection msg from a client
+                    if self.platoonWin == None:
+                        self.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
+
+                    vinfo = json.loads(msg_parts[2])
+                    self.addVehicle(vinfo["link"])
+                elif msg_parts[1] == "net loss":
+                    # remove this link from the link list
+                    self.removeVehicles()
+
+                msgQueue.task_done()
+            # print("listening to platoons")
             await asyncio.sleep(1)
 
     # this is be run as an async task.
@@ -5004,6 +5005,6 @@ class MainWindow(QMainWindow):
                 self.update_chat_gui(message)
                 chat_msg_queue.task_done()
 
-            print("polling chat msg queue....")
+            # print("polling chat msg queue....")
             await asyncio.sleep(1)
 
