@@ -26,7 +26,6 @@ def log3(msg, category='None', mask='None',gui_main=None):
     day = now.strftime("%d")
     dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
     dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
-    print("daily log file:::", dailyLogFile)
     time = now.strftime("%H:%M:%S - ")
     if os.path.isfile(dailyLogFile):
         file1 = open(dailyLogFile, "a")  # append mode

@@ -11,13 +11,26 @@ global symTab
 import os
 import shutil
 import pyautogui
+from scraperEbay import *
+from scraperAmz import *
+from scraperEtsy import *
+
 
 
 def test_eb_orders_scraper():
     orders = []
     html_file = "C:/temp/Orders — eBay Seller Hub.html"
-    ebay_seller_fetch_page_of_order_list(html_file, orders)
+    html_file = "C:/Users/songc/Downloads/Orders0eBaySellerHub.html"
+    # ebay_seller_fetch_page_of_order_list(html_file, 1)
 
+    html_file = "C:/Users/songc/Downloads/MyeBay_ Messages00.html"
+    # ebay_seller_get_customer_msg_list(html_file, 1)
+
+    html_file = "C:/Users/songc/Downloads/MyeBay_ Messages18.html"
+    # ebay_seller_get_customer_msg_thread(html_file)
+
+    html_file = "C:/Users/songc/Downloads/MyeBay_ Messages18.html"
+    ebay_seller_get_system_msg_thread(html_file)
 
 
 def test_etsy_label_gen():

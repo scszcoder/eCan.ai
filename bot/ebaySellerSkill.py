@@ -60,6 +60,14 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
+    this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "dummy_in", "etsy_status", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "dummy_in", "etsy_status", this_step)
+    psk_words = psk_words + step_words
+
+
     #skname, skfname, in-args, output, step number
     # this_step, step_words = genStepUseSkill("collect_orders", "public/win_chrome_etsy_orders", "dummy_in", "etsy_status", this_step)
     # psk_words = psk_words + step_words
@@ -398,7 +406,16 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # open the order page again.
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
+    this_step, step_words = genStepCallExtern("global blurl\nblurl = 'https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "blurl", "direct", 1, "", 2, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(5, 0, 0, this_step)
@@ -481,7 +498,7 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
 
 
     # click on the complete order button
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "complete_order", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "order_pulldown", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # now extract the screen info.
@@ -489,7 +506,7 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click and type USPS in carrier pull down menu
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "shipping_carrier", "anchor text", "", [0, 0], "bottom", [0, 2], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "add_tracking", "anchor text", "", [0, 0], "bottom", [0, 2], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global shipping_service\nshipping_service = fin[0][update_order_index].getShippingService()[:3]", "", "in_line", "", this_step)
@@ -599,6 +616,165 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+
+# buy and download labels from EBAY using USPS, Steps:
+#  1) go to https://www.ebay.com/gslblui/bulk/ for bulk purchase.
+#  2) go thru each item make sure it's cheapest shipper, unless otherwise noted in product list.
+#  3) click on review purchase,
+#  4) make sure price is right, purchase method is right, then click on confirm.
+#  5) move downloaded labels into destinated dir, unpack, reformat the labels, and print.
+#  note: one advantage is purchasing labels from ebay will auto update tracking, so this step
+#        is saved. the disadvantge is labels might not be the cheapest.
+def genWinADSEbayBuyShippingLabelsSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_buy_labelss", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY003",
+                                          "Ebay Buy Shipping On Windows.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/buy_labels", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global blurl\nblurl = 'https://www.ebay.com/gslblui/bulk/'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "blurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # go thru all orders, page by page, screen by screen. same nested loop as in collect orders...
+    this_step, step_words = genStepCallExtern("global buyLabelsDone\nbuyLabelsDone = False", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global currentPage\ncurrentPage = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "update_order_index", "NA", -1, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepLoop("endOfOrderList != True", "", "", "browseEtsyOL" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global endOfOrdersPage\nendOfOrdersPage = False", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
+    this_step, step_words = genStepLoop("buyLabelsDone != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
+    psk_words = psk_words + step_words
+
+    # now extract the screen info.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme,
+                                               this_step, None)
+    psk_words = psk_words + step_words
+
+    # use this info, as it contains the name and address, as well as the ship_to anchor location.
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["usps"], "direct", ["anchor text"], "any",
+                                                    "complete_buttons", "useless", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["order_number"], "direct", ["info 1"], "any",
+                                                    "orderIds", "useless", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global numCompletions\nnumCompletions = len(orderIds)", "", "in_line",
+                                              "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
+    this_step, step_words = genStepLoop("nthCompletion < numCompletions", "", "", "dummy" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+
+
+    this_step, step_words = genStepEtsyFindScreenOrder("nthCompletion", "complete_buttons", "orderIds", "etsy_orders",
+                                                       "update_order_index", "nMore2Update", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global update_order_index\nprint('update_order_index', update_order_index)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fin\nprint('fin', fin)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("update_order_index >= 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # click on the complete order button
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "standard_insurance", "anchor icon",
+                                              "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # now extract the screen info.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme,
+                                               this_step, None)
+    psk_words = psk_words + step_words
+
+    # click and type USPS in carrier pull down menu
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "shipping_carrier",
+                                              "anchor text", "", [0, 0], "bottom", [0, 2], "box", 2, 2, [0, 0],
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global shipping_service\nshipping_service = fin[0][update_order_index].getShippingService()[:3]", "",
+        "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+    # end condition for checking whehter this order can to be completed.
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now 1 order update is finished. update the counter
+    this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = nthCompletion + 1", "", "in_line",
+                                              "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now scroll to the next screen.
+    # (action, action_args, smount, stepN):
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 60, "screen", "scroll_resolution", 0, 0,
+                                               0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    #  end of loop for scoll till the endOfOrdersPage.
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # end of loop for while (endOfOrderList != True)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/update_tracking", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
+
+    return this_step, psk_words
 
 
 def genStepEbayScrapeOrdersHtml(html_var, page_cfg, page_num, product_list, stepN):

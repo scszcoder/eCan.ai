@@ -135,8 +135,9 @@ def getWorkSettings(lieutenant, bot_works):
     log3("bot_works: "+json.dumps(bot_works))
     mission_id = works[tz][bidx][grp][idx]["mid"]
     midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(mission_id)), -1)
-    for m in lieutenant.missions:
-        log3("MissionIDs:"+str(m.getMid()))
+
+    log3("MissionIDs:"+json.dumps([m.getMid() for m in lieutenant.missions]))
+
     if midx < 0 or midx >= len(lieutenant.missions):
         log3("ERROR: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
 
@@ -232,13 +233,13 @@ def getWorkRunSettings(lieutenant, bot_works):
     widx = bot_works["current widx"]  # walk task index
 
     log3("works:"+json.dumps(works))
-    log3("widx: "+str(widx))
+    log3("widx: "+str(widx)+" mid:"+str(works[widx]["mid"]))
 
-    log3("bot_works: "+json.dumps(bot_works))
+    log3("bot_works: "+json.dumps(works[widx]))
     mission_id = works[widx]["mid"]
     midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(mission_id)), -1)
-    for m in lieutenant.missions:
-        log3("MissionIDs:"+str(m.getMid()))
+    log3("MissionIDs:"+json.dumps([m.getMid() for m in lieutenant.missions])+" midx:"+str(midx))
+
     if midx < 0 or midx >= len(lieutenant.missions):
         log3("ERROR: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
 

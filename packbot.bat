@@ -43,7 +43,6 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/PyPDF2;PyPDF2/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/transitions;transitions/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/pyqtgraph;pyqtgraph/" ^
---add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/lzstring;lzstring/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/aioconsole;aioconsole/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/schedule;schedule/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/tzlocal;tzlocal/" ^
