@@ -286,7 +286,6 @@ class BOT_PUB_PROFILE():
         else:
             self.pseudo_first_name = ""
             self.pseudo_last_name = ""
-
         self.pseudo_name = pn
 
     def setNickName(self, nn):
@@ -453,10 +452,10 @@ class EBBOT(QStandardItem):
 
         self.ebType = "AMZ"
         if len(self.getFn()) > 1:
-            self.icon_text = 'bot' + str(self.getBid())+":"+self.getFn()[:1]+" "+self.getLn()
+            self.icon_text = 'bot' + str(self.getBid())+":"+self.getFn()[:1]+" "+self.getLn() + ":" + self.getLocation()
             self.setText(self.icon_text)
         else:
-            self.icon_text ='bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn()
+            self.icon_text ='bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
             self.setText(self.icon_text)
         self.setFont(parent.std_item_font)
         # self.icon = QIcon(parent.bot_icon_path)
@@ -627,9 +626,9 @@ class EBBOT(QStandardItem):
     def setBid(self, bid):
         self.pubProfile.bid = bid
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn())
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def setOwner(self, owner):
         self.pubProfile.owner = owner
@@ -651,16 +650,16 @@ class EBBOT(QStandardItem):
         self.privateProfile.loadJson(nbJson["privateProfile"])
         self.settings.loadJson(nbJson["settings"])
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn())
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn())
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def genJson(self):
         log3("generating Json..........>>>>")
@@ -674,9 +673,9 @@ class EBBOT(QStandardItem):
 
     def updateDisplay(self):
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn())
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn())
+            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def loadDBData(self, dbd):
         self.pubProfile.setBid(dbd[0])
@@ -700,7 +699,7 @@ class EBBOT(QStandardItem):
         self.privateProfile.setBackEmail(dbd[18])
         self.privateProfile.setEBPW(dbd[19])
         self.privateProfile.setBackEmailSite(dbd[20])
-
+        self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def loadXlsxData(self, jd):
         # location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr
@@ -723,3 +722,4 @@ class EBBOT(QStandardItem):
         self.privateProfile.setBackEmail(jd["Backup Email"])
         self.privateProfile.setEBPW(jd["Back PW"])
         self.privateProfile.setBackEmailSite(jd["BackEmailSite"])
+        self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())

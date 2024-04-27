@@ -865,7 +865,7 @@ def extractBatchOfProfiles(bots, all_profiles_xls, batch_xls):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorKeyInput:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorKeyInput:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)
         log3(ex_stat)
@@ -946,7 +946,7 @@ def formADSProfileBatchesFor1Vehicle(vTasks, commander):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorFormADSProfileBatchesFor1Vehicle:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorFormADSProfileBatchesFor1Vehicle:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorFormADSProfileBatchesFor1Vehicle: traceback information not available:" + str(e)
         log3(ex_stat)
@@ -1140,12 +1140,15 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
         mid = bot_work["mid"]
 
         found_missions = list(filter(lambda cm: cm.getMid() == mid, commander.missions))
+        found_mision = None
         if len(found_missions) > 0:
             found_mision = found_missions[0]
             bot_work["ads_xlsx_profile"] = batch_file
             found_mision.setADSXlsxProfile(batch_file)
+        else:
+            bot_work["ads_xlsx_profile"] = ""
 
-        if len(found_bots) > 0:
+        if len(found_bots) > 0 and found_mision:
             found_bot = found_bots[0]
             bot_txt_profile_name = ads_profile_dir + "/" + found_bot.getEmail().split("@")[0]+".txt"
             bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
@@ -1269,7 +1272,7 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorUpdateBotADSProfileFromSavedBatchTxt: traceback information not available:" + str(e)
         log3(ex_stat)
@@ -1307,7 +1310,7 @@ def processADSGenXlsxBatchProfiles(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorADSGenXlsxBatchProfiles:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            ex_stat = "ErrorADSGenXlsxBatchProfiles:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorADSGenXlsxBatchProfiles: traceback information not available:" + str(e)
         log3(ex_stat)

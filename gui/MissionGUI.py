@@ -10,6 +10,8 @@ from locale import getdefaultlocale
 from FlowLayout import *
 from ebbot import *
 from missions import *
+from Logger import *
+import traceback
 
 class SkillListView(QListView):
     def __init__(self, parent):
@@ -701,6 +703,7 @@ class MissionNewWin(QMainWindow):
         self.newMission.setCusPAS(platform_sh+","+app_sh+","+site_sh)
         self.fillSkills()
 
+        self.newMission.updateDisplay()
         # public: type,
 
 
@@ -753,97 +756,106 @@ class MissionNewWin(QMainWindow):
         self.newMission.setOwner(owner)
 
     def setMission(self, mission):
-        self.newMission = mission
-        self.parent.showMsg("setting mission id:"+str(self.newMission.getMid()))
-        self.mid_edit.setText(str(self.newMission.getMid()))
-        self.ticket_edit.setText(str(self.newMission.getTicket()))
-        self.bid_edit.setText(str(self.newMission.getBid()))
-        self.est_edit.setText(str(self.newMission.getEstimatedStartTime()))
-        self.ert_edit.setText(str(self.newMission.getEstimatedRunTime()))
 
-        self.repeat_edit.setText(str(self.newMission.getRetry()))
+        try:
+            self.newMission = mission
+            self.mid_edit.setText(str(self.newMission.getMid()))
+            self.ticket_edit.setText(str(self.newMission.getTicket()))
+            self.bid_edit.setText(str(self.newMission.getBid()))
+            self.est_edit.setText(str(self.newMission.getEstimatedStartTime()))
+            self.ert_edit.setText(str(self.newMission.getEstimatedRunTime()))
 
-        if "browse" in self.newMission.getMtype() or "buy" in self.newMission.getMtype() or "Rating" in self.newMission.getMtype() or "FB" in "buy" in self.newMission.getMtype():
-            self.buy_rb.setChecked(True)
-            self.buy_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
-            if "buy" in self.newMission.getMtype() or "Rating" in self.newMission.getMtype() or "FB" in "buy" in self.newMission.getMtype():
-                self.buy_sub_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[1])
-        elif "sell" in self.newMission.getMtype():
-            self.sell_rb.setChecked(True)
-            self.sell_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
-        elif "op" in self.newMission.getMtype():
-            self.op_rb.setChecked(True)
-            self.op_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
-            if self.newMission.getMtype().split("_")[0] == "opCustom":
-                self.op_mission_type_custome_edit.setText("_".join(self.newMission.getMtype().split("_")[1:]))
+            self.repeat_edit.setText(str(self.newMission.getRetry()))
+            if "browse" in self.newMission.getMtype() or "buy" in self.newMission.getMtype() or "Rating" in self.newMission.getMtype() or "FB" in self.newMission.getMtype():
+                self.buy_rb.setChecked(True)
+                self.buy_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
+                if "buy" in self.newMission.getMtype() or "Rating" in self.newMission.getMtype() or "FB" in self.newMission.getMtype():
+                    if "_" in self.newMission.getMtype():
+                        self.buy_sub_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[1])
+            elif "sell" in self.newMission.getMtype():
+                self.sell_rb.setChecked(True)
+                self.sell_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
+            elif "op" in self.newMission.getMtype():
+                self.op_rb.setChecked(True)
+                self.op_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
+                if self.newMission.getMtype().split("_")[0] == "opCustom":
+                    if "_" in self.newMission.getMtype():
+                        self.op_mission_type_custome_edit.setText("_".join(self.newMission.getMtype().split("_")[1:]))
+            self.mission_status_sel.setCurrentText(self.newMission.getStatus().split(":")[0])
 
-        self.mission_status_sel.setCurrentText(self.newMission.getStatus().split(":")[0])
+            if self.newMission.getAssignmentType() == "auto":
+                self.auto_rb.setChecked(True)
+            else:
+                self.manual_rb.setChecked(True)
+                cfg = json.loads(self.newMission.getConfig())
+                if "start_time" in cfg:
+                    hr = int((cfg["start_time"]-1)*TIME_SLOT_MINS/60)
+                    min = (cfg["start_time"]-1)*TIME_SLOT_MINS - hr*60
+                    self.est_edit.setText("{:02d}".format(hr)+":"+"{:02d}".format(min)+":00")
 
-        if self.newMission.getAssignmentType() == "auto":
-            self.auto_rb.setChecked(True)
-        else:
-            self.manual_rb.setChecked(True)
-            cfg = json.loads(self.newMission.getConfig())
-            if "start_time" in cfg:
-                hr = int((cfg["start_time"]-1)*TIME_SLOT_MINS/60)
-                min = (cfg["start_time"]-1)*TIME_SLOT_MINS - hr*60
-                self.est_edit.setText("{:02d}".format(hr)+":"+"{:02d}".format(min)+":00")
+                if "estRunTime" in cfg:
+                    self.ert_edit.setText(str((cfg["estRunTime"])*60*TIME_SLOT_MINS))
 
-            if "estRunTime" in cfg:
-                self.ert_edit.setText(str((cfg["estRunTime"])*60*TIME_SLOT_MINS))
+                if "bid" in cfg:
+                    self.bid_edit.setText(cfg["bid"])
 
-            if "bid" in cfg:
-                self.bid_edit.setText(cfg["bid"])
+            if self.newMission.getBuyType() in self.parent.getBUYTYPES():
+                self.buy_mission_type_sel.setCurrentText(self.newMission.getBuyType())
+            else:
+                self.buy_mission_type_sel.setCurrentText("goodFB")
 
+            if self.newMission.getSellType() in self.parent.getSELLTYPES():
+                self.sell_mission_type_sel.setCurrentText(self.newMission.getSellType())
+            else:
+                self.sell_mission_type_sel.setCurrentText("sellFullfill")
 
-        if self.newMission.getBuyType() in self.parent.getBUYTYPES():
-            self.buy_mission_type_sel.setCurrentText(self.newMission.getBuyType())
-        else:
-            self.buy_mission_type_sel.setCurrentText("goodFB")
+            self.asin_edit.setText(self.newMission.getASIN())
+            self.seller_edit.setText(self.newMission.getStore())
+            self.title_edit.setText(self.newMission.getTitle())
+            self.product_image_edit.setText(self.newMission.getImagePath())
+            self.rating_edit.setText(str(self.newMission.getRating()))
+            self.feedbacks_edit.setText(str(self.newMission.getFeedbacks()))
+            self.price_edit.setText(str(self.newMission.getPrice()))
+            self.cus_email_edit.setText(self.newMission.getCustomerID())
+            self.cus_sm_id_edit.setText(self.newMission.getCustomerSMID())
 
-        if self.newMission.getSellType() in self.parent.getSELLTYPES():
-            self.sell_mission_type_sel.setCurrentText(self.newMission.getSellType())
-        else:
-            self.sell_mission_type_sel.setCurrentText("sellFullfill")
-
-        self.asin_edit.setText(self.newMission.getASIN())
-        self.seller_edit.setText(self.newMission.getStore())
-        self.title_edit.setText(self.newMission.getTitle())
-        self.product_image_edit.setText(self.newMission.getImagePath())
-        self.rating_edit.setText(str(self.newMission.getRating()))
-        self.feedbacks_edit.setText(str(self.newMission.getFeedbacks()))
-        self.price_edit.setText(str(self.newMission.getPrice()))
-        self.cus_email_edit.setText(self.newMission.getCustomerID())
-        self.cus_sm_id_edit.setText(self.newMission.getCustomerSMID())
-
-        if self.newMission.getCustomerSMPlatform() in self.parent.getSMPLATFORMS():
-            self.cus_alt_sm_type_sel.setCurrentText(self.newMission.getCustomerSMPlatform())
-        else:
-            self.cus_alt_sm_type_sel.setCurrentText("Custom")
+            if self.newMission.getCustomerSMPlatform() in self.parent.getSMPLATFORMS():
+                self.cus_alt_sm_type_sel.setCurrentText(self.newMission.getCustomerSMPlatform())
+            else:
+                self.cus_alt_sm_type_sel.setCurrentText("Custom")
 
 
-        self.search_kw_edit.setText(self.newMission.getSearchKW())
-        self.search_cat_edit.setText(self.newMission.getSearchCat())
-        self.pseudo_store_edit.setText(self.newMission.getPseudoStore())
-        self.pseudo_brand_edit.setText(self.newMission.getPseudoBrand())
-        self.pseudo_asin_edit.setText(self.newMission.getPseudoASIN())
+            self.search_kw_edit.setText(self.newMission.getSearchKW())
+            self.search_cat_edit.setText(self.newMission.getSearchCat())
+            self.pseudo_store_edit.setText(self.newMission.getPseudoStore())
+            self.pseudo_brand_edit.setText(self.newMission.getPseudoBrand())
+            self.pseudo_asin_edit.setText(self.newMission.getPseudoASIN())
 
-        self.mission_platform_sel.setCurrentText(self.newMission.getPlatform())
-        if self.newMission.getApp() in self.parent.getAPPS():
-            self.mission_app_sel.setCurrentText(self.newMission.getApp())
-        else:
-            self.mission_app_sel.setCurrentText('Custom')
-            self.missionCustomAppNameEdit.setText(self.newMission.getApp())
-            self.missionCustomAppLinkEdit.setText(self.newMission.getAppExe())
+            self.mission_platform_sel.setCurrentText(self.newMission.getPlatform())
+            if self.newMission.getApp() in self.parent.getAPPS():
+                self.mission_app_sel.setCurrentText(self.newMission.getApp())
+            else:
+                self.mission_app_sel.setCurrentText('Custom')
+                self.missionCustomAppNameEdit.setText(self.newMission.getApp())
+                self.missionCustomAppLinkEdit.setText(self.newMission.getAppExe())
 
-        if self.newMission.getSite() in self.parent.getSITES():
-            self.mission_site_sel.setCurrentText(self.newMission.getSite())
-        else:
-            self.mission_site_sel.setCurrentText('Custom')
-            self.missionCustomAppNameEdit.setText(self.newMission.getSite())
-            self.missionCustomAppLinkEdit.setText(self.newMission.getSiteH())
+            if self.newMission.getSite() in self.parent.getSITES():
+                self.mission_site_sel.setCurrentText(self.newMission.getSite())
+            else:
+                self.mission_site_sel.setCurrentText('Custom')
+                self.missionCustomAppNameEdit.setText(self.newMission.getSite())
+                self.missionCustomAppLinkEdit.setText(self.newMission.getSiteH())
 
-        self.loadSkills(mission)
+            self.loadSkills(mission)
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorSetMission:" + json.dumps(traceback_info, indent=4) + " " + str(e)
+            else:
+                ex_stat = "ErrorSetMission: traceback information not available:" + str(e)
+            log3(ex_stat)
 
 
     def missionPlatformSel_changed(self):

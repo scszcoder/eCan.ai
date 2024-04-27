@@ -1,7 +1,6 @@
 import platform
 import sys
 import random
-import boto3
 from crontab import CronTab
 import json
 from WorkSkill import *
@@ -87,7 +86,6 @@ class VEHICLE(QStandardItem):
 
 
     def genJson(self):
-        log3("generating Json..........>>>>")
         jsd = {
                 "vid": self.id,
                 "ip": self.ip,
@@ -97,7 +95,6 @@ class VEHICLE(QStandardItem):
                 "bot_ids": self.bot_ids,
                 "status": self.status
                 }
-        log3(json.dumps(jsd))
         return jsd
 
 

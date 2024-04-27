@@ -104,6 +104,7 @@ if __name__ == '__main__':
     # test_run_group_of_tasks()
     # test_schedule_check()
     # test_pyautogui()
+    # test_eb_orders_scraper()
     # print("all unit test done...")
 
     windowlauncher()
