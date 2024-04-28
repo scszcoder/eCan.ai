@@ -44,7 +44,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.transport = transport
         new_link = {"ip": self.peername, "name": platform.node(), "transport": transport}
         fieldLinks.append(new_link)
-        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+self.peername))
+        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+self.peername[0]))
         # if not self.topgui.mainwin == None:
         #     if self.topgui.mainwin.platoonWin == None:
         #         self.topgui.mainwin.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")

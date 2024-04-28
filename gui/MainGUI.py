@@ -1586,9 +1586,10 @@ class MainWindow(QMainWindow):
         result = {
             "win": [v for v in self.vehicles if v.getOS() == "Windows"],
             "mac": [v for v in self.vehicles if v.getOS() == "Mac"],
-            "linux": [v for v in self.vehicles if v.getOS() == "linux"]
+            "linux": [v for v in self.vehicles if v.getOS() == "Linux"]
         }
-
+        self.showMsg("all vehicles>>>>>>>>>>>> " + json.dumps(result))
+        self.showMsg("now take care of commander machine itself in case of being a dual role commander")
         if self.hostrole == "Commander":
             self.showMsg("checking commander>>>>>>>>>>>>>>>>>>>>>>>>> "+self.getIP())
             self_v = VEHICLE(self)
@@ -1597,11 +1598,11 @@ class MainWindow(QMainWindow):
             ip = ipfields[len(ipfields) - 1]
             self_v.setVid(ip)
             if self.platform == "win":
-                result["win"].append(self_v)
+                result["win"].append(self_v)        # result["win"].insert(0, self_v)
             elif self.platform == "mac":
-                result["mac"].append(self_v)
+                result["mac"].append(self_v)        # result["mac"].insert(0, self_v)
             else:
-                result["linux"].append(self_v)
+                result["linux"].append(self_v)      # result["linux"].insert(0, self_v)
 
         return result
 
@@ -1614,6 +1615,7 @@ class MainWindow(QMainWindow):
         v_task_groups = self.groupTaskGroupsByOS(task_groups)    #result will {"win": win_tgs, "mac": mac_tgs, "linux": linux_tgs}
         v_groups = self.groupVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
         self.showMsg("v task_groups:::::: "+json.dumps(v_task_groups))
+        self.showMsg("v  groups:::::: " + json.dumps(v_groups))
         for key in v_groups:
             if len(v_groups[key]) > 0:
                 for k, v in enumerate(v_groups[key]):
@@ -1631,7 +1633,7 @@ class MainWindow(QMainWindow):
 
             if len(p_task_groups) > p_nsites:
                 # there will be unserved tasks due to over capacity
-                self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!")
+                self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!"+str(len(p_task_groups))+"::"+str(p_nsites))
 
             # distribute work to all available sites, which is the limit for the total capacity.
             if p_nsites > 0:
@@ -2891,24 +2893,39 @@ class MainWindow(QMainWindow):
             self.newMission.loadJson(mjs)
             self.missions.append(self.newMission)
 
-    def addVehicle(self, vinfo):
-        ipfields = vinfo.peername[0].split(".")
-        ip = ipfields[len(ipfields) - 1]
-        if len(self.vehicles) > 0:
-            vids = [v.getVid() for v in self.vehicles]
-        else:
-            vids = []
-        if ip not in vids:
-            self.showMsg("adding a new vehicle..... "+vinfo.peername)
-            newVehicle = VEHICLE(self)
-            newVehicle.setIP(vinfo.peername[0])
-            newVehicle.setVid(ip)
-            self.vehicles.append(newVehicle)
-            self.runningVehicleModel.appendRow(newVehicle)
-            if self.platoonWin:
-                self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
-        else:
-            self.showMsg("Reconnected: "+vinfo.peername)
+    def addVehicle(self, vip):
+        try:
+            # ipfields = vinfo.peername[0].split(".")
+            ipfields = vip.split(".")
+            ip = ipfields[len(ipfields) - 1]
+            if len(self.vehicles) > 0:
+                vids = [v.getVid() for v in self.vehicles]
+            else:
+                vids = []
+            if ip not in vids:
+                self.showMsg("adding a new vehicle..... "+vip)
+                newVehicle = VEHICLE(self)
+                newVehicle.setIP(vip)
+                newVehicle.setVid(ip)
+                self.vehicles.append(newVehicle)
+                self.runningVehicleModel.appendRow(newVehicle)
+                if self.platoonWin:
+                    self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
+            else:
+                self.showMsg("Reconnected: "+vip)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorAddVehicle:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorAddVehicle: traceback information not available:" + str(e)
+
+            self.showMsg(ex_stat)
+
+
 
     def removeVehicle(self, peername):
         self.showMsg("removing vehicle: "+peername)
@@ -4277,8 +4294,15 @@ class MainWindow(QMainWindow):
                         if self.platoonWin == None:
                             self.platoonWin = PlatoonWindow(self, "conn")
 
-                        vinfo = json.loads(msg_parts[2])
-                        self.addVehicle(vinfo["link"])
+                        # vinfo = json.loads(msg_parts[2])
+
+                        self.addVehicle(msg_parts[0])
+
+                        # after adding a vehicle, try to get this vehicle's info
+                        if len(self.vehicles) > 0:
+                            last_idx = len(self.vehicles)-1
+                            self.sendToPlatoons([last_idx])         # sends a default ping command to get userful info.
+
                     elif msg_parts[1] == "net loss":
                         # remove this link from the link list
                         self.removeVehicle()
@@ -4458,20 +4482,25 @@ class MainWindow(QMainWindow):
     # content format varies according to type.
     def processPlatoonMsgs(self, msgString, ip):
         try:
-            self.showMsg("Platoon Msg Received:"+msgString)
+            fl_ips = [x["ip"] for x in fieldLinks]
+            self.showMsg("Platoon Msg Received:"+msgString+" from::"+ip+"  "+str(len(fieldLinks)) + json.dumps(fl_ips))
             msg = json.loads(msgString)
 
-            found = next((x for x in fieldLinks if x["ip"] == ip), None)
+            found = next((x for x in fieldLinks if x["ip"][0] == ip), None)
 
             # first, check ip and make sure this from a know vehicle.
-            if msg["type"] == "intro":
+            if msg["type"] == "intro" or msg["type"] == "pong":
                 if found:
-                    self.showMsg("recevied a vehicle introduction:")
+                    self.showMsg("recevied a vehicle introduction/pong:")
                     found_vehicle = next((x for x in self.vehicles if x.getIP() == msg["ip"]), None)
                     if found_vehicle:
-                        found_vehicle.setName(msg["contents"]["name"])
-                        if "Windows" in msg["contents"]["os"]:
-                            found_vehicle.setOS("win")
+                        found_vehicle.setName(msg["content"]["name"])
+                        if "Windows" in msg["content"]["os"]:
+                            found_vehicle.setOS("Windows")
+                        elif "Mac" in msg["content"]["os"]:
+                            found_vehicle.setOS("Mac")
+                        elif "Lin" in msg["content"]["os"]:
+                            found_vehicle.setOS("Linux")
 
                 #now
             elif msg["type"] == "status":
@@ -4523,9 +4552,9 @@ class MainWindow(QMainWindow):
             elif msg["type"] == "chat":
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receiveBotChatMessage(msg["content"])
-            elif msg["type"] == "pong":
+            else:
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.showMsg(ping+msg["contents"])
+                self.showMsg("unknown type:"+msg["contents"])
 
         except Exception as e:
             # Get the traceback information

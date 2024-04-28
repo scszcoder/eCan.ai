@@ -126,10 +126,13 @@ class PlatoonWindow(QMainWindow):
 
     # this function is called when a new vehicle is added to the platoonWin.
     def updatePlatoonWinWithMostRecentlyAddedVehicle(self):
-        v = self.parent.vehicles[len(self.parent.vehicles)-1]
-        self.parent.showMsg("adding most recently added vehicle tab")
-        ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
-        self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
+        if len(self.parent.vehicles) > 0:
+            v = self.parent.vehicles[len(self.parent.vehicles)-1]
+            self.parent.showMsg("adding most recently added vehicle tab")
+            ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
+            print("what??", v.getMStats())
+            self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
+            print("tab added....")
 
     def updatePlatoonWinWithMostRecentlyRemovedVehicle(self):
         v = self.parent.vehicles[len(self.parent.vehicles)-1]
@@ -264,16 +267,21 @@ class PlatoonWindow(QMainWindow):
 
           # Replace "Arial" and 12 with your desired font family and size
         completedMissionTableView.setFont(font)
-        completedMissionTableView.installEventFilter(self)
+        # completedMissionTableView.installEventFilter(self)
         # column 6 could be either an icon or an animating gif....
         completedMissionTableView.setItemDelegateForColumn(6, IconDelegate())
+
         # completedMissionTableView.setItemDelegateForColumn(6, MovieDelegate())
 
         self.platoonTableViews.append(completedMissionTableView)
-        centralScroll.setWidget(completedMissionTableView)
-        vTab.layout.addWidget(centralScroll)
-        vTab.setLayout(vTab.layout)
+        print("55555555")
 
+        centralScroll.setWidget(completedMissionTableView)
+        print("6666666")
+
+        vTab.layout.addWidget(centralScroll)
+
+        vTab.setLayout(vTab.layout)
         return vTab
 
 
