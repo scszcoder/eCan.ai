@@ -211,7 +211,7 @@ class ChatWidget(QWidget):
             bubble = BubbleLabel(text, is_self, self.scroll_area_widget_contents)
             bubble.adjustSizeToContent()
             self.layout.addWidget(bubble, alignment=Qt.AlignRight if is_self else Qt.AlignLeft)
-            self.parent.addChatHis(text)
+            self.parent.addActiveChatHis(text)
             self.message_edit.clear()
             self.scroll_area.ensureWidgetVisible(bubble)
             QTimer.singleShot(100, self.scrollToBottom)
@@ -219,6 +219,7 @@ class ChatWidget(QWidget):
 
             #now actually send the to bot agent. if the bot is on local machine, simply send it to its queue.
             # if the bot agent is on a remote computer, send the message out via TCPIP.
+            self.parent.parent.sendBotChatMessage(0, self.parent.selected_agent.getBid(), text)
 
     def scrollToBottom(self):
         # Assuming 'self.chatDisplay' is your QScrollArea or similar widget
@@ -241,6 +242,7 @@ class ChatWin(QMainWindow):
         self.chatWidget = ChatWidget(self)  # Assuming ChatWidget is your existing chat UI class
         self.selected_index = -1
         self.selected_agent = None
+        self.botAgents = []
 
         # Use QSplitter for adjustable panels
         self.splitter = QSplitter(Qt.Horizontal)
@@ -262,6 +264,7 @@ class ChatWin(QMainWindow):
             bot_agent.setIcon(bot.icon())
             bot_agent.setBid(bot.getBid())
             self.botModel.appendRow(bot_agent)
+            self.botAgents.append(bot_agent)
 
         self.teamList.clicked.connect(self.switchConversation)
 
@@ -288,13 +291,13 @@ class ChatWin(QMainWindow):
             self.chatWidget.addMessage(is_self, chat_message)
         self.chatWidget.scroll_area.verticalScrollBar().setValue(self.chatWidget.scroll_area.verticalScrollBar().maximum())
 
-    def addChatHis(self, to_me, others, text):
+    def addActiveChatHis(self, to_me, others, text):
         recipients = ""
         dtnow = datetime.now()
         date_word = dtnow.isoformat()
         if to_me:
             # this is some one sending the message to a bot agent (to agent, this is incoming)
-            self.selected_agent.addChat(date_word+"<"+str(others[0])+"<"+text)
+            self.selected_agent.addChat(date_word+">"+str(others[0])+">0>"+text)
         else:
             # this a bot agent send message to some other entity (to agent, this is outgoing).
             for i, aid in enumerate(others):
@@ -302,7 +305,23 @@ class ChatWin(QMainWindow):
                     recipients = str(aid)
                 else:
                     recipients = str(aid) + ","
-            self.selected_agent.addChat(date_word + ">"+recipients+">" + text)
+            self.selected_agent.addChat(date_word + ">0>"+recipients+">" + text)
+
+    # a message will be add to chat history of both the sender and the receiver.
+    def addNetChatHis(self, sender, recipients, msg):
+        recipients = ""
+        dtnow = datetime.now()
+        date_word = dtnow.isoformat()
+        found = next((agent for i, agent in enumerate(self.botAgents) if str(agent.getBid()) == sender), None)
+        if found:
+            found.addChat(msg)
+
+        for i, aid in enumerate(recipients):
+            found = next((agent for i, agent in enumerate(self.botAgents) if str(agent.getBid()) == aid), None)
+            if found:
+                found.addChat(msg)
+                if found.getBid() == self.selected_agent.getBid():
+                    self.chatWidget.addMessage(True, msg)
 
 
     def setBot(self, item):

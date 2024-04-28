@@ -44,7 +44,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.transport = transport
         new_link = {"ip": self.peername, "name": platform.node(), "transport": transport}
         fieldLinks.append(new_link)
-        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"))
+        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+self.peername))
         # if not self.topgui.mainwin == None:
         #     if self.topgui.mainwin.platoonWin == None:
         #         self.topgui.mainwin.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
@@ -52,7 +52,9 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
 
     def data_received(self, data):
         message = data.decode()
+        print("TCP recevied message:", message)
         if not self.topgui.mainwin == None:
+            print("Queueing TCP recevied message:", message)
             asyncio.create_task(self.msg_queue.put(self.peername[0]+"!net data!"+message))
             # self.topgui.mainwin.appendNetLogs(['Data received: {!r}'.format(message)])
             # self.topgui.mainwin.processPlatoonMsgs(message, self.peername)
