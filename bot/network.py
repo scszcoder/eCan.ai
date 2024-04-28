@@ -78,7 +78,7 @@ class communicatorProtocol(asyncio.Protocol):
         self.message = message
         self.on_con_lost = on_con_lost
         self.topgui = topgui
-        self.msg_queue = topgui.get_msg_queue
+        self.msg_queue = topgui.get_msg_queue()
         print("comm protocol initialized.....")
 
     def connection_made(self, transport):
@@ -100,7 +100,7 @@ class communicatorProtocol(asyncio.Protocol):
     def connection_lost(self, exec):
         print("The commander is LOST....")
         self.on_con_lost.set_result(True)
-        asyncio.create_task(self.msg_queue.put(self.peername + "!net loss!"))
+        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net loss!"))
 
 
 async def tcpServer(topgui):
@@ -302,4 +302,4 @@ async def runPlatoonLAN(topgui, thisLoop, waitwin):
     #     commanderFinder(topgui, thisLoop, waitwin, topgui.get_msg_queue()),
     #     # topScheduler(topgui, net_queue),
     # )
-    await commanderFinder(topgui, thisLoop, waitwin, topgui.get_msg_queue())
+    await commanderFinder(topgui, thisLoop, waitwin)

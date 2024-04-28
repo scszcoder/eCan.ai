@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
         self.BOTS_FILE = self.homepath+"/resource/bots.json"
         self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
         self.SELLER_INVENTORY_FILE = ecb_data_homepath+"/resource/inventory.json"
-
+        self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
 
         self.PLATFORMS = ['windows', 'mac', 'linux']
@@ -554,10 +554,8 @@ class MainWindow(QMainWindow):
             self.missionDelAction.setDisabled(True)
             self.missionEditAction.setDisabled(True)
             self.missionImportAction.setDisabled(True)
-            self.missionNewFromFileAction.setDisabled(True)
 
             self.skillNewAction.setDisabled(True)
-            self.skillEditAction.setDisabled(True)
             self.skillDeleteAction.setDisabled(True)
             self.skillShowAction.setDisabled(True)
             self.skillUploadAction.setDisabled(True)
@@ -4599,7 +4597,7 @@ class MainWindow(QMainWindow):
         while True:
             if not msgQueue.empty():
                 net_message = await msgQueue.get()
-                print("recevied queued net message:", net_message)
+                print("From Commander, recevied queued net message:", net_message)
                 self.processCommanderMsgs(net_message)
                 msgQueue.task_done()
             await asyncio.sleep(1)
@@ -4608,7 +4606,13 @@ class MainWindow(QMainWindow):
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
         self.showMsg("received from commander: "+msgString)
-        msg = json.loads(msgString)
+        if "!connection!" in msgString:
+            msg = {"cmd": "connection"}
+        elif "!net loss" in msgString:
+            msg = {"cmd": "net loss"}
+        else:
+            msg_parts = msgString.split("!")
+            msg = json.loads(msg_parts[len(msg_parts)-1])
         # first, check ip and make sure this from a know vehicle.
         if msg["cmd"] == "reqStatusUpdate":
             if msg["missions"] != "":
@@ -4650,6 +4654,7 @@ class MainWindow(QMainWindow):
             self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
             # clean up the reports on this vehicle....
             self.todaysReports = []
+            self.DONE_WITH_TODAY = False
 
         elif msg["cmd"] == "reqCancelAllMissions":
             # update vehicle status display.
@@ -4746,41 +4751,45 @@ class MainWindow(QMainWindow):
         # call reportStatus API to send today's report to API
         self.showMsg("Done with today!")
 
-        if not self.hostrole == "Platoon":
-            # if self.hostrole == "Commander":
-            #     self.showMsg("commander generate today's report")
-            #     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
-            #     self.todaysPlatoonReports.append(rpt)
+        if not self.DONE_WITH_TODAY:
+            self.DONE_WITH_TODAY = True
 
-            if len(self.todaysPlatoonReports) > 0:
-                # flatten the report data structure...
-                allTodoReports = [item for pr in self.todaysPlatoonReports for item in pr["content"]]
-                self.showMsg("ALLTODOREPORTS:"+json.dumps(allTodoReports))
-                # missionReports = [item for pr in allTodoReports for item in pr]
+            if not self.hostrole == "Platoon":
+                # if self.hostrole == "Commander":
+                #     self.showMsg("commander generate today's report")
+                #     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
+                #     self.todaysPlatoonReports.append(rpt)
+
+                if len(self.todaysPlatoonReports) > 0:
+                    # flatten the report data structure...
+                    allTodoReports = [item for pr in self.todaysPlatoonReports for item in pr["content"]]
+                    self.showMsg("ALLTODOREPORTS:"+json.dumps(allTodoReports))
+                    # missionReports = [item for pr in allTodoReports for item in pr]
+                else:
+                    missionReports = []
+
+                self.updateMissionsStatsFromReports(allTodoReports)
+
+                self.showMsg("TO be sent to cloud side::"+json.dumps(allTodoReports))
+                # if this is a commmander, then send report to cloud
+                # send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'])
             else:
-                missionReports = []
+                # if this is a platoon, send report to commander today's report is just an list mission status....
+                if len(self.todaysReports) > 0:
+                    rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
+                    self.showMsg("Sending report to Commander::"+json.dumps(rpt))
+                    self.commanderXport.write(str.encode(json.dumps(rpt)))
 
-            self.updateMissionsStatsFromReports(allTodoReports)
+            # 2) log reports on local drive.
+            self.saveDailyRunReport(self.todaysPlatoonReports)
 
-            self.showMsg("TO be sent to cloud side::"+json.dumps(allTodoReports))
-            # if this is a commmander, then send report to cloud
-            # send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'])
-        else:
-            # if this is a platoon, send report to commander today's report is just an list mission status....
-            rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
-            self.showMsg("Sending report to Commander::"+json.dumps(rpt))
-            self.commanderXport.write(str.encode(json.dumps(rpt)))
+            # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
+            if not self.hostrole == "Platoon":
+                self.todays_work = {"tbd": [{"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []}]}
 
-        # 2) log reports on local drive.
-        self.saveDailyRunReport(self.todaysPlatoonReports)
-
-        # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
-        if not self.hostrole == "Platoon":
-            self.todays_work = {"tbd": [{"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []}]}
-
-        self.todays_completed = []
-        self.todaysReports = []                     # per vehicle/host
-        self.todaysPlatoonReports = []
+            self.todays_completed = []
+            self.todaysReports = []                     # per vehicle/host
+            self.todaysPlatoonReports = []
 
     def obtainTZ(self):
         local_time = time.localtime()  # returns a `time.struct_time`
