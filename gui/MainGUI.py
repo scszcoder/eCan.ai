@@ -4595,9 +4595,11 @@ class MainWindow(QMainWindow):
         return results
 
     async def serveCommander(self, msgQueue):
+        self.showMsg("starting servePlatoons")
         while True:
             if not msgQueue.empty():
                 net_message = await msgQueue.get()
+                print("recevied queued net message:", net_message)
                 self.processCommanderMsgs(net_message)
                 msgQueue.task_done()
             await asyncio.sleep(1)
@@ -4664,6 +4666,21 @@ class MainWindow(QMainWindow):
             # update vehicle status display.
             self.showMsg(json.dumps(msg["content"]))
             # this is for manual generated missions, simply added to the todo list.
+        elif msg["cmd"] == "ping":
+            # update vehicle status display.
+            self.showMsg(json.dumps(msg["content"]))
+            resp = "{\"ip\": \"" + self.ip + "\", \"type\":\"pong\", \"content\":\"right here alive!\"}"
+            # send to commander
+            self.commanderXport.write(resp.encode('utf8'))
+        elif msg["cmd"] == "chat":
+            # update vehicle status display.
+            self.showMsg(json.dumps(msg))
+            # this message is a chat to a bot/bot group, so forward it to the bot(s)
+            # first, find out the bot's queue(which is kind of a temp mailbox for the bot and drop it there)
+            self.receiveBotChatMessage(msg["message"])
+
+
+
 
 
     # a run report is just an array of the following object:
