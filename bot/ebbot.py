@@ -427,20 +427,46 @@ class CircularMessageQueue:
     def get_messages(self):
         return self.queue
 
+    def delete_messages(self, idx):
+        self.queue.pop(idx)
+
 # a light weight twin of the EB_BOT
 class EBBOT_AGENT(QStandardItem):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
-        self.chat_history = CircularMessageQueue()
+        self.chat_histories = []
         self.bid = 0
 
     def setBid(self, bid):
         self.bid = bid
 
-    def addChat(self, msg):
-        self.chat_history.add_message(msg)
+    def getBid(self):
+        return self.bid
 
+    # msg has a strict format of timestamp>sender>recipient>message
+    def addChat(self, msg):
+        msg_parts = msg.split(">")
+        sender = msg_parts[1]
+        if str(sender) not in self.chat_histories:
+            # if this is a new conversation
+            self.chat_histories[str(sender)] = CircularMessageQueue()
+
+        self.chat_histories[str(sender)].add_message(msg)
+
+    def deleteChat(self, msgTBD):
+        msg_parts = msgTBD.split(">")
+        sender = msg_parts[1]
+        #find the message index
+        if str(sender) in self.chat_histories:
+            found_idx = next((i for i, msg in enumerate(self.chat_histories[str(sender)].get_messages()) if msg == msgTBD), -1)
+            self.chat_histories[sender].delete_messages(found_idx)
+
+    def getChat(self, sender):
+        if str(sender) in self.chat_histories:
+            return self.chat_history.get_messages()
+        else:
+            return []
 
 
 class EBBOT(QStandardItem):
@@ -462,7 +488,7 @@ class EBBOT(QStandardItem):
         self.setIcon(QIcon(parent.bot_icon_path))
 
         self.seller_inventories = []
-        self.msg_queue = asyncio.Queue()
+        self.msg_queue = asyncio.Queue()            #this is the messaging queue for the bot.
 
     def getMsgQ(self):
         return self.msg_queue

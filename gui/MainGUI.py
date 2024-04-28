@@ -1637,40 +1637,43 @@ class MainWindow(QMainWindow):
             if p_nsites > 0:
                 for i in range(p_nsites):
                     if i == 0 and not self.hostrole == "CommanderOnly":
-                        # if commander participate work, give work to here.
+                        # if commander participate work, give the first(0th) work to self.
                         batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[0], self)
                         # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
                         self.showMsg("arranged for today on this machine....")
                         # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
                         self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
+                        vidx = 0
                     else:
-                        #otherwise, send work to platoons in the field.
+                        #otherwise, send work to platoons in the field
                         if self.hostrole == "CommanderOnly":
-                            self.showMsg("cmd only sending to platoon: "+str(i))
-                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i], self)
-
-                            task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
-                            # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[i])
-                            self.todays_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i].getIP(), "status": "yet to start",
-                                 "current widx": 0, "completed": [], "aborted": []})
-
+                            # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
+                            vidx = i
                         else:
-                            self.showMsg("cmd sending to platoon: "+str(i))
-                            # flatten tasks and regroup them based on sites, and divide them into batches
-                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i+1], self)
-                            for profile in ads_profiles:
-                                with open(profile, 'rb') as fileTBSent:
-                                    file_contents = fileTBSent.read()
-                                    cmd = {"cmd": "reqSendFile", "file_name": profile, "file_contents": file_contents.decode('latin1')}
-                                    cmd_str = json.dumps(cmd)
-                                    v_groups[platform][i].getFieldLink()["transport"].write(cmd.encode("utf-8"))
+                            # in case of n > 0 and not commander only. grouptask index is one more than the platoon vehicle index.
+                            # because the first group is assigned to self. starting the 2nd task group, the 2nd task group will
+                            # be send to the 1st vehicle , the 3rd will be send the 2nd vehicle and so .....
+                            vidx = i - 1
 
-                            task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
-                            # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
-                            self.todays_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i]["ip"][0], "status": "yet to start",
-                                 "current widx": 0, "completed": [], "aborted": []})
+
+                        self.showMsg("working on task group index: "+str(i)+" vehicle index: ", str(vidx))
+                        # flatten tasks and regroup them based on sites, and divide them into batches
+                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i], self)
+
+                        # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
+                        self.todays_work["tbd"].append(
+                            {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i]["ip"][0], "status": "yet to start",
+                             "current widx": 0, "completed": [], "aborted": []})
+
+                        for profile in ads_profiles:
+                            with open(profile, 'rb') as fileTBSent:
+                                file_contents = fileTBSent.read()
+                                cmd = {"cmd": "reqSendFile", "file_name": profile, "file_contents": file_contents.decode('latin1')}
+                                cmd_str = json.dumps(cmd)
+                                self.showMsg("SENDING [" + platform + "]PLATOON[" + v_groups[platform][vidx].getFieldLink()["ip"] + "] ADS PROFILE::: " + cmd_str)
+                                v_groups[platform][i].getFieldLink()["transport"].write(cmd_str.encode("utf-8"))
+
+                        task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
 
                         # now need to fetch this task associated bots, mission, skills
                         # get all bots IDs involved. get all mission IDs involved.
@@ -2990,7 +2993,7 @@ class MainWindow(QMainWindow):
             for i in range(len(fieldLinks)):
                 if i in idxs:
                     fieldLinks[i]["transport"].write(cmd.encode('utf8'))
-                    self.showMsg("cmd sent on link:"+str(i))
+                    self.showMsg("cmd sent on link:"+str(i)+":"+cmd)
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
 
@@ -4261,25 +4264,27 @@ class MainWindow(QMainWindow):
     async def servePlatoons(self, msgQueue):
         self.showMsg("starting servePlatoons")
         while True:
+            print("listening to platoons")
             if not msgQueue.empty():
-                net_message = await msgQueue.get()
-                self.showMsg("received queued msg from platoon..... " + net_message)
-                msg_parts = net_message.split("!")
-                if msg_parts[1] == "net data":
-                    self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
-                elif msg_parts[1] == "connection":
-                    # this is the initial connection msg from a client
-                    if self.platoonWin == None:
-                        self.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
+                while not msgQueue.empty():
+                    net_message = await msgQueue.get()
+                    self.showMsg("received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message)
+                    msg_parts = net_message.split("!")
+                    if msg_parts[1] == "net data":
+                        self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+                    elif msg_parts[1] == "connection":
+                        # this is the initial connection msg from a client
+                        if self.platoonWin == None:
+                            self.platoonWin = PlatoonWindow(self, "conn")
 
-                    vinfo = json.loads(msg_parts[2])
-                    self.addVehicle(vinfo["link"])
-                elif msg_parts[1] == "net loss":
-                    # remove this link from the link list
-                    self.removeVehicles()
+                        vinfo = json.loads(msg_parts[2])
+                        self.addVehicle(vinfo["link"])
+                    elif msg_parts[1] == "net loss":
+                        # remove this link from the link list
+                        self.removeVehicle()
 
                 msgQueue.task_done()
-            # print("listening to platoons")
+
             await asyncio.sleep(1)
 
     # this is be run as an async task.
@@ -4452,67 +4457,88 @@ class MainWindow(QMainWindow):
     # { sender: "ip addr", type: "intro/status/report", content : "another json" }
     # content format varies according to type.
     def processPlatoonMsgs(self, msgString, ip):
-        self.showMsg("Platoon Msg Received:"+msgString)
-        msg = json.loads(msgString)
+        try:
+            self.showMsg("Platoon Msg Received:"+msgString)
+            msg = json.loads(msgString)
 
-        found = next((x for x in fieldLinks if x["ip"] == ip), None)
+            found = next((x for x in fieldLinks if x["ip"] == ip), None)
 
-        # first, check ip and make sure this from a know vehicle.
-        if msg["type"] == "intro":
-            if found:
-                self.showMsg("recevied a vehicle introduction:")
-                found_vehicle = next((x for x in self.vehicles if x.getIP() == msg["ip"]), None)
-                if found_vehicle:
-                    found_vehicle.setName(msg["contents"]["name"])
-                    if "Windows" in msg["contents"]["os"]:
-                        found_vehicle.setOS("win")
+            # first, check ip and make sure this from a know vehicle.
+            if msg["type"] == "intro":
+                if found:
+                    self.showMsg("recevied a vehicle introduction:")
+                    found_vehicle = next((x for x in self.vehicles if x.getIP() == msg["ip"]), None)
+                    if found_vehicle:
+                        found_vehicle.setName(msg["contents"]["name"])
+                        if "Windows" in msg["contents"]["os"]:
+                            found_vehicle.setOS("win")
 
-            #now
-        elif msg["type"] == "status":
-            # update vehicle status display.
-            self.showMsg(msg["content"])
-            self.showMsg("recevied a status update message")
-            if self.platoonWin:
-                self.showMsg("updating platoon WIN")
-                self.platoonWin.updatePlatoonStatAndShow(msg)
-                self.platoonWin.show()
+                #now
+            elif msg["type"] == "status":
+                # update vehicle status display.
+                self.showMsg(msg["content"])
+                self.showMsg("recevied a status update message")
+                if self.platoonWin:
+                    self.showMsg("updating platoon WIN")
+                    self.platoonWin.updatePlatoonStatAndShow(msg)
+                    self.platoonWin.show()
+                else:
+                    self.showMsg("ERROR: platoon win not yet exists.......")
+
+                self.updateVMStats(msg)
+
+            elif msg["type"] == "report":
+                # collect report, the report should be already organized in json format and ready to submit to the network.
+                self.showMsg("msg type:"+str(type(msg)))
+                #msg should be in the following json format {"ip": self.ip, "type": "report", "content": []]}
+                self.todaysPlatoonReports.append(msg)
+
+                # now using ip to find the item added to self.self.todays_work["tbd"]
+                task_idx = 0
+                found = False
+                for item in self.todays_work["tbd"]:
+                    if "ip" in item:
+                        if item["ip"] == msg["ip"]:
+                            found = True
+                            break
+                    task_idx = task_idx + 1
+
+                if found:
+                    self.showMsg("pop a finising a remotely executed task...."+str(task_idx))
+                    finished = self.todays_work["tbd"].pop(task_idx)
+                    self.todays_completed.append(finished)
+
+                    # Here need to update completed mission display subwindows.
+                    self.updateCompletedMissions(finished)
+
+                self.showMsg("len todays's reports: "+str(len(self.todaysPlatoonReports))+" len todays's completed:"+str(len(self.todays_completed)))
+                self.showMsg("completd: "+json.dumps(self.todays_completed))
+
+                # keep statistics on all platoon runs.
+                if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
+                    # check = all(item in List1 for item in List2)
+                    # this means all reports are collected, ready to send to cloud.
+                    self.doneWithToday()
+
+            elif msg["type"] == "chat":
+                # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
+                self.receiveBotChatMessage(msg["content"])
+            elif msg["type"] == "pong":
+                # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
+                self.showMsg(ping+msg["contents"])
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorprocessPlatoonMsgs:" + traceback.format_exc() + " " + str(e)
             else:
-                self.showMsg("ERROR: platoon win not yet exists.......")
+                ex_stat = "ErrorprocessPlatoonMsgs: traceback information not available:" + str(e)
 
-            self.updateVMStats(msg)
+            self.showMsg(ex_stat)
 
-        elif msg["type"] == "report":
-            # collect report, the report should be already organized in json format and ready to submit to the network.
-            self.showMsg("msg type:"+str(type(msg)))
-            #msg should be in the following json format {"ip": self.ip, "type": "report", "content": []]}
-            self.todaysPlatoonReports.append(msg)
 
-            # now using ip to find the item added to self.self.todays_work["tbd"]
-            task_idx = 0
-            found = False
-            for item in self.todays_work["tbd"]:
-                if "ip" in item:
-                    if item["ip"] == msg["ip"]:
-                        found = True
-                        break
-                task_idx = task_idx + 1
-
-            if found:
-                self.showMsg("pop a finising a remotely executed task...."+str(task_idx))
-                finished = self.todays_work["tbd"].pop(task_idx)
-                self.todays_completed.append(finished)
-
-                # Here need to update completed mission display subwindows.
-                self.updateCompletedMissions(finished)
-
-            self.showMsg("len todays's reports: "+str(len(self.todaysPlatoonReports))+" len todays's completed:"+str(len(self.todays_completed)))
-            self.showMsg("completd: "+json.dumps(self.todays_completed))
-
-            # keep statistics on all platoon runs.
-            if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
-                # check = all(item in List1 for item in List2)
-                # this means all reports are collected, ready to send to cloud.
-                self.doneWithToday()
 
     def updateCompletedMissions(self, finished):
         finished_works = finished["works"]
@@ -5033,4 +5059,82 @@ class MainWindow(QMainWindow):
 
             # print("polling chat msg queue....")
             await asyncio.sleep(1)
+
+
+    # note recipient could be a group ID.
+    def sendBotChatMessage(self, sender, recipient, text):
+        # first find out where the recipient is at (which vehicle) and then, send the message to it.
+        if isinstance(recipient, list):
+            recipients = recipient
+        else:
+            recipients = [recipient]
+        dtnow = datetime.now()
+        date_word = dtnow.isoformat()
+        allbids = [b.getBid() for b in self.bots]
+        found = None
+        for vidx, v in enumerate(self.vehicles):
+            if len(recipients) > 0:
+                receivers = set(recipients)
+                vbots = set(v.getBotIds())
+
+                # Find the intersection
+                intersection = receivers.intersection(vbots)
+
+                # Convert intersection back to a list (optional)
+                bids_on_this_vehicle = list(intersection)
+                if len(bids_on_this_vehicle) > 0:
+                    bids_on_this_vehicle_string = ",".join(bids_on_this_vehicle)
+
+                    #now send the message to bots on this vehicle.
+                    full_txt = date_word + ">" + str(sender) + ">" + bids_on_this_vehicle_string + ">" + text
+                    cmd = {"cmd": "chat", "message": full_txt.decode('latin1')}
+                    cmd_str = json.dumps(cmd)
+                    v.getFieldLink()["transport"].write(cmd_str.encode('utf8'))
+
+                    # Remove the intersection from the recipients.
+                    receivers.difference_update(intersection)
+
+                    # get updated recipients
+                    recipients = list(receivers)
+
+        if len(recipient) > 0:
+            # recipient here could be comma seperated recipient ids.
+            receivers = set(recipients)
+            vbots = set(allbids)
+
+            # Find the intersection
+            intersection = receivers.intersection(vbots)
+
+            # Convert intersection back to a list (optional)
+            bids_on_this_vehicle = list(intersection)
+
+            self.chatWin.addActiveChatHis(self, False, bids_on_this_vehicle, full_txt)
+
+            if len(bids_on_this_vehicle) > 0:
+                # now send the message to local bots on this vehicle.
+                unfound_bid_string = ",".join(bids_on_this_vehicle)
+                self.showMsg(f"Error: Bot[{unfound_bid_string}] not found")
+
+
+    # note recipient could be a group ID.
+    def receiveBotChatMessage(self, msg_text):
+        msg_parts = msg_text.split(">")
+        sender = msg_parts[1]
+        receiver = msg_parts[2]
+        if "," in receiver:
+            receivers = [int(rs.strip()) for rs in receiver.split(",")]
+        else:
+            receivers = [int(receiver.strip())]
+
+        # if 0 in receivers:
+        #     # deliver the message for the commander chief - i.e. the user. which has id 0
+        #     zidx = receivers.index(0)  # Get the index of the first 0
+        #     receivers.pop(zidx)
+
+        # deliver the message for the other bots. - allowed for inter-bot communication.
+        if len(receivers) > 0:
+            # now route message to everybody.
+            self.chatWin.addNetChatHis(sender, receivers, msg_text)
+
+
 
