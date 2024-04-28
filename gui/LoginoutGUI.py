@@ -33,7 +33,7 @@ ROLE_FILE = ecb_data_homepath + "/role.json"
 
 
 class Login(QDialog):
-    def __init__(self, inApp, cloop, parent=None):
+    def __init__(self, parent=None):
         self.cog = None
         self.mainwin = None
         self.xport = None
@@ -206,8 +206,6 @@ class Login(QDialog):
         log_layout.addWidget(self.buttonLogin)
         log_layout.addWidget(self.signup_label)
         layout.addLayout(log_layout)
-
-        self.loop = cloop
 
     # async def launchLAN(self):
 
@@ -440,8 +438,8 @@ class Login(QDialog):
                 global commanderXport
 
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.machine_role, self.lang)
-                print("Running as a platoon...")
+                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.gui_net_msg_queue, self.machine_role, self.lang)
+                print("Running as a platoon...", self.xport)
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.setCog(self.cog)
                 self.mainwin.setCogClient(self.aws_client)
