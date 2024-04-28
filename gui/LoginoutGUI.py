@@ -438,8 +438,8 @@ class Login(QDialog):
                 global commanderXport
 
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.machine_role, self.lang)
-                print("Running as a platoon...")
+                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.gui_net_msg_queue, self.machine_role, self.lang)
+                print("Running as a platoon...", self.xport)
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.setCog(self.cog)
                 self.mainwin.setCogClient(self.aws_client)
