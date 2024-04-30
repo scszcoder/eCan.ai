@@ -465,11 +465,10 @@ class SkillManagerWindow(QMainWindow):
         self.parent.showMsg("search result indexs:"+json.dumps(matched_idxs))
         self.search_result_skills = [self.parent.skills[idx] for idx in matched_idxs]
         self.skillModel.clear()
-        self.updateSkills(self.search_result_skills)
+        self.fillBlankSkillsTable(self.search_result_skills)
 
 
-
-    def updateSkills(self, skillData):
+    def fillBlankSkillsTable(self, skillData):
         i = 0
         for sk in skillData:
             self.fill1TableRow(i, skillData, self.skillModel)
@@ -488,11 +487,11 @@ class SkillManagerWindow(QMainWindow):
 
     def showAllLocalSkills(self):
         self.skillModel.clear()
-        self.updateSkills(self.parent.skills)
+        self.fillBlankSkillsTable(self.parent.skills)
 
     def showSearchResultSkills(self):
         self.skillModel.clear()
-        self.updateSkills(self.searchResultSkills)
+        self.fillBlankSkillsTable(self.searchResultSkills)
 
     def updateSkillStatAndShow(self, rx_data):
         ip_last = rx_data["ip"].split(".")[len(rx_data["ip"].split(".")) - 1]
