@@ -27,6 +27,7 @@ class VEHICLE(QStandardItem):
         self.status = "Idle";
         self.mstats = []
         self.field_link = None
+        self.daily_mids = []
 
 
     def getFieldLink(self):
@@ -84,6 +85,12 @@ class VEHICLE(QStandardItem):
     def setBotIds(self, bot_ids):
         self.bot_ids = bot_ids
 
+    def getMids(self):
+        return self.daily_mids
+
+    def setMids(self, mids):
+        self.daily_mids = mids
+
 
     def genJson(self):
         jsd = {
@@ -93,6 +100,7 @@ class VEHICLE(QStandardItem):
                 "os": self.os,
                 "arch": self.arch,
                 "bot_ids": self.bot_ids,
+                "daily_mids": self.daily_mids,
                 "status": self.status
                 }
         return jsd
@@ -105,4 +113,5 @@ class VEHICLE(QStandardItem):
         self.os = dj["os"]
         self.arch = dj["arch"]
         self.status = dj["status"]
-        self.bot_ids = dj["bots"]
+        self.bot_ids = dj["bot_ids"]
+        self.daily_mids = dj["daily_mids"]
