@@ -21,6 +21,7 @@ from ChatGui import *
 import os
 import openpyxl
 from datetime import datetime, date
+import platform
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -2971,20 +2972,32 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg("WARNIN: cloud NOT updated.")
 
-    def addBotsMissionsFromCommander(self, botsJson, missionsJson):
+    def addBotsMissionsSkillsFromCommander(self, botsJson, missionsJson, skillsJson):
 
         self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
         self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
+        self.showMsg("Skills String:" + str(type(skillsJson)) + json.dumps(skillsJson))
         for bjs in botsJson:
             self.newBot = EBBOT(self)
             self.newBot.loadJson(bjs)
             self.bots.append(self.newBot)
+            self.botModel.appendRow(self.newBot)
+            self.selected_bot_row = self.botModel.rowCount() - 1
+            self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
         for mjs in missionsJson:
             self.newMission = EBMISSION(self)
             self.newMission.loadJson(mjs)
             self.missions.append(self.newMission)
+            self.missionModel.appendRow(self.newMission)
+            self.selected_mission_row = self.missionModel.rowCount() - 1
+            self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
 
+        for skjs in skillsJson:
+            self.newSkill = WORKSKILL(self)
+            self.newSkill.loadJson(skjs)
+            self.skills.append(self.newSkill)
+            self.skillModel.appendRow(self.newSkill)
     def addVehicle(self, vip):
         try:
             # ipfields = vinfo.peername[0].split(".")
@@ -4771,7 +4784,8 @@ class MainWindow(QMainWindow):
             msg = {"cmd": "net loss"}
         else:
             msg_parts = msgString.split("!")
-            msg = json.loads(msg_parts[len(msg_parts)-1])
+            msg_data = "".join(msg_parts[2:])
+            msg = json.loads(msg_data)
         # first, check ip and make sure this from a know vehicle.
         if msg["cmd"] == "reqStatusUpdate":
             if msg["missions"] != "":
@@ -4804,8 +4818,8 @@ class MainWindow(QMainWindow):
         elif msg["cmd"] == "reqSetSchedule":
             # schedule work now..... append to array data structure and set up the pointer to the 1st task.
             # the actual running of the tasks will be taken care of by the schduler.
-            localworks = json.loads(msg["todos"])
-            self.addBotsMissionsFromCommander(msg["bots"], msg["missions"])
+            localworks = msg["todos"]
+            self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
             self.showMsg("received work request:"+json.dumps(localworks))
             # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
@@ -4831,11 +4845,11 @@ class MainWindow(QMainWindow):
             self.showMsg(json.dumps(msg["content"]))
             # this is for manual generated missions, simply added to the todo list.
         elif msg["cmd"] == "ping":
-            # update vehicle status display.
-            self.showMsg(json.dumps(msg["content"]))
-            resp = "{\"ip\": \"" + self.ip + "\", \"type\":\"pong\", \"content\":\"right here alive!\"}"
+            # respond to ping with pong
+            self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
+            resp = {"ip": self.ip, "type":"pong", "content": self_info}
             # send to commander
-            self.commanderXport.write(resp.encode('utf8'))
+            self.commanderXport.write(json.dumps(resp).encode('utf8'))
         elif msg["cmd"] == "chat":
             # update vehicle status display.
             self.showMsg(json.dumps(msg))
