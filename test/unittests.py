@@ -14,7 +14,7 @@ import pyautogui
 from scraperEbay import *
 from scraperAmz import *
 from scraperEtsy import *
-
+import base64
 
 
 def test_eb_orders_scraper():
@@ -1047,9 +1047,39 @@ def check_expected_schedule(rcvd, expected):
 
 
 
+async def test_send_file(xport):
+    # test sending 2 files across the network to a platoon. 1 json, 1 img
+    file0 = "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_amz_home/browse_search/scripts/amz_walk.psk"
+    file0 = "C:/temp/top1500.png"
+    with open(file0, 'rb') as fileTBSent:
+        binary_data = fileTBSent.read()
+        encoded_data = base64.b64encode(binary_data).decode('utf-8')
+        print("sending file:", file0)
+        # Embed in JSON
+        json_data = json.dumps({"cmd": "reqSendFile", "file_name": file0, "file_contents": encoded_data})
+        message = json_data.encode('utf-8')
+        length_prefix = len(message).to_bytes(4, byteorder='big')  # 4-byte length prefix
+        # Send data
+        xport.write(length_prefix + message)
+        # await xport.drain()
 
+        fileTBSent.close()
 
-
+    #
+    # file0 = "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_amz_home/browse_search/images/trash1.png"
+    #
+    # with open(file0, 'rb') as fileTBSent:
+    #     binary_data = fileTBSent.read()
+    #     encoded_data = base64.b64encode(binary_data).decode('utf-8')
+    #
+    #     # Embed in JSON
+    #     json_data = json.dumps({"cmd": "reqSendFile", "file_name": file0, "file_contents": encoded_data})
+    #
+    #     # Send data
+    #     xport.write(json_data.encode('utf-8'))
+    #     await xport.drain()
+    #
+    #     fileTBSent.close()
 
 
 
