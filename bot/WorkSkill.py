@@ -451,6 +451,29 @@ class WORKSKILL(QStandardItem):
             self.cloud_skill.loadJson(jd["cloud_skill"])
 
 
+    def genJson(self):
+        jsd = {
+            "name": self.name,
+            "skid": self.skid,
+            "owner": self.owner,
+            "createdOn": self.createdOn,
+            "platform": self.platform,
+            "app": self.app,
+            "app_link": self.app_link,
+            "app_args": self.app_args,
+            "site_name": self.site_name,
+            "site": self.site,
+            "page": self.page,
+            "main": self.main,
+            "privacy": self.privacy,
+            "price_model": self.price_model,
+            "price": self.price,
+            "path": self.path,
+            "dependencies": self.dependencies,
+            "description": self.description,
+        }
+        return jsd
+
     def send_csk_to_cloud(self, session, token, csk):
         for ankf in self.cloud_skill.get_anchors():
             upload_file(session, ankf, token, "anchor")

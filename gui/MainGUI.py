@@ -630,7 +630,8 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Main Bot&Mission Scheduler")
         # ================= DONE with GUI ==============================
-
+        self.todays_scheduled_task_groups = {"win": [], "mac": [], "linux": []}
+        self.unassigned_task_groups = {"win": [], "mac": [], "linux": []}
         self.checkVehicles()
 
         # get current wifi ssid and store it.
@@ -657,28 +658,7 @@ class MainWindow(QMainWindow):
             # load skills into memory.
             self.loadLocalBots()
             self.loadLocalMissions()
-
-            # this will handle all skill bundled into software itself.
-            self.showMsg("load local private skills")
-            self.loadLocalPrivateSkills()
-            db_skills_results = self.SkillManagerWin.fetchMySkills()
-
-            if 'body' in db_skills_results:
-                # self.showMsg("db_skills_results:::::"+json.dumps(db_skills_results))
-                db_skills = json.loads(db_skills_results["body"])
-                self.showMsg("Cloud side skills fetched:"+str(len(db_skills)))
-
-                for db_skill in db_skills:
-                    self.showMsg("db skill:"+json.dumps(db_skill))
-                    db = WORKSKILL(self, db_skill["name"])
-                    db.loadJson(db_skill)
-                    self.skills.append(db)
-                # update skill manager display...
-                self.SkillManagerWin.updateSkills(self.skills)
-
-                # now immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
-                # when a skill is selected, its dependencies will added to mission's skills list.
-                self.regenSkillPSKs()
+            self.dailySkillsetUpdate()
 
         # Done with all UI stuff, now do the instruction set extension work.
         self.showMsg("set up rais extensions ")
@@ -728,6 +708,36 @@ class MainWindow(QMainWindow):
         asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
 
         self.showMsg("spawned chat task")
+
+
+    def dailySkillsetUpdate(self):
+        # this will handle all skill bundled into software itself.
+        self.showMsg("load local private skills")
+        self.loadLocalPrivateSkills()
+        cloud_skills_results = self.SkillManagerWin.fetchMySkills()
+
+        existing_skids = [sk.getSkid() for sk in self.skills]
+
+        if 'body' in cloud_skills_results:
+            # self.showMsg("db_skills_results:::::"+json.dumps(db_skills_results))
+            cloud_skills = json.loads(cloud_skills_results["body"])
+            self.showMsg("Cloud side skills fetched:" + str(len(cloud_skills)))
+
+            # convert json to WORKSKILL object.
+            for cloud_skill in cloud_skills:
+                if cloud_skill["skid"] not in existing_skids:
+                    self.showMsg("db skill:" + json.dumps(cloud_skill))
+                    cloud_work_skill = WORKSKILL(self, cloud_skill["name"])
+                    cloud_work_skill.loadJson(cloud_skill)
+                    self.skills.append(cloud_work_skill)
+
+                    # update skill manager display...
+                    self.SkillManagerWin.addSkillRows([cloud_work_skill])
+
+            # for sanity immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
+            # when a skill is selected, its dependencies will added to mission's skills list.
+            self.regenSkillPSKs()
+
 
     def addSkillRowsToSkillManager(self):
         self.skillManagerWin.addSkillRows(self.skills)
@@ -1321,7 +1331,9 @@ class MainWindow(QMainWindow):
                         # now that todays' newly added missions are in place, generate the cookie site list for the run.
                         self.build_cookie_site_lists()
                         self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
-                        self.assignWork(bodyobj["task_groups"])
+                        self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+                        self.unassigned_task_groups = self.todays_scheduled_task_groups
+                        self.assignWork()
                         self.logDailySchedule(uncompressed)
                     else:
                         self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
@@ -1330,6 +1342,8 @@ class MainWindow(QMainWindow):
 
             if len(self.todays_work["tbd"]) > 0:
                 self.todays_work["tbd"][0]["status"] = fetch_stat
+                # now that a new day starts, clear all reports data structure
+                self.todaysReports = []
             else:
                 self.showMsg("WARNING!!!! no work TBD after fetching schedule...")
 
@@ -1347,7 +1361,7 @@ class MainWindow(QMainWindow):
             # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
             bodyobj = json.load(uncompressed)
             if len(bodyobj) > 0:
-                self.assignWork(bodyobj)
+                self.assignWork()
                 self.logDailySchedule(uncompressed)
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
@@ -1496,58 +1510,45 @@ class MainWindow(QMainWindow):
             self.missionModel.appendRow(new_mission)
             self.showMsg("adding mission.... "+str(new_mission.getRetry()))
 
-    def getBotByID(self, bid):
-        found_bot = None
-        for bot in self.bots:
-            if bot.getBid() == bid:
-                found_bot = bot
-                break
-        return found_bot
 
-    def getMissionByID(self, mid):
-        found_mission = None
-        for mission in self.missions:
-            if mission.getMid() == mid:
-                found_mission = mission
-                break
-        return found_mission
-
-    def formBotsString(self, botids):
-        result = "["
+    def formBotsJsons(self, botids):
+        result = []
         for bid in botids:
             # result = result + json.dumps(self.getBotByID(bid).genJson()).replace('"', '\\"')
-            if self.getBotByID(bid):
-                result = result + json.dumps(self.getBotByID(bid).genJson())
+            found_bot = next((bot for i, bot in enumerate(self.bots) if bot.getBid() == bid), None)
+            if found_bot:
+                result.append(found_bot.genJson())
 
-                if bid != botids[-1]:
-                    result = result + ","
-        result = result + "]"
-        self.showMsg("BOT STRING: "+result)
         return result
 
-    def formMissionsString(self, mids):
-        result = "["
+
+    def formMissionsJsons(self, mids):
+        result = []
         for mid in mids:
             # result = result + json.dumps(self.getMissionByID(mid).genJson()).replace('"', '\\"')
-            self.showMsg("searching MID: "+str(mid)+" ..........................")
-            if self.getMissionByID(mid):
-                result = result + json.dumps(self.getMissionByID(mid).genJson())
+            found_mission = next((mission for i, mission in enumerate(self.missions) if mission.getMid() == mid), None)
+            if found_mission:
+                result.append(found_mission.genJson())
 
-                if mid != mids[-1]:
-                    result = result + ","
-        result = result + "]"
-        self.showMsg("MISSIONS STRING: "+result)
         return result
 
-    def formBotsMissionsString(self, botids, mids):
+    def formSkillsJsons(self, skids):
+        result = []
+        for skid in skids:
+            # result = result + json.dumps(self.getMissionByID(mid).genJson()).replace('"', '\\"')
+            found_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == skid), None)
+            if found_skill:
+                result.append(found_skill.genJson())
+        return result
+
+    def formBotsMissionsSkillsString(self, botids, mids, skids):
         # result = "{\"bots\": " + self.formBotsString(botids) + ",\"missions\": " + self.formMissionsString(mids) + "}"
-        result = "\"bots\": " + self.formBotsString(botids) + ",\"missions\": " + self.formMissionsString(mids) + ""
+        BMS_Json = {"bots": self.formBotsJsons(botids), "missions": self.formMissionsJsons(mids), "skills": self.formSkillsJsons(skids)}
 
-        # junk = json.loads(result)
-        return result
+        return json.dumps(BMS_Json)
 
 
-    def getAllBotidsMidsFromTaskGroup(self, task_group):
+    def getAllBotidsMidsSkidsFromTaskGroup(self, task_group):
         bids = []
         mids = []
         for key, value in task_group.items():
@@ -1558,9 +1559,47 @@ class MainWindow(QMainWindow):
                         mids.append(work["mid"])
                     for work in assignment["other_works"]:
                         mids.append(work["mid"])
+
+        # Convert the set back to a list
+        bids_set = set(bids)
+        bids = list(bids_set)
+
+        mids_set = set(mids)
+        mids = list(mids_set)
+
+        # at this points all skills should have been fetched, dependencies analyzed and skills regenerated, so just gather them....
+        needed_skills = []
+        for mid in mids:
+            m = next((mission for i, mission in enumerate(self.missions) if str(mission.getMid()) == mid), None)
+
+            if m:
+                if m.getSkills() != "":
+                    if "," in m.getSkills():
+                        m_skids = [int(skstring.strip()) for skstring in m.getSkills().strip().split(",")]
+                    else:
+                        m_skids = [int(m.getSkills().strip())]
+
+                    needed_skills = needed_skills + m_skids
+                    m_main_skid = m_skids[0]
+                    m_main_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == m_main_skid), None)
+                    if m_main_skill:
+                        needed_skills = needed_skills + m_main_skill.getDependencies()
+                    else:
+                        self.showMsg("ERROR: skill id not found - " + str(m_main_skid))
+                else:
+                    self.showMsg("ERROR: mission has no skill "+str(mid))
+            else:
+                self.showMsg("ERROR: mission ID not found " + str(mid))
+
+        if len(needed_skills) > 0:
+            skill_set = set(needed_skills)
+            skids = list(skill_set)
+        else:
+            skids = []
         self.showMsg("bids in the task group:: "+json.dumps(bids))
         self.showMsg("mids in the task group:: "+json.dumps(mids))
-        return bids, mids
+        self.showMsg("skids in the task group:: " + json.dumps(skids))
+        return bids, mids, skids
 
     # assumption, tg will not be empty.
     def getTaskGroupOS(self, tg):
@@ -1588,6 +1627,31 @@ class MainWindow(QMainWindow):
         }
         return result
 
+    def getUnassignedVehiclesByOS(self):
+        result = {
+            "win": [v for v in self.vehicles if v.getOS() == "Windows" and len(v.getBotIds()) == 0],
+            "mac": [v for v in self.vehicles if v.getOS() == "Mac" and len(v.getBotIds()) == 0],
+            "linux": [v for v in self.vehicles if v.getOS() == "Linux" and len(v.getBotIds()) == 0]
+        }
+        if self.hostrole == "Commander":
+            if len([wk for wk in self.todays_work["tbd"] if wk["name"] == "automation"]) == 0:
+                self.showMsg("myself unassigned "+self.getIP())
+                # put in a dummy V
+                self_v = VEHICLE(self)
+                self_v.setIP(self.getIP())
+                ipfields = self.getIP().split(".")
+                ip = ipfields[len(ipfields) - 1]
+                self_v.setVid(ip)
+                if self.platform == "win":
+                    result["win"].insert(0, self_v)
+                elif self.platform == "mac":
+                    result["mac"].insert(0, self_v)
+                else:
+                    result["linux"].insert(0, self_v)
+
+        return result
+
+
     def groupVehiclesByOS(self):
         self.showMsg("groupVehiclesByOS>>>>>>>>>>>> "+self.hostrole)
         result = {
@@ -1599,102 +1663,123 @@ class MainWindow(QMainWindow):
         self.showMsg("now take care of commander machine itself in case of being a dual role commander")
         if self.hostrole == "Commander":
             self.showMsg("checking commander>>>>>>>>>>>>>>>>>>>>>>>>> "+self.getIP())
+            # put in a dummy V
             self_v = VEHICLE(self)
             self_v.setIP(self.getIP())
             ipfields = self.getIP().split(".")
             ip = ipfields[len(ipfields) - 1]
             self_v.setVid(ip)
             if self.platform == "win":
-                result["win"].append(self_v)        # result["win"].insert(0, self_v)
+                result["win"].insert(0, self_v)
             elif self.platform == "mac":
-                result["mac"].append(self_v)        # result["mac"].insert(0, self_v)
+                result["mac"].insert(0, self_v)
             else:
-                result["linux"].append(self_v)      # result["linux"].insert(0, self_v)
+                result["linux"].insert(0, self_v)
 
         return result
 
-    # assign work, if this commander runs, assign works for commander,
+    # assign per vehicle task group work, if this commander runs, assign works for commander,
     # otherwise, send works to platoons to execute.
-    def assignWork(self, task_groups):
+    def assignWork(self):
         # tasks should already be sorted by botid,
         nsites = 0
-        self.showMsg("task_groups:::::: "+json.dumps(task_groups))
-        v_task_groups = self.groupTaskGroupsByOS(task_groups)    #result will {"win": win_tgs, "mac": mac_tgs, "linux": linux_tgs}
-        v_groups = self.groupVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
-        self.showMsg("v task_groups:::::: "+json.dumps(v_task_groups))
-        self.showMsg("v  groups:::::: " + json.dumps(v_groups))
+        v_groups = self.getUnassignedVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
         for key in v_groups:
             if len(v_groups[key]) > 0:
                 for k, v in enumerate(v_groups[key]):
                     self.showMsg("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n")
 
-        for platform in v_task_groups.keys():
-            p_task_groups = v_task_groups[platform]
+        for platform in v_groups.keys():
+            p_task_groups = self.unassigned_task_groups[platform]
             p_nsites = len(v_groups[platform])
 
-            if len(p_task_groups) > 0:
-                tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(p_task_groups[0])
-                self.showMsg("bids, mid "+json.dumps(tg_botids)+" "+json.dumps(tg_mids))
-                resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
-                self.showMsg("test code here..... "+resource_string)
-
-            if len(p_task_groups) > p_nsites:
-                # there will be unserved tasks due to over capacity
-                self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!"+str(len(p_task_groups))+"::"+str(p_nsites))
-
-            # distribute work to all available sites, which is the limit for the total capacity.
             if p_nsites > 0:
-                for i in range(p_nsites):
-                    if i == 0 and not self.hostrole == "CommanderOnly":
-                        # if commander participate work, give the first(0th) work to self.
-                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[0], self)
-                        # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
-                        self.showMsg("arranged for today on this machine....")
-                        # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
-                        self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
-                        vidx = 0
-                    else:
-                        #otherwise, send work to platoons in the field
-                        if self.hostrole == "CommanderOnly":
-                            # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
-                            vidx = i
+                if len(p_task_groups) > p_nsites:
+                    # there will be unserved tasks due to over capacity
+                    self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!"+str(len(p_task_groups))+"::"+str(p_nsites))
+                    # save capacity spill into unassigned_task_groups
+                    self.unassigned_task_groups[platform] = self.unassigned_task_groups[platform][p_nsites:]
+                else:
+                    self.unassigned_task_groups[platform] = []
+
+                    # distribute work to all available sites, which is the limit for the total capacity.
+                if p_nsites > 0:
+                    for i in range(p_nsites):
+                        if i == 0 and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
+                            # if commander participate work, give the first(0th) work to self.
+                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[0], self)
+                            # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
+                            self.showMsg("arranged for today on this machine....")
+                            # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
+                            self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
+                            vidx = 0
                         else:
-                            # in case of n > 0 and not commander only. grouptask index is one more than the platoon vehicle index.
-                            # because the first group is assigned to self. starting the 2nd task group, the 2nd task group will
-                            # be send to the 1st vehicle , the 3rd will be send the 2nd vehicle and so .....
-                            vidx = i - 1
+                            # #otherwise, send work to platoons in the field
+                            # if self.hostrole == "CommanderOnly":
+                            #     # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
+                            #     vidx = i
+                            # else:
+                            #     # in case of n > 0 and not commander only. grouptask index is one more than the platoon vehicle index.
+                            #     # because the first group is assigned to self. starting the 2nd task group, the 2nd task group will
+                            #     # be send to the 1st vehicle , the 3rd will be send the 2nd vehicle and so .....
+                            #     vidx = i - 1
+
+                            vidx = i
+
+                            self.showMsg("working on task group index: "+str(i)+" vehicle index: " + str(vidx))
+                            # flatten tasks and regroup them based on sites, and divide them into batches
+                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i], self)
+
+                            # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
+                            self.todays_work["tbd"].append(
+                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i]["ip"][0], "status": "yet to start",
+                                 "current widx": 0, "completed": [], "aborted": []})
+
+                            for profile in ads_profiles:
+                                with open(profile, 'rb') as fileTBSent:
+                                    file_contents = fileTBSent.read()
+                                    cmd = {"cmd": "reqSendFile", "file_name": profile, "file_contents": file_contents.decode('latin1')}
+                                    cmd_str = json.dumps(cmd)
+                                    self.showMsg(get_printable_datetime() + "SENDING [" + platform + "]PLATOON[" + v_groups[platform][vidx].getFieldLink()["ip"] + "] ADS PROFILE::: " + cmd_str)
+                                    v_groups[platform][i].getFieldLink()["transport"].write(cmd_str.encode("utf-8"))
+
+                            task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
+
+                            # now need to fetch this task associated bots, mission, skills
+                            # get all bots IDs involved. get all mission IDs involved.
+                            tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups[i])
+                            v_groups[platform][i].setBotIds(tg_botids)
+                            v_groups[platform][i].setMids(tg_botids)
+
+                            # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
+                            # execute
+                            resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
+                            schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
+                            self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"]+"] SCHEDULE::: "+schedule)
+
+                            v_groups[platform][i].getFieldLink()["transport"].write(schedule.encode("utf-8"))
+
+                            self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink()["transport"], tg_skids)
 
 
-                        self.showMsg("working on task group index: "+str(i)+" vehicle index: ", str(vidx))
-                        # flatten tasks and regroup them based on sites, and divide them into batches
-                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i], self)
+                    else:
+                        self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
 
-                        # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
-                        self.todays_work["tbd"].append(
-                            {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i]["ip"][0], "status": "yet to start",
-                             "current widx": 0, "completed": [], "aborted": []})
-
-                        for profile in ads_profiles:
-                            with open(profile, 'rb') as fileTBSent:
-                                file_contents = fileTBSent.read()
-                                cmd = {"cmd": "reqSendFile", "file_name": profile, "file_contents": file_contents.decode('latin1')}
-                                cmd_str = json.dumps(cmd)
-                                self.showMsg("SENDING [" + platform + "]PLATOON[" + v_groups[platform][vidx].getFieldLink()["ip"] + "] ADS PROFILE::: " + cmd_str)
-                                v_groups[platform][i].getFieldLink()["transport"].write(cmd_str.encode("utf-8"))
-
-                        task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
-
-                        # now need to fetch this task associated bots, mission, skills
-                        # get all bots IDs involved. get all mission IDs involved.
-                        tg_botids, tg_mids = self.getAllBotidsMidsFromTaskGroup(p_task_groups[i])
-                        resource_string = self.formBotsMissionsString(tg_botids, tg_mids)
-                        schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
-                        self.showMsg("SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"]+"] SCHEDULE::: "+schedule)
-
-                        v_groups[platform][i].getFieldLink()["transport"].write(schedule.encode("utf-8"))
-
-        # now that a new day starts, clear all reports data structure
-        self.todaysReports = []
+    def empower_platoon_with_skills(self, platoon_transport, skill_ids):
+        # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
+        for skid in skill_ids:
+            found_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == skid), None)
+            if found_skill:
+                psk_file = self.homepath + found_skill.getPskFileName()
+                self.showMsg("Empowering - Opening [" + psk_file + "] to send to platoon")
+                with open(psk_file, 'rb') as fileTBSent:
+                    file_contents = fileTBSent.read()
+                    cmd = {"cmd": "reqSendFile", "file_name": psk_file, "file_contents": file_contents.decode('latin1')}
+                    cmd_str = json.dumps(cmd)
+                    self.showMsg(get_printable_datetime() + " - SENDING [" + psk_file + "] to platoon::: " + cmd_str)
+                    platoon_transport.write(cmd_str.encode("utf-8"))
+            else:
+                self.showMsg("ERROR: skid NOT FOUND [" + str(skid) + "]")
 
     def setTaskGroupInitialState(self, tg):
         initial_tz = ""
@@ -1742,6 +1827,13 @@ class MainWindow(QMainWindow):
                     nextrun = self.todays_work["tbd"][0]
                 self.showMsg("nextRUN>>>>>: "+json.dumps(nextrun))
         return nextrun
+
+    def getNumUnassignedWork(self):
+        num = 0
+        for key in self.unassigned_task_groups:
+            num = num + len(self.unassigned_task_groups[key])
+        return num
+
 
     def checkToDos(self):
         self.showMsg("checking todos...... "+json.dumps(self.todays_work["tbd"]))
@@ -4326,6 +4418,10 @@ class MainWindow(QMainWindow):
         while running:
             botTodos = None
             if self.workingState == "Idle":
+                if self.getNumUnassignedWork() > 0:
+                    self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork()))
+                    self.assignWork()
+
                 botTodos = self.checkNextToRun()
                 if not botTodos == None:
                     self.showMsg("working on..... "+botTodos["name"])
@@ -4333,6 +4429,9 @@ class MainWindow(QMainWindow):
                     if botTodos["name"] == "fetch schedule":
                         self.showMsg("fetching schedule..........")
                         last_start = int(datetime.now().timestamp()*1)
+
+                        # this should be a daily routine, do it along with fetch schedule which is also daily routine.
+                        self.dailySkillsetUpdate()
 
                         botTodos["status"] = self.fetchSchedule("", self.get_vehicle_settings())
                         last_end = int(datetime.now().timestamp()*1)
@@ -4343,6 +4442,7 @@ class MainWindow(QMainWindow):
                         self.showMsg("POP the daily initial fetch schedule task from queue")
                         finished = self.todays_work["tbd"].pop(0)
                         self.todays_completed.append(finished)
+
                     elif botTodos["name"] == "automation":
                         # run 1 bot's work
                         self.showMsg("running RPA..............")
@@ -4397,6 +4497,7 @@ class MainWindow(QMainWindow):
                             self.doneWithToday()
 
             if self.workingState != "Idle":
+                # clear to make next round ready to work
                 self.workingState = "Idle"
 
             print("running bot works whenever there is some to run....")
@@ -4498,9 +4599,10 @@ class MainWindow(QMainWindow):
             # first, check ip and make sure this from a know vehicle.
             if msg["type"] == "intro" or msg["type"] == "pong":
                 if found:
-                    self.showMsg("recevied a vehicle introduction/pong:")
+                    self.showMsg("recevied a vehicle introduction/pong:" + msg["content"]["name"] + ":" + msg["content"]["os"] + ":"+ msg["content"]["machine"])
                     found_vehicle = next((x for x in self.vehicles if x.getIP() == msg["ip"]), None)
                     if found_vehicle:
+                        print("found a vehicle to set.... "+found_vehicle.getOS())
                         found_vehicle.setName(msg["content"]["name"])
                         if "Windows" in msg["content"]["os"]:
                             found_vehicle.setOS("Windows")
@@ -4508,6 +4610,8 @@ class MainWindow(QMainWindow):
                             found_vehicle.setOS("Mac")
                         elif "Lin" in msg["content"]["os"]:
                             found_vehicle.setOS("Linux")
+
+                        print("now found vehicle" + found_vehicle.getName() + " " + found_vehicle.getOS())
 
                 #now
             elif msg["type"] == "status":
