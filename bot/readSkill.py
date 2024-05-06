@@ -941,7 +941,7 @@ def genStepAMZBrowseReviews(screen, detail_cfg, stepN, worksettings, page, sect,
 
 
 def get_printable_datetime():
-    now = datetime.datetime.now()
+    now = datetime.now()
 
     # Format the datetime as a string, including milliseconds
     formatted_now = now.strftime("%Y-%m-%d %H:%M:%S.%f")[:23]

@@ -1,4 +1,5 @@
 import asyncio
+import os.path
 from concurrent.futures import ThreadPoolExecutor
 import qasync
 
@@ -8,6 +9,7 @@ import selectors
 import aioconsole
 from PlatoonGUI import *
 import platform
+import base64
 
 UDP_IP = "127.0.0.1"
 
@@ -77,6 +79,8 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
 # main platoon side communication protocol
 class communicatorProtocol(asyncio.Protocol):
     def __init__(self, topgui, message, on_con_lost):
+        self.buffer = bytearray()
+        self.expected_length = None
         self.message = message
         self.on_con_lost = on_con_lost
         self.topgui = topgui
@@ -90,10 +94,75 @@ class communicatorProtocol(asyncio.Protocol):
         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"))
 
     def data_received(self, data):
-        message = data.decode()
-        print('Data received: {!r}'.format(message))
-        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message))
-        # self.topgui.mainwin.processCommanderMsgs(message)
+        self.buffer.extend(data)
+        print("recevied commander data::"+str(len(data)))
+        while self.buffer:
+            if self.expected_length is None and len(self.buffer) >= 4:
+                # Read the length prefix
+                self.expected_length = int.from_bytes(self.buffer[:4], byteorder='big')
+                self.buffer = self.buffer[4:]  # Remove the length bytes from the buffer
+                print("Got header length::" + str(self.expected_length))
+            # Check if we have all data for the message
+            if self.expected_length is not None and len(self.buffer) >= self.expected_length:
+                # We have the full message
+                message = self.buffer[:self.expected_length]
+                self.buffer = self.buffer[self.expected_length:]  # Remove the message from the buffer
+                self.expected_length = None
+                print("Full data packet received")
+                # Process the complete message
+                try:
+                    json_data = json.loads(message.decode('utf-8'))
+                    # Now handle the JSON data
+                    if json_data['cmd'] == "reqSendFile":
+                        print('file received: '+json_data['file_name'])
+                        file_data = base64.b64decode(json_data['file_contents'])
+
+                        # Save the file data to a new file
+                        fdir = os.path.dirname(json_data['file_name'])
+                        fname = os.path.basename(json_data['file_name'])
+                        fullfname = fdir + "/temp/" + fname
+
+                        # Ensure the directory exists
+                        if not os.path.exists(fdir + "/temp/"):
+                            os.makedirs(fdir + "/temp/")  # Create any missing directories
+
+                        with open(fullfname, 'wb') as file:
+                            file.write(file_data)
+                        print(f'File {fullfname} saved')
+                    else:
+                        print('Data received: {!r}'.format(message.decode('utf-8')))
+                        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message.decode('utf-8')))
+                        # self.topgui.mainwin.processCommanderMsgs(message)
+                except json.JSONDecodeError as e:
+                    print("JSON decode error:", e)
+            else:
+                # Not enough data has been received yet
+                print("filling buffer::" + str(len(self.buffer)))
+                break
+
+        # json_data = json.loads(data.decode('utf-8'))
+        #
+        # if json_data['cmd'] == "reqSendFile":
+        #     print('file received: '+json_data['file_name'])
+        #     file_data = base64.b64decode(json_data['file_contents'])
+        #
+        #     # Save the file data to a new file
+        #     fdir = os.path.dirname(json_data['file_name'])
+        #     fname = os.path.basename(json_data['file_name'])
+        #     fullfname = fdir + "/temp/" + fname
+        #
+        #     # Ensure the directory exists
+        #     if not os.path.exists(fdir + "/temp/"):
+        #         os.makedirs(fdir + "/temp/")  # Create any missing directories
+        #
+        #     with open(fullfname, 'wb') as file:
+        #         file.write(file_data)
+        #     print(f'File {fullfname} saved')
+        # else:
+        #     message = data.decode()
+        #     print('Data received: {!r}'.format(message))
+        #     asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message))
+        #     # self.topgui.mainwin.processCommanderMsgs(message)
 
 
         # print('Send: {!r}'.format(message))
@@ -257,9 +326,9 @@ async def commanderFinder(topgui, thisloop, waitwin):
             print("commanderXport created::", commanderXport)
 
             # tell commander about self.
-            msg = {"ip": myip, "type": "intro", "contents": {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}}
+            # msg = {"ip": myip, "type": "intro", "contents": {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}}
             # send to commander
-            commanderXport.write(str.encode(json.dumps(msg)))
+            # commanderXport.write(str.encode(json.dumps(msg)))
 
             try:
                 await on_con_lost
@@ -305,3 +374,4 @@ async def runPlatoonLAN(topgui, thisLoop, waitwin):
     #     # topScheduler(topgui, net_queue),
     # )
     await commanderFinder(topgui, thisLoop, waitwin)
+
