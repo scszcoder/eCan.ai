@@ -688,13 +688,13 @@ class EBBOT(QStandardItem):
             self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def genJson(self):
-        log3("generating Json..........>>>>")
+        # log3("generating Json..........>>>>")
         jsd = {
                 "pubProfile": self.pubProfile.genJson(),
                 "privateProfile": self.privateProfile.genJson(),
                 "settings": self.settings.genJson()
                 }
-        log3(json.dumps(jsd))
+        # log3(json.dumps(jsd))
         return jsd
 
     def updateDisplay(self):

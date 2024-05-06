@@ -21,6 +21,7 @@ from ChatGui import *
 import os
 import openpyxl
 from datetime import datetime, date
+import platform
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -1259,8 +1260,9 @@ class MainWindow(QMainWindow):
         # test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
-        run_genSchedules_test_case(self, self.session, self.tokens['AuthenticationResult']['IdToken'], 1)
+        # run_genSchedules_test_case(self, self.session, self.tokens['AuthenticationResult']['IdToken'], 1)
         # test_run_mission(self)
+        asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
         # test_run_group_of_tasks(self)
@@ -1547,6 +1549,8 @@ class MainWindow(QMainWindow):
 
         return json.dumps(BMS_Json)
 
+    def formBotsMissionsSkillsJsonData(self, botids, mids, skids):
+        return self.formBotsJsons(botids),self.formMissionsJsons(mids),self.formSkillsJsons(skids)
 
     def getAllBotidsMidsSkidsFromTaskGroup(self, task_group):
         bids = []
@@ -1569,10 +1573,13 @@ class MainWindow(QMainWindow):
 
         # at this points all skills should have been fetched, dependencies analyzed and skills regenerated, so just gather them....
         needed_skills = []
+        print("check m skills: " + json.dumps(mids))
+        print("all mids: " + json.dumps([m.getMid() for m in self.missions]))
         for mid in mids:
-            m = next((mission for i, mission in enumerate(self.missions) if str(mission.getMid()) == mid), None)
+            m = next((mission for i, mission in enumerate(self.missions) if mission.getMid() == mid), None)
 
             if m:
+                print("m skillls: "+m.getSkills())
                 if m.getSkills() != "":
                     if "," in m.getSkills():
                         m_skids = [int(skstring.strip()) for skstring in m.getSkills().strip().split(",")]
@@ -1732,16 +1739,11 @@ class MainWindow(QMainWindow):
 
                             # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
                             self.todays_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i]["ip"][0], "status": "yet to start",
+                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i].getIP(), "status": "yet to start",
                                  "current widx": 0, "completed": [], "aborted": []})
 
                             for profile in ads_profiles:
-                                with open(profile, 'rb') as fileTBSent:
-                                    file_contents = fileTBSent.read()
-                                    cmd = {"cmd": "reqSendFile", "file_name": profile, "file_contents": file_contents.decode('latin1')}
-                                    cmd_str = json.dumps(cmd)
-                                    self.showMsg(get_printable_datetime() + "SENDING [" + platform + "]PLATOON[" + v_groups[platform][vidx].getFieldLink()["ip"] + "] ADS PROFILE::: " + cmd_str)
-                                    v_groups[platform][i].getFieldLink()["transport"].write(cmd_str.encode("utf-8"))
+                                self.send_file_to_platoon(v_groups[platform][i].getFieldLink(), profile)
 
                             task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
 
@@ -1753,31 +1755,27 @@ class MainWindow(QMainWindow):
 
                             # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
                             # execute
-                            resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
-                            schedule = '{\"cmd\":\"reqSetSchedule\", \"todos\":\"' + task_group_string + '\", ' + resource_string + '}'
-                            self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"]+"] SCHEDULE::: "+schedule)
+                            # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
+                            resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids, tg_skids)
+                            schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
+                            self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
 
-                            v_groups[platform][i].getFieldLink()["transport"].write(schedule.encode("utf-8"))
+                            self.send_json_to_platoon(v_groups[platform][i].getFieldLink(), schedule)
 
-                            self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink()["transport"], tg_skids)
+                            self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink(), tg_skids)
 
 
                     else:
                         self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
 
-    def empower_platoon_with_skills(self, platoon_transport, skill_ids):
+    def empower_platoon_with_skills(self, platoon_link, skill_ids):
         # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
         for skid in skill_ids:
             found_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == skid), None)
             if found_skill:
                 psk_file = self.homepath + found_skill.getPskFileName()
-                self.showMsg("Empowering - Opening [" + psk_file + "] to send to platoon")
-                with open(psk_file, 'rb') as fileTBSent:
-                    file_contents = fileTBSent.read()
-                    cmd = {"cmd": "reqSendFile", "file_name": psk_file, "file_contents": file_contents.decode('latin1')}
-                    cmd_str = json.dumps(cmd)
-                    self.showMsg(get_printable_datetime() + " - SENDING [" + psk_file + "] to platoon::: " + cmd_str)
-                    platoon_transport.write(cmd_str.encode("utf-8"))
+                self.showMsg("Empowering platoon with skill PSK")
+                self.send_file_to_platoon(self, platoon_link, psk_file)
             else:
                 self.showMsg("ERROR: skid NOT FOUND [" + str(skid) + "]")
 
@@ -2978,19 +2976,33 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg("WARNIN: cloud NOT updated.")
 
-    def addBotsMissionsFromCommander(self, botsJson, missionsJson):
+    def addBotsMissionsSkillsFromCommander(self, botsJson, missionsJson, skillsJson):
 
         self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
         self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
+        self.showMsg("Skills String:" + str(type(skillsJson)) + json.dumps(skillsJson))
         for bjs in botsJson:
             self.newBot = EBBOT(self)
             self.newBot.loadJson(bjs)
             self.bots.append(self.newBot)
+            self.botModel.appendRow(self.newBot)
+            self.selected_bot_row = self.botModel.rowCount() - 1
+            self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
         for mjs in missionsJson:
             self.newMission = EBMISSION(self)
             self.newMission.loadJson(mjs)
             self.missions.append(self.newMission)
+            self.missionModel.appendRow(self.newMission)
+            self.selected_mission_row = self.missionModel.rowCount() - 1
+            self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
+
+        for skjs in skillsJson:
+            self.newSkill = WORKSKILL(self)
+            self.newSkill.loadJson(skjs)
+            self.skills.append(self.newSkill)
+            self.skillModel.appendRow(self.newSkill)
+
 
     def addVehicle(self, vip):
         try:
@@ -2999,6 +3011,7 @@ class MainWindow(QMainWindow):
             ip = ipfields[len(ipfields) - 1]
             if len(self.vehicles) > 0:
                 vids = [v.getVid() for v in self.vehicles]
+                print("existing Vids "+ip+":"+json.dumps(vids))
             else:
                 vids = []
             if ip not in vids:
@@ -3006,6 +3019,9 @@ class MainWindow(QMainWindow):
                 newVehicle = VEHICLE(self)
                 newVehicle.setIP(vip)
                 newVehicle.setVid(ip)
+                found_fl = next((fl for i, fl in enumerate(fieldLinks) if fl["ip"][0] == vip), None)
+                print("FL0 IP:", fieldLinks[0]["ip"])
+                newVehicle.setFieldLink(found_fl)
                 self.vehicles.append(newVehicle)
                 self.runningVehicleModel.appendRow(newVehicle)
                 if self.platoonWin:
@@ -3061,18 +3077,24 @@ class MainWindow(QMainWindow):
     def sendPlatoonCommand(self, command, rows, mids):
         self.showMsg("hello???")
         if command == "refresh":
-            cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
+            # cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
+            cmd = {"cmd":"reqStatusUpdate", "missions":"all"}
         elif command == "halt":
-            cmd = '{\"cmd\":\"reqHaltMissions\", \"missions\":\"all\"}'
+            # cmd = '{\"cmd\":\"reqHaltMissions\", \"missions\":\"all\"}'
+            cmd = {"cmd":"reqHaltMissions", "missions":"all"}
         elif command == "resume":
-            cmd = '{\"cmd\":\"reqResumeMissions\", \"missions\":\"all\"}'
+            # cmd = '{\"cmd\":\"reqResumeMissions\", \"missions\":\"all\"}'
+            cmd = {"cmd":"reqResumeMissions", "missions":"all"}
         elif command == "cancel this":
             mission_list_string = ','.join(str(x) for x in mids)
-            cmd = '{\"cmd\":\"reqCancelMissions\", \"missions\":\"'+mission_list_string+'\"}'
+            # cmd = '{\"cmd\":\"reqCancelMissions\", \"missions\":\"'+mission_list_string+'\"}'
+            cmd = {"cmd":"reqCancelMissions", "missions": mission_list_string}
         elif command == "cancel all":
-            cmd = '{\"cmd\":\"reqCancelAllMissions\", \"missions\":\"all\"}'
+            # cmd = '{\"cmd\":\"reqCancelAllMissions\", \"missions\":\"all\"}'
+            cmd = {"cmd":"reqCancelAllMissions", "missions":"all"}
         else:
-            cmd = '{\"cmd\":\"ping\", \"missions\":\"all\"}'
+            # cmd = '{\"cmd\":\"ping\", \"missions\":\"all\"}'
+            cmd = {"cmd":"ping", "missions":"all"}
 
         self.showMsg("cmd is: "+cmd)
         if len(rows) > 0:
@@ -3085,13 +3107,14 @@ class MainWindow(QMainWindow):
 
 
     def cancelVehicleMission(self, rows):
-        cmd = '{\"cmd\":\"reqCancelMission\", \"missions\":\"all\"}'
+        # cmd = '{\"cmd\":\"reqCancelMission\", \"missions\":\"all\"}'
+        cmd = {"cmd": "reqCancelMission", "missions": "all"}
         effective_rows = list(filter(lambda r: r >= 0, rows))
         if len(effective_rows) > 0:
             self.sendToPlatoons(effective_rows, cmd)
 
     # this function sends commands to platoon(s)
-    def sendToPlatoons(self, idxs, cmd='{\"cmd\":\"ping\"}'):
+    def sendToPlatoons(self, idxs, cmd={"cmd": "ping"}):
         # this shall bring up a windows, but for now, simply send something to a platoon for network testing purpose...
         #if self.platoonWin == None:
         #    self.platoonWin = PlatoonWindow(self)
@@ -3108,8 +3131,8 @@ class MainWindow(QMainWindow):
             self.showMsg("Currently, there are ("+str(len(fieldLinks))+") connection to this server.....")
             for i in range(len(fieldLinks)):
                 if i in idxs:
-                    fieldLinks[i]["transport"].write(cmd.encode('utf8'))
-                    self.showMsg("cmd sent on link:"+str(i)+":"+cmd)
+                    self.send_json_to_platoon(fieldLinks[i], cmd)
+                    self.showMsg("cmd sent on link:"+str(i)+":"+json.dumps(cmd))
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
 
@@ -4004,7 +4027,7 @@ class MainWindow(QMainWindow):
                 filebskill = json.load(new_skill_file)
                 if len(filebskill) > 0:
                     #add bots to the relavant data structure and add these bots to the cloud and local DB.
-                    send_add_skills_to_cloud
+                    # send_add_skills_to_cloud
                     jresp = (self.session, filebskill, self.tokens['AuthenticationResult']['IdToken'])
 
                     if "errorType" in jresp:
@@ -4778,7 +4801,8 @@ class MainWindow(QMainWindow):
             msg = {"cmd": "net loss"}
         else:
             msg_parts = msgString.split("!")
-            msg = json.loads(msg_parts[len(msg_parts)-1])
+            msg_data = "".join(msg_parts[2:])
+            msg = json.loads(msg_data)
         # first, check ip and make sure this from a know vehicle.
         if msg["cmd"] == "reqStatusUpdate":
             if msg["missions"] != "":
@@ -4811,8 +4835,8 @@ class MainWindow(QMainWindow):
         elif msg["cmd"] == "reqSetSchedule":
             # schedule work now..... append to array data structure and set up the pointer to the 1st task.
             # the actual running of the tasks will be taken care of by the schduler.
-            localworks = json.loads(msg["todos"])
-            self.addBotsMissionsFromCommander(msg["bots"], msg["missions"])
+            localworks = msg["todos"]
+            self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
             self.showMsg("received work request:"+json.dumps(localworks))
             # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
@@ -4838,11 +4862,11 @@ class MainWindow(QMainWindow):
             self.showMsg(json.dumps(msg["content"]))
             # this is for manual generated missions, simply added to the todo list.
         elif msg["cmd"] == "ping":
-            # update vehicle status display.
-            self.showMsg(json.dumps(msg["content"]))
-            resp = "{\"ip\": \"" + self.ip + "\", \"type\":\"pong\", \"content\":\"right here alive!\"}"
+            # respond to ping with pong
+            self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
+            resp = {"ip": self.ip, "type":"pong", "content": self_info}
             # send to commander
-            self.commanderXport.write(resp.encode('utf8'))
+            self.commanderXport.write(json.dumps(resp).encode('utf8'))
         elif msg["cmd"] == "chat":
             # update vehicle status display.
             self.showMsg(json.dumps(msg))
@@ -5277,4 +5301,37 @@ class MainWindow(QMainWindow):
             self.chatWin.addNetChatHis(sender, receivers, msg_text)
 
 
+    def send_file_to_platoon(self, platoon_link, file_name_full_path):
+        if os.path.exists(file_name_full_path) and platoon_link:
+            self.showMsg(f"Sending File [{file_name_full_path}] to platoon "+platoon_link["ip"][0])
+            with open(file_name_full_path, 'rb') as fileTBSent:
+                binary_data = fileTBSent.read()
+                encoded_data = base64.b64encode(binary_data).decode('utf-8')
 
+                # Embed in JSON
+                json_data = json.dumps({"cmd": "reqSendFile", "file_name": file_name_full_path, "file_contents": encoded_data})
+                length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
+                # Send data
+                platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
+                # await xport.drain()
+
+                fileTBSent.close()
+        else:
+            if not os.path.exists(file_name_full_path):
+                self.showMsg(f"Error: File [{file_name_full_path}] not found")
+            else:
+                self.showMsg(f"Error: TCP link doesn't exist")
+
+    def send_json_to_platoon(self, platoon_link, json_data):
+        if json_data and platoon_link:
+            self.showMsg(f"Sending JSON Data to platoon "+platoon_link["ip"][0] + "::" + json.dumps(json_data))
+            json_string = json.dumps(json_data)
+            encoded_json_string = json_string.encode('utf-8')
+            length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
+            # Send data
+            platoon_link["transport"].write(length_prefix+encoded_json_string)
+        else:
+            if json_data == None:
+                self.showMsg(f"Error: JSON empty")
+            else:
+                self.showMsg(f"Error: TCP link doesn't exist")
