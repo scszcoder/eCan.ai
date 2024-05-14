@@ -1758,8 +1758,8 @@ class MainWindow(QMainWindow):
                             self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink(), tg_skids)
 
 
-                    else:
-                        self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
+                else:
+                    self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
 
     def empower_platoon_with_skills(self, platoon_link, skill_ids):
         # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
@@ -1942,7 +1942,7 @@ class MainWindow(QMainWindow):
         return stepKeys
 
     def reAddrAndUpdateSteps(self, pskJson, init_step_idx, work_settings):
-        self.showMsg("PSK JSON::::: "+json.dumps(pskJson))
+        # self.showMsg("PSK JSON::::: "+json.dumps(pskJson))
         new_idx = init_step_idx
         old_keys = list(pskJson.keys())
         for key in old_keys:
@@ -1954,11 +1954,11 @@ class MainWindow(QMainWindow):
                 if "Create Data" in pskJson[new_key]['type']:
                     if pskJson[new_key]['data_name'] == "sk_work_settings":
                         pskJson[new_key]["key_value"] = work_settings
-                        self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
+                        # self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
 
                 pskJson.pop(key)
 
-        self.showMsg("PSK JSON after address and update step::::: "+json.dumps(pskJson))
+        # self.showMsg("PSK JSON after address and update step::::: "+json.dumps(pskJson))
         return new_idx
 
 
@@ -1983,97 +1983,107 @@ class MainWindow(QMainWindow):
 
             # generate walk skills on the fly.
             running_mission = self.missions[worksettings["midx"]]
-            self.showMsg("current RUNNING MISSION: "+json.dumps(running_mission.genJson()))
-            if running_mission.getSkills() != "":
-                rpaSkillIdWords = running_mission.getSkills().split(",")
-                self.showMsg("current RUNNING MISSION SKILL: "+json.dumps(running_mission.getSkills()))
-                rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
-                self.showMsg("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(running_mission.getMid()))
-
-                # get skills data structure by IDs
-                self.showMsg("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]))
-                relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
-                relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
-                self.showMsg("relevant skills ids: "+json.dumps(relevant_skill_ids))
-                dependent_skids=[]
-                for sk in relevant_skills:
-                    dependent_skids = dependent_skids + sk.getDependencies()
-                self.showMsg("all dependencies: "+json.dumps(dependent_skids))
-
-                dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
-                relevant_skills = relevant_skills + dependent_skills
-                relevant_skill_ids = relevant_skill_ids + dependent_skids
-
-                if len(relevant_skill_ids) < len(rpaSkillIds):
-                    s = set(relevant_skill_ids)
-                    missing = [x for x in rpaSkillIds if x not in s]
-                    self.showMsg("ERROR: Required Skills not found:"+json.dumps(missing))
-
-
-                all_skill_codes = []
-                step_idx = 0
-                for sk in relevant_skills:
-                    self.showMsg("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName())
-                    setWorkSettingsSkill(worksettings, sk)
-                    # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
-
-                    # readPSkillFile will remove comments. from the file
-                    pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
-
-                    # now regen address and update settings, after running, pskJson will be updated.
-                    step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
-
-                    addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
-
-                    self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
-
-                    # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
-                    rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + "rsk"
-                    self.showMsg("rskFileName: "+rskFileName+" step_idx: "+str(step_idx))
-                    with open(rskFileName, "w") as outfile:
-                        json.dump(pskJson, outfile)
-                    outfile.close()
-
-                    all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
-
-                self.showMsg("all_skill_codes: "+json.dumps(all_skill_codes))
-
-
-                rpa_script = prepRunSkill(all_skill_codes)
-                self.showMsg("generated psk: "+json.dumps(rpa_script))
-
-                # doing this just so that the code below can run multiple codes if needed. but in reality
-                # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
-                # this has to be corrected because, the following append would just have multiple same
-                # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
-                # forseaable future.
-                rpaScripts.append(rpa_script)
-                self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
-
-
-                # (steps, mission, skill, mode="normal"):
-                # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
-                # self.showMsg("it_items: "+json.dumps(it_items))
-                # for it in it_items:
-                #     self.showMsg("item: "+str(it.getSkid()))
-                # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
-                # self.showMsg("running skid:"+str(rpaSkillIds[0])+"len(self.skills): "+str(len(self.skills))+"skill 0 skid: "+str(self.skills[0].getSkid()))
-                # self.showMsg("running skill: "+json.dumps(running_skill))
-                runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], bot_queue, scheduler_msg_queue))
-                runResult = await runStepsTask
-
-                # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
-                # the timer tick will trigger the run of the next mission on the list....
-                self.showMsg("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult)
+            if 'ads' in running_mission.getCusPAS() and running_mission.getADSXlsxProfile() == "":
+                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()))
+                runResult = "ErrorRPA ADS mission has no profile " + str(running_mission.getMid())
                 self.update1MStat(worksettings["midx"], runResult)
-
                 self.update1WorkRunStatus(worksTBD, worksettings["midx"])
             else:
-                self.showMsg("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1")
-                self.update1MStat(worksettings["midx"], "Incomplete: ERRORRunRPA:-1")
-                self.update1WorkRunStatus(worksTBD, worksettings["midx"])
-                raise Exception('ERROR: NO SKILL TO RUN!')
+                self.showMsg("current RUNNING MISSION: "+json.dumps(running_mission.genJson()))
+                if running_mission.getSkills() != "":
+                    rpaSkillIdWords = running_mission.getSkills().split(",")
+                    self.showMsg("current RUNNING MISSION SKILL: "+json.dumps(running_mission.getSkills()))
+                    rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
+
+                    self.showMsg("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(running_mission.getMid()))
+
+                    # get skills data structure by IDs
+                    self.showMsg("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]))
+                    relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
+                    relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
+                    self.showMsg("relevant skills ids: "+json.dumps(relevant_skill_ids))
+                    dependent_skids=[]
+                    for sk in relevant_skills:
+                        dependent_skids = dependent_skids + sk.getDependencies()
+                    self.showMsg("all dependencies: "+json.dumps(dependent_skids))
+
+                    dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
+                    relevant_skills = relevant_skills + dependent_skills
+                    relevant_skill_ids = relevant_skill_ids + dependent_skids
+
+                    if len(relevant_skill_ids) < len(rpaSkillIds):
+                        s = set(relevant_skill_ids)
+                        missing = [x for x in rpaSkillIds if x not in s]
+                        self.showMsg("ERROR: Required Skills not found:"+json.dumps(missing))
+
+
+                    all_skill_codes = []
+                    step_idx = 0
+                    for sk in relevant_skills:
+                        self.showMsg("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName())
+                        setWorkSettingsSkill(worksettings, sk)
+                        # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
+
+                        # readPSkillFile will remove comments. from the file
+                        pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
+
+                        # now regen address and update settings, after running, pskJson will be updated.
+                        step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+
+                        addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
+
+                        self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
+
+                        # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
+                        rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + ".rsk"
+                        self.showMsg("rskFileName: "+rskFileName+" step_idx: "+str(step_idx))
+                        with open(rskFileName, "w") as outfile:
+                            json.dump(pskJson, outfile)
+                        outfile.close()
+
+                        all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
+
+                    self.showMsg("all_skill_codes: "+json.dumps(all_skill_codes))
+
+
+                    rpa_script = prepRunSkill(all_skill_codes)
+                    # self.showMsg("generated psk: "+json.dumps(rpa_script))
+                    self.showMsg("generated psk: " + str(len(rpa_script.keys())))
+
+                    # doing this just so that the code below can run multiple codes if needed. but in reality
+                    # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
+                    # this has to be corrected because, the following append would just have multiple same
+                    # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
+                    # forseaable future.
+                    rpaScripts.append(rpa_script)
+                    # self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
+                    self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] ")
+
+
+                    # (steps, mission, skill, mode="normal"):
+                    # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
+                    # self.showMsg("it_items: "+json.dumps(it_items))
+                    # for it in it_items:
+                    #     self.showMsg("item: "+str(it.getSkid()))
+                    # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
+                    # self.showMsg("running skid:"+str(rpaSkillIds[0])+"len(self.skills): "+str(len(self.skills))+"skill 0 skid: "+str(self.skills[0].getSkid()))
+                    # self.showMsg("running skill: "+json.dumps(running_skill))
+                    runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], bot_queue, scheduler_msg_queue))
+                    runResult = await runStepsTask
+
+                    # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
+                    # the timer tick will trigger the run of the next mission on the list....
+                    self.showMsg("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult)
+                    self.update1MStat(worksettings["midx"], runResult)
+
+                    self.update1WorkRunStatus(worksTBD, worksettings["midx"])
+                else:
+                    self.showMsg("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1")
+                    self.update1MStat(worksettings["midx"], "Incomplete: ERRORRunRPA:-1")
+                    self.update1WorkRunStatus(worksTBD, worksettings["midx"])
+                    raise Exception('ERROR: NO SKILL TO RUN!')
+
 
         except Exception as e:
             # Get the traceback information

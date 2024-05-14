@@ -103,7 +103,7 @@ def send_file_with_presigned_url(src_file, resp):
     files = { 'file': open(src_file, 'rb')}
     r = requests.post(resp['url'], data=resp['fields'], files=files)
     #r = requests.post(resp['body'][0], files=files)
-    log3(r.status_code)
+    log3(str(r.status_code))
 
 #resp is the response from requesting the presigned_url
 def get_file_with_presigned_url(dest_file, url):

@@ -252,6 +252,30 @@ def processEtsyScrapeOrders(step, i):
     return next_i, ex_stat
 
 
+def genStepEtsyScrapeMsgLists(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "ETSY Scrape Msg Lists",
+        "pidx": pidx,
+        "html_dir": html_dir,
+        "html_dir_type": dir_name_type,
+        "html_file": html_file,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepEtsyScrapeMsgThread(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "ETSY Scrape Customer Msg",
+        "pidx": pidx,
+        "html_dir": html_dir,
+        "html_dir_type": dir_name_type,
+        "html_file": html_file,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 def processEtsyScrapeMsgLists(step, i):
     ex_stat = DEFAULT_RUN_STATUS

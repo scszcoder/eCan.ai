@@ -345,6 +345,97 @@ def processAmzScrapeShipToAddress(step, i):
     return next_i, ex_stat
 
 
+def genStepAmzScrapeMsgLists(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "AMZ Scrape Msg Lists",
+        "pidx": pidx,
+        "html_dir": html_dir,
+        "html_dir_type": dir_name_type,
+        "html_file": html_file,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepAmzScrapeCustomerMsgThread(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "AMZ Scrape Customer Msg",
+        "pidx": pidx,
+        "html_dir": html_dir,
+        "html_dir_type": dir_name_type,
+        "html_file": html_file,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def processAmzScrapeMsgList(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        next_i = i + 1
+        pidx = step["pidx"]
+
+        if step["html_dir_type"] == "direct":
+            html_dir = step["html_dir"]
+        else:
+            exec("html_dir = "+step["html_dir"])
+
+        html_file = html_dir + "/" + step["html_file"]
+        pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
+        shipTo = {}
+
+        with open(html_file, 'rb') as fp:
+            soup = BeautifulSoup(fp, 'html.parser')
+
+            message_components = soup.find_all(class_=re.compile(r'message-component'))
+
+            # Initialize list to store messages
+            messages = []
+
+            # Iterate through message components
+            for component in message_components:
+                msg_from = "customer" if "received" in component['class'] else "myself"
+                msg_body = component.find(class_='message-body-text').get_text(strip=True)
+                msg_date_str = component.find(class_='case-message-view-message-date').get_text(strip=True)
+
+                # Convert date string to datetime object
+                msg_date = datetime.datetime.strptime(msg_date_str, "%b %d, %Y %I:%M %p")
+
+                # Append message to list
+                messages.append({"msgFrom": msg_from, "msgBody": msg_body, "timeStamp": msg_date.strftime("%Y-%m-%d %H:%M:%S")})
+
+            # Sort messages chronologically
+            messages.sort(key=lambda x: x["timeStamp"])
+
+            # Print the messages
+            for message in messages:
+                log3(json.dumps(message))
+
+
+        if len(option_tags) > 0:
+            pagefull_of_orders["num_pages"] = int(option_tags[len(option_tags)-1].text)
+        else:
+            pagefull_of_orders["num_pages"] = 1
+        log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # log3(json.dumps(pagefull_of_orders))
+        log3("# of orders:"+str(len(orders)))
+        for o in orders:
+            log3(json.dumps(o.toJson()))
+        log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
+
+        symTab[step["result"]] = pagefull_of_orders
+
+
+    except Exception as e:
+        log3(f"Exception info:{e}")
+        ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        log3(ex_stat)
+
+    return next_i, ex_stat
+
+
 def processAmzScrapeCustomerMsgThread(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:

@@ -1,5 +1,5 @@
 from basicSkill import *
-from scraperEtsy import *
+from scraperEbay import *
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -944,6 +944,131 @@ def genWinADSEbayHandleReturnsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/handle_returns", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+
+    return this_step, psk_words
+
+
+
+def genWinADSEbayHandleMsgsSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_handle_msgs", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY002",
+                                          "Ebay Handle Return Messages On Windows.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/handle_returns", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(5, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "ebay_status", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "product_book", "NA", "sk_work_settings['products']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global product_book\nprint('product_book:', product_book[0])", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # mask out for testing purpose only....
+    # this_step, step_words = genStepCreateData("expr", "etsy_orders", "NA", "[]", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "dummy_in", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 253, this_step)
+    psk_words = psk_words + step_words
+
+     # hard default exe path code here just for testing purpose, eventually will be from input or settings....
+    this_step, step_words = genStepCreateData("str", "sevenZExe", "NA", 'C:/Program Files/7-Zip/7z.exe', this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("str", "rarExe", "NA", 'C:/Program Files/WinRaR/WinRaR.exe', this_step)
+    psk_words = psk_words + step_words
+
+
+    #skname, skfname, in-args, output, step number
+    # this_step, step_words = genStepUseSkill("collect_orders", "public/win_chrome_etsy_orders", "dummy_in", "etsy_status", this_step)
+    # psk_words = psk_words + step_words
+
+    # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
+    # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
+    # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
+
+    # from collected etsy orders, generate gs label purchase order files.
+    dtnow = datetime.now()
+    date_word = dtnow.strftime("%Y%m%d")
+    fdir = ecb_data_homepath + "/runlogs/"
+    fdir = fdir + date_word + "/"
+    this_step, step_words = genStepCreateData("str", "fdir", "NA", fdir, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("fdir = fdir + 'b' + str(sk_work_settings['mid']) + m + str(sk_work_settings['bid']) + '/'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("fdir = fdir + sk_work_settings['platform'] + '_' + sk_work_settings['app'] + '_' + sk_work_settings['site'] + '_' + sk_work_settings['page'] + '/skills/'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("fdir = fdir + sk_work_settings['skname'] + '/'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "current_seller", "NA", "sk_work_settings['seller']", this_step)
+    psk_words = psk_words + step_words
+
+    # this is an app specific step.
+    # this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", "product_book", "current_seller", "fdir", this_step)
+    # psk_words = psk_words + step_words
+
+    homepath = app_info.app_home_path
+    if homepath[len(homepath)-1] == "/":
+        homepath = homepath[:len(homepath)-1]
+    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # purchase labels, gs_orders contains a list of [{"service": "usps ground", "file": xls file name}, ...]
+    # etsy_oders: will have tracking code and filepath filled
+    # buy_status will be "success" or "fail reason****"
+    # at the end of this skill, the shipping service and the tracking code section of "etsy_orders" should be updated.....
+    # this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "gs_input", "labels_dir", this_step)
+    # psk_words = psk_words + step_words
+
+    #extract tracking code from labels and update them into etsy_orders data struture.
+
+    # gen_etsy_test_data()
+
+    # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
+    # now update tracking coded back to the orderlist
+    this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
+    psk_words = psk_words + step_words
+
+    # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
+    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_list", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/handle_returns", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepThink("end skill", "public/win_ads_ebay_orders/handle_returns", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepTextInput("var", False, "blurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "shipping_carrier",
+                                              "anchor text", "", [0, 0], "bottom", [0, 2], "box", 2, 2, [0, 0],
+                                              this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
