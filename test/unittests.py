@@ -923,6 +923,7 @@ def test_UpdateBotADSProfileFromSavedBatchTxt():
     stepjson = {
         "type": "ADS Batch Text To Profiles",
         "batch_txt_dir": "C:/AmazonSeller/SelfSwipe/ADSProfiles",
+        "n_files": 5,
         "output": "useless"
     }
     processUpdateBotADSProfileFromSavedBatchTxt(stepjson, 1)

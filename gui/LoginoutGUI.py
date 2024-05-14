@@ -84,7 +84,7 @@ class Login(QDialog):
         self.login_label = QLabel("Login")
 
         self.login_label.setFont(QFont('Arial', 20, QFont.Bold))
-        self.user_label = QLabel(QApplication.translate("QLabel", "User Name/Email:"))
+        self.user_label = QLabel(QApplication.translate("QLabel", "User Name(Email):"))
         self.user_label.setFont(QFont('Arial', 10))
 
         self.pw_label = QLabel(QApplication.translate("QLabel", "Password:"))

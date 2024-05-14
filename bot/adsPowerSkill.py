@@ -40,6 +40,9 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     this_step, step_words = genStepOpenApp("run", True, "sk_work_settings['app_exe']", "", "", "", "expr", "sk_work_settings['cargs']", 3, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("expr", "ads_profile_fname", "NA", 'fin[0]', this_step)
+    psk_words = psk_words + step_words
+
     # wait till the main window shows up
     this_step, step_words = genStepWait(6, 0, 0, this_step)
     psk_words = psk_words + step_words
@@ -105,7 +108,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 
 
     # now that we have logged in, click on profiles to view the default profiles loaded.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  1, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
@@ -223,7 +226,7 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # use saved text to update individial bot profile cookie file
-    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", this_step)
+    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, this_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
@@ -1037,12 +1040,14 @@ def removeUselessCookies(pfJson, site_list):
 def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
     # Convert JSON data to a DataFrame
     new_pfJsons = []
-
+    # log3("batch_bot_mid_keys:"+str(len(pfJsons))+" " + json.dumps(batch_bot_mid_keys))
     for one_profile in batch_bot_mid_keys:
         one_un = one_profile.split("_")[0]
+
         found_match = False
         for original_pfJson in pfJsons:
             un = original_pfJson["username"].split("@")[0]
+            log3("searching user name."+un)
             if un == one_un:
                 found_match = True
                 break
@@ -1060,7 +1065,7 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
             new_pfJsons.append(pfJson)
 
     df = pd.DataFrame(new_pfJsons)
-    log3("writing to:"+fname)
+    log3("writing to xlsx:"+fname)
     # Write DataFrame to Excel file
     df.to_excel(fname, index=False)
 
@@ -1068,9 +1073,11 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
 
 def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
     # Convert JSON data to a DataFrame
+    log3("read txt profiles:" + json.dumps(profile_names))
     pfJsons = readTxtProfiles(profile_names)
     for pfJson in pfJsons:
         un = pfJson["username"].split("@")[0]
+        log3("searching user name:" + un)
         if un in site_lists.keys():
             site_list = site_lists[un]
         else:
@@ -1079,7 +1086,7 @@ def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
         removeUselessCookies(pfJson, site_list)
         pfJson["cookie"]=json.dumps(pfJson["cookie"])
     df = pd.DataFrame(pfJsons)
-    log3("writing to:"+xlsx_name)
+    log3("xlsx writing to:"+xlsx_name)
     # Write DataFrame to Excel file
     df.to_excel(xlsx_name, index=False)
 
@@ -1121,8 +1128,8 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
 # assume each bot already has a txt version of the profile there.
 def gen_ads_profile_batchs(commander, host_ip, task_groups):
     log3("commander ads batch size:"+str(commander.getADSBatchSize()))
-    # ads_profile_dir = commander.getADSProfileDir()
-    ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
+    ads_profile_dir = commander.getADSProfileDir()
+    # ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
     log3("time_ordered_works:"+json.dumps(task_groups))
     pfJsons_batches = []
     bot_pfJsons=[]
@@ -1148,16 +1155,20 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
         else:
             bot_work["ads_xlsx_profile"] = ""
 
+        log3("bot ads_xlsx_profile:" + bot_work["ads_xlsx_profile"])
+
         if len(found_bots) > 0 and found_mision:
             found_bot = found_bots[0]
             bot_txt_profile_name = ads_profile_dir + "/" + found_bot.getEmail().split("@")[0]+".txt"
             bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
-            log3("bot_mid_key:"+bot_mid_key+"bot_txt_profile_name:"+bot_txt_profile_name+"w_idx:"+str(w_idx)+"batch_size:"+str(commander.getADSBatchSize()))
+            log3("bot_mid_key:"+bot_mid_key+"bot_txt_profile_name:"+bot_txt_profile_name)
 
             if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
                 newly_read = readTxtProfile(bot_txt_profile_name)
                 batch_bot_profiles_read.append(bot_txt_profile_name)
             else:
+                log3("bot_txt_profile_name doesn't exist!")
+                found_mision.setADSXlsxProfile("")
                 newly_read = []
 
             batch_bot_mids.append(bot_mid_key)
@@ -1174,6 +1185,7 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
                 batch_idx = batch_idx + 1
                 batch_file = "Host" + host_ip + "B" + str(batch_idx) + "profile.xlsx"
                 batch_file = ads_profile_dir + "/" + batch_file
+                log3("batch_file:" + batch_file)
             else:
                 w_idx = w_idx + 1
 
@@ -1202,13 +1214,14 @@ def update_individual_profile_from_batch_saved_txt(batch_profiles_txt):
         # genProfileXlsx([pfJson], xlsx_file_path, site_list)
 
         # existing is a bot's current profile, the cookie section contains all cookies this bot has collected so far.
-        existing = readTxtProfile(txt_file_path)
-        # log3("existing:"+json.dumps(existing))
-        existing_cookies = existing[0]["cookie"]
-        new_cookies = pfJson["cookie"]
+        if os.path.exists(txt_file_path):
+            existing = readTxtProfile(txt_file_path)
+            # log3("existing:"+json.dumps(existing))
+            existing_cookies = existing[0]["cookie"]
+            new_cookies = pfJson["cookie"]
 
-        # now merge the new cookies into all cookies.
-        pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
+            # now merge the new cookies into all cookies.
+            pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
 
         #now update txt version of the profile of the bot
         genProfileTxt([pfJson], txt_file_path)
@@ -1234,10 +1247,11 @@ def merge_cookies(existing, new_ones):
 
     return merged_cookies
 
-def genStepUpdateBotADSProfileFromSavedBatchTxt(batch_txt_dir, output, stepN):
+def genStepUpdateBotADSProfileFromSavedBatchTxt(batch_txt_dir, output, n, stepN):
         stepjson = {
             "type": "ADS Batch Text To Profiles",
             "batch_txt_dir": batch_txt_dir,
+            "n_files": n,
             "output": output
         }
 
@@ -1252,17 +1266,23 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
         files = os.listdir(step["batch_txt_dir"])
 
         # Filter out directories from the list of files
-        files = [file for file in files if os.path.isfile(os.path.join(step["batch_txt_dir"], file))]
+        files = [os.path.join(step["batch_txt_dir"], file) for file in files if os.path.isfile(os.path.join(step["batch_txt_dir"], file)) and file.startswith('profiles') and file.endswith('.txt')]
 
+        files.sort(key=os.path.getmtime, reverse=True)
+
+        latest_n_files = files[:step["n_files"]]
+        print("latest n files:", latest_n_files)
         # Get the file with the latest modification time
-        latest_file = max(files, key=lambda file: os.path.getmtime(os.path.join(step["batch_txt_dir"], file)))
-        latest_file = step["batch_txt_dir"] + "/" + latest_file
-        log3("latest_file:"+latest_file)
+        # latest_file = max(files, key=lambda file: os.path.getmtime(os.path.join(step["batch_txt_dir"], file)))
+        # latest_file = step["batch_txt_dir"] + "/" + latest_file
+        # log3("latest_file:"+latest_file)
 
 
         # now save for roll back if ever needed.
         # first remove the previously save rollback point, but leave up to 3 rollback points
-        update_individual_profile_from_batch_saved_txt(latest_file)
+        for latest in latest_n_files:
+            log3("extract individual ADS profile from latest_file:" + latest)
+            update_individual_profile_from_batch_saved_txt(latest)
 
         # wait after key action.
         # time.sleep(step["wait_after"])

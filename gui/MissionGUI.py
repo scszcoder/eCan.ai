@@ -103,21 +103,21 @@ class MissionNewWin(QMainWindow):
         self.skillListView.setMovement(QListView.Snap)
 
         QApplication.translate("QLabel", "Skill Platform:")
-        self.skillNameLabel = QLabel(QApplication.translate("QLabel", "Skill Name:"), alignment=Qt.AlignLeft)
+        self.skillNameLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Skill Name:</b>"), alignment=Qt.AlignLeft)
         self.skillNameEdit = QLineEdit("")
         self.skillNameList = QStringListModel()
         self.skillNameCompleter = QCompleter(self.skillNameList, self)
         self.skillNameCompleter.setCaseSensitivity(Qt.CaseInsensitive)
         self.skillNameEdit.setCompleter(self.skillNameCompleter)
 
-        self.missionPlatformLabel = QLabel(QApplication.translate("QLabel", "Mission Platform:"), alignment=Qt.AlignLeft)
+        self.missionPlatformLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission Platform:</b>"), alignment=Qt.AlignLeft)
         self.mission_platform_sel = QComboBox()
         for p in self.parent.getPLATFORMS():
             self.mission_platform_sel.addItem(QApplication.translate("QComboBox", p))
         self.mission_platform_sel.currentTextChanged.connect(self.missionPlatformSel_changed)
 
 
-        self.missionAppLabel = QLabel(QApplication.translate("QLabel", "Mission App:"), alignment=Qt.AlignLeft)
+        self.missionAppLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission App:</b>"), alignment=Qt.AlignLeft)
         self.mission_app_sel = QComboBox()
         for app in self.parent.getAPPS():
             self.mission_app_sel.addItem(QApplication.translate("QComboBox", app))
@@ -132,7 +132,7 @@ class MissionNewWin(QMainWindow):
         self.missionCustomAppLinkButton = QPushButton("...")
         self.missionCustomAppLinkButton.clicked.connect(self.chooseAppLinkDir)
 
-        self.missionSiteLabel = QLabel(QApplication.translate("QLabel", "Mission Site:"), alignment=Qt.AlignLeft)
+        self.missionSiteLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission Site:</b>"), alignment=Qt.AlignLeft)
         self.mission_site_sel = QComboBox()
         for site in self.parent.getSITES():
             self.mission_site_sel.addItem(QApplication.translate("QComboBox", site))
@@ -144,7 +144,7 @@ class MissionNewWin(QMainWindow):
         self.missionCustomSiteLinkEdit = QLineEdit("")
 
 
-        self.skillActionLabel = QLabel(QApplication.translate("QLabel", "Skill Action:"), alignment=Qt.AlignLeft)
+        self.skillActionLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Skill Action:</b>"), alignment=Qt.AlignLeft)
         self.skill_action_sel = QComboBox()
         # self.skill_action_sel.setModel(self.parent.SkillManagerWin.skillModel)
         self.styleDelegate = CustomDelegate(self.parent)
@@ -158,7 +158,7 @@ class MissionNewWin(QMainWindow):
         self.skillCustomActionLabel = QLabel(QApplication.translate("QLabel", "Custom Action:"), alignment=Qt.AlignLeft)
         self.skillCustomActionEdit = QLineEdit("")
 
-        self.skillScrollLabel = QLabel(QApplication.translate("QLabel", "Required Skills:"), alignment=Qt.AlignLeft)
+        self.skillScrollLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Required Skills:</b>"), alignment=Qt.AlignLeft)
         self.skillNoteLabel = QLabel(QApplication.translate("QLabel", ""), alignment=Qt.AlignLeft)
         self.skillScroll = QScrollArea()
         self.skillScroll.setWidget(self.skillListView)
@@ -215,7 +215,7 @@ class MissionNewWin(QMainWindow):
         self.mid_edit = QLineEdit()
         self.mid_edit.setReadOnly(True)
 
-        self.mission_type_label = QLabel(QApplication.translate("QLabel", "Mission Type:"), alignment=Qt.AlignLeft)
+        self.mission_type_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission Type:</b>"), alignment=Qt.AlignLeft)
         self.buy_rb = QRadioButton(QApplication.translate("QPushButton", "Buy Side"))
         self.buy_rb.toggled.connect(self.buy_rb_checked_state_changed)
 
@@ -236,7 +236,7 @@ class MissionNewWin(QMainWindow):
         self.est_label = QLabel(QApplication.translate("QLabel", "Estimated Start Time(hh:mm:ss):"), alignment=Qt.AlignLeft)
         self.est_edit = QLineEdit()
 
-        self.buy_mission_type_label = QLabel(QApplication.translate("QLabel", "Buy Mission Type:"), alignment=Qt.AlignLeft)
+        self.buy_mission_type_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Buy Mission Type:</b>"), alignment=Qt.AlignLeft)
         self.buy_mission_type_sel = QComboBox()
         self.buy_sub_mission_type_label = QLabel(QApplication.translate("QLabel", "Buy Sub-Mission Type:"), alignment=Qt.AlignLeft)
         self.buy_sub_mission_type_sel = QComboBox()
@@ -247,7 +247,7 @@ class MissionNewWin(QMainWindow):
         for bt in self.parent.getSUBBUYTYPES():
             self.buy_sub_mission_type_sel.addItem(QApplication.translate("QComboBox", bt))
 
-        self.sell_mission_type_label = QLabel(QApplication.translate("QLabel", "Sell Mission Type:"), alignment=Qt.AlignLeft)
+        self.sell_mission_type_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Sell Mission Type:</b>"), alignment=Qt.AlignLeft)
         self.sell_mission_type_sel = QComboBox()
         self.sell_sub_mission_type_label = QLabel(QApplication.translate("QLabel", "Sell Sub Mission Type:"), alignment=Qt.AlignLeft)
         self.sell_sub_mission_type_sel = QComboBox()
@@ -257,7 +257,7 @@ class MissionNewWin(QMainWindow):
         for st in self.parent.getSUBSELLTYPES():
             self.sell_sub_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
-        self.op_mission_type_label = QLabel(QApplication.translate("QLabel", "Operation Mission Type:"), alignment=Qt.AlignLeft)
+        self.op_mission_type_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Operation Mission Type:</b>"), alignment=Qt.AlignLeft)
         self.op_mission_type_sel = QComboBox()
         self.op_mission_type_custome_label = QLabel(QApplication.translate("QLabel", "Custom Operation Mission Type:"), alignment=Qt.AlignLeft)
         self.op_mission_type_custome_edit = QLineEdit()
