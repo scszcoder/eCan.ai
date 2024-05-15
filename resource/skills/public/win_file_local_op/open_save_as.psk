@@ -49,17 +49,25 @@
 },
 "step 30":
 {
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 1],'attention_targets':['Open']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 35":
+{
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
-    "options": "",
+    "options": "scrn_options",
     "data_sink": "screen_info",
     "page": "op",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
 },
-"step 35":
+"step 40":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -86,7 +94,7 @@
     ],
     "post_wait": 2
 },
-"step 40":
+"step 45":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -94,7 +102,7 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 45":
+"step 50":
 {
     "type": "Fill Data",
     "fill_type": "direct",
@@ -102,7 +110,7 @@
     "to": "fopen0",
     "result": ""
 },
-"step 50":
+"step 55":
 {
     "type": "Repeat",
     "lc_name": "fopen0",
@@ -110,7 +118,7 @@
     "count": "20",
     "end": ""
 },
-"step 55":
+"step 60":
 {
     "type": "Key Input",
     "action": "",
@@ -119,14 +127,14 @@
     "location": "",
     "wait_after": 0.1
 },
-"step 60":
+"step 65":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 65":
+"step 70":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
@@ -137,7 +145,7 @@
     "key_after": "enter",
     "wait_after": 1
 },
-"step 70":
+"step 75":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -164,7 +172,7 @@
     ],
     "post_wait": 2
 },
-"step 75":
+"step 80":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -172,7 +180,7 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 80":
+"step 85":
 {
     "type": "Fill Data",
     "fill_type": "direct",
@@ -180,7 +188,7 @@
     "to": "fopen0",
     "result": ""
 },
-"step 85":
+"step 90":
 {
     "type": "Repeat",
     "lc_name": "fopen0",
@@ -188,7 +196,7 @@
     "count": "10",
     "end": ""
 },
-"step 90":
+"step 95":
 {
     "type": "Key Input",
     "action": "",
@@ -197,14 +205,14 @@
     "location": "",
     "wait_after": 1
 },
-"step 95":
+"step 100":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 100":
+"step 105":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
@@ -215,14 +223,14 @@
     "key_after": "",
     "wait_after": 1
 },
-"step 105":
+"step 110":
 {
     "type": "Check Condition",
     "condition": "fin[0] == 'open'",
     "if_else": "",
     "if_end": ""
 },
-"step 110":
+"step 115":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -246,14 +254,14 @@
     ],
     "post_wait": 0
 },
-"step 115":
+"step 120":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 120":
+"step 125":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -280,14 +288,14 @@
     ],
     "post_wait": 5
 },
-"step 125":
+"step 130":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 130":
+"step 135":
 {
     "type": "Stub",
     "stub_name": "end skill",
