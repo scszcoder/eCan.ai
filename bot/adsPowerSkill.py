@@ -702,8 +702,11 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_open_input", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.1, 0.5, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # click the OK button
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
@@ -723,14 +726,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
 
 
     # now that the new profile is loaded. double check to make sure the designated bot profile is loaded from this batch.
-    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = '{\\\\\"anchors\\\\\": [{\\\\\"anchor_name\\\\\": \\\\\"bot_user\\\\\", \\\\\"anchor_type\\\\\": \\\\\"text\\\\\", \\\\\"template\\\\\": \\\\\"'", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = dyn_options + in_bot_user_name", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = dyn_options + '\\\\\", \\\\\"ref_method\\\\\": \\\\\"0\\\\\", \\\\\"ref_location\\\\\": []}, {\\\\\"anchor_name\\\\\": \\\\\"bot_open\\\\\", \\\\\"anchor_type\\\\\": \\\\\"text\\\\\", \\\\\"template\\\\\": \\\\\"Open\\\\\", \\\\\"ref_method\\\\\": \\\\\"1\\\\\", \\\\\"ref_location\\\\\": [{\\\\\"ref\\\\\": \\\\\"bot_user\\\\\", \\\\\"side\\\\\": \\\\\"right\\\\\", \\\\\"dir\\\\\": \\\\\">\\\\\", \\\\\"offset\\\\\": \\\\\"1\\\\\", \\\\\"offset_unit\\\\\": \\\\\"box\\\\\"}]}]}'", "", "in_line", "", this_step)
-    # this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = dyn_options + '\\\\\", \\\\\"ref_method\\\\\": \\\\\"0\\\", \\\\\"ref_location\\\\\": []} ]}'", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")

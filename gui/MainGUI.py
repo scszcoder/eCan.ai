@@ -2033,7 +2033,7 @@ class MainWindow(QMainWindow):
 
                         addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
 
-                        self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
+                        # self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
 
                         # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
                         rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + ".rsk"

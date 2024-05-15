@@ -735,7 +735,20 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     }]
 
     if options != "":
-        request[0]["options"] = symTab[options]
+        if isinstance(symTab[options], str):
+            request[0]["options"] = symTab[options]
+        elif isinstance(symTab[options], dict):
+            full_width = window_rect[2] - window_rect[0]
+            full_height = window_rect[3] - window_rect[1]
+            if "attention_area" in symTab[options]:
+                full_width = window_rect[2] - window_rect[0]
+                full_height = window_rect[3] - window_rect[1]
+                symTab[options]["attention_area"] = [ int(symTab[options]["attention_area"][0]*full_width),
+                                                      int(symTab[options]["attention_area"][1]*full_height),
+                                                      int(symTab[options]["attention_area"][2]*full_width),
+                                                      int(symTab[options]["attention_area"][3]*full_height) ]
+
+            request[0]["options"] = json.dumps(symTab[options]).replace('"', '\\"')
     else:
         # attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
         # attention_targets is a list of text strings to find in the attention area. this whole attention scheme is about using more
