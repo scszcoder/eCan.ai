@@ -64,6 +64,7 @@ if __name__ == '__main__':
     # test_basic()
     # test_coordinates()
     # test_rar()
+    # test_UpdateBotADSProfileFromSavedBatchTxt()
     # test_batch_ads_profile_conversion()
     # test_run_group_of_tasks()
     # test_schedule_check()

@@ -308,12 +308,13 @@ from this roll-back point.
 In case of a persistent outage, if a designated timeout is reached, the bot will claim failure on executing
 the current RPA mission.
 
-### Seller Inventory
+### Seller's Product Inventory
 For sellers, one could create an inventory json file so that it can be loaded and then when seller needs to calculate 
 shipping label costs, for example:
 - one can search the ordered products, and retrieve product weight and dimension will be needed to calculate the the shipping label cost.
 
-the inventory file is located in "installation data directory +"/resource/inventory.json"
+the inventory file is located in the installation user data directory ($ECBOT_DATA_HOME) +"/resource/inventory.json", a
+sample inventory file is included in the software distribution.
 
 
 ### Mission Skill match
@@ -321,3 +322,21 @@ Each mission has a "skills" attributes, it's a string in the format of comma sep
 means this mission requires skill # 1, 5, 6 and so on. It's very important to make sure the main skill is the FIRST one 
 in the list. (for example for skills "72,18,33", skill#72 has to be the main skill which will in turn uses skill#18 and
 skill #33)
+
+### Using Fingerprint Browers
+Many sellers use finger print browsers, ECBot supports ADS Power out of box, and will have support for other browsers 
+such as purple bird(ziniao) or multi-login down the road. 
+For ADS Power, ECBot has skills to auto batch generate, batch save and batch load profiles.
+Here some default settings and assumptions:
+- under $ECBOT_DATA_HOME direction, there will be an "ads_profiles" directory, under this dir, there will be an
+ "ads_settings.json" this json file should have the following form: {"user name": "", "user pwd": "", "batch_size": 2} 
+ where user name and password are the ADS Power's account user name and password so that ECBOT can auto log into ADS 
+ if logged out. The "batch_size" parameter specifieds the number of ADS profiles ADS Power can load at a time, for
+ for the free version of the ADS power, 2 profiles can be loaded at a time.
+- When ECBot runs on top of ADS Power, the assumption is that proper ADS power profiles have already been setup and 
+  stored under the $ECBOT_DATA_HOME\ads_profiles directory, each profile is stored in a .txt file with file name 
+  following this convetion: user name before the "@" sign in the ecommerce site account email address, for example 
+  if a bot's email address is "john.smith@abc.com", then this user's ADS profile name should be "john.smith.txt". 
+  Built-in ADS skill will collect the necessary number of these txt profiles and convert them into .xlsx format and
+  the resulting xlsx will be batch importable to ADS Power. 
+

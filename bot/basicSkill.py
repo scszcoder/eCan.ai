@@ -590,9 +590,9 @@ def genStepFillData(fill_type, src, sink, result, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepAskLLM(llm_type, llm_model, parameters, products, setup, query, response, result, stepN):
+def genStepThink(llm_type, llm_model, parameters, products, setup, query, response, result, stepN):
     stepjson = {
-        "type": "Ask LLM",
+        "type": "Think",
         "llm_type": llm_type,
         "llm_model": llm_model,
         "parameters": parameters,
@@ -604,6 +604,24 @@ def genStepAskLLM(llm_type, llm_model, parameters, products, setup, query, respo
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepGenRespMsg(llm_type, llm_model, parameters, products, setup, query, response, result, stepN):
+    stepjson = {
+        "type": "Gen Resp Msg",
+        "llm_type": llm_type,
+        "llm_model": llm_model,
+        "parameters": parameters,
+        "products": products,
+        "setup": setup,
+        "query": query,
+        "response": response,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 
@@ -717,12 +735,38 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     }]
 
     if options != "":
-        request[0]["options"] = symTab[options]
+        if isinstance(symTab[options], str):
+            request[0]["options"] = symTab[options]
+        elif isinstance(symTab[options], dict):
+            full_width = window_rect[2] - window_rect[0]
+            full_height = window_rect[3] - window_rect[1]
+            if "attention_area" in symTab[options]:
+                full_width = window_rect[2] - window_rect[0]
+                full_height = window_rect[3] - window_rect[1]
+                symTab[options]["attention_area"] = [ int(symTab[options]["attention_area"][0]*full_width),
+                                                      int(symTab[options]["attention_area"][1]*full_height),
+                                                      int(symTab[options]["attention_area"][2]*full_width),
+                                                      int(symTab[options]["attention_area"][3]*full_height) ]
+
+            request[0]["options"] = json.dumps(symTab[options]).replace('"', '\\"')
+    else:
+        # attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
+        # attention_targets is a list of text strings to find in the attention area. this whole attention scheme is about using more
+        # robust image to text algorithms on the cloud side to get a better reading of the results. The downside is the image process time
+        # is long, so limiting only certain area of the image helps keep speed in tact. Usually we home in on right half of the screen.
+        # or center half of the screen.
+        half_width = int((window_rect[2] - window_rect[0])/2)
+        half_height = int((window_rect[3] - window_rect[1]) / 2)
+        full_width = window_rect[2] - window_rect[0]
+        full_height = window_rect[3] - window_rect[1]
+        # request[0]["options"]["attention_area"] = [half_width, 0, full_width, full_height]
+        # request[0]["options"]["attention_targets"] = []
+        request[0]["options"] = json.dumps({"attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     result = req_cloud_read_screen(settings["session"], request, settings["token"])
-    log3("result::: "+json.dumps(result))
+    # log3("result::: "+json.dumps(result))
     jresult = json.loads(result['body'])
     # log3("cloud result data: "+json.dumps(jresult["data"]))
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
@@ -815,8 +859,7 @@ def processWait(step, i):
 
 def processExtractInfo(step, i, mission, skill):
     # mission_id, session, token, top_win, skill_name, uid
-    log3("Extracting info...."+json.dumps(mission)+" SK: "+json.dumps(skill))
-    log3("mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS())
+    log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     global screen_error
@@ -1122,7 +1165,7 @@ def group_1D(int_list, threshold=25):
 # target_type
 # nth - which target， if multiple are found
 def find_clickable_object(sd, target, template, target_type, nth):
-    log3("LOOKING FOR:"+json.dumps(target)+"   "+json.dumps(template)+"   "+json.dumps(target_type)+"   "++json.dumps(nth))
+    log3("LOOKING FOR:"+json.dumps(target)+"   "+json.dumps(template)+"   "+json.dumps(target_type)+"   "+json.dumps(nth))
     found = {"loc": None}
     if target != "paragraph":
         reg = re.compile(target+"[0-9]+")
@@ -1783,13 +1826,13 @@ def evalCondition(condition):
     fault = False
     root = ast.parse(condition)
     log3(ast.dump(ast.parse(condition)))
-    log3("root:"+json.dumps(root))
+    # log3("root:"+json.dumps(root))
     # extract all variable names in the condition statement expression
     varnames = sorted({node.id for node in ast.walk(root) if isinstance(node, ast.Name)})
-    log3("varnames:"+json.dumps(varnames))
+    # log3("varnames:"+json.dumps(varnames))
     # now filter out special keywords such int, str, float what's left should be variable names.
     varnames = list(filter(lambda k: not (k == "float" or k == "int" or k == "str" or k == "len"), varnames))
-    log3("filtered varnames:"+json.dumps(varnames))
+    log3("filtered varnames:"+json.dumps(varnames), "", "evalCondition")
     prefix = "global "
     for varname in varnames:
         if varname in symTab:
@@ -1800,9 +1843,9 @@ def evalCondition(condition):
 
     prefix = prefix + "cmp_result\ncmp_result = ("
     condition = prefix + condition + ")"
-    log3("TBE: " + condition)
+    log3("TBE: " + condition, "", "evalCondition")
     exec(condition)
-    log3("TBE result: "+json.dumps(cmp_result))
+    log3("TBE result: "+json.dumps(cmp_result), "", "evalCondition")
 
     return cmp_result
 
@@ -1867,7 +1910,7 @@ def processRepeat(step, i,  step_keys):
             # update loop counter, before jumping back to condition here.
             # lcvar_name = "lcv_" + step["lc_name"]+str(i)
             lcvar_name = step["lc_name"]
-            log3("repeat counter: "+symTab[lcvar_name]+"target count: "+str(step["count"]))
+            log3("repeat counter: "+str(symTab[lcvar_name])+"target count: "+str(step["count"]))
             if symTab[lcvar_name] < int(step["count"]):
                 symTab[lcvar_name] = symTab[lcvar_name] + 1
                 end_idx = i + 1
@@ -2020,7 +2063,7 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         log3("skname:"+skname)
         idx = step_keys.index(sk_table[skname])
         log3("idx:"+str(idx))
-        log3("step_keys:"+json.dumps(step_keys))
+        log3("step_keys:"+step_keys[len(step_keys)-1])
 
 
     except Exception as e:
@@ -2560,9 +2603,9 @@ def processSearchWordLine(step, i):
                                 log3("match only 1 word")
 
                             found.append({"txt": matched_pattern, "box": matched_loc})
-                else:
-                    p_stat = "pattern NOT FOUND in paragraph"
-                    log3(p_stat+">>"+p["text"])
+                    else:
+                        p_stat = "pattern NOT FOUND in paragraph"
+                        # log3(p_stat+">>"+p["text"])
 
             # line up the matched location top to bottom.
             if len(found) > 0:
@@ -2581,7 +2624,7 @@ def processSearchWordLine(step, i):
         else:
             symTab[step["status"]] = True
 
-        log3("status: "+symTab[step["status"]])
+        log3("status: "+str(symTab[step["status"]]))
 
         # didn't find anything, check fault situation.
         if symTab[step["status"]] == False:
@@ -2980,7 +3023,7 @@ def processBringAppToFront(step, i):
     return (i + 1), ex_stat
 
 
-def processAskLLM(step, i, mission):
+def processThink(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     symTab[step["result"]] = True
     dtnow = datetime.now()
@@ -2998,9 +3041,43 @@ def processAskLLM(step, i, mission):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorAskLLM:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorThink:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorAskLLM: traceback information not available:" + str(e)
+            ex_stat = "ErrorThink: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+def processGenRespMsg(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["result"]] = True
+    dtnow = datetime.now()
+
+    date_word = dtnow.isoformat()
+    try:
+        if symTab[step["response"]] == "complain":
+            print("respond:")
+        elif symTab[step["response"]] == "complain":
+            print("respond:")
+
+
+
+
+
+        qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
+               "goal": step["setup"], "background": "", "msg": symTab[step["query"]]}]
+        settings = mission.parent_settings
+        symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGenRespMsg:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGenRespMsg: traceback information not available:" + str(e)
         log3(ex_stat)
 
     return (i + 1), ex_stat

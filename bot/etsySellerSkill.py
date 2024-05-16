@@ -8,6 +8,7 @@ from envi import *
 from config.app_info import app_info
 from Logger import *
 
+
 SAME_ROW_THRESHOLD = 16
 tracking_code = ""
 

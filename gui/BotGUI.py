@@ -150,7 +150,7 @@ class BotNewWin(QMainWindow):
         self.roleListView.setViewMode(QListView.IconMode)
         self.roleListView.setMovement(QListView.Snap)
 
-        self.roleScrollLabel = QLabel(QApplication.translate("QLabel", "Roles:"), alignment=Qt.AlignLeft)
+        self.roleScrollLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Roles:</b>"), alignment=Qt.AlignLeft)
         self.roleScroll = QScrollArea()
         self.roleScroll.setWidget(self.roleListView)
         self.roleScrollArea = QWidget()
@@ -218,19 +218,19 @@ class BotNewWin(QMainWindow):
         self.pnn_label = QLabel(QApplication.translate("QLabel", "Pseudo Nick Name:"), alignment=Qt.AlignLeft)
         self.pnn_edit = QLineEdit()
         self.pnn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Pseudo Nick Name here"))
-        self.loccity_label = QLabel(QApplication.translate("QLabel", "Location City:"), alignment=Qt.AlignLeft)
+        self.loccity_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Location City:</b>"), alignment=Qt.AlignLeft)
         self.loccity_edit = QLineEdit()
         self.loccity_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input City here"))
-        self.locstate_label = QLabel(QApplication.translate("QLabel", "Location State:"), alignment=Qt.AlignLeft)
+        self.locstate_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Location State:</b>"), alignment=Qt.AlignLeft)
         self.locstate_edit = QLineEdit()
         self.locstate_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input State here"))
         self.age_label = QLabel(QApplication.translate("QLabel", "Age:"), alignment=Qt.AlignLeft)
         self.age_edit = QLineEdit()
         self.age_edit.setReadOnly(True)
         self.pfn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input age here"))
-        self.mf_label = QLabel(QApplication.translate("QLabel", "Gender:"), alignment=Qt.AlignLeft)
+        self.mf_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Gender:</b>"), alignment=Qt.AlignLeft)
 
-        self.bd_label = QLabel(QApplication.translate("QLabel", "Birthday:"), alignment=Qt.AlignLeft)
+        self.bd_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Birthday:</b>"), alignment=Qt.AlignLeft)
         self.bd_edit = QLineEdit()
         self.bd_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input in YYYY-MM-DD format"))
 
@@ -302,7 +302,7 @@ class BotNewWin(QMainWindow):
         # self.interest_custom_sub_category5_label = QLabel(QApplication.translate("QLabel", "Interest Custom Main Sub Category5:"), alignment=Qt.AlignLeft)
         # self.interest_custom_sub_category5_edit = QLineEdit()
 
-        self.role_platform_label = QLabel(QApplication.translate("QLabel", "Platform:"), alignment=Qt.AlignLeft)
+        self.role_platform_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Platform:</b>"), alignment=Qt.AlignLeft)
         self.role_platform_edit = QLineEdit()
         self.role_platform_sel = QComboBox()
         for p in self.parent.getSITES():
@@ -321,7 +321,7 @@ class BotNewWin(QMainWindow):
         self.role_level_sel.addItem(QApplication.translate("QComboBox", "Master"))
         self.role_level_sel.addItem(QApplication.translate("QComboBox", "Champ"))
         self.role_level_sel.currentTextChanged.connect(self.roleLevelSel_changed)
-        self.role_name_label = QLabel(QApplication.translate("QLabel", "Role:"), alignment=Qt.AlignLeft)
+        self.role_name_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Role:</b>"), alignment=Qt.AlignLeft)
         self.role_name_edit = QLineEdit()
         self.role_name_sel = QComboBox()
         self.role_name_sel.addItem(QApplication.translate("QComboBox", "Buyer"))
@@ -457,16 +457,16 @@ class BotNewWin(QMainWindow):
         self.pubpflWidget.setLayout(self.pubpflWidget_layout)
 
 
-        self.fn_label = QLabel(QApplication.translate("QLabel", "First Name:"), alignment=Qt.AlignLeft)
+        self.fn_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>First Name:</b>"), alignment=Qt.AlignLeft)
         self.fn_edit = QLineEdit()
 
         self.fn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input First Name here"))
-        self.ln_label = QLabel(QApplication.translate("QLabel", "Last Name:"), alignment=Qt.AlignLeft)
+        self.ln_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Last Name:</b>"), alignment=Qt.AlignLeft)
         self.ln_edit = QLineEdit()
         self.ln_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Last Name here"))
 
 
-        self.addr_label = QLabel(QApplication.translate("QLabel", "Address:"), alignment=Qt.AlignLeft)
+        self.addr_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Address:</b>"), alignment=Qt.AlignLeft)
         self.shipaddr_label = QLabel(QApplication.translate("QLabel", "Shipping Address:"), alignment=Qt.AlignLeft)
         self.addr_l1_label = QLabel(QApplication.translate("QLabel", "Address Line1:"), alignment=Qt.AlignLeft)
         self.addr_l1_edit = QLineEdit()
@@ -481,7 +481,7 @@ class BotNewWin(QMainWindow):
         self.addr_zip_label = QLabel(QApplication.translate("QLabel", "ZIP:"), alignment=Qt.AlignLeft)
         self.addr_zip_edit = QLineEdit()
 
-        self.shipaddr_same_label = QLabel(QApplication.translate("QLabel", "Shipping Address Same As Address?"), alignment=Qt.AlignLeft)
+        self.shipaddr_same_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Shipping Address Same As Address?</b>"), alignment=Qt.AlignLeft)
         self.shipaddr_same_checkbox = QCheckBox()
         self.shipaddr_same_checkbox.setCheckState(Qt.CheckState.Unchecked)
         self.shipaddr_same_checkbox.stateChanged.connect(self.shipaddr_same_checkbox_toggled)
@@ -502,19 +502,19 @@ class BotNewWin(QMainWindow):
         self.phone_label = QLabel(QApplication.translate("QLabel", "Contact Phone:"), alignment=Qt.AlignLeft)
         self.phone_edit = QLineEdit()
         self.phone_edit.setPlaceholderText(QApplication.translate("QLineEdit", "(optional) contact phone number here"))
-        self.em_label = QLabel(QApplication.translate("QLabel", "User Email:"), alignment=Qt.AlignLeft)
+        self.em_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>User Email:</b>"), alignment=Qt.AlignLeft)
         self.em_edit = QLineEdit()
         self.em_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input email here"))
-        self.empw_label = QLabel(QApplication.translate("QLabel", "Email Password:"), alignment=Qt.AlignLeft)
+        self.empw_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Email Password:</b>"), alignment=Qt.AlignLeft)
         self.empw_edit = QLineEdit()
         self.empw_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Email Password here"))
-        self.backem_label = QLabel(QApplication.translate("QLabel", "Back Up Email:"), alignment=Qt.AlignLeft)
+        self.backem_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Back Up Email:</b>"), alignment=Qt.AlignLeft)
         self.backem_edit = QLineEdit()
         self.backem_edit.setPlaceholderText(QApplication.translate("QLineEdit", "(optional) back up email here"))
-        self.acctpw_label = QLabel(QApplication.translate("QLabel", "E-Business Account Password:"), alignment=Qt.AlignLeft)
+        self.acctpw_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>E-Business Account Password:</b>"), alignment=Qt.AlignLeft)
         self.acctpw_edit = QLineEdit("")
         self.acctpw_edit.setPlaceholderText(QApplication.translate("QLineEdit", "(optional) E-Business Account Password here"))
-        self.backem_site_label = QLabel(QApplication.translate("QLabel", "Backup Email Site:"), alignment=Qt.AlignLeft)
+        self.backem_site_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Backup Email Site:</b>"), alignment=Qt.AlignLeft)
         self.backem_site_edit = QLineEdit("")
         self.backem_site_edit.setPlaceholderText(QApplication.translate("QLineEdit", "website for access backup email"))
 
@@ -610,7 +610,7 @@ class BotNewWin(QMainWindow):
         for app in self.parent.getAPPS():
             self.browser_sel.addItem(QApplication.translate("QComboBox", app))
 
-        self.os_label = QLabel(QApplication.translate("QLabel", "OS Type:"), alignment=Qt.AlignLeft)
+        self.os_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>OS Type:</b>"), alignment=Qt.AlignLeft)
         self.os_sel = QComboBox()
         for cos in self.parent.getPLATFORMS():
             self.os_sel.addItem(QApplication.translate("QComboBox", cos))
@@ -639,7 +639,7 @@ class BotNewWin(QMainWindow):
 
         self.setngsWidget.setLayout(self.setngsWidget_layout)
 
-        self.state_label = QLabel(QApplication.translate("QLabel", "Enabled:"), alignment=Qt.AlignLeft)
+        self.state_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Enabled:</b>"), alignment=Qt.AlignLeft)
         self.state_en = QCheckBox()
         self.state_en.setCheckState(Qt.CheckState.Checked)
 
