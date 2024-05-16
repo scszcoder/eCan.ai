@@ -154,6 +154,85 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
 
     return pagefull_of_orders
 
+
+def genStepEbayScrapeMsgList(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "EBAY Scrape Msg Lists",
+        "pidx": pidx,
+        "html_dir": html_dir,
+        "html_dir_type": dir_name_type,
+        "html_file": html_file,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepEbayScrapeCustomerMsgThread(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "EBAY Scrape Customer Msg",
+        "pidx": pidx,
+        "html_dir": html_dir,
+        "html_dir_type": dir_name_type,
+        "html_file": html_file,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def processEbayScrapeMsgList(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        next_i = i + 1
+        pidx = step["pidx"]
+
+        if step["html_dir_type"] == "direct":
+            html_dir = step["html_dir"]
+        else:
+            exec("html_dir = " + step["html_dir"])
+
+        html_file = html_dir + "/" + step["html_file"]
+        pagefull_of_msg_titles = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ml": None}
+        threads = []
+
+        ebay_seller_get_customer_msg_list(html_file, pidx)
+
+        symTab[step["result"]] = pagefull_of_msg_titles
+
+    except Exception as e:
+        ex_stat = "ErrorEbayScrapeMsgListHtml:" + traceback.format_exc() + " " + str(e)
+        log3(ex_stat)
+
+    return next_i, ex_stat
+
+
+
+def processEbayScrapeCustomerMsgThread(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        next_i = i + 1
+        pidx = step["pidx"]
+
+        if step["html_dir_type"] == "direct":
+            html_dir = step["html_dir"]
+        else:
+            exec("html_dir = " + step["html_dir"])
+
+        html_file = html_dir + "/" + step["html_file"]
+        pagefull_of_msg_titles = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "thread": None}
+        threads = []
+
+        ebay_seller_get_customer_msg_thread(html_file, pidx)
+
+        symTab[step["result"]] = pagefull_of_msg_titles
+
+    except Exception as e:
+        ex_stat = "ErrorEbayScrapeCustomerMsgThreadHtml:" + traceback.format_exc() + " " + str(e)
+        log3(ex_stat)
+
+    return next_i, ex_stat
+
 def ebay_seller_get_customer_msg_list(html_file, pidx):
     ex_stat = DEFAULT_RUN_STATUS
     try:

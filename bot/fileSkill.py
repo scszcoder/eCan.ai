@@ -41,8 +41,12 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
 
     log3("fopen_f_path: "+fopen_f_path+"fopen_f_name: "+fopen_f_name)
 
+    # this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + todate + tail", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 1],'attention_targets':['Open']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # readn screen
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "op", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "op", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     # click on path input win

@@ -107,7 +107,7 @@ RAIS = {
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
-    "ASK LLM": lambda x, y: processAskLLM(x, y, z),
+    "Think": lambda x, y: processThink(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),
@@ -124,7 +124,12 @@ RAIS = {
     "AMZ Browse Reviews": lambda x,y: processAMZBrowseReviews(x, y),
     "AMZ Scrape Reviews Html": lambda x, y: processAMZScrapeReviewsHtml(x, y),
     "AMZ Scrape Orders Html": lambda x, y: processAMZScrapeOrdersHtml(x, y),
+    "AMZ Scrape Msg Lists": lambda x, y: processAmzScrapeMsgList(x, y),
+    "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
     "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
+    "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
+    "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
+    "Gen Resp Msg": lambda x, y: processGenRespMsg(x, y),
     "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
     "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
     "Etsy Set Order Clicked Status": lambda x, y: processEtsySetOrderClickedStatus(x, y),
@@ -132,6 +137,8 @@ RAIS = {
     "Etsy Remove Expanded": lambda x, y: processEtsyRemoveAlreadyExpanded(x, y),
     "Etsy Extract Tracking": lambda x, y: processEtsyExtractTracking(x, y),
     "Etsy Add Page Of Order": lambda x, y: processEtsyAddPageOfOrder(x, y),
+    "ETSY Scrape Msg Lists": lambda x, y: processEtsyScrapeMsgLists(x, y),
+    "ETSY Scrape Msg Thread": lambda x, y: processEtsyScrapeMsgThread(x, y),
     "Create ADS Profile Batches": lambda x, y, z: processADSProfileBatches(x, y, z),
     "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
@@ -154,7 +161,9 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
     global skill_code
     this_skill_code = {}
     try:
-        if not os.path.exists(skill_file):
+        if os.path.exists(skill_file):
+            log3("reading skill file:" + skill_file)
+
             with open(skill_file, "r") as json_as_string:
                 # inj = json.load(json_as_string)
                 # Call this as a recursive function if your json is highly nested
@@ -203,10 +212,10 @@ def addNameSpaceToAddress(stepsJson, name_space, lvl):
     # add name space to json step names.
     steps_keys = list(stepsJson.keys())
     log3("name space:"+name_space)
-    log3("STEP KEYS::::"+json.dumps(steps_keys))
+    # log3("STEP KEYS::::"+json.dumps(steps_keys))
     for old_key in steps_keys:
         new_key = adressAddNameSpace(old_key, name_space, lvl)
-        log3("New Key:"+json.dumps(new_key))
+        # log3("New Key:"+json.dumps(new_key))
         stepsJson[new_key] = stepsJson[old_key]
         stepsJson.pop(old_key)
 
@@ -220,7 +229,7 @@ def adressAddNameSpace(l, name_space, lvl):
         # log3("STEP word:"+step_word)
         sn = step_word.split(' ')[1]
         global_sn = name_space + str(lvl) + "!" + sn
-        log3("GLOBAL NS:"+global_sn)
+        # log3("GLOBAL NS:"+global_sn)
         # re.sub(r'"([^"]*)"', global_sn, l)
         l = re.sub(r'[0-9]+', global_sn, l)
 
@@ -255,7 +264,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     stepKeys = list(steps.keys())
     # for k in stepKeys:
     #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
-    log3("=====================================")
+    log3("====================================="+str(len(stepKeys)))
     while next_step_index <= len(stepKeys)-1 and running:
         last_step = next_step_index
         next_step_index, step_stat = run1step(steps, next_step_index, mission, skill, run_stack)
@@ -344,7 +353,8 @@ def run1step(steps, si, mission, skill, stack):
                 # embedded in the step dictionary.
                 si,isat = processCallExtern(step, si)
         else:
-            si,isat = RAIS[step["type"]](step, si, mission, skill)
+            print("step type:"+step["type"])
+            si,isat = RAIS[step["type"]](step, si)
 
     else:
         si = si + 1
@@ -701,7 +711,7 @@ def gen_addresses(stepcodes, nth_pass):
                     # pop from stack
                     loop_start_found = False
                     fi = 0
-                    log3("working on: "+prevStepName+" ("+stepcodes[prevStepName]+")")
+                    log3("working on: "+prevStepName+" ("+json.dumps(stepcodes[prevStepName])+")")
                     while not loop_start_found:
                         tempStepName = temp_stack.pop()
                         log3("popped out due to end looop step["+str(len(temp_stack))+"]: "+str(fi)+" :: "+json.dumps(tempStepName)+"("+json.dumps(stepcodes[tempStepName])+")")

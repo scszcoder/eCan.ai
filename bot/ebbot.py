@@ -254,7 +254,7 @@ class BOT_PUB_PROFILE():
         self.roles = ""
         self.owner = ""
         self.levels = ""
-        self.status = ""
+        self.status = "active"
         self.createdon = ""
         self.delDate = ""
         self.levelStart = ""
