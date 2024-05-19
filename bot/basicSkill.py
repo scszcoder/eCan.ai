@@ -623,6 +623,17 @@ def genStepGenRespMsg(llm_type, llm_model, parameters, products, setup, query, r
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepUpdateBuyMissionResult(mainwin, mid_var, result, stepN):
+    stepjson = {
+        "type": "Update Buy Mission Result",
+        "mainwin": mainwin,
+        "mid_var": mid_var,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 
 def genException():
@@ -648,7 +659,8 @@ def get_top_visible_window():
         win32gui.EnumWindows(winEnumHandler, None)
 
         # log3(",".join(names))
-        window_handle = win32gui.FindWindow(None, names[0])
+        effective_names = [nm for nm in names if "dummy" not in nm]
+        window_handle = win32gui.FindWindow(None, effective_names[0])
         window_rect = win32gui.GetWindowRect(window_handle)
         log3("top window: "+names[0]+" rect: "+json.dumps(window_rect))
 
@@ -3060,10 +3072,6 @@ def processGenRespMsg(step, i, mission):
         elif symTab[step["response"]] == "complain":
             print("respond:")
 
-
-
-
-
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
                "goal": step["setup"], "background": "", "msg": symTab[step["query"]]}]
         settings = mission.parent_settings
@@ -3078,6 +3086,75 @@ def processGenRespMsg(step, i, mission):
             ex_stat = "ErrorGenRespMsg:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorGenRespMsg: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+def find_original_buy(mainwin, buy_mission):
+    # Construct the SQL query with a parameterized IN clause
+    sql = "DELETE FROM missions WHERE ticket = " + str(buy_mission.getTicket()) +";"
+    mainwin.showMsg("find_original_buy sql:" + sql)
+
+    res = mainwin.dbCursor.execute(sql)
+    db_data = mainwin.dbCursor.fetchall()
+    mainwin.showMsg("same ticket missions: " + json.dumps(db_data))
+    if len(db_data) != 0:
+        original_buy_mission = EBMISSION(mainwin)
+        original_buy_mission.loadDBData(db_data[0])
+        mainwin.mission.append(original_buy_mission)
+    else:
+        original_buy_mission = None
+
+    return original_buy_mission
+
+
+def processUpdateBuyMissionResult(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        midx = next((i for i, mission in enumerate(step["mainwin"].missions) if str(mission.getMid()) == symTab[step["mid_var"]]), -1)
+        if midx >= 0:
+            this_buy_mission = step["mainwin"].missions[midx]
+            this_buy_mission.setResult(symTab[step["mid_var"]])
+            original_buy_mission = find_original_buy(step["mainwin"], this_buy_mission)
+            original_buy_mission.setResult(symTab[step["mid_var"]])
+        else:
+            ex_stat = "ErrorUpdateBuyMissionResult:"+str(symTab[step["mid_var"]])+" mission NOT found."
+            log3(ex_stat)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorUpdateBuyMissionResult:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorUpdateBuyMissionResult: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+# this function takes a list of shipping labels and check to see whether they have arrived. use API?
+def processSellCheckShipping(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        midx = next((i for i, mission in enumerate(step["mainwin"].missions) if str(mission.getMid()) == symTab[step["mid_var"]]), -1)
+        if midx >= 0:
+            this_buy_mission = step["mainwin"].missions[midx]
+            this_buy_mission.setResult(symTab[step["mid_var"]])
+            original_buy_mission = find_original_buy(step["mainwin"], this_buy_mission)
+            original_buy_mission.setResult(symTab[step["mid_var"]])
+        else:
+            ex_stat = "ErrorUpdateBuyMissionResult:"+str(symTab[step["mid_var"]])+" mission NOT found."
+            log3(ex_stat)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSellCheckShipping:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSellCheckShipping: traceback information not available:" + str(e)
         log3(ex_stat)
 
     return (i + 1), ex_stat

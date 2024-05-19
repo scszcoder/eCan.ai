@@ -12,6 +12,7 @@ from ebbot import *
 from missions import *
 from Logger import *
 import traceback
+import time
 
 class SkillListView(QListView):
     def __init__(self, parent):
@@ -618,6 +619,11 @@ class MissionNewWin(QMainWindow):
         self.mode = mode
         if self.mode == "new":
             self.setWindowTitle('Adding a new mission')
+            current_time_nanoseconds = time.time_ns()
+            # Convert to milliseconds
+            current_time_milliseconds = current_time_nanoseconds // 1_000_000
+            self.newMission.setTicket(current_time_milliseconds)
+            self.ticket_edit.setText(str(self.newMission.getTicket()))
         elif self.mode == "update":
             self.setWindowTitle('Updating a mission')
 

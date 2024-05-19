@@ -566,6 +566,9 @@ def test_sqlite3(mw):
     # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
 
+    # new_rrt = 'result'
+    # rrt_type = 'TEXT'  # Change this to the desired data type
+    # est_col = 'platoon'
     # sql = f"ALTER TABLE missions ADD COLUMN {new_rrt} {rrt_type} AFTER {est_col};"
     # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
@@ -574,10 +577,12 @@ def test_sqlite3(mw):
     # mw.dbCursor.execute(sql)
     # print("update bots")
     mw.dbcon.commit()
+
     # table_name = 'missions'
     # db_data = mw.dbCursor.fetchall()
     # print("DB Data:", db_data)
     # mw.dbCursor.execute(f"DROP TABLE {table_name};")
+    # mw.dbcon.commit()
     #
     # mw.dbCursor.execute("PRAGMA table_info(missions);")
 
@@ -585,11 +590,11 @@ def test_sqlite3(mw):
     # db_data = mw.dbCursor.fetchall()
     # print("DB Data:", db_data)
 
-    sql = 'SELECT * FROM bots'
-    res = mw.dbCursor.execute(sql)
+    # sql = 'SELECT * FROM missions'
+    # res = mw.dbCursor.execute(sql)
 
-    db_data = res.fetchall()
-    print("DB Data:", db_data)
+    # db_data = mw.dbCursor.fetchall()
+    # print("DB Data:", db_data)
 
 
 # test passed SC - 02/20/2024
@@ -1084,4 +1089,28 @@ async def test_send_file(xport):
 
 
 
+def test_scrape_amz_buy_orders():
+    # html_file = "C:/temp/amz_buy_orders_files.html"
+    # step = {
+    #     "type": "AMZ Scrape Buy Orders Html",
+    #     "pidx": "pidx",
+    #     "html_dir": "C:/temp",
+    #     "html_dir_type": "direct",
+    #     "html_file": "amz_buy_orders2.html",
+    #     "result": "scrape_result",
+    #     "status": "scrape_stat"
+    # }
 
+    # next_step = processAmzScrapeBuyOrdersHtml(step, 10)
+
+    step = {
+        "type": "AMZ Scrape Buy Orders Html",
+        "pidx": "pidx",
+        "html_dir": "C:/temp",
+        "html_dir_type": "direct",
+        "html_file": "amz_seller_orders0.html",
+        "result": "scrape_result",
+        "status": "scrape_stat"
+    }
+
+    next_step = processAmzScrapeSoldOrdersHtml(step, 10)

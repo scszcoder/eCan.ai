@@ -99,6 +99,7 @@ SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
     # "win_ads_amz_home_browse_search": lambda x,y,z: genStubWinADSAMZWalkSkill(x, y, z),
     "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
+    "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
     "win_chrome_ebay_orders_update_tracking": lambda x, y, z: genWinADSEbayUpdateShipmentTrackingSkill(x, y, z),
@@ -150,7 +151,8 @@ def getWorkSettings(lieutenant, bot_works):
     app_exe = lieutenant.missions[midx].getAppExe()
     # log3("settings: "+json.dumps(settings))
 
-    rpaName = works[tz][bidx][grp][idx]["name"]
+    rpa_name = works[tz][bidx][grp][idx]["name"]
+    m_status = works[tz][bidx][grp][idx]["status"]
 
     # cargs = lieutenant.skills[skidx].getAppArgs()
 
@@ -222,7 +224,8 @@ def getWorkSettings(lieutenant, bot_works):
             "app_exe": app_exe,
             "page": "",
             "products": products,
-            "rpaName": rpaName,
+            "rpa_name": rpa_name,
+            "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
             "options": "{}",
             "name_space": name_space
@@ -253,7 +256,8 @@ def getWorkRunSettings(lieutenant, bot_works):
     app_exe = lieutenant.missions[midx].getAppExe()
     log3("settings setting app_exe: "+app+app_exe+platform+site)
 
-    rpaName = works[widx]["name"]
+    rpa_name = works[widx]["name"]
+    # m_status = works[widx]["status"]
 
     # cargs = lieutenant.skills[skidx].getAppArgs()
 
@@ -332,7 +336,8 @@ def getWorkRunSettings(lieutenant, bot_works):
             "app_exe": app_exe,
             "page": "",
             "products": products,
-            "rpaName": rpaName,
+            "rpa_name": rpa_name,
+            # "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
             "options": "{}",
             "name_space": name_space

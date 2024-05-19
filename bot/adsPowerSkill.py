@@ -331,7 +331,7 @@ def genADSPowerConnectProxy(worksettings, stepN, theme):
 
 def genADSLoadAmzHomePage(worksettings, stepN, theme):
     psk_words = ""
-    log3("DEBUG", "genADSPowerConnectProxy..."+json.dumps(worksettings)+"stepN:"+str(stepN))
+    log3("DEBUG", "genADSLoadAmzHomePage..."+json.dumps(worksettings)+"stepN:"+str(stepN))
 
     this_step, step_words = genStepWait(3, 0, 0, stepN)
     psk_words = psk_words + step_words
