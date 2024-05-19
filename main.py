@@ -69,6 +69,7 @@ if __name__ == '__main__':
     # test_pyautogui()
     # test_eb_orders_scraper()
     # print("all unit test done...")
+    # test_scrape_amz_buy_orders()
 
     main()
     # qasync.run(main())

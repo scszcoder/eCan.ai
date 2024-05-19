@@ -164,7 +164,7 @@ class MainWindow(QMainWindow):
         self.SH_PLATFORMS_DICT = {'win': "windows",'mac': "mac",'linux': "linux" }
 
         self.SM_PLATFORMS = ['WhatsApp','Messenger','Facebook','Instagram', 'Snap', 'Telegraph','Google','Line','Wechat','Tiktok','QQ', 'Custom']
-        self.BUY_TYPES = ['browse', 'buy', 'goodFB', 'badFB']
+        self.BUY_TYPES = ['buy', 'goodFB', 'badFB', 'goodRating', 'badRating']
         self.SUB_BUY_TYPES = ['addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"]
         self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
         self.SUB_SELL_TYPES = []
@@ -172,6 +172,7 @@ class MainWindow(QMainWindow):
         self.SUB_OP_TYPES = []
         self.STATUS_TYPES = ['Unassigned', 'Assigned', 'Incomplete', 'Completed']
         self.BUY_STATUS_TYPES = ['Searched', 'InCart', 'Paid', 'Arrived', 'RatingDone', 'FBDone', 'RatingConfirmed', 'FBConfirmed']
+        self.PRODUCT_SEL_TYPES = ["ac", "op", "bs", "mr", "mhr", "cp", "cus"]
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
         self.tokens = inTokens
@@ -290,7 +291,7 @@ class MainWindow(QMainWindow):
             for column in res.description:
                 self.showMsg(column[0])
             #
-            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating REAL, feedbacks INTEGER, price REAL, customer TEXT, platoon TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
+            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating REAL, feedbacks INTEGER, price REAL, customer TEXT, platoon TEXT, result TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
             self.dbCursor.execute(sql)
 
             sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, runtime TEXT, price_model TEXT, price INTEGER, privacy TEXT)'
@@ -1255,7 +1256,9 @@ class MainWindow(QMainWindow):
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
         # run_genSchedules_test_case(self, self.session, self.tokens['AuthenticationResult']['IdToken'], 1)
         # test_run_mission(self)
-        asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
+
+        # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
+
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
         # test_run_group_of_tasks(self)
@@ -1678,6 +1681,166 @@ class MainWindow(QMainWindow):
 
         return result
 
+
+    # generate a buy associated browse-search configuration
+    def gen_new_buy_search(self, mission):
+        new_search = {
+			            "type": "browse",
+			            "site": mission.getSite(),
+	 		            "os": mission.getPlatform(),
+			            "app": mission.getApp(),
+			            "entry_paths": { "type": "Search", "words": [mission.getSearchKW()] },
+			            "top_menu_item": "",
+			            "prodlist_pages": [
+				            {
+					            "flow_type": "down,up,down",
+					            "products": [
+						            { "selType": "bs", "detailLvl": 2, "purchase": [] },
+						            { "selType": "cus", "detailLvl": 2, "purchase": [] }
+					            ]
+				            },
+                            {
+                                "flow_type": "down,up,down",
+                                "products": [
+                                    { "selType": "mhr", "detailLvl": 2, "purchase": [] },
+                                    { "selType": "cus", "detailLvl": 2, "purchase": [] }
+                                ]
+                            },
+                            {
+                                "flow_type": "down,up,down",
+                                "products": [
+                                    { "selType": "mr", "detailLvl": 2, "purchase": [] },
+                                    { "selType": "cus", "detailLvl": 2, "purchase": [] }
+                                ]
+                            }
+			            ],
+			            "buy_cfg": {
+                            "asin": mission.getASIN(),
+                            "seller": mission.getStore(),
+                            "brand": mission.getBrand(),
+                            "img": mission.getImagePath(),
+                            "title": mission.getTitle(),
+                            "rating": mission.getRating(),
+                            "feedbacks": mission.getFeedbacks(),
+                            "price": mission.getPrice(),
+                        }
+		            }
+        return new_search
+
+    def gen_prod_sel(self):
+        idx = math.floor(random.random() * (len(self.PRODUCT_SEL_TYPES.length) - 1));
+        return self.PRODUCT_SEL_TYPES[idx];
+
+    # obtain a feedback text from cloud feedback genertion service
+    def obtain_feedback_text(self, fb_type, prod_title):
+        fb_txt = ""
+        jresp = send_feedback_request_to_cloud(self.session, [{"fb_type": fb_type, "prod_title": prod_title}], self.tokens)
+
+        if "errorType" in jresp:
+            screen_error = True
+            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+        else:
+            self.showMsg("jresp:"+json.dumps(jresp))
+            fb_txt = jresp["body"][0]["fb_txt"]
+        return fb_txt
+
+    # given a derived buy mission, find out the original buy mission that was put in order by the users.
+    # this is done thru searching ticket number. since this is likely to be a mission created 2 wks ago,
+    # might not be loaded from memory, so directly search DB.
+    def find_original_buy(self, buy_mission):
+        # Construct the SQL query with a parameterized IN clause
+        sql = "DELETE FROM missions WHERE ticket = " + str(buy_mission.getTicket()) +";"
+        self.showMsg("find_original_buy sql:" + sql)
+
+        res = self.dbCursor.execute(sql)
+        db_data = self.dbCursor.fetchall()
+        self.showMsg("same ticket missions: " + json.dumps(db_data))
+        if len(db_data) != 0:
+            original_buy_mission = EBMISSION(self)
+            original_buy_mission.loadDBData(db_data[0])
+            self.missions.append(original_buy_mission)
+            self.missionModel.appendRow(original_buy_mission)
+        else:
+            original_buy_mission = None
+
+        return original_buy_mission
+
+
+    # if function will add buy task related search if there is any 1st stage buy type of missions. (Note a buy mission will always have a same CUSPUS browse action go along with it.
+    # will go into the configuration of the browse mission, if there is a keyword search run, go the last one, and swap out the auto assigned
+    # search phrase and replace with the buy search phrase. If there is no keyword search run, then simply create one and replace whatever the last
+    # search with the buy related prodcut search flow, when we complete the mission and report the status, we'll do it just as the original browse
+    # mission is done. This way, the cloud side will have no idea what's being processed.
+    # in case  there is no same CUSPAS browse mission go along with a buy type, create one anyways, but this could affect capacity.
+    # so really, we need cloud side to coordinate the buy-bowse coupling which I think it's there...
+    # task name will be mainType_subType for example buy_addCart or goodFB_pay
+    # main types will be: "buy", "goodFB", "badFB", "goodRating", "badRating"
+    # sub types will be: 'addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"
+    def add_buy_searchs(self, p_task_groups):
+        print("taskgroup:", p_task_groups)
+
+        #1st find all 1st stage buy missions.
+        self.showMsg("task name:" + json.dumps([tsk["name"]  for tsk in p_task_groups]))
+        buys = [tsk for tsk in p_task_groups if (tsk["name"].split("_")[0] in self.BUY_TYPES)]
+        initial_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] in ['addCart', 'pay']))]
+        later_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] not in ['addCart', 'pay']))]
+        print(len(buys), len(initial_buys), len(later_buys))
+        for buytask in initial_buys:
+            # make sure we do search before buy
+            midx = next( (i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
+            if midx >= 0:
+                task_mission = self.missions[midx]
+                original_buy = self.find_original_buy(task_mission)
+
+                task_mission.setASIN(original_buy.getASIN())
+                task_mission.setTitle(original_buy.getTitle())
+                task_mission.setStore(original_buy.getStore())
+                task_mission.setBrand(original_buy.getBrand())
+                task_mission.setImagePath(original_buy.getImagePath())
+                task_mission.setRating(original_buy.getRating())
+                task_mission.setFeedbacks(original_buy.getFeedbacks())
+                task_mission.setPrice(original_buy.getPrice())
+                task_mission.setResult(original_buy.getResult())
+
+                new_search = self.gen_new_buy_search(original_buy)
+            else:
+                new_search = {}
+            buytask["config"]["searches"].append(new_search)
+
+        for buytask in later_buys:
+            midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
+            if midx >= 0:
+                task_mission = self.missions[midx]
+                original_buy = self.find_original_buy(task_mission)
+
+                task_mission.setASIN(original_buy.getASIN())
+                task_mission.setTitle(original_buy.getTitle())
+                task_mission.setStore(original_buy.getStore())
+                task_mission.setBrand(original_buy.getBrand())
+                task_mission.setImagePath(original_buy.getImagePath())
+                task_mission.setRating(original_buy.getRating())
+                task_mission.setFeedbacks(original_buy.getFeedbacks())
+                task_mission.setPrice(original_buy.getPrice())
+                task_mission.setResult(original_buy.getResult())
+
+                mission_result = json.loads(original_buy.getResult())
+                # make sure we provided necessary info for completing the taskl
+                if buytask["name"].split("_")[1] in ["checkShipping", "rate", "checkFB"]:
+                    buytask["config"]["order_id"] = mission_result["order_id"]
+                elif buytask["name"].split("_")[1] == "feedback":
+                    buytask["config"]["order_id"] = mission_result["order_id"]
+                    buytask["config"]["feedback_img_file"] = mission_result["feedback_img_file"]
+                    buytask["config"]["feedback_video_file"] = mission_result["feedback_video_file"]
+                    buytask["config"]["feedback_text"] = mission_result["feedback_text"]
+                    if buytask["config"]["feedback_text"] == "":
+                        if "bad" in buytask["name"].split("_")[0]:
+                            buytask["config"]["feedback_text"] = self.obtain_feedback_text("bad", original_buy.getTitle())
+                        else:
+                            buytask["config"]["feedback_text"] = self.obtain_feedback_text("good", original_buy.getTitle())
+            else:
+                buytask["config"]["order_id"] = ""
+
+
     # assign per vehicle task group work, if this commander runs, assign works for commander,
     # otherwise, send works to platoons to execute.
     def assignWork(self):
@@ -1702,7 +1865,7 @@ class MainWindow(QMainWindow):
                 else:
                     self.unassigned_task_groups[platform] = []
 
-                    # distribute work to all available sites, which is the limit for the total capacity.
+                # distribute work to all available sites, which is the limit for the total capacity.
                 if p_nsites > 0:
                     for i in range(p_nsites):
                         if i == 0 and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
@@ -1710,6 +1873,7 @@ class MainWindow(QMainWindow):
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[0], self)
                             # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
                             self.showMsg("arranged for today on this machine....")
+                            self.add_buy_searchs(batched_tasks)
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
                             self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
                             vidx = 0
@@ -1729,7 +1893,7 @@ class MainWindow(QMainWindow):
                             self.showMsg("working on task group index: "+str(i)+" vehicle index: " + str(vidx))
                             # flatten tasks and regroup them based on sites, and divide them into batches
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i], self)
-
+                            self.add_buy_searchs(batched_tasks)
                             # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
                             self.todays_work["tbd"].append(
                                 {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i].getIP(), "status": "yet to start",
@@ -2818,7 +2982,8 @@ class MainWindow(QMainWindow):
                 "feedbacks": new_mission.getFeedbacks(),
                 "price": new_mission.getPrice(),
                 "customer": new_mission.getCustomerID(),
-                "platoon": new_mission.getPlatoonID()
+                "platoon": new_mission.getPlatoonID(),
+                "result": ""
             })
         jresp = send_add_missions_request_to_cloud(self.session, new_missions, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
@@ -2842,7 +3007,7 @@ class MainWindow(QMainWindow):
             # add to local DB
             sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, actual_start_time, est_start_time, actual_runtime,
                     est_runtime, n_retries, cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
-                    title, rating, feedbacks, price, customer, platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                    title, rating, feedbacks, price, customer, platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
 
             data_tuple = []
             for i, jb in enumerate(jbody):
@@ -2852,7 +3017,8 @@ class MainWindow(QMainWindow):
                           api_missions[i]["n_retries"], jbody[i]["cuspas"], jbody[i]["category"], jbody[i]["phrase"], jbody[i]["pseudoStore"], \
                           jbody[i]["pseudoBrand"], jbody[i]["pseudoASIN"], jbody[i]["type"], jbody[i]["config"], \
                           jbody[i]["skills"], jbody[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"], api_missions[i]["brand"], \
-                          api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], api_missions[i]["customer"], api_missions[i]["platoon"]))
+                          api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], \
+                            api_missions[i]["customer"], api_missions[i]["platoon"], api_missions[i]["result"]))
 
             self.dbCursor.executemany(sql, data_tuple)
             # Check if the INSERT query was successful
@@ -2920,7 +3086,8 @@ class MainWindow(QMainWindow):
                 "feedbacks": amission.getFeedbacks(),
                 "price": amission.getPrice(),
                 "customer": amission.getCustomerID(),
-                "platoon": amission.getPlatoonID()
+                "platoon": amission.getPlatoonID(),
+                "result": amission.getResult()
             })
 
         jresp = send_update_missions_request_to_cloud(self.session, missions, self.tokens['AuthenticationResult']['IdToken'])
@@ -2936,7 +3103,7 @@ class MainWindow(QMainWindow):
                         aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
                         n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
                         pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
-                        img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ? WHERE mid = ?; '''
+                        img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ?, result = ? WHERE mid = ?; '''
 
                 data_tuple = []
 
@@ -2948,7 +3115,8 @@ class MainWindow(QMainWindow):
                     api_missions[i]["n_retries"], api_missions[i]["cuspas"], api_missions[i]["search_cat"], api_missions[i]["search_kw"], api_missions[i]["pseudo_store"], \
                     api_missions[i]["pseudo_brand"], api_missions[i]["pseudo_asin"], api_missions[i]["type"], api_missions[i]["config"], \
                     api_missions[i]["skills"], api_missions[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"], api_missions[i]["brand"], \
-                    api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], api_missions[i]["customer"], api_missions[i]["platoon"], api_missions[i]["mid"]))
+                    api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], api_missions[i]["customer"], \
+                    api_missions[i]["platoon"], api_missions[i]["result"], api_missions[i]["mid"]))
 
 
                 self.dbCursor.executemany(sql, data_tuple)
@@ -3910,14 +4078,15 @@ class MainWindow(QMainWindow):
                                 "feedbacks": new_mission.getFeedbacks(),
                                 "price": new_mission.getPrice(),
                                 "customer": new_mission.getCustomerID(),
-                                "platoon": new_mission.getPlatoonID()
+                                "platoon": new_mission.getPlatoonID(),
+                                "result": new_mission.getResult()
                             })
 
                             sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, 
                                         acd, actual_start_time, est_start_time, actual_runtime, est_runtime, n_retries, 
                                         cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, 
                                         skills, delDate, asin, store, brand, img,  title, rating, feedbacks, price, customer, 
-                                        platoon) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                                        platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
                             data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], \
                                           api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
                                           api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], \
@@ -3931,7 +4100,8 @@ class MainWindow(QMainWindow):
                                           api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], \
                                           api_missions[0]["store"], api_missions[0]["brand"], \
                                           api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], \
-                                          api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], api_missions[0]["platoon"])
+                                          api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], \
+                                          api_missions[0]["platoon"], api_missions[0]["result"])
 
                             self.dbCursor.execute(sql, data_tuple)
 
@@ -4305,9 +4475,16 @@ class MainWindow(QMainWindow):
 
 
 
-    # load locally stored skills
+    # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
     def loadLocalMissions(self, sql='SELECT * FROM missions', tuple=()):
         skill_def_files = []
+        if sql == 'SELECT * FROM missions':
+            # three_days_ago = datetime.now() - timedelta(days=3)
+            # three_days_ago_str = three_days_ago.strftime('%Y-%m-%d')
+            sql = """
+            SELECT * FROM missions
+            WHERE createon >= date('now', '-3 days')
+            """
 
         res = self.dbCursor.execute(sql, tuple)
 
@@ -4898,7 +5075,8 @@ class MainWindow(QMainWindow):
         if current_bid < 0:
             current_bid = 0
 
-        self.showMsg("GEN REPORT FOR WORKS:"+json.dumps(works))
+        # self.showMsg("GEN REPORT FOR WORKS:"+json.dumps(works))
+        self.showMsg("GEN REPORT FOR WORKS...")
         if not self.hostrole == "CommanderOnly":
             mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
             self.showMsg("mission_report:"+json.dumps(mission_report))
@@ -4933,6 +5111,33 @@ class MainWindow(QMainWindow):
                 found.setStatus(rpt["status"])
                 found.setActualStartTime(rpt["starttime"])
                 found.setActualEndTime(rpt["endtime"])
+
+    def updateMissionsStatsToLocalDB(self):
+        # Prepare the SQL UPDATE statement
+        sql = ''' UPDATE missions SET ticket = ?, botid = ?, status = ?, createon = ?, esd = ?, ecd = ?, asd = ?, abd = ?, 
+                                aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
+                                n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
+                                pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
+                                img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ?, result = ? WHERE mid = ?; '''
+        data_tuple = []
+        for i, amission in enumerate(self.missions):
+            data_tuple.append((
+                amission[i]["ticket"], amission[i]["botid"], amission[i]["status"], amission[i]["createon"], \
+                amission[i]["esd"], amission[i]["ecd"], amission[i]["asd"], amission[i]["abd"], amission[i]["aad"], \
+                amission[i]["afd"], amission[i]["acd"], amission[i]["actual_start_time"], \
+                amission[i]["est_start_time"],  amission[i]["actual_run_time"], amission[i]["est_run_time"], \
+                amission[i]["n_retries"], amission[i]["cuspas"], amission[i]["search_cat"], amission[i]["search_kw"], \
+                amission[i]["pseudo_store"], amission[i]["pseudo_brand"], amission[i]["pseudo_asin"], \
+                amission[i]["type"], amission[i]["config"], amission[i]["skills"], amission[i]["delDate"], \
+                amission[i]["asin"], amission[i]["store"], amission[i]["brand"], amission[i]["image"], \
+                amission[i]["title"], amission[i]["rating"], amission[i]["feedbacks"], amission[i]["price"], \
+                amission[i]["customer"], amission[i]["platoon"], amission[i]["result"], amission[i]["mid"]))
+
+        self.dbCursor.executemany(sql, data_tuple)
+
+        # Commit the transaction
+        self.dbcon.commit()
+
 
     # all work done today, now
     # 1) send report to the network,
@@ -4979,6 +5184,7 @@ class MainWindow(QMainWindow):
             # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
             if not self.hostrole == "Platoon":
                 self.todays_work = {"tbd": [{"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []}]}
+                self.updateMissionsStatsToLocalDB()
 
             self.todays_completed = []
             self.todaysReports = []                     # per vehicle/host
@@ -5062,7 +5268,7 @@ class MainWindow(QMainWindow):
             return None
 
     def searchLocalMissions(self):
-        mcols = ['botid', 'status', 'acd', 'n_retries', 'cuspas', 'category', 'phrase', 'pseudoStore', 'pseudoBrand', 'pseudoASIN', 'asin', 'store', 'customer', 'type', 'config', 'delDate', 'platoon']
+        mcols = ['botid', 'status', 'acd', 'n_retries', 'cuspas', 'category', 'phrase', 'pseudoStore', 'pseudoBrand', 'pseudoASIN', 'asin', 'store', 'customer', 'type', 'config', 'delDate', 'platoon', 'result']
         self.showMsg("Searching local missions based on createdon date range and field parameters....")
         date_valid = False
         pattern = r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD pattern
