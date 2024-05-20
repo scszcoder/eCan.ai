@@ -780,7 +780,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     result = req_cloud_read_screen(settings["session"], request, settings["token"])
     # log3("result::: "+json.dumps(result))
     jresult = json.loads(result['body'])
-    # log3("cloud result data: "+json.dumps(jresult["data"]))
+    log3("cloud result data: "+json.dumps(jresult["data"]))
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     if "errors" in jresult:
@@ -1291,7 +1291,7 @@ def get_clickable_loc(box, off_from, offset, offset_unit):
 def get_post_move_offset(box, offset, offset_unit):
     log3("calc post move offset:"+json.dumps(offset_unit)+" "+json.dumps(box)+" "+json.dumps(offset))
     if offset_unit == "box":
-        box_length = box[3] - box[2]
+        box_length = box[3] - box[1]
         box_height = box[2] - box[0]
     else:
         box_length = 1
@@ -2503,12 +2503,12 @@ def processSearchAnchorInfo(step, i):
         log3("status: "+json.dumps(symTab[step["status"]]))
 
         # didn't find anything, check fault situation.
-        if symTab[step["status"]] == False:
-            fault_found = [e for j, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
-            site_conn = ping(step["site"])
-            if len(fault_found) > 0 or (not site_conn):
-                # exception has occured, flag it.
-                in_exception = True
+        # if symTab[step["status"]] == False:
+        #     fault_found = [e for j, e in enumerate(scrn) if e["name"] in fault_names and e["type"] == "anchor text"]
+        #     site_conn = ping(step["site"])
+        #     if len(fault_found) > 0 or (not site_conn):
+        #         # exception has occured, flag it.
+        #         in_exception = True
 
         if step["breakpoint"]:
             input("type any key to continuue")
