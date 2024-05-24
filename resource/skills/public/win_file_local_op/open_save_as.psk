@@ -74,8 +74,8 @@
     "action_args": "",
     "save_rb": true,
     "screen": "screen_info",
-    "target_name": "refresh",
-    "target_type": "anchor icon",
+    "target_name": "search",
+    "target_type": "anchor text",
     "text": "",
     "nth": [
         0,
@@ -84,7 +84,7 @@
     "offset_from": "left",
     "offset_unit": "box",
     "offset": [
-        3,
+        2.5,
         0
     ],
     "move_pause": 1,
@@ -125,7 +125,7 @@
     "action_value": "backspace",
     "save_rb": true,
     "location": "",
-    "wait_after": 0.1
+    "wait_after": 0
 },
 "step 65":
 {
@@ -203,7 +203,7 @@
     "action_value": "backspace",
     "save_rb": true,
     "location": "",
-    "wait_after": 1
+    "wait_after": 0
 },
 "step 100":
 {
@@ -219,7 +219,7 @@
     "save_rb": false,
     "text": "fopen_f_name",
     "text_type": "var",
-    "speed": 0.05,
+    "speed": 0.01,
     "key_after": "",
     "wait_after": 1
 },

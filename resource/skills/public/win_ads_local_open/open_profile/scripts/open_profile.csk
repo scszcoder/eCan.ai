@@ -11,6 +11,20 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "email",
+                        "anchor_type"  : "text",
+                        "template"     : "E-Mail",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "forget_password",
+                        "anchor_type"  : "text",
+                        "template"     : "Forget Password?",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "specified_url",
                         "anchor_type"  : "text",
                         "template"     : "specified URL",

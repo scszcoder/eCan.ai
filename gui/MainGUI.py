@@ -1315,20 +1315,30 @@ class MainWindow(QMainWindow):
     def fetchSchedule(self, ts_name, settings):
         fetch_stat = "Completed:0"
         try:
-            jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+            # next line commented out for testing purpose....
+            # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+            jresp = {}
             if "errorType" in jresp:
                 screen_error = True
                 self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
-                uncompressed = self.zipper.decompressFromBase64(jresp["body"])
+
+                # uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
+                uncompressed = "{}"
+
+                # for testing purpose, short circuit the cloud fetch schedule and load a test schedule from a test
+                # json file instead.
+
                 # uncompressed = jresp["body"]
                 self.showMsg("decomppressed response:"+uncompressed+"!")
                 if uncompressed != "":
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
-                    bodyobj = json.loads(uncompressed)
-                    # bodyobj = uncompressed
+                    # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
+
+                    with open('C:/software/scheduleResultTest3.json') as test_schedule_file:
+                        bodyobj = json.load(test_schedule_file)
 
                     self.showMsg("bodyobj: "+json.dumps(bodyobj))
                     if len(bodyobj) > 0:
@@ -4873,6 +4883,13 @@ class MainWindow(QMainWindow):
             elif msg["type"] == "chat":
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receiveBotChatMessage(msg["content"])
+
+            elif msg["type"] == "exlog":
+                # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
+                self.receiveBotLogMessage(msg["content"])
+            elif msg["type"] == "heartbeat":
+                # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
+                self.showMsg("Heartbeat From Vehicle: "+msg["ip"])
             else:
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.showMsg("unknown type:"+msg["contents"])
@@ -4970,12 +4987,24 @@ class MainWindow(QMainWindow):
 
     async def serveCommander(self, msgQueue):
         self.showMsg("starting servePlatoons")
+        heartbeat = 0
         while True:
+            heartbeat = heartbeat + 1
+            if heartbeat > 255:
+                heartbeat = 0
+
+            if heartbeat%8 == 0:
+                # sends a heart beat to commander
+                msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"heartbeat\", \"content\":\"Stayin Alive\"}"
+                # send to commander
+                self.commanderXport.write(msg.encode('utf8'))
+
             if not msgQueue.empty():
                 net_message = await msgQueue.get()
                 print("From Commander, recevied queued net message:", net_message)
                 self.processCommanderMsgs(net_message)
                 msgQueue.task_done()
+
             await asyncio.sleep(1)
 
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
@@ -5515,6 +5544,18 @@ class MainWindow(QMainWindow):
         if len(receivers) > 0:
             # now route message to everybody.
             self.chatWin.addNetChatHis(sender, receivers, msg_text)
+
+    # note recipient could be a group ID.
+    def receiveBotLogMessage(self, msg_text):
+        msg_json = json.loads(msg_text)
+
+        sender = msg_json["sender"]
+
+        #logger will only be sent to the boss.
+        receivers = [0]
+
+        # deliver the message for the other bots. - allowed for inter-bot communication.
+        self.chatWin.addNetChatHis(sender, receivers, msg_json["log_msg"])
 
 
     def send_file_to_platoon(self, platoon_link, file_name_full_path):
