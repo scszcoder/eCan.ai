@@ -50,7 +50,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on path input win
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [3, 0], "box", 1, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "search", "anchor text", "", [0, -1], "left", [2.5, 0], "box", 1, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # delete everything there
@@ -62,7 +62,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     this_step, step_words = genStepLoop("", "20", "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepKeyInput("", True, "backspace", "", 0.1, this_step)
+    this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -86,7 +86,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     this_step, step_words = genStepLoop("", "10", "", lcvarname, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepKeyInput("", True, "backspace", "", 1, this_step)
+    this_step, step_words = genStepKeyInput("", True, "backspace", "", 0, this_step)
 
     psk_words = psk_words + step_words
 
@@ -94,7 +94,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # type in the path
-    this_step, step_words = genStepTextInput("var", False, "fopen_f_name", "direct", 0.05, "", 1, this_step)
+    this_step, step_words = genStepTextInput("var", False, "fopen_f_name", "direct", 0.01, "", 1, this_step)
     psk_words = psk_words + step_words
 
 
