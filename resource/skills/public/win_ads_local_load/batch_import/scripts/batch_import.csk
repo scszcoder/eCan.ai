@@ -346,6 +346,69 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "tags",
+                        "anchor_type"  : "text",
+                        "template"     : "Tags",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "url_open",
+                        "anchor_type"  : "text",
+                        "template"     : "URL to open",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "txt_extension",
+                        "anchor_type"  : "text",
+                        "template"     : ".txt",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "profile_info",
+                        "anchor_type"  : "text",
+                        "template"     : "Profile information",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "proxy",
+                        "anchor_type"  : "text",
+                        "template"     : "Proxy",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "region",
+                        "anchor_type"  : "text",
+                        "template"     : "Region",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "city",
+                        "anchor_type"  : "text",
+                        "template"     : "City",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "fingerprints",
+                        "anchor_type"  : "text",
+                        "template"     : "fingerprints",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "screen_resolution",
+                        "anchor_type"  : "text",
+                        "template"     : "Screen_Resolution",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "optional",
                         "anchor_type"  : "text",
                         "template"     : "Optional",

@@ -147,7 +147,8 @@ RAIS = {
     "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
-    "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y)
+    "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
+    "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
 
 

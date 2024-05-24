@@ -191,7 +191,8 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # close the browser and exit the skill
+    # close the browser and exit the skill, assuming at the end of genWinChromeAMZWalkSteps, the browser tab
+    # should return to top of the amazon home page with the search text box cleared.
     this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
     psk_words = psk_words + step_words
 
