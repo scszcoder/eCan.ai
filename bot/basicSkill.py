@@ -21,6 +21,8 @@ from Logger import *
 if sys.platform == 'win32':
     import win32gui
     import win32con
+    import win32api
+    import win32process
 elif sys.platform == 'darwin':
     from AppKit import NSWorkspace
     from Quartz import (
@@ -634,6 +636,29 @@ def genStepUpdateBuyMissionResult(mainwin, mid_var, result, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepGoToWindow(win_name, name_type, result, stepN):
+    stepjson = {
+        "type": "Go To Window",
+        "win_name": win_name,
+        "name_type": name_type,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+# this instruction sends some info from agent/bot to commander.
+def genStepReportToBoss(commander_link, self_ip, exlog_data, result, stepN):
+    stepjson = {
+        "type": "Report To Boss",
+        "commander_link": commander_link,
+        "self_ip": self_ip,
+        "exlog_data": exlog_data,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 def genException():
@@ -695,7 +720,53 @@ def get_top_visible_window():
 
         return active_app_name, window_rect
 
+def list_windows():
+    if sys.platform == 'win32':
+        names = []
+        def winEnumHandler(hwnd, ctx):
+            if win32gui.IsWindowVisible(hwnd):
+                n = win32gui.GetWindowText(hwnd)
+                # log3("windows: "+str(n))
+                if n:
+                    names.append(n)
 
+        win32gui.EnumWindows(winEnumHandler, None)
+
+        # log3(",".join(names))
+        effective_names = [nm for nm in names if "dummy" not in nm]
+        print("list of windows:", effective_names)
+
+        return effective_names
+
+    elif sys.platform == 'darwin':
+        # 获取当前激活的应用
+        active_app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        active_app_name = active_app.localizedName()
+        window_rect = []
+
+        # 获取所有可见窗口的列表
+        window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+
+        # 查找最上层的窗口（即当前激活的应用的窗口）
+        for window in window_list:
+            window_owner_name = window.get('kCGWindowOwnerName', '')
+            if window_owner_name == active_app_name:
+                window_name = window.get('kCGWindowName', 'Unknown')
+                mac_window_rect = window.get('kCGWindowBounds', {'X': 0, 'Y': 0, 'Width': 0, 'Height': 0})
+                log3(f"Window: {window_owner_name}-{window_name}, Rect: {mac_window_rect}")
+                # 转换为 (left, top, right, bottom) 格式
+                left = mac_window_rect['X']
+                top = mac_window_rect['Y']
+                right = left + mac_window_rect['Width']
+                bottom = top + mac_window_rect['Height']
+
+                window_rect.extend([round(left), round(top), round(right), round(bottom)])
+
+                log3(f"Window Rect: ({window_rect[0], window_rect[1], window_rect[2], window_rect[3]})")
+
+                break
+
+        return active_app_name, window_rect
 def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options):
     settings = mission.parent_settings
     global screen_loc
@@ -1025,14 +1096,15 @@ def processTextInput(step, i):
 
         if step["txt_ref_type"] == "direct":
             txt_to_be_input = step["text"]
+            log3("typing....." + txt_to_be_input)
         else:
             log3("assign expression:"+"txt_to_be_input = "+step["text"])
             exec("global input_texts\ninput_texts = "+step["text"])
             txt_to_be_input = input_texts
-            log3("after assignment:"+txt_to_be_input)
+            log3("after assignment:"+json.dumps(txt_to_be_input))
             exec("global txt_to_be_input\ntxt_to_be_input = "+step["text"])
 
-        log3("typing....."+txt_to_be_input)
+
         time.sleep(2)
         # pyautogui.click()
         if step["text_type"] == "var":
@@ -3158,3 +3230,70 @@ def processSellCheckShipping(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+def processGoToWindow(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        win_names = list_windows()
+        found = [win_name for win_name in win_names if step["win_name"] in win_name]
+        print("found taget window:", found)
+        if len(found) > 0:
+            hwnd = win32gui.FindWindow(None, found[0])
+        print("setting foreground window", hwnd)
+        win32gui.SetForegroundWindow(hwnd)
+
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+        fg_window = win32gui.GetForegroundWindow()
+
+        if fg_window != hwnd:
+            current_thread = win32api.GetCurrentThreadId()
+            fg_thread, _ = win32process.GetWindowThreadProcessId(fg_window)
+            target_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
+
+            # Attach the input processing mechanism of the current thread to the input processing mechanism of another thread
+            win32process.AttachThreadInput(current_thread, target_thread, True)
+
+            # Bring the window to the foreground
+            win32gui.SetForegroundWindow(hwnd)
+            win32gui.SetFocus(hwnd)
+
+            # Detach the input processing mechanism of the current thread from the input processing mechanism of another thread
+            win32process.AttachThreadInput(current_thread, target_thread, False)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToWindow:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToWindow: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+
+# this function sends some logging logging message to the commander, that a commander can see what's going on remotely via TCP/IP
+def processReportToBoss(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        msg = "{\"ip\": \"" + step["self_ip"] + "\", \"type\":\"exlog\", \"content\":\"" + json.dumps(step["exlog_data"]).replace('"', '\\"') +"\"}"
+        # send to commander
+        step["commander_link"].write(msg.encode('utf8'))
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSellCheckShipping:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSellCheckShipping: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
