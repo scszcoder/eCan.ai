@@ -47,8 +47,11 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     this_step, step_words = genStepWait(6, 0, 0, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.8, 0.75],'attention_targets':['New Profile', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # now read screen, if there is log in, then click on log in.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
 
@@ -60,7 +63,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "login", "anchor text", "Log in", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "forget_password", "anchor text", "", 1, "center", [0, 3], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     # wait 3 seconds till it logs in....
@@ -111,7 +114,10 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  1, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 0.5],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
