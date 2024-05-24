@@ -27,7 +27,7 @@
                     {
                         "anchor_name"  : "batch_import",
                         "anchor_type"  : "text",
-                        "template"     : "Batch Import",
+                        "template"     : "Batch",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },

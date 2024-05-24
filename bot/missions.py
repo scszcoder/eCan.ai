@@ -54,6 +54,11 @@ class M_Private_Attributes():
         self.customer_id = ""
         self.customer_sm_id = ""
         self.customer_sm_platform = ""
+        self.result = ""
+        self.feedback_img_link = ""
+        self.feedback_video_link = ""
+        self.feedback_text = ""
+        self.order_id = ""
 
 
 
@@ -91,6 +96,7 @@ class M_Private_Attributes():
         self.price = dj["price"]
         self.rank = dj["rank"]
         self.feedbacks = dj["feedbacks"]
+        self.result = dj["result"]
 
     def genJson(self):
         jd = {
@@ -100,7 +106,8 @@ class M_Private_Attributes():
                 "imglink": self.imglink,
                 "price": self.price,
                 "rank": self.rank,
-                "feedbacks": self.feedbacks
+                "feedbacks": self.feedbacks,
+                "result": self.result
             }
         return jd
 
@@ -642,6 +649,39 @@ class EBMISSION(QStandardItem):
     def getSkills(self):
         return self.pubAttributes.skills
 
+    def getResult(self):
+        return self.privateAttributes.result
+
+    def getOrderID(self):
+        return self.privateAttributes.order_id
+
+    def getFeedbackImgLink(self):
+        return self.privateAttributes.feedback_img_link
+
+    def getFeedbackVideoLink(self):
+        return self.privateAttributes.feedback_video_link
+
+    def getFeedbackText(self):
+        return self.privateAttributes.feedback_text
+
+    def setResult(self, result):
+        self.privateAttributes.result = result
+        if result != "" or result != "{}":
+            resultJson = json.loads(result)
+
+            if "order_id" in resultJson:
+                self.privateAttributes.order_id = resultJson["order_id"]
+
+            if "feedback_img_link" in resultJson:
+                self.privateAttributes.feedback_img_link = resultJson["feedback_img_link"]
+
+            if "feedback_video_link" in resultJson:
+                self.privateAttributes.feedback_video_link = resultJson["feedback_video_link"]
+
+            if "feedback_text" in resultJson:
+                self.privateAttributes.feedback_text = resultJson["feedback_text"]
+
+
     def getSkillNames(self):
         if self.pubAttributes.skills == "":
             skill_ids = []
@@ -846,6 +886,7 @@ class EBMISSION(QStandardItem):
         self.setPrice(dbd[34])
         self.setCustomerID(dbd[35])
         self.setPlatoon(dbd[36])
+        self.setResult(dbd[37])
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadXlsxData(self, jd):
@@ -876,6 +917,7 @@ class EBMISSION(QStandardItem):
         self.setPrice(jd["price"])
         self.setCustomerID(jd["customer"])
         self.setPlatoon(jd["platoon"])
+        self.setResult(jd["result"])
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadJsonData(self, jd):
