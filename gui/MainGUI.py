@@ -1308,20 +1308,30 @@ class MainWindow(QMainWindow):
     def fetchSchedule(self, ts_name, settings):
         fetch_stat = "Completed:0"
         try:
-            jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+            # next line commented out for testing purpose....
+            # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+            jresp = {}
             if "errorType" in jresp:
                 screen_error = True
                 self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
-                uncompressed = self.zipper.decompressFromBase64(jresp["body"])
+
+                # uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
+                uncompressed = "{}"
+
+                # for testing purpose, short circuit the cloud fetch schedule and load a test schedule from a test
+                # json file instead.
+
                 # uncompressed = jresp["body"]
                 self.showMsg("decomppressed response:"+uncompressed+"!")
                 if uncompressed != "":
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
-                    bodyobj = json.loads(uncompressed)
-                    # bodyobj = uncompressed
+                    # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
+
+                    with open('C:/software/scheduleResultTest3.json') as test_schedule_file:
+                        bodyobj = json.load(test_schedule_file)
 
                     self.showMsg("bodyobj: "+json.dumps(bodyobj))
                     if len(bodyobj) > 0:
