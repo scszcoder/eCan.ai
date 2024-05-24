@@ -133,7 +133,17 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     psk_words = ""
     log3("DEBUG", "genAMZBrowseDetails..."+json.dumps(worksettings)+"stepN:"+str(stepN))
 
-    # now read screen, if there is log in, then click on log in.
+    # 1st save all profiles, click on select all checkbox, then hit export button, at the dialog do  things:
+    #     i) select all under fingerprint
+    #    ii) select all under region
+    #   iii) select all under proxy?
+    #    iv) click and set directory
+    #    then hit save button.
+    #   then hit OK button.
+    #   obtain saved file and extract info for each user porfile and save into each user profile.
+    #   click on trash can icon to delete all profiles on ADS.
+    #   click on OK to confirm deletion.
+    #   at this step, we're back to a clean initial state of ADS and is ready for loading the next batch of profiles when needed.
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, stepN, None)
     psk_words = psk_words + step_words
 
@@ -232,6 +242,7 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     # psk_words = psk_words + step_words
 
+    # now while all profiles are still selected, hit the delete icon button to delete all profiles and get ADS to a initial blank state.
     # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     # psk_words = psk_words + step_words
 

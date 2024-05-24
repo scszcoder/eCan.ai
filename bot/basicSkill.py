@@ -634,6 +634,18 @@ def genStepUpdateBuyMissionResult(mainwin, mid_var, result, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+# this instruction sends some info from agent/bot to commander.
+def genStepReportToBoss(commander_link, self_ip, exlog_data, result, stepN):
+    stepjson = {
+        "type": "Report To Boss",
+        "commander_link": commander_link,
+        "self_ip": self_ip,
+        "exlog_data": exlog_data,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 def genException():
@@ -3158,3 +3170,26 @@ def processSellCheckShipping(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+
+# this function sends some logging logging message to the commander, that a commander can see what's going on remotely via TCP/IP
+def processReportToBoss(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        msg = "{\"ip\": \"" + step["self_ip"] + "\", \"type\":\"exlog\", \"content\":\"" + json.dumps(step["exlog_data"]).replace('"', '\\"') +"\"}"
+        # send to commander
+        step["commander_link"].write(msg.encode('utf8'))
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSellCheckShipping:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSellCheckShipping: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+

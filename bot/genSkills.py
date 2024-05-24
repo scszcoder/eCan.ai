@@ -90,6 +90,7 @@ PUBLIC = {
     'genStepAMZScrapeDetailsHtml': genStepAMZScrapeDetailsHtml,
     'genStepAMZScrapeReviewsHtml': genStepAMZScrapeReviewsHtml,
     'genStepAMZSearchProducts': genStepAMZSearchProducts,
+    'genStepReportToBoss': genStepReportToBoss,
     'genStepUpdateBotADSProfileFromSavedBatchTxt': genStepUpdateBotADSProfileFromSavedBatchTxt,
     'genWinPrinterLocalReformatPrintSkill': genWinPrinterLocalReformatPrintSkill
 }
@@ -340,6 +341,8 @@ def getWorkRunSettings(lieutenant, bot_works):
             # "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
             "options": "{}",
+            "self_ip": lieutenant.ip,
+            "commander_link": lieutenant.commanderXport,
             "name_space": name_space
             }
 
