@@ -852,6 +852,32 @@ def gen_train_request_string(mStats):
     return query_string
 
 
+def gen_feedback_request_string(fbReq):
+    query_string = """
+            mutation MyUBMutation {
+          updateMissionsExStatus (input:[
+        """
+    rec_string = ""
+    for i in range(len(mStats)):
+        rec_string = rec_string + "{ mid: " + str(mStats[i]["mid"]) + ", "
+        rec_string = rec_string + "bid: '" + str(mStats[i]["bid"]) + "', "
+        rec_string = rec_string + "status: '" + mStats[i]["status"] + "', "
+        rec_string = rec_string + "starttime: '" + mStats[i]["starttime"] + "', "
+        rec_string = rec_string + "endtime: '" + mStats[i]["endtime"] + "'} "
+
+        if i != len(mStats) - 1:
+            rec_string = rec_string + ', '
+        else:
+            rec_string = rec_string + ']'
+
+    tail_string = """
+        ) 
+        } """
+    query_string = query_string + rec_string + tail_string
+    log3(query_string)
+    return query_string
+
+
 
 def set_up_cloud():
     REGION = 'us-east-1'
@@ -1280,6 +1306,25 @@ def send_account_info_request_to_cloud(session, acct_ops, token):
         jresponse = json.loads(jresp["data"]["reqAccountInfo"])
 
     return jresponse
+
+
+
+def send_feedback_request_to_cloud(session, fb_reqs, token):
+
+    queryInfo = gen_feedback_request_string(fb_reqs)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    # log3("file op response:"+json.dumps(jresp))
+    if "errors" in jresp:
+        screen_error = True
+        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reqAccountInfo"])
+
+    return jresponse
+
 
 
 def findIdx(list, element):

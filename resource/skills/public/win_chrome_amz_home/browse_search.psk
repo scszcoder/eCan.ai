@@ -25,16 +25,10 @@
 },
 "step 15":
 {
-    "type": "App Open",
-    "action": "cmd",
-    "save_rb": true,
-    "target_type": "browser",
-    "target_link": "https://www.amazon.com",
-    "anchor_type": "",
-    "anchor_value": "",
-    "cargs_type": "expr",
-    "cargs": "sk_work_settings['cargs']",
-    "wait": 5
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
 },
 "step 20":
 {
@@ -310,7 +304,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'1715752600'+'_'+str(nthPLPage)+'.html'"
+    "key_value": "'1716176219'+'_'+str(nthPLPage)+'.html'"
 },
 "step 160":
 {
