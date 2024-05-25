@@ -246,8 +246,8 @@ class MainWindow(QMainWindow):
         self.SkillManagerWin = SkillManagerWindow(self)
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
+        self.machine_name = myname
 
-        self.commanderName = ""
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
@@ -676,6 +676,12 @@ class MainWindow(QMainWindow):
                     for ins in added_ins:
                         if hasattr(module, ins["handler"]):
                             RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
+
+        run_experience_file = ecb_data_homepath + "/run_experience.txt"
+        if os.path.exists(run_experience_file):
+            with open(run_experience_file, 'rb') as fileTBRead:
+                icon_match_dict = json.load(fileTBRead)
+                fileTBRead.close()
 
         self.showMsg("set up fetching schedule ")
         # now hand daily tasks
@@ -1330,7 +1336,7 @@ class MainWindow(QMainWindow):
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
                     # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
 
-                    with open('C:/software/scheduleResultTest3.json') as test_schedule_file:
+                    with open('C:/software/scheduleResultTest5.json') as test_schedule_file:
                         bodyobj = json.load(test_schedule_file)
 
                     self.showMsg("bodyobj: "+json.dumps(bodyobj))

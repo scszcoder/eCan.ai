@@ -47,6 +47,7 @@ def main():
         loop.run_forever()
 
 if __name__ == '__main__':
+
     ecb_data_homepath = getECBotDataHome()
     runlogs_dir = ecb_data_homepath + "/runlogs"
     if not os.path.isdir(runlogs_dir):
