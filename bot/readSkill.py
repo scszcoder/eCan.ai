@@ -148,7 +148,7 @@ RAIS = {
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
-    "Go To Window": lambda x,y: processGoToWindow(x, y)
+    "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
 

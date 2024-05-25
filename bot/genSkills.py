@@ -342,6 +342,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "wifis" : lieutenant.getWifis(),
             "options": "{}",
             "self_ip": lieutenant.ip,
+            "machine_name": lieutenant.machine_name,
             "commander_link": lieutenant.commanderXport,
             "name_space": name_space
             }
