@@ -1034,7 +1034,7 @@ class BotNewWin(QMainWindow):
                 self.newBot.setInterests(self.newBot.getInterests() + int_words)
             else:
                 self.newBot.setInterests(self.newBot.getInterests() + "," + int_words)
-            self.parent.showMsg("interests>>>>>"+json.dumpa(self.newBot.getInterests()))
+            self.parent.showMsg("interests>>>>>"+json.dumps(self.newBot.getInterests()))
 
     def selFile(self):
         # File actions

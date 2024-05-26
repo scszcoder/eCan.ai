@@ -127,7 +127,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log("DEBUG", "generated skill for windows file operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 

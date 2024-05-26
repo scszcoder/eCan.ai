@@ -29,7 +29,7 @@ DEFAULT_SITE_LIST = ["google", "gmail", "amazon"]
 #input
 def genADSPowerLaunchSteps(worksettings, stepN, theme):
     psk_words = ""
-    log3("DEBUG", "genAMZBrowseDetails..."+json.dumps(worksettings)+"stepN:"+str(stepN))
+    log3("DEBUG", "genADSPowerLaunchSteps..."+json.dumps(worksettings)+"stepN:"+str(stepN))
 
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, stepN)
     psk_words = psk_words + step_words
@@ -301,7 +301,7 @@ def genADSPowerConnectProxy(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("bool", "net_timeout", "NA", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "wait_count", "NA", 6, stepN)
+    this_step, step_words = genStepCreateData("int", "wait_count", "NA", 6, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("ip_obtained != True and not net_timeout", "", "", "connectProxy" + str(this_step), this_step)
@@ -382,7 +382,7 @@ def genADSLoadAmzHomePage(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("bool", "net_timeout", "NA", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "wait_count", "NA", 6, stepN)
+    this_step, step_words = genStepCreateData("int", "wait_count", "NA", 6, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("ip_obtained != True and not net_timeout", "", "",
