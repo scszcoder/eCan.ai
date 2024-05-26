@@ -1336,7 +1336,7 @@ class MainWindow(QMainWindow):
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
                     # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
 
-                    with open('C:/software/scheduleResultTest5.json') as test_schedule_file:
+                    with open('C:/temp/scheduleResultTest5.json') as test_schedule_file:
                         bodyobj = json.load(test_schedule_file)
 
                     self.showMsg("bodyobj: "+json.dumps(bodyobj))
@@ -2123,23 +2123,25 @@ class MainWindow(QMainWindow):
 
     def reAddrAndUpdateSteps(self, pskJson, init_step_idx, work_settings):
         # self.showMsg("PSK JSON::::: "+json.dumps(pskJson))
+        newPskJson = {}
+        self.showMsg("New Index:"+str(init_step_idx))
         new_idx = init_step_idx
         old_keys = list(pskJson.keys())
         for key in old_keys:
             if "step" in key:
                 new_key = "step "+str(new_idx)
-                pskJson[new_key] = pskJson[key]
+                newPskJson[new_key] = pskJson[key]
                 new_idx = new_idx + STEP_GAP
-
-                if "Create Data" in pskJson[new_key]['type']:
-                    if pskJson[new_key]['data_name'] == "sk_work_settings":
-                        pskJson[new_key]["key_value"] = work_settings
+                print("old/new key:", key, new_key, pskJson[key])
+                if "Create Data" in newPskJson[new_key]['type']:
+                    if newPskJson[new_key]['data_name'] == "sk_work_settings":
+                        newPskJson[new_key]["key_value"] = work_settings
                         # self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
 
                 pskJson.pop(key)
 
-        # self.showMsg("PSK JSON after address and update step::::: "+json.dumps(pskJson))
-        return new_idx
+        self.showMsg("PSK JSON after address and update step::::: "+json.dumps(newPskJson))
+        return new_idx, newPskJson
 
 
 
@@ -2207,13 +2209,15 @@ class MainWindow(QMainWindow):
 
                         # readPSkillFile will remove comments. from the file
                         pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
+                        self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
 
                         # now regen address and update settings, after running, pskJson will be updated.
-                        step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+                        step_idx, pskJson = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+                        self.showMsg("AFTER READDRESS AND UPDATE PSK JSON::::" + json.dumps(pskJson))
 
                         addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
 
-                        # self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
+                        self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
 
                         # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
                         rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + ".rsk"
@@ -2228,7 +2232,7 @@ class MainWindow(QMainWindow):
 
 
                     rpa_script = prepRunSkill(all_skill_codes)
-                    # self.showMsg("generated psk: "+json.dumps(rpa_script))
+                    self.showMsg("generated psk: "+json.dumps(rpa_script))
                     self.showMsg("generated psk: " + str(len(rpa_script.keys())))
 
                     # doing this just so that the code below can run multiple codes if needed. but in reality
@@ -2941,7 +2945,7 @@ class MainWindow(QMainWindow):
 
             #now read back just added bots and echo it back onto display...
             #now read back just added bots and echo it back onto display...
-            bid_list = [bot.getBid() for bot in new_bots]
+            bid_list = [bot.getBid() for bot in bots]
 
             if len(bid_list) == 1:
                 # If idlist has only one element, construct SQL query without IN clause
