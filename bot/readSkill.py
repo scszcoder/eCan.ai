@@ -629,7 +629,7 @@ def gen_addresses(stepcodes, nth_pass):
     # skcode = json.loads(sk)
     stepkeys = list(stepcodes.keys())
     log3("total " + str(len(stepkeys)) + " steps.")
-    print("step keys:::", stepkeys)
+    # print("step keys:::", stepkeys)
 
     if nth_pass == 1:
         # parse thru the json objects and work on stubs.
@@ -647,11 +647,11 @@ def gen_addresses(stepcodes, nth_pass):
             else:
                 nextStepName = stepName
 
-            print("i:"+str(i)+" next step name: "+nextStepName)
+            # print("i:"+str(i)+" next step name: "+nextStepName)
 
             if stepcodes[stepName]["type"] == "Stub":
                 # code block
-                print("STUB NAME:"+stepcodes[stepName]["stub_name"])
+                # print("STUB NAME:"+stepcodes[stepName]["stub_name"])
                 # build up function table, and skill table.
                 if "start skill" in stepcodes[stepName]["stub_name"]:
                     # this effectively includes the skill overload function. - SC
@@ -804,7 +804,7 @@ def prepRunSkill(all_skill_codes):
         f = open(sk["skfile"])
         run_steps = json.load(f)
         f.close()
-        print("run steps:", run_steps)
+        # print("run steps:", run_steps)
 
         if skill_code:
             skill_code.update(run_steps)         # merge run steps.
@@ -814,10 +814,10 @@ def prepRunSkill(all_skill_codes):
 
     # 1st pass: get obvious addresses defined. if else end-if, loop end-loop,
     gen_addresses(skill_code, 1)
-    print("skill code after pass 1:", skill_code)
+    # print("skill code after pass 1:", skill_code)
     #2nd pass: resolve overload.
     gen_addresses(skill_code, 2)
-    print("skill code after pass 2:", skill_code)
+    # print("skill code after pass 2:", skill_code)
     log3("DONE generating addressess...")
     # log3("READY2RUN: ", skill_code)
     log3(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
