@@ -1963,11 +1963,11 @@ class MainWindow(QMainWindow):
     def empower_platoon_with_skills(self, platoon_link, skill_ids):
         # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
         for skid in skill_ids:
-            found_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == skid), None)
+            found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
             if found_skill:
                 psk_file = self.homepath + found_skill.getPskFileName()
                 self.showMsg("Empowering platoon with skill PSK")
-                self.send_file_to_platoon(self, platoon_link, "skill psk", psk_file)
+                self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
             else:
                 self.showMsg("ERROR: skid NOT FOUND [" + str(skid) + "]")
 
@@ -2230,11 +2230,11 @@ class MainWindow(QMainWindow):
 
                         # readPSkillFile will remove comments. from the file
                         pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
-                        self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
+                        # self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
 
                         # now regen address and update settings, after running, pskJson will be updated.
                         step_idx, pskJson = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
-                        self.showMsg("AFTER READDRESS AND UPDATE PSK JSON::::" + json.dumps(pskJson))
+                        # self.showMsg("AFTER READDRESS AND UPDATE PSK JSON::::" + json.dumps(pskJson))
 
                         addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
 
