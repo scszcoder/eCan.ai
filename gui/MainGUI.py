@@ -1549,11 +1549,16 @@ class MainWindow(QMainWindow):
 
     def formSkillsJsons(self, skids):
         result = []
+        all_skids = [sk.getSkid() for sk in self.skills]
+        self.showMsg("all known skids:"+json.dumps(all_skids))
         for skid in skids:
             # result = result + json.dumps(self.getMissionByID(mid).genJson()).replace('"', '\\"')
-            found_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == skid), None)
+            found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
             if found_skill:
+                print("found skill")
                 result.append(found_skill.genJson())
+            else:
+                self.showMsg("ERROR: skill id not found [" + str(skid)+"]")
         return result
 
     def formBotsMissionsSkillsString(self, botids, mids, skids):
@@ -1938,6 +1943,7 @@ class MainWindow(QMainWindow):
                             v_groups[platform][i].setBotIds(tg_botids)
                             v_groups[platform][i].setMids(tg_botids)
 
+                            self.showMsg("tg_skids:"+json.dumps(tg_skids))
                             # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
                             # execute
                             # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
@@ -1948,7 +1954,6 @@ class MainWindow(QMainWindow):
                             self.send_json_to_platoon(v_groups[platform][i].getFieldLink(), schedule)
 
                             self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink(), tg_skids)
-
 
                 else:
                     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
@@ -3200,10 +3205,10 @@ class MainWindow(QMainWindow):
             self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
 
         for skjs in skillsJson:
-            self.newSkill = WORKSKILL(self)
+            self.newSkill = WORKSKILL(self, skjs["name"])
             self.newSkill.loadJson(skjs)
             self.skills.append(self.newSkill)
-            self.skillModel.appendRow(self.newSkill)
+            # self.skillModel.appendRow(self.newSkill)
 
 
     def addVehicle(self, vip):
@@ -4246,10 +4251,10 @@ class MainWindow(QMainWindow):
 
                         for i in range(len(jbody)):
                             self.showMsg(str(i))
-                            new_skill = WORKSKILL()
+                            new_skill = WORKSKILL(self, jbody[i]["name"])
                             self.fillNewSkill(jbody[i], new_skill)
                             self.skills.append(new_skill)
-                            self.skillModel.appendRow(new_skill)
+                            # self.skillModel.appendRow(new_skill)
                             api_skills.append({
                                 "skid": new_skill.getBid(),
                                 "owner": self.owner,
