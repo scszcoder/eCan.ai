@@ -5571,7 +5571,7 @@ class MainWindow(QMainWindow):
 
     def send_file_to_platoon(self, platoon_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and platoon_link:
-            self.showMsg(f"Sending File [{file_name_full_path}] to platoon "+platoon_link["ip"][0])
+            self.showMsg(f"Sending File [{file_name_full_path}] to platoon: "+platoon_link["ip"][0])
             with open(file_name_full_path, 'rb') as fileTBSent:
                 binary_data = fileTBSent.read()
                 encoded_data = base64.b64encode(binary_data).decode('utf-8')
