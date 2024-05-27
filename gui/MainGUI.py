@@ -2155,11 +2155,13 @@ class MainWindow(QMainWindow):
                 if "Create Data" in newPskJson[new_key]['type']:
                     if newPskJson[new_key]['data_name'] == "sk_work_settings":
                         newPskJson[new_key]["key_value"] = work_settings
+                        # newPskJson[new_key]["key_value"] = copy.deepcopy(work_settings)
+                        # newPskJson[new_key]["key_value"]["commander_link"] = ""
                         # self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
 
                 pskJson.pop(key)
 
-        self.showMsg("PSK JSON after address and update step::::: "+json.dumps(newPskJson))
+        # self.showMsg("PSK JSON after address and update step::::: "+json.dumps(newPskJson))
         return new_idx, newPskJson
 
 
@@ -2186,7 +2188,7 @@ class MainWindow(QMainWindow):
             running_mission = self.missions[worksettings["midx"]]
 
             if 'ads' in running_mission.getCusPAS() and running_mission.getADSXlsxProfile() == "":
-                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()))
+                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()) + " " + running_mission.getCusPAS() + " " + running_mission.getADSXlsxProfile())
                 runResult = "ErrorRPA ADS mission has no profile " + str(running_mission.getMid())
                 self.update1MStat(worksettings["midx"], runResult)
                 self.update1WorkRunStatus(worksTBD, worksettings["midx"])
@@ -2228,15 +2230,15 @@ class MainWindow(QMainWindow):
 
                         # readPSkillFile will remove comments. from the file
                         pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
-                        # self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
+                        self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
 
                         # now regen address and update settings, after running, pskJson will be updated.
                         step_idx, pskJson = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
-                        # self.showMsg("AFTER READDRESS AND UPDATE PSK JSON::::" + json.dumps(pskJson))
+                        self.showMsg("AFTER READDRESS AND UPDATE PSK JSON::::" + json.dumps(pskJson))
 
                         addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
 
-                        self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
+                        # self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
 
                         # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
                         rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + ".rsk"

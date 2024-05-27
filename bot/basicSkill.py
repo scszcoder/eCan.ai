@@ -3252,28 +3252,28 @@ def processGoToWindow(step, i):
         print("found taget window:", found)
         if len(found) > 0:
             hwnd = win32gui.FindWindow(None, found[0])
-        print("setting foreground window", hwnd)
-        win32gui.SetForegroundWindow(hwnd)
-
-        if win32gui.IsIconic(hwnd):
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-
-        fg_window = win32gui.GetForegroundWindow()
-
-        if fg_window != hwnd:
-            current_thread = win32api.GetCurrentThreadId()
-            fg_thread, _ = win32process.GetWindowThreadProcessId(fg_window)
-            target_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
-
-            # Attach the input processing mechanism of the current thread to the input processing mechanism of another thread
-            win32process.AttachThreadInput(current_thread, target_thread, True)
-
-            # Bring the window to the foreground
+            print("setting foreground window", hwnd)
             win32gui.SetForegroundWindow(hwnd)
-            win32gui.SetFocus(hwnd)
 
-            # Detach the input processing mechanism of the current thread from the input processing mechanism of another thread
-            win32process.AttachThreadInput(current_thread, target_thread, False)
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+            fg_window = win32gui.GetForegroundWindow()
+
+            if fg_window != hwnd:
+                current_thread = win32api.GetCurrentThreadId()
+                fg_thread, _ = win32process.GetWindowThreadProcessId(fg_window)
+                target_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
+
+                # Attach the input processing mechanism of the current thread to the input processing mechanism of another thread
+                win32process.AttachThreadInput(current_thread, target_thread, True)
+
+                # Bring the window to the foreground
+                win32gui.SetForegroundWindow(hwnd)
+                win32gui.SetFocus(hwnd)
+
+                # Detach the input processing mechanism of the current thread from the input processing mechanism of another thread
+                win32process.AttachThreadInput(current_thread, target_thread, False)
 
     except Exception as e:
         # Get the traceback information
@@ -3287,7 +3287,10 @@ def processGoToWindow(step, i):
 
     return (i + 1), ex_stat
 
-
+# find the network link transport of the commander-platoon link by the platoon's IP address.
+def get_commander_link_by_ip(ip):
+    global login
+    return login.get_mainwin().commanderXport
 
 # this function sends some logging logging message to the commander, that a commander can see what's going on remotely via TCP/IP
 def processReportToBoss(step, i):
@@ -3295,7 +3298,9 @@ def processReportToBoss(step, i):
     try:
         msg = "{\"ip\": \"" + step["self_ip"] + "\", \"type\":\"exlog\", \"content\":\"" + json.dumps(step["exlog_data"]).replace('"', '\\"') +"\"}"
         # send to commander
-        step["commander_link"].write(msg.encode('utf8'))
+        commander_link = get_commander_link_by_ip(step["self_ip"])
+        if commander_link:
+            commander_link.write(msg.encode('utf8'))
 
     except Exception as e:
         # Get the traceback information
