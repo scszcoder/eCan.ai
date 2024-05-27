@@ -1916,7 +1916,7 @@ class MainWindow(QMainWindow):
                                  "current widx": 0, "completed": [], "aborted": []})
 
                             for profile in ads_profiles:
-                                self.send_file_to_platoon(v_groups[platform][i].getFieldLink(), profile)
+                                self.send_file_to_platoon(v_groups[platform][i].getFieldLink(), "ads profile", profile)
 
                             task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
 
@@ -1933,8 +1933,10 @@ class MainWindow(QMainWindow):
                             schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
                             self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
 
+                            # send over scheduled tasks to platton.
                             self.send_json_to_platoon(v_groups[platform][i].getFieldLink(), schedule)
 
+                            # send over skills to platoon
                             self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink(), tg_skids)
 
 
@@ -1948,7 +1950,7 @@ class MainWindow(QMainWindow):
             if found_skill:
                 psk_file = self.homepath + found_skill.getPskFileName()
                 self.showMsg("Empowering platoon with skill PSK")
-                self.send_file_to_platoon(self, platoon_link, psk_file)
+                self.send_file_to_platoon(self, platoon_link, "skill psk", psk_file)
             else:
                 self.showMsg("ERROR: skid NOT FOUND [" + str(skid) + "]")
 
@@ -5040,6 +5042,7 @@ class MainWindow(QMainWindow):
             # update vehicle status display.
             self.showMsg("received a file: "+msg["file_name"])
             file_name = msg["file_name"]
+            file_type = msg["file_type"]
             file_contents = msg["file_contents"].encode('latin1')  # Encode string to binary data
             with open(file_name, 'wb') as file:
                 file.write(file_contents)
@@ -5061,6 +5064,11 @@ class MainWindow(QMainWindow):
 
             self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
             self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
+
+            platform_os = self.platform            # win, mac or linux
+            self.todays_scheduled_task_groups[platform_os] = localworks
+            self.unassigned_task_groups[platform_os] = localworks
+
             # clean up the reports on this vehicle....
             self.todaysReports = []
             self.DONE_WITH_TODAY = False
@@ -5561,7 +5569,7 @@ class MainWindow(QMainWindow):
         self.chatWin.addNetChatHis(sender, receivers, msg_json["log_msg"])
 
 
-    def send_file_to_platoon(self, platoon_link, file_name_full_path):
+    def send_file_to_platoon(self, platoon_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and platoon_link:
             self.showMsg(f"Sending File [{file_name_full_path}] to platoon "+platoon_link["ip"][0])
             with open(file_name_full_path, 'rb') as fileTBSent:
@@ -5569,7 +5577,7 @@ class MainWindow(QMainWindow):
                 encoded_data = base64.b64encode(binary_data).decode('utf-8')
 
                 # Embed in JSON
-                json_data = json.dumps({"cmd": "reqSendFile", "file_name": file_name_full_path, "file_contents": encoded_data})
+                json_data = json.dumps({"cmd": "reqSendFile", "file_name": file_name_full_path, "file_type": file_type, "file_contents": encoded_data})
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
                 platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
