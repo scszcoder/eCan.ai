@@ -39,6 +39,7 @@ elif sys.platform == 'darwin':
     __PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
     pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
 
+symTab = globals()
 from scraper import *
 from Cloud import *
 from pynput.mouse import Button, Controller
@@ -46,7 +47,7 @@ from readSkill import *
 from envi import *
 
 STEP_GAP = 5
-symTab = globals()
+
 mouse = Controller()
 
 mission_vars = []
@@ -62,6 +63,11 @@ DEFAULT_RUN_STATUS = "Completed:0"
 TEST_RUN_CNT = 0
 
 ecb_data_homepath = getECBotDataHome()
+
+# the dictionary structure is {"machine name": {"skid", {"page": {"section": [{"icon anchor name": [scales...]}....]}}}}
+# each time processExtractInfo executes, this dic will be accumulated and built up.
+# and each time processExtractInfo executes, it will try to use this dict to predict the scale factor to use for a cloud side icon match action.
+icon_match_dict = {}
 #####################################################################################
 #  some useful utility functions
 #####################################################################################
@@ -767,7 +773,7 @@ def list_windows():
                 break
 
         return active_app_name, window_rect
-def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options):
+def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.parent_settings
     global screen_loc
 
@@ -814,7 +820,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         "options": "",
         "theme": page_theme,
         "imageFile": sfile.replace("\\", "\\\\"),
-        "factor": "{}"
+        "factor": factors
     }]
 
     if options != "":
@@ -857,6 +863,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     if "errors" in jresult:
         screen_error = True
         log3("ERROR Type: "+json.dumps(jresult["errors"][0]["errorType"])+"ERROR Info: "+json.dumps(jresult["errors"][0]["errorInfo"]))
+        return []
     else:
         # log3("cloud result data body: "+json.dumps(result["body"]))
         jbody = json.loads(result["body"])
@@ -992,7 +999,7 @@ def processExtractInfo(step, i, mission, skill):
         app = step_settings["app"]
         site = step_settings["site"]
         page = step_settings["page"]
-
+        machine_name = step_settings["machine_name"]
         if step_settings["root_path"][len(step_settings["root_path"])-1]=="/":
             step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"])-1]
 
@@ -1008,11 +1015,16 @@ def processExtractInfo(step, i, mission, skill):
 
 
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        icon_names = get_csk_icon_names(skill, step["page"], step["section"])
+        factors = findAndFormIconScaleFactors(machine_name, skill.getSkid(), step["page"], step["section"], icon_names)
 
-
-        result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"])
+        result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+        if len(result) > 0:
+            updateIconScalesDict(machine_name, skill.getSkid(), step["page"], step["section"], result)
+
 
     except Exception as e:
         # Get the traceback information
@@ -2144,10 +2156,10 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         # start execuation on the function, find the function name's address, and set next pointer to it.
         # the function name address key value pair was created in gen_addresses
         skname = step["skill_path"] + "/" + step["skill_name"]
-        log3("skname:"+skname)
+        log3("skname:"+skname+"  "+sk_table[skname])
         idx = step_keys.index(sk_table[skname])
         log3("idx:"+str(idx))
-        log3("step_keys:"+step_keys[len(step_keys)-1])
+        log3("step_keys:"+json.dumps(step_keys))
 
 
     except Exception as e:
@@ -3297,3 +3309,51 @@ def processReportToBoss(step, i):
 
     return (i + 1), ex_stat
 
+def updateIconScalesDict(machine_name, skid, page, section, screen_data):
+    all_icons = [x for x in screen_data if (x["type"] == "anchor icon")]
+    icon_scales = []
+    icon_scale_data = {}
+    uniq_icon_names = list(icon_match_dict[machine_name][skid][page][section].keys())
+
+    for icon in all_icons:
+        if icon["name"] not in uniq_icon_names:
+            icon_match_dict[machine_name][skid][page][section][icon["name"]] = [icon["scale"]]
+        else:
+            icon_match_dict[machine_name][skid][page][section][icon["name"]].append(icon["scale"])
+
+    # save the updated to a file.
+    run_experience_file = ecb_data_homepath + "/run_experience.txt"
+    with open(run_experience_file, 'wb') as fileTBSaved:
+        json.dump(icon_match_dict, fileTBSaved, indent=4)
+        fileTBSaved.close()
+
+
+def findAndFormIconScaleFactors(machine_name, skid, page, section, icon_names):
+    icon_scale_option = "{}"
+    found_icon_scales = []
+    if machine_name in icon_match_dict:
+        if skid in icon_match_dict[machine_name]:
+            if page in icon_match_dict[machine_name][skid]:
+                if section in icon_match_dict[machine_name][skid][page][section]:
+                    icon_scales = icon_match_dict[machine_name][skid][page][section]
+                    found_icon_scales = [x for x in icon_names if x in icon_scales]
+                    if len(found_icon_scales) > 0:
+                        icon_scale_option = json.dumps(found_icon_scales).replace('"', '\\"')
+
+    return icon_scale_option
+
+
+def get_csk_icon_names(skill, page, section):
+    icon_names = []
+    csk_file_name = skill.getCskFileName()
+    csk_json = None
+    if os.path.exists(csk_file_name):
+        with open(csk_file_name, 'rb') as csk_file:
+            csk_json = json.load(csk_file)
+            csk_file.close()
+
+    if csk_json:
+        if page in csk_json:
+            if section in csk_json[page]:
+                icon_names = [x["anchor_name"] for x in csk_json[page][section]["anchors"] if x["anchor_type"] == "icon"]
+    return icon_names
