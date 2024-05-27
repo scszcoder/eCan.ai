@@ -148,7 +148,7 @@ RAIS = {
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
-    "Go To Window": lambda x,y: processGoToWindow(x, y)
+    "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
 
@@ -626,15 +626,16 @@ def gen_addresses(stepcodes, nth_pass):
     # go thruthe program as we see condition / loop / function def , push them onto stack, then pop them off as we see
     # else, end - if, end - loop, end - function....until at last the stack is empty again.
     # sk
-    #skcode = json.loads(sk)
+    # skcode = json.loads(sk)
     stepkeys = list(stepcodes.keys())
     log3("total " + str(len(stepkeys)) + " steps.")
+    # print("step keys:::", stepkeys)
 
     if nth_pass == 1:
         # parse thru the json objects and work on stubs.
         for i in range(len(stepkeys)):
             stepName = stepkeys[i]
-            # log3("working on: "+stepName)
+            log3("working on: ["+str(i)+"] "+stepName+" "+stepcodes[stepName]["type"])
 
             if i != 0:
                 prevStepName = stepkeys[i - 1]
@@ -646,12 +647,15 @@ def gen_addresses(stepcodes, nth_pass):
             else:
                 nextStepName = stepName
 
+            # print("i:"+str(i)+" next step name: "+nextStepName)
+
             if stepcodes[stepName]["type"] == "Stub":
                 # code block
+                # print("STUB NAME:"+stepcodes[stepName]["stub_name"])
                 # build up function table, and skill table.
                 if "start skill" in stepcodes[stepName]["stub_name"]:
                     # this effectively includes the skill overload function. - SC
-                    log3("ADDING TO SKILL TABLE: "+json.dumps(stepcodes[stepName]["func_name"])+" "+json.dumps(nextStepName))
+                    log3("ADDING TO SKILL TABLE: ["+str(i)+"]"+json.dumps(stepcodes[stepName]["func_name"])+" "+json.dumps(nextStepName))
                     skill_table[stepcodes[stepName]["func_name"]] = nextStepName
                 elif stepcodes[stepName]["stub_name"] == "start function":
                     # this effectively includes the skill overload function. - SC
@@ -801,6 +805,8 @@ def prepRunSkill(all_skill_codes):
         # run_steps = json.load(f)
         # f.close()
         run_steps = readPSkillFile("", sk["skfile"], 0)
+        # print("run steps:", run_steps)
+
 
         if skill_code:
             skill_code.update(run_steps)         # merge run steps.
@@ -810,10 +816,10 @@ def prepRunSkill(all_skill_codes):
 
     # 1st pass: get obvious addresses defined. if else end-if, loop end-loop,
     gen_addresses(skill_code, 1)
-
+    # print("skill code after pass 1:", skill_code)
     #2nd pass: resolve overload.
     gen_addresses(skill_code, 2)
-
+    # print("skill code after pass 2:", skill_code)
     log3("DONE generating addressess...")
     # log3("READY2RUN: ", skill_code)
     log3(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")

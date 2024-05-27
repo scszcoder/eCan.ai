@@ -246,8 +246,8 @@ class MainWindow(QMainWindow):
         self.SkillManagerWin = SkillManagerWindow(self)
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
+        self.machine_name = myname
 
-        self.commanderName = ""
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
@@ -307,6 +307,7 @@ class MainWindow(QMainWindow):
 
         self.owner = "NA"
         self.botRank = "soldier"              # this should be read from a file which is written during installation phase, user will select this during installation phase
+        self.rpa_work_assigned_for_today = False
 
         self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
         self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
@@ -683,6 +684,12 @@ class MainWindow(QMainWindow):
                     for ins in added_ins:
                         if hasattr(module, ins["handler"]):
                             RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
+
+        run_experience_file = ecb_data_homepath + "/run_experience.txt"
+        if os.path.exists(run_experience_file):
+            with open(run_experience_file, 'rb') as fileTBRead:
+                icon_match_dict = json.load(fileTBRead)
+                fileTBRead.close()
 
         self.showMsg("set up fetching schedule ")
         # now hand daily tasks
@@ -1337,7 +1344,7 @@ class MainWindow(QMainWindow):
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
                     # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
 
-                    with open('C:/software/scheduleResultTest3.json') as test_schedule_file:
+                    with open('C:/software/scheduleResultTest7.json') as test_schedule_file:
                         bodyobj = json.load(test_schedule_file)
 
                     self.showMsg("bodyobj: "+json.dumps(bodyobj))
@@ -1648,12 +1655,14 @@ class MainWindow(QMainWindow):
         return result
 
     def getUnassignedVehiclesByOS(self):
+        self.showMsg("N vehicles " + str(len(self.vehicles)))
         result = {
             "win": [v for v in self.vehicles if v.getOS() == "Windows" and len(v.getBotIds()) == 0],
             "mac": [v for v in self.vehicles if v.getOS() == "Mac" and len(v.getBotIds()) == 0],
             "linux": [v for v in self.vehicles if v.getOS() == "Linux" and len(v.getBotIds()) == 0]
         }
-        if self.hostrole == "Commander":
+        self.showMsg("N vehicles win " + str(len(result["win"]))+" " + str(len(result["mac"]))+" " + str(len(result["linux"])))
+        if self.hostrole == "Commander" and not self.rpa_work_assigned_for_today:
             if len([wk for wk in self.todays_work["tbd"] if wk["name"] == "automation"]) == 0:
                 self.showMsg("myself unassigned "+self.getIP())
                 # put in a dummy V
@@ -1663,10 +1672,13 @@ class MainWindow(QMainWindow):
                 ip = ipfields[len(ipfields) - 1]
                 self_v.setVid(ip)
                 if self.platform == "win":
+                    self.showMsg("add myself to win based v list")
                     result["win"].insert(0, self_v)
                 elif self.platform == "mac":
+                    self.showMsg("add myself to mac based v list")
                     result["mac"].insert(0, self_v)
                 else:
+                    self.showMsg("add myself to linux based v list")
                     result["linux"].insert(0, self_v)
 
         return result
@@ -1864,7 +1876,9 @@ class MainWindow(QMainWindow):
         # tasks should already be sorted by botid,
         nsites = 0
         v_groups = self.getUnassignedVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
+
         for key in v_groups:
+            print("num vehicles in "+key+" :"+str(len(v_groups[key])))
             if len(v_groups[key]) > 0:
                 for k, v in enumerate(v_groups[key]):
                     self.showMsg("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n")
@@ -1873,6 +1887,8 @@ class MainWindow(QMainWindow):
             p_task_groups = self.unassigned_task_groups[platform]
             p_nsites = len(v_groups[platform])
 
+            self.showMsg("p_nsites:"+str(p_nsites))
+
             if p_nsites > 0:
                 if len(p_task_groups) > p_nsites:
                     # there will be unserved tasks due to over capacity
@@ -1880,12 +1896,13 @@ class MainWindow(QMainWindow):
                     # save capacity spill into unassigned_task_groups
                     self.unassigned_task_groups[platform] = self.unassigned_task_groups[platform][p_nsites:]
                 else:
+                    self.showMsg("No under-capacity")
                     self.unassigned_task_groups[platform] = []
 
                 # distribute work to all available sites, which is the limit for the total capacity.
                 if p_nsites > 0:
                     for i in range(p_nsites):
-                        if i == 0 and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
+                        if i == 0 and not self.rpa_work_assigned_for_today and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
                             # if commander participate work, give the first(0th) work to self.
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[0], self)
                             # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
@@ -1894,6 +1911,7 @@ class MainWindow(QMainWindow):
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
                             self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
                             vidx = 0
+                            self.rpa_work_assigned_for_today = True
                         else:
                             # #otherwise, send work to platoons in the field
                             # if self.hostrole == "CommanderOnly":
@@ -2124,23 +2142,25 @@ class MainWindow(QMainWindow):
 
     def reAddrAndUpdateSteps(self, pskJson, init_step_idx, work_settings):
         # self.showMsg("PSK JSON::::: "+json.dumps(pskJson))
+        newPskJson = {}
+        self.showMsg("New Index:"+str(init_step_idx))
         new_idx = init_step_idx
         old_keys = list(pskJson.keys())
         for key in old_keys:
             if "step" in key:
                 new_key = "step "+str(new_idx)
-                pskJson[new_key] = pskJson[key]
+                newPskJson[new_key] = pskJson[key]
                 new_idx = new_idx + STEP_GAP
-
-                if "Create Data" in pskJson[new_key]['type']:
-                    if pskJson[new_key]['data_name'] == "sk_work_settings":
-                        pskJson[new_key]["key_value"] = work_settings
+                print("old/new key:", key, new_key, pskJson[key])
+                if "Create Data" in newPskJson[new_key]['type']:
+                    if newPskJson[new_key]['data_name'] == "sk_work_settings":
+                        newPskJson[new_key]["key_value"] = work_settings
                         # self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
 
                 pskJson.pop(key)
 
-        # self.showMsg("PSK JSON after address and update step::::: "+json.dumps(pskJson))
-        return new_idx
+        self.showMsg("PSK JSON after address and update step::::: "+json.dumps(newPskJson))
+        return new_idx, newPskJson
 
 
 
@@ -2208,13 +2228,15 @@ class MainWindow(QMainWindow):
 
                         # readPSkillFile will remove comments. from the file
                         pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
+                        # self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
 
                         # now regen address and update settings, after running, pskJson will be updated.
-                        step_idx = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+                        step_idx, pskJson = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+                        # self.showMsg("AFTER READDRESS AND UPDATE PSK JSON::::" + json.dumps(pskJson))
 
                         addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
 
-                        # self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
+                        self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
 
                         # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
                         rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + ".rsk"
@@ -2227,10 +2249,9 @@ class MainWindow(QMainWindow):
 
                     self.showMsg("all_skill_codes: "+json.dumps(all_skill_codes))
 
-
                     rpa_script = prepRunSkill(all_skill_codes)
                     # self.showMsg("generated psk: "+json.dumps(rpa_script))
-                    self.showMsg("generated psk: " + str(len(rpa_script.keys())))
+                    # self.showMsg("generated psk: " + str(len(rpa_script.keys())))
 
                     # doing this just so that the code below can run multiple codes if needed. but in reality
                     # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
@@ -2942,7 +2963,7 @@ class MainWindow(QMainWindow):
 
             #now read back just added bots and echo it back onto display...
             #now read back just added bots and echo it back onto display...
-            bid_list = [bot.getBid() for bot in new_bots]
+            bid_list = [bot.getBid() for bot in bots]
 
             if len(bid_list) == 1:
                 # If idlist has only one element, construct SQL query without IN clause
@@ -4610,6 +4631,7 @@ class MainWindow(QMainWindow):
                         self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
                     elif msg_parts[1] == "connection":
                         # this is the initial connection msg from a client
+                        print("recevied connection message: "+msg_parts[0])
                         if self.platoonWin == None:
                             self.platoonWin = PlatoonWindow(self, "conn")
 
@@ -4619,10 +4641,12 @@ class MainWindow(QMainWindow):
 
                         # after adding a vehicle, try to get this vehicle's info
                         if len(self.vehicles) > 0:
+                            print("pinging platoon: "+str(len(self.vehicles)-1))
                             last_idx = len(self.vehicles)-1
                             self.sendToPlatoons([last_idx])         # sends a default ping command to get userful info.
 
                     elif msg_parts[1] == "net loss":
+                        print("received net loss")
                         # remove this link from the link list
                         self.removeVehicle()
 
@@ -4881,10 +4905,12 @@ class MainWindow(QMainWindow):
                     self.doneWithToday()
 
             elif msg["type"] == "chat":
+                self.showMsg("received chat message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receiveBotChatMessage(msg["content"])
 
             elif msg["type"] == "exlog":
+                self.showMsg("received exlog message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receiveBotLogMessage(msg["content"])
             elif msg["type"] == "heartbeat":
@@ -5187,6 +5213,7 @@ class MainWindow(QMainWindow):
 
         if not self.DONE_WITH_TODAY:
             self.DONE_WITH_TODAY = True
+            self.rpa_work_assigned_for_today = False
 
             if not self.hostrole == "Platoon":
                 # if self.hostrole == "Commander":
