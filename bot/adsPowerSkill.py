@@ -1083,14 +1083,14 @@ def removeUselessCookies(pfJson, site_list):
 def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
     # Convert JSON data to a DataFrame
     new_pfJsons = []
-    # log3("batch_bot_mid_keys:"+str(len(pfJsons))+" " + json.dumps(batch_bot_mid_keys))
+    log3("batch_bot_mid_keys:"+str(len(pfJsons))+" " + json.dumps(batch_bot_mid_keys))
     for one_profile in batch_bot_mid_keys:
         one_un = one_profile.split("_")[0]
 
         found_match = False
         for original_pfJson in pfJsons:
             un = original_pfJson["username"].split("@")[0]
-            log3("searching user name."+un)
+            log3("searching user name. "+un+" "+one_un+" from:"+fname)
             if un == one_un:
                 found_match = True
                 break
@@ -1106,6 +1106,8 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
             removeUselessCookies(pfJson, site_list)
             pfJson["cookie"]=json.dumps(pfJson["cookie"])
             new_pfJsons.append(pfJson)
+        else:
+            log3("ERROR user not found..."+un)
 
     df = pd.DataFrame(new_pfJsons)
     log3("writing to xlsx:"+fname)
@@ -1120,7 +1122,7 @@ def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
     pfJsons = readTxtProfiles(profile_names)
     for pfJson in pfJsons:
         un = pfJson["username"].split("@")[0]
-        log3("searching user name:" + un)
+        log3("aggregate profile searching user name:" + un)
         if un in site_lists.keys():
             site_list = site_lists[un]
         else:
