@@ -208,6 +208,8 @@ class Login(QDialog):
         layout.addLayout(log_layout)
 
     # async def launchLAN(self):
+    def get_mainwin(self):
+        return self.mainwin
 
     def get_msg_queue(self):
         return self.gui_net_msg_queue

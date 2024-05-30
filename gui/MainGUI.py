@@ -294,7 +294,7 @@ class MainWindow(QMainWindow):
             sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating REAL, feedbacks INTEGER, price REAL, customer TEXT, platoon TEXT, result TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
             self.dbCursor.execute(sql)
 
-            sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, runtime TEXT, price_model TEXT, price INTEGER, privacy TEXT)'
+            sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, appargs TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, main TEXT, createdon TEXT, extensions TEXT, runtime INTEGER, price_model TEXT, price INTEGER, privacy TEXT)'
             self.dbCursor.execute(sql)
 
             sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variation TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
@@ -1556,11 +1556,16 @@ class MainWindow(QMainWindow):
 
     def formSkillsJsons(self, skids):
         result = []
+        all_skids = [sk.getSkid() for sk in self.skills]
+        self.showMsg("all known skids:"+json.dumps(all_skids))
         for skid in skids:
             # result = result + json.dumps(self.getMissionByID(mid).genJson()).replace('"', '\\"')
-            found_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == skid), None)
+            found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
             if found_skill:
+                print("found skill")
                 result.append(found_skill.genJson())
+            else:
+                self.showMsg("ERROR: skill id not found [" + str(skid)+"]")
         return result
 
     def formBotsMissionsSkillsString(self, botids, mids, skids):
@@ -1935,7 +1940,7 @@ class MainWindow(QMainWindow):
                                  "current widx": 0, "completed": [], "aborted": []})
 
                             for profile in ads_profiles:
-                                self.send_file_to_platoon(v_groups[platform][i].getFieldLink(), profile)
+                                self.send_file_to_platoon(v_groups[platform][i].getFieldLink(), "ads profile", profile)
 
                             task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
 
@@ -1945,6 +1950,7 @@ class MainWindow(QMainWindow):
                             v_groups[platform][i].setBotIds(tg_botids)
                             v_groups[platform][i].setMids(tg_botids)
 
+                            self.showMsg("tg_skids:"+json.dumps(tg_skids))
                             # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
                             # execute
                             # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
@@ -1952,10 +1958,11 @@ class MainWindow(QMainWindow):
                             schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
                             self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
 
+                            # send over scheduled tasks to platton.
                             self.send_json_to_platoon(v_groups[platform][i].getFieldLink(), schedule)
 
+                            # send over skills to platoon
                             self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink(), tg_skids)
-
 
                 else:
                     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
@@ -1963,11 +1970,11 @@ class MainWindow(QMainWindow):
     def empower_platoon_with_skills(self, platoon_link, skill_ids):
         # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
         for skid in skill_ids:
-            found_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == skid), None)
+            found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
             if found_skill:
                 psk_file = self.homepath + found_skill.getPskFileName()
                 self.showMsg("Empowering platoon with skill PSK")
-                self.send_file_to_platoon(self, platoon_link, psk_file)
+                self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
             else:
                 self.showMsg("ERROR: skid NOT FOUND [" + str(skid) + "]")
 
@@ -2155,11 +2162,13 @@ class MainWindow(QMainWindow):
                 if "Create Data" in newPskJson[new_key]['type']:
                     if newPskJson[new_key]['data_name'] == "sk_work_settings":
                         newPskJson[new_key]["key_value"] = work_settings
+                        # newPskJson[new_key]["key_value"] = copy.deepcopy(work_settings)
+                        # newPskJson[new_key]["key_value"]["commander_link"] = ""
                         # self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
 
                 pskJson.pop(key)
 
-        self.showMsg("PSK JSON after address and update step::::: "+json.dumps(newPskJson))
+        # self.showMsg("PSK JSON after address and update step::::: "+json.dumps(newPskJson))
         return new_idx, newPskJson
 
 
@@ -2186,7 +2195,7 @@ class MainWindow(QMainWindow):
             running_mission = self.missions[worksettings["midx"]]
 
             if 'ads' in running_mission.getCusPAS() and running_mission.getADSXlsxProfile() == "":
-                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()))
+                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()) + " " + running_mission.getCusPAS() + " " + running_mission.getADSXlsxProfile())
                 runResult = "ErrorRPA ADS mission has no profile " + str(running_mission.getMid())
                 self.update1MStat(worksettings["midx"], runResult)
                 self.update1WorkRunStatus(worksTBD, worksettings["midx"])
@@ -2236,7 +2245,7 @@ class MainWindow(QMainWindow):
 
                         addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
 
-                        self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
+                        # self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
 
                         # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
                         rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + ".rsk"
@@ -3207,10 +3216,10 @@ class MainWindow(QMainWindow):
             self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
 
         for skjs in skillsJson:
-            self.newSkill = WORKSKILL(self)
+            self.newSkill = WORKSKILL(self, skjs["name"])
             self.newSkill.loadJson(skjs)
             self.skills.append(self.newSkill)
-            self.skillModel.appendRow(self.newSkill)
+            # self.skillModel.appendRow(self.newSkill)
 
 
     def addVehicle(self, vip):
@@ -4232,66 +4241,80 @@ class MainWindow(QMainWindow):
         self.showMsg("loading skill from a file..."+filename)
         if filename != "":
             api_skills = []
-            new_skill_file = open(filename)
-            if new_skill_file != None:
-                # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
-                filebskill = json.load(new_skill_file)
-                if len(filebskill) > 0:
-                    #add bots to the relavant data structure and add these bots to the cloud and local DB.
-                    # send_add_skills_to_cloud
-                    jresp = (self.session, filebskill, self.tokens['AuthenticationResult']['IdToken'])
+            try:
+                with open(filename, 'r') as new_skill_file:
+                    # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+                    skill_json = json.load(new_skill_file)
+                    if skill_json:
+                        #add skills to the relavant data structure and add these bots to the cloud and local DB.
+                        # send_add_skills_to_cloud
+                        jresp = send_add_skills_request_to_cloud(self.session, [skill_json], self.tokens['AuthenticationResult']['IdToken'])
 
-                    if "errorType" in jresp:
-                        screen_error = True
-                        self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                        if "errorType" in jresp:
+                            screen_error = True
+                            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                        else:
+                            self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
+                            jbody = jresp["body"]
+                            # now that add is successfull, update local file as well.
+
+                            # now add bot to local DB.
+
+                            for i in range(len(jbody)):
+                                self.showMsg(str(i))
+                                new_skill = WORKSKILL(self, jbody[i]["name"])
+                                self.fillNewSkill(jbody[i], new_skill)
+                                self.skills.append(new_skill)
+                                # self.skillModel.appendRow(new_skill)
+                                api_skills.append({
+                                    "skid": new_skill.getSkid(),
+                                    "owner": new_skill.getOwner(),
+                                    "platform": new_skill.getPlatform(),
+                                    "app": new_skill.getApp(),
+                                    "applink": new_skill.getAppLink(),
+                                    "appargs": new_skill.getAppArgs(),
+                                    "site": new_skill.getSiteName(),
+                                    "sitelink": new_skill.getSite(),
+                                    "name": new_skill.getName(),
+                                    "path": new_skill.getPath(),
+                                    "main": new_skill.getMain(),
+                                    "createdon": new_skill.getCreatedOn(),
+                                    "extensions": "",
+                                    "runtime": new_skill.getRunTime(),
+                                    "price_model": new_skill.getPriceModel(),
+                                    "price": new_skill.getPrice(),
+                                    "privacy": new_skill.getPrivacy(),
+                                })
+
+                                sql = ''' INSERT INTO skills (skid, owner, platform, app, applink, appargs, site, sitelink, name, path, main, createdon, extensions, runtime, price_model, price, privacy)
+                                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                                data_tuple = (
+                                api_skills[i]["skid"], api_skills[i]["owner"], api_skills[i]["platform"], \
+                                api_skills[i]["app"], api_skills[i]["applink"], api_skills[i]["appargs"], api_skills[i]["site"], \
+                                api_skills[i]["sitelink"], api_skills[i]["name"], api_skills[i]["path"], api_skills[i]["main"],\
+                                api_skills[i]["createdon"], api_skills[i]["extensions"], api_skills[i]["runtime"], \
+                                api_skills[i]["price_model"], api_skills[i]["price"], api_skills[i]["privacy"])
+
+                                self.dbCursor.execute(sql, data_tuple)
+
+                                sql = 'SELECT * FROM skills'
+                                res = self.dbCursor.execute(sql)
+                                self.showMsg("fetchall"+json.dumps(res.fetchall()))
+                                # important about format: returned here is a list of tuples (,,,,)
+                                #for column in res.description:
+                                #    self.showMsg(str(column[0]))
+
                     else:
-                        self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
-                        jbody = jresp["body"]
-                        # now that add is successfull, update local file as well.
-
-                        # now add bot to local DB.
-
-                        for i in range(len(jbody)):
-                            self.showMsg(str(i))
-                            new_skill = WORKSKILL()
-                            self.fillNewSkill(jbody[i], new_skill)
-                            self.skills.append(new_skill)
-                            self.skillModel.appendRow(new_skill)
-                            api_skills.append({
-                                "skid": new_skill.getBid(),
-                                "owner": self.owner,
-                                "platform": new_skill.getRoles(),
-                                "app": new_skill.getPubBirthday(),
-                                "site": new_skill.getGender(),
-                                "name": new_skill.getName(),
-                                "path": new_skill.getLevels(),
-                                "runtime": new_skill.getBirthdayTxt(),
-                                "price_model": new_skill.getInterests(),
-                                "price": new_skill.getStatus(),
-                                "privacy": new_skill.getInterests(),
-                            })
-
-                            sql = ''' INSERT INTO skills (skid, owner, platform, app, site, name, path, runtime, price_model, price, privacy)
-                                           VALUES(?,?,?,?,?,?,?,?,?,?,?); '''
-                            data_tuple = (
-                            api_skills[i]["skid"], api_skills[i]["owner"], api_skills[i]["platform"], \
-                            api_skills[i]["app"], api_skills[i]["site"], api_skills[i]["name"], \
-                            api_skills[i]["path"], api_skills[i]["runtime"], api_skills[i]["price_model"], \
-                            api_skills[i]["price"], api_skills[i]["privacy"])
-
-                            self.dbCursor.execute(sql, data_tuple)
-
-                            sql = 'SELECT * FROM skills'
-                            res = self.dbCursor.execute(sql)
-                            self.showMsg("fetchall"+json.dumps(res.fetchall()))
-                            # important about format: returned here is a list of tuples (,,,,)
-                            #for column in res.description:
-                            #    self.showMsg(str(column[0]))
-
+                        self.warn(QApplication.translate("QMainWindow", "Warning: NO skills in the file."))
+            except Exception as e:
+                traceback_info = traceback.extract_tb(e.__traceback__)
+                # Extract the file name and line number from the last entry in the traceback
+                if traceback_info:
+                    ex_stat = "ErrorLoadSkillFile:" + traceback.format_exc() + " " + str(e)
                 else:
-                    self.warn(QApplication.translate("QMainWindow", "Warning: NO skills in the file."))
-            else:
-                self.warn(QApplication.translate("QMainWindow", "Warning: no test skill file."))
+                    ex_stat = "ErrorLoadSkillFile: traceback information not available:" + str(e)
+                log3(ex_stat)
+                log3(QApplication.translate("QMainWindow", "Warning: load skill file error."))
 
     def find_dependencies(self, main_file, visited, dependencies):
         if main_file in visited:
@@ -5063,6 +5086,7 @@ class MainWindow(QMainWindow):
             # update vehicle status display.
             self.showMsg("received a file: "+msg["file_name"])
             file_name = msg["file_name"]
+            file_type = msg["file_type"]
             file_contents = msg["file_contents"].encode('latin1')  # Encode string to binary data
             with open(file_name, 'wb') as file:
                 file.write(file_contents)
@@ -5084,6 +5108,11 @@ class MainWindow(QMainWindow):
 
             self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
             self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
+
+            platform_os = self.platform            # win, mac or linux
+            self.todays_scheduled_task_groups[platform_os] = localworks
+            self.unassigned_task_groups[platform_os] = localworks
+
             # clean up the reports on this vehicle....
             self.todaysReports = []
             self.DONE_WITH_TODAY = False
@@ -5585,15 +5614,15 @@ class MainWindow(QMainWindow):
         self.chatWin.addNetChatHis(sender, receivers, msg_json["log_msg"])
 
 
-    def send_file_to_platoon(self, platoon_link, file_name_full_path):
+    def send_file_to_platoon(self, platoon_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and platoon_link:
-            self.showMsg(f"Sending File [{file_name_full_path}] to platoon "+platoon_link["ip"][0])
+            self.showMsg(f"Sending File [{file_name_full_path}] to platoon: "+platoon_link["ip"][0])
             with open(file_name_full_path, 'rb') as fileTBSent:
                 binary_data = fileTBSent.read()
                 encoded_data = base64.b64encode(binary_data).decode('utf-8')
 
                 # Embed in JSON
-                json_data = json.dumps({"cmd": "reqSendFile", "file_name": file_name_full_path, "file_contents": encoded_data})
+                json_data = json.dumps({"cmd": "reqSendFile", "file_name": file_name_full_path, "file_type": file_type, "file_contents": encoded_data})
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
                 platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
