@@ -1616,6 +1616,7 @@ class MainWindow(QMainWindow):
                     m_main_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == m_main_skid), None)
                     if m_main_skill:
                         needed_skills = needed_skills + m_main_skill.getDependencies()
+                        print("needed skills add dependencies", m_main_skill.getDependencies())
                     else:
                         self.showMsg("ERROR: skill id not found - " + str(m_main_skid))
                 else:

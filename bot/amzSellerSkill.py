@@ -10,18 +10,39 @@ from config.app_info import app_info
 SAME_ROW_THRESHOLD = 16
 
 
+def genWinADSAMZFullfillOrdersSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    site_url = "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1"
+
+    this_step, step_words = genStepHeader("win_ads_amz_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ003", "Amazon Fullfill New Orders On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_orders/fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_amz_orders/fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ADS amazon order fullfill..." + psk_words)
+
+    return this_step, psk_words
+
 # this skill simply obtain a list of name/address/phone/order amount/products of the new orders
 # 1） collect new orders from website
 # 2） generate bulk buy order for label purchase website goodsupply(assume an user account already exists here)
 # 3） get tracking code from labels and update them back to orders website
 # 4)  reformat the shipping labels and print them.
 # this is for Amazon's FBM
-def genWinChromeAmzFullfillOrdersSkill(worksettings, stepN, theme):
+def genWinChromeAMZFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = "{"
     site_url = "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1"
 
     this_step, step_words = genStepHeader("win_chrome_amz_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ001",
-                                          "Amazon Fullfill New Orders On Windows.", stepN)
+                                          "Amazon Fullfill New Orders On Windows Chrome.", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("start skill main", "public/win_chrome_amz_orders/fullfill_orders", "", this_step)
@@ -131,12 +152,12 @@ def genWinChromeAmzFullfillOrdersSkill(worksettings, stepN, theme):
 # 1） open the orders page
 # 2） save and scrape HTML
 # 3） if more than 1 page, go thru all pages. get all.
-def genWinChromeAmzCollectOrderListSkill(worksettings, stepN, theme):
+def genWinChromeAMZCollectOrdersSkill(worksettings, stepN, theme):
     psk_words = "{"
-    site_url = "https://www.etsy.com/your/orders/sold"
+    site_url = "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1"
 
-    this_step, step_words = genStepHeader("win_chrome_amz_collect_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ001",
-                                          "Amazon Collect New Orders On Windows.", stepN)
+    this_step, step_words = genStepHeader("win_chrome_amz_collect_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ003",
+                                          "Amazon Collect New Orders On Windows Chrome.", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("start skill", "public/win_chrome_amz_orders/collect_orders", "", this_step)
@@ -380,13 +401,13 @@ def genWinChromeAmzCollectOrderListSkill(worksettings, stepN, theme):
 
 # this skill assumes tracking code ready in the orders list data structure, and update tracking code to the orders on website.
 # all the tracking code should already be updated into etsy_orders data structure which is the sole input parameter.....
-def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
+def genWinChromeAMZUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = "{"
-    site_url = "https://www.etsy.com/your/orders/sold"
+    site_url = "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1"
 
 
-    this_step, step_words = genStepHeader("win_chrome_amz_update_tracking", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ001",
-                                          "Etsy Fullfill New Orders On Windows.", stepN)
+    this_step, step_words = genStepHeader("win_chrome_amz_update_tracking", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ005",
+                                          "Amazon Update Tracking On Windows Chrome.", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("start skill", "public/win_chrome_amz_orders/update_tracking", "", this_step)
@@ -585,7 +606,235 @@ def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+# purchase shipping labels directly on amazon and this will automatically update tracking
+def genWinChromeAMZBuyShipmentSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    site_url = "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1"
 
+
+    this_step, step_words = genStepHeader("win_chrome_amz_buy_shipping", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ006",
+                                          "Amazon Buy Shipping and Update Tracking On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_amz_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    # open the order page again.
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(5, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # go thru all orders, page by page, screen by screen. same nested loop as in collect orders...
+    this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = False", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global currentPage\ncurrentPage = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "update_order_index", "NA", -1, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "nMore2Update", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "orderIds", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "numCompletions", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "nthCompletion", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("endOfOrderList != True", "", "", "browseEtsyOL" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global endOfOrdersPage\nendOfOrdersPage = False", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
+    this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
+    psk_words = psk_words + step_words
+
+    # now extract the screen info.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # use this info, as it contains the name and address, as well as the ship_to anchor location.
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["complete_order"], "direct", ["anchor icon"], "any", "complete_buttons", "useless", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["order_number"], "direct", ["info 1"], "any", "orderIds", "useless", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global numCompletions\nnumCompletions = len(orderIds)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
+    this_step, step_words = genStepLoop("nthCompletion < numCompletions", "", "", "dummy" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # use nth ship to to find its related ship-to-summery, use name, city, state in that summery to find this order's click status.
+    # this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "found_index", "nthChecked", this_step)
+    # psk_words = psk_words + step_words
+
+    # first, nthcompleteion related order number， then search this order number from the order data structure,
+    # if found and its status is wait for completion, then return the order index number.
+    # if the index number is invalid, then skip this item.
+
+    this_step, step_words = genStepEtsyFindScreenOrder("nthCompletion", "complete_buttons", "orderIds", "etsy_orders", "update_order_index", "nMore2Update", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global update_order_index\nprint('update_order_index', update_order_index)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fin\nprint('fin', fin)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("update_order_index >= 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # click on the complete order button
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "complete_order", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # now extract the screen info.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # click and type USPS in carrier pull down menu
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "shipping_carrier", "anchor text", "", [0, 0], "bottom", [0, 2], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global shipping_service\nshipping_service = fin[0][update_order_index].getShippingService()[:3]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepTextInput("var", False, "shipping_service", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    # click and type in the tracking code.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "enter_tracking", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global track_code\ntrack_code = fin[0][update_order_index].getShippingTracking()", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepTextInput("var", False, "track_code", "direct", 1, "enter", 2, this_step)
+    psk_words = psk_words + step_words
+
+    # click the complete order button
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "complete_order_button", "anchor text", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
+    # end condition for checking whehter this order can to be completed.
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now 1 order update is finished. update the counter
+    this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = nthCompletion + 1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # end loop for going thru all completion buttons on the screen
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+    # check end of page information again
+    # search "etsy, inc" and page list as indicators for the bottom of the order list page.
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["etsy_inc"], "direct", ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
+    psk_words = psk_words + step_words
+
+    # now scroll to the next screen.
+    # (action, action_args, smount, stepN):
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 60, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(2, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    #  end of loop for scoll till the endOfOrdersPage.
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now check to see whether there are more pages to visit. basically we have updated all possible tracking code
+    # 1) no more order # found on current page.
+    # 2) the last found order # on this page is not found in the purchased label order# list. - search returns 0 found.
+    #    and there is no more orders to update (go to the order list and see whether there is more orders with tracking
+    #    code ready but not yet updated....
+    this_step, step_words = genStepCheckCondition("nMore2Update <= 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # set the flag, we have completed collecting all orders information at this point.
+    this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # else stub
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # after updating tracking code for the page, reload the page, at this time, the ones updated will be gone,
+    # the next batch will appear on the page.
+    this_step, step_words = genStepKeyInput("", True, "f5", "", 4, this_step)
+    psk_words = psk_words + step_words
+
+    # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # end of loop for while (endOfOrderList != True)
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_amz_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome amzon buy shipping and update tracking info...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinChromeAMZHandleMessagesSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    site_url = "https://sellercentral.amazon.com/messaging/inbox-v3?fi=responseNeeded&&&"
+
+
+    this_step, step_words = genStepHeader("win_chrome_amz_handle_messages", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEAMZ004",
+                                          "Amazon Handle Messages On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_amz_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_amz_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome amazon handle messages...." + psk_words)
+
+    return this_step, psk_words
 
 def processAMZScrapeOrdersHtml(step, i, mission, skill):
     ex_stat = DEFAULT_RUN_STATUS

@@ -382,6 +382,83 @@ def genWinChromeEtsyCollectOrderListSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+def genWinADSEtsyBuyShippingSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_etsy_handle_messages", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINADSETSY002",
+                                          "Etsy Buy Shipping and Update Tracking On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_etsy_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_etsy_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads etsy handle messages...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinChromeEtsyBuyShippingSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_chrome_etsy_handle_messages", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINCHROMEETSY002",
+                                          "Etsy Buy Shipping and Update Tracking On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_etsy_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome etsy handle messages...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEtsyHandleMessagesSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_etsy_handle_messages", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINADSETSY002",
+                                          "Etsy Handle Messages On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_etsy_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_etsy_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads etsy handle messages...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinChromeEtsyHandleMessagesSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_chrome_etsy_handle_messages", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINCHROMEETSY002",
+                                          "Etsy Handle Messages On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_etsy_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_etsy_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome etsy handle messages...." + psk_words)
+
+    return this_step, psk_words
 
 def genStepEtsySearchOrders(screen, orderDataName, errFlagName, stepN):
     stepjson = {
