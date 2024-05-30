@@ -18,6 +18,7 @@ import traceback
 from ping3 import ping, verbose_ping
 from Logger import *
 
+
 if sys.platform == 'win32':
     import win32gui
     import win32con
@@ -952,6 +953,8 @@ def processExtractInfo(step, i, mission, skill):
     log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
+    mainwin = mission.getParent()
+
     global screen_error
 
     ex_stat = DEFAULT_RUN_STATUS
@@ -1012,18 +1015,18 @@ def processExtractInfo(step, i, mission, skill):
         fdir = fdir + step_settings["skname"] + "/images/"
         sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
         log3("sfile: "+sfile)
-
-
+        found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
+        sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        icon_names = get_csk_icon_names(skill, step["page"], step["section"])
-        factors = findAndFormIconScaleFactors(machine_name, skill.getSkid(), step["page"], step["section"], icon_names)
+        icon_names = get_csk_icon_names(found_skill, step["page"], step["section"])
+        factors = findAndFormIconScaleFactors(machine_name, sk_name, step["page"], step["section"], icon_names)
 
         result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         if len(result) > 0:
-            updateIconScalesDict(machine_name, skill.getSkid(), step["page"], step["section"], result)
+            updateIconScalesDict(machine_name, sk_name, step["page"], step["section"], result)
 
 
     except Exception as e:
@@ -3314,37 +3317,59 @@ def processReportToBoss(step, i):
 
     return (i + 1), ex_stat
 
-def updateIconScalesDict(machine_name, skid, page, section, screen_data):
+def updateIconScalesDict(machine_name, sk_name, page, section, screen_data):
     all_icons = [x for x in screen_data if (x["type"] == "anchor icon")]
+    print("all icons with scale factors to be saved: ", all_icons)
     icon_scales = []
     icon_scale_data = {}
-    uniq_icon_names = list(icon_match_dict[machine_name][skid][page][section].keys())
+    print("updating icon_match_dict:", icon_match_dict)
+    if len(all_icons) > 0:
+        # build up an empty dictionary if needed.
+        if machine_name not in icon_match_dict:
+            icon_match_dict[machine_name] = {sk_name: {page: {section: {}}}}
+        elif sk_name not in icon_match_dict[machine_name]:
+            icon_match_dict[machine_name][sk_name] = {page: {section: {}}}
+        elif page not in icon_match_dict[machine_name][sk_name]:
+            icon_match_dict[machine_name][sk_name][page] = {section: {}}
+        elif section not in icon_match_dict[machine_name][sk_name][page]:
+            icon_match_dict[machine_name][sk_name][page][section] = {}
 
-    for icon in all_icons:
-        if icon["name"] not in uniq_icon_names:
-            icon_match_dict[machine_name][skid][page][section][icon["name"]] = [icon["scale"]]
-        else:
-            icon_match_dict[machine_name][skid][page][section][icon["name"]].append(icon["scale"])
+        uniq_icon_names = list(icon_match_dict[machine_name][sk_name][page][section].keys())
 
-    # save the updated to a file.
-    run_experience_file = ecb_data_homepath + "/run_experience.txt"
-    with open(run_experience_file, 'wb') as fileTBSaved:
-        json.dump(icon_match_dict, fileTBSaved, indent=4)
-        fileTBSaved.close()
+        for icon in all_icons:
+            if icon["name"] not in uniq_icon_names:
+                icon_match_dict[machine_name][sk_name][page][section][icon["name"]] = [icon["scale"]]
+            else:
+                if icon["scale"] not in icon_match_dict[machine_name][sk_name][page][section][icon["name"]]:
+                    icon_match_dict[machine_name][sk_name][page][section][icon["name"]].append(icon["scale"])
+
+        # save the updated to a file.
+        run_experience_file = ecb_data_homepath + "/run_experience.txt"
+        print("run_experience_file: "+run_experience_file)
+        print("icon match dict: ", icon_match_dict)
+        with open(run_experience_file, 'w') as fileTBSaved:
+            json.dump(icon_match_dict, fileTBSaved, indent=4)
+            fileTBSaved.close()
 
 
-def findAndFormIconScaleFactors(machine_name, skid, page, section, icon_names):
+def findAndFormIconScaleFactors(machine_name, sk_name, page, section, icon_names):
     icon_scale_option = "{}"
-    found_icon_scales = []
+    found_icon_scales = {}
+    # print("finding scale from:", machine_name, sk_name, page, section)
+    # print("current icon_match_dict:", icon_match_dict)
     if machine_name in icon_match_dict:
-        if skid in icon_match_dict[machine_name]:
-            if page in icon_match_dict[machine_name][skid]:
-                if section in icon_match_dict[machine_name][skid][page][section]:
-                    icon_scales = icon_match_dict[machine_name][skid][page][section]
-                    found_icon_scales = [x for x in icon_names if x in icon_scales]
-                    if len(found_icon_scales) > 0:
+        if sk_name in icon_match_dict[machine_name]:
+            if page in icon_match_dict[machine_name][sk_name]:
+                if section in icon_match_dict[machine_name][sk_name][page]:
+                    icon_scales = icon_match_dict[machine_name][sk_name][page][section]
+                    found_icon_names = [x for x in icon_names if x in icon_scales]
+                    if len(found_icon_names) > 0:
+                        for icon_name in found_icon_names:
+                            found_icon_scales[icon_name] = [round(float(x), 2) for x in icon_scales[icon_name]]
                         icon_scale_option = json.dumps(found_icon_scales).replace('"', '\\"')
+                        print("found previous icon scale factors:", icon_scale_option)
 
+    print("formed icon scale option:", icon_scale_option)
     return icon_scale_option
 
 
@@ -3352,13 +3377,19 @@ def get_csk_icon_names(skill, page, section):
     icon_names = []
     csk_file_name = skill.getCskFileName()
     csk_json = None
+    # print("checking csk file:", skill.getSkid(), csk_file_name)
     if os.path.exists(csk_file_name):
         with open(csk_file_name, 'rb') as csk_file:
             csk_json = json.load(csk_file)
             csk_file.close()
-
+    # print("read csk json:", page, section, csk_json)
     if csk_json:
-        if page in csk_json:
-            if section in csk_json[page]:
-                icon_names = [x["anchor_name"] for x in csk_json[page][section]["anchors"] if x["anchor_type"] == "icon"]
+        for page_section in csk_json:
+            if page in page_section:
+                if section in page_section[page]:
+                    # print("read page section of csk json:", page_section[page][section])
+                    icon_names = [x["anchor_name"] for x in page_section[page][section]["anchors"] if x["anchor_type"] == "icon"]
+                    break
+
+    print("csk icon names:", icon_names)
     return icon_names
