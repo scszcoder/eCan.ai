@@ -110,5 +110,7 @@
     "cloud_skill": {
         "path": "pubilc/win_ads_amz_home/browse_search"
     },
+    "main": "T",
+    "runtime": 1,
     "description": "a skill automatically searches and browses amazon web site."
 }

@@ -1083,7 +1083,7 @@ def removeUselessCookies(pfJson, site_list):
 def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
     # Convert JSON data to a DataFrame
     new_pfJsons = []
-    log3("batch_bot_mid_keys:"+str(len(pfJsons))+" " + json.dumps(batch_bot_mid_keys))
+    # log3("batch_bot_mid_keys:"+str(len(pfJsons))+" " + json.dumps(batch_bot_mid_keys))
     for one_profile in batch_bot_mid_keys:
         one_un = one_profile.split("_")[0]
 
