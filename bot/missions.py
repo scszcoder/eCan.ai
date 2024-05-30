@@ -843,6 +843,7 @@ class EBMISSION(QStandardItem):
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
+        self.ads_xlsx_profile = jd["ads_xlsx_profile"]
         # self.tasks = jd["tasks"]
         # self.parent_settings["uid"] = jd["parent_settings"]["uid"]
 
