@@ -225,10 +225,9 @@ class MainWindow(QMainWindow):
 
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QTextEdit()
-        self.logConsole.setLineWrapMode(QTextEdit.FixedPixelWidth)
+        self.logConsole.setLineWrapMode(QTextEdit.WidgetWidth)
         self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
         self.logConsoleLayout = QVBoxLayout()
-
 
         # self.toggle_button = QToolButton(
         #     text="log console", checkable=True, checked=False
@@ -276,6 +275,14 @@ class MainWindow(QMainWindow):
         self.showMsg("HOME PATH is::" + self.homepath)
         self.showMsg(self.dbfile)
         if (self.machine_role != "Platoon"):
+            if not os.path.isfile(self.dbfile):
+                # 获取文件所在目录
+                dir_name = os.path.dirname(self.dbfile)
+                # 确保目录存在
+                if not os.path.exists(dir_name):
+                    os.makedirs(dir_name)
+                with open(self.dbfile, 'w') as f:
+                    pass  # 创建一个空文件
             self.dbcon = sqlite3.connect(self.dbfile)
 
             # make sure designated tables exists in DB, if not create those tables.
@@ -1391,20 +1398,29 @@ class MainWindow(QMainWindow):
             self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
     def warn(self, msg):
-        warnText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\" >"
-        warnText += msg
-        warnText += "</span>"
-        # self.netLogWin.appendLogs([warnText])
+        logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        warnText = "<div style=\"display: flex; padding: 5pt;\"> \
+                    <span  style=\" font-size:12pt; font-weight:300; margin-right: 40pt;\"> \
+                        %s | \
+                    </span>\
+                    </span>\
+                    <span style=\" font-size:12pt; font-weight:300; color:#ff0000;\">found\
+                    %s</div>" % (logTime, msg)
+        self.netLogWin.appendLogs([warnText])
         self.appendNetLogs([warnText])
         self.appendDailyLogs([msg])
 
 
     def showMsg(self, msg):
-        MsgText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\">"
-        MsgText += msg
-        MsgText += "</span>"
-        # self.netLogWin.appendLogs([MsgText])
-        print(msg)
+        logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        MsgText = "<div style=\"display: flex; padding: 5pt;\"> \
+               <span  style=\" font-size:12pt; font-weight:300; margin-right: 40pt;\"> \
+                   %s | \
+               </span>\
+               </span>\
+               <span style=\" font-size:12pt; font-weight:300; color:#ff0000;\">found\
+               %s</div>" % (logTime, msg)
+        print("Show msg to log console:", msg)
         self.appendNetLogs([MsgText])
         self.appendDailyLogs([msg])
 
@@ -2803,10 +2819,8 @@ class MainWindow(QMainWindow):
         # result = self.cog_client.global_sign_out(self.cog.access_token)
         #result = self.cog_client.global_sign_out(AccessToken=self.cog.access_token)
         result = self.cog.logout()
-
         self.showMsg("logged out........"+result)
         # now should close the main window and bring back up the login screen?
-
 
     def addNewBots(self, new_bots):
         # Logic for creating a new bot:
