@@ -120,6 +120,9 @@ class BOT_PRIVATE_PROFILE():
         if len(nm_words) >= 2:
             self.first_name = nm_words[0]
             self.last_name = nm_words[len(nm_words)-1]
+        elif len(nm_words) == 0:
+            self.first_name = ""
+            self.last_name = ""
         else:
             self.first_name = nm_words[0]
             self.last_name = ""
