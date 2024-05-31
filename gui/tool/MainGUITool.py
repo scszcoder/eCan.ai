@@ -84,8 +84,8 @@ class SqlProcessor:
         return db_data
 
     def find_missions_by_mids(self, mids):
-        mid_tuple = tuple(mids)
-        sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
+        result = ', '.join(map(str, mids))
+        sql = f"SELECT * FROM missions WHERE mid IN ({result})"
         self.parent.showMsg("Select Missions by mid: " + sql, "debug")
         self.dbCursor.execute(sql)
         db_data = self.dbCursor.fetchall()
@@ -226,8 +226,8 @@ class SqlProcessor:
             self.parent.showMsg("No rows were deleted.")
 
     def find_bot_by_botid(self, botid_list):
-        bid_tuple = tuple(botid_list)
-        sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
+        result = ', '.join(map(str, botid_list))
+        sql = f"SELECT * FROM bots WHERE botid IN ({result})"
         self.parent.showMsg("Select Bots by botid: " + sql, "debug")
         self.dbCursor.execute(sql)
         db_data = self.dbCursor.fetchall()
