@@ -257,6 +257,27 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
+def genWinChromeEbayFullfillOrdersSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_chrome_ebay_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEEBAY001",
+                                          "Ebay Fullfill New Orders On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_chrome_ebay_orders/fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_ebay_orders/fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+    print("generating win chrome ebay skill")
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome ebay order fullfill operation...." + psk_words)
+
+    return this_step, psk_words
+
 # this skill simply obtain a list of name/address/phone/order amount/products of the pending orders
 # 1） open the orders page
 # 2） save and scrape HTML
@@ -507,7 +528,62 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+def genWinChromeEbayCollectOrderListSkill(worksettings, stepN, theme):
+    psk_words = "{"
 
+    this_step, step_words = genStepHeader("win_chrome_ebay_collect_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEEBAY002",
+                                          "Ebay Collect New Orders On Windows.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_ebay_orders/collect_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_ebay_orders/collect_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome ebay collect orders operation...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_buy_shipping", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINADSEBAY002",
+                                          "Ebay Buy Shipping and Update Tracking On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads ebay buy shipping and update tracking...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_chrome_ebay_buy_shipping", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINCHROMEEBAY002",
+                                          "Ebay Buy Shipping and Update Tracking On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_ebay_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_ebay_orders/buy_shipping", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome ebay buy shipping and update tracking...." + psk_words)
+
+    return this_step, psk_words
 
 # this skill assumes tracking code ready in the orders list data structure, and update tracking code to the orders on website.
 # all the tracking code should already be updated into etsy_orders data structure which is the sole input parameter.....
@@ -736,6 +812,44 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+def genWinADSEbayHandleMessagesSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_handle_messages", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINADSEBAY002",
+                                          "Ebay Buy Shipping and Update Tracking On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads ebay handle messages...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinChromeEbayHandleMessagesSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_chrome_ebay_handle_messages", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINCHROMEEBAY002",
+                                          "Ebay Buy Shipping and Update Tracking On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_ebay_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_ebay_orders/handle_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome ebay handle messages...." + psk_words)
+
+    return this_step, psk_words
 
 # buy and download labels from EBAY using USPS, Steps:
 #  1) go to https://www.ebay.com/gslblui/bulk/ for bulk purchase.

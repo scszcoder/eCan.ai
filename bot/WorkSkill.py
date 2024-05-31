@@ -217,9 +217,10 @@ class WORKSKILL(QStandardItem):
         self.homepath = parent.homepath
         self.price_model = ""
         self.path = "/resource/skills/public/"
+        print("skill home path::"+self.path)
         self.psk_file = ""
         self.csk_file = ""
-        self.privacy = "PRV"
+        self.privacy = "public"
         self.platform = "win"
         self.app = "chrome"
         self.app_link = ""
@@ -288,7 +289,7 @@ class WORKSKILL(QStandardItem):
         self.psk_file = pskFile
 
     def getCskFileName(self):
-        return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".csk"
+        return self.homepath + "/" + self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + "/scripts/" +self.name + ".csk"
 
     def setCskFileName(self, cskFile):
         self.csk_file = cskFile
@@ -367,6 +368,10 @@ class WORKSKILL(QStandardItem):
 
     def setPrivacy(self, priv):
         self.privacy = priv
+        if self.privacy == "private":
+            self.path = "/resource/skills/my/"
+        elif self.privacy == "subscribed":
+            self.path = "/resource/skills/subscribed/"
 
     def setCreatedOn(self, co):
         self.createdOn = co

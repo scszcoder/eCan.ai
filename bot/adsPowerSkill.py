@@ -44,7 +44,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # wait till the main window shows up
-    this_step, step_words = genStepWait(6, 0, 0, this_step)
+    this_step, step_words = genStepWait(8, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.8, 0.75],'attention_targets':['New Profile', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
@@ -114,11 +114,11 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  1, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 0.5],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 0.5],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
@@ -260,7 +260,7 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # wait 3 seconds till it logs in....
-    this_step, step_words = genStepWait(2, 0, 0, this_step)
+    this_step, step_words = genStepWait(4, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
@@ -1308,10 +1308,11 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         # it stinks that ADS batch save doesn't allow you to pick an output file name, so you have to grab the one with the latest time stamp.
-        files = os.listdir(step["batch_txt_dir"])
+        log3("batch_txt_dir:" + step["batch_txt_dir"] + " " + symTab[step["batch_txt_dir"]])
+        files = os.listdir(symTab[step["batch_txt_dir"]])
 
         # Filter out directories from the list of files
-        files = [os.path.join(step["batch_txt_dir"], file) for file in files if os.path.isfile(os.path.join(step["batch_txt_dir"], file)) and file.startswith('profiles') and file.endswith('.txt')]
+        files = [os.path.join(symTab[step["batch_txt_dir"]], file) for file in files if os.path.isfile(os.path.join(symTab[step["batch_txt_dir"]], file)) and file.startswith('profiles') and file.endswith('.txt')]
 
         files.sort(key=os.path.getmtime, reverse=True)
 
