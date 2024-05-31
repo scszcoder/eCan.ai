@@ -877,14 +877,12 @@ class BotNewWin(QMainWindow):
                 else:
                     self.role_name_sel.setCurrentText('Custom')
                     self.role_name_edit.setText(role_level)
-
             for role in roles:
-                self.newRole = ROLE(role_platform, role_level, role_role, self.homepath)
+                self.newRole = ROLE(role_platform, role_level, role, self.homepath)
                 self.roleModel.appendRow(self.newRole)
 
             self.selected_role_row = 0
             self.selected_role_item = self.roleModel.item(self.selected_role_row)
-
 
     def loadInterests(self, bot):
         intp_options = ['Amazon', 'Etsy', 'Ebay', 'any']
