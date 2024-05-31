@@ -222,7 +222,7 @@ class Login(QDialog):
 
     def read_role(self):
         self.machine_role = "Platoon"
-
+        print("ROLE FILE: "+ROLE_FILE)
         if exists(ROLE_FILE):
             with open(ROLE_FILE, 'r') as file:
                 mr_data = json.load(file)

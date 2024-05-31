@@ -687,9 +687,16 @@ class MainWindow(QMainWindow):
 
         run_experience_file = ecb_data_homepath + "/run_experience.txt"
         if os.path.exists(run_experience_file):
-            with open(run_experience_file, 'rb') as fileTBRead:
-                icon_match_dict = json.load(fileTBRead)
-                fileTBRead.close()
+            try:
+                with open(run_experience_file, 'rb') as fileTBRead:
+                    icon_match_dict = json.load(fileTBRead)
+                    fileTBRead.close()
+            except json.JSONDecodeError:
+                self.showMsg("ERROR: json loads an wrongly formated json file")
+                icon_match_dict = {}
+            except Exception as e:
+                self.showMsg("ERROR: unexpected json load error")
+                icon_match_dict = {}
 
         self.showMsg("set up fetching schedule ")
         # now hand daily tasks
@@ -1616,6 +1623,7 @@ class MainWindow(QMainWindow):
                     m_main_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == m_main_skid), None)
                     if m_main_skill:
                         needed_skills = needed_skills + m_main_skill.getDependencies()
+                        print("needed skills add dependencies", m_main_skill.getDependencies())
                     else:
                         self.showMsg("ERROR: skill id not found - " + str(m_main_skid))
                 else:
@@ -2158,7 +2166,7 @@ class MainWindow(QMainWindow):
                 new_key = "step "+str(new_idx)
                 newPskJson[new_key] = pskJson[key]
                 new_idx = new_idx + STEP_GAP
-                print("old/new key:", key, new_key, pskJson[key])
+                # print("old/new key:", key, new_key, pskJson[key])
                 if "Create Data" in newPskJson[new_key]['type']:
                     if newPskJson[new_key]['data_name'] == "sk_work_settings":
                         newPskJson[new_key]["key_value"] = work_settings
