@@ -94,8 +94,7 @@ class Login(QDialog):
         self.confirm_pw_label = QLabel(QApplication.translate("QLabel", "Confirm Password:"))
         self.confirm_pw_label.setFont(QFont('Arial', 10))
 
-        self.confirm_code_label = QLabel(
-            QApplication.translate("QLabel", "Input Confirmation Code Retrieved From Your Email:"))
+        self.confirm_code_label = QLabel(QApplication.translate("QLabel", "Input Confirmation Code Retrieved From Your Email:"))
         self.confirm_code_label.setFont(QFont('Arial', 6))
 
         self.textName = QLineEdit(self)
@@ -141,13 +140,14 @@ class Login(QDialog):
         self.signup_label.mouseReleaseEvent = self.on_sign_up
         # now try to read the default acct file. if it doesn't exist or not having valid content, then move on,
         # otherwise, load the account info.
+        self.pwd_key = "encrypted_password"
         if exists(ACCT_FILE):
             with open(ACCT_FILE, 'r') as file:
                 data = json.load(file)
                 self.show_visibility = data["mem_cb"]
                 self.textName.setText(data["user"])
                 if self.show_visibility:
-                    stored_encrypted_password = bytes.fromhex(self.settings.value("encrypted_password", ""))
+                    stored_encrypted_password = bytes.fromhex(self.settings.value(self.pwd_key, ""))
                     if stored_encrypted_password is not None:
                         decrypted_password = decrypt_password(stored_encrypted_password)
                         self.textPass.setText(decrypted_password)
@@ -430,17 +430,15 @@ class Login(QDialog):
             data = {"mem_cb": self.show_visibility, "user": self.textName.text(), "pw": "SCECBOTPW", "lan": "EN"}
             if self.mempw_cb.checkState() == Qt.Unchecked:
                 data["mem_cb"] = False
-                if self.settings.contains("encrypted_password"):
-                    self.settings.remove("encrypted_password")
+                if self.settings.contains(self.pwd_key):
+                    self.settings.remove(self.pwd_key)
             else:
                 encrypted_password = encrypt_password(self.textPass.text())
-                self.settings.setValue("encrypted_password", encrypted_password.hex())
+                self.settings.setValue(self.pwd_key, encrypted_password.hex())
 
-            print(data)
             with open(ACCT_FILE, 'w') as jsonfile:
                 json.dump(data, jsonfile)
             self.hide()
-            print("hello hello hello")
 
             if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
                 global commanderServer
@@ -452,7 +450,6 @@ class Login(QDialog):
                 self.mainwin.setCog(self.cog)
                 self.mainwin.setCogClient(self.aws_client)
                 self.mainwin.show()
-
             else:
                 global commanderXport
 

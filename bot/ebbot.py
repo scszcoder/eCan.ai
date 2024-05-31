@@ -488,7 +488,7 @@ class EBBOT(QStandardItem):
             self.setText(self.icon_text)
         self.setFont(parent.std_item_font)
         # self.icon = QIcon(parent.bot_icon_path)
-        self.setIcon(QIcon(parent.bot_icon_path))
+        self.setIcon(QIcon(parent.file_resouce.bot_icon_path))
 
         self.seller_inventories = []
         self.msg_queue = asyncio.Queue()            #this is the messaging queue for the bot.
