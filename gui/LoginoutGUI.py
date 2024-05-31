@@ -220,6 +220,8 @@ class Login(QDialog):
             self.show_visibility = True
         else:
             self.show_visibility = False
+    def get_mainwin(self):
+        return self.mainwin
 
     def get_msg_queue(self):
         return self.gui_net_msg_queue

@@ -10,6 +10,7 @@ import aioconsole
 from PlatoonGUI import *
 import platform
 import base64
+from config.app_info import app_info
 
 UDP_IP = "127.0.0.1"
 
@@ -120,11 +121,19 @@ class communicatorProtocol(asyncio.Protocol):
                         # Save the file data to a new file
                         fdir = os.path.dirname(json_data['file_name'])
                         fname = os.path.basename(json_data['file_name'])
-                        fullfname = fdir + "/temp/" + fname
+                        if json_data["file_type"] == "ads profile":
+                            fullfname = ecb_data_homepath + "/ads_profiles/" + fname
+                            fullfdir = ecb_data_homepath + "/ads_profiles/"
+                        elif json_data["file_type"] == "skill psk":
+                            start_index = fdir.find("resource")
+                            half_path = fdir[start_index:]
+                            fullfdir = app_info.app_home_path + "/" + half_path + "/"
+                            fullfname = fullfdir + fname
 
+                        print(f'File DIR {fullfdir} checked')
                         # Ensure the directory exists
-                        if not os.path.exists(fdir + "/temp/"):
-                            os.makedirs(fdir + "/temp/")  # Create any missing directories
+                        if not os.path.exists(fullfdir):
+                            os.makedirs(fullfdir)  # Create any missing directories
 
                         with open(fullfname, 'wb') as file:
                             file.write(file_data)
