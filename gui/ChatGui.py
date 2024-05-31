@@ -238,11 +238,12 @@ class ChatWin(QMainWindow):
         self.teamList.setModel(self.botModel)
         self.teamList.setViewMode(QListView.IconMode)
         self.teamList.setMovement(QListView.Snap)
+        self.botAgents = []
+
         self.setupTeamList()  # Populate the friends list
         self.chatWidget = ChatWidget(self)  # Assuming ChatWidget is your existing chat UI class
         self.selected_index = -1
         self.selected_agent = None
-        self.botAgents = []
 
         # Use QSplitter for adjustable panels
         self.splitter = QSplitter(Qt.Horizontal)
