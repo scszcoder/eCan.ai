@@ -4,7 +4,7 @@ import random
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QFont, QStandardItemModel
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QFileDialog, QTabWidget, QScrollArea, \
-    QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox
+    QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QMessageBox
 from ebbot import *
 from locale import getdefaultlocale
 from FlowLayout import *
@@ -17,13 +17,31 @@ class RoleListView(QListView):
         super(RoleListView, self).__init__()
         self.selected_row = None
         self.parent = parent
+        self.setContextMenuPolicy(Qt.CustomContextMenu)  # 设置上下文菜单策略
+        self.customContextMenuRequested.connect(self.showContextMenu)  # 连接右键菜单请求信号到槽函数
 
-    def mousePressEvent(self, e):
-        if e.type() == QEvent.MouseButtonPress:
-            if e.button() == Qt.LeftButton:
-                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
-                self.selected_row = self.indexAt(e.pos()).row()
-                self.parent.updateSelectedRole(self.selected_row)
+    def showContextMenu(self, pos):
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return  # 如果没有有效的索引，则不显示菜单
+
+        menu = QMenu(self)
+
+        # 添加删除动作
+        delete_action = menu.addAction("删除")
+        delete_action.triggered.connect(lambda: self.handleDelete(index))
+
+        # 显示菜单
+        menu.exec_(self.viewport().mapToGlobal(pos))
+
+    def handleDelete(self, index):
+        # 在这里实现删除操作的逻辑
+        reply = QMessageBox.question(self, '删除确认', '确定要删除这条记录吗？', QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            model = self.model()
+            if model is not None:
+                model.removeRow(index.row())
 
 class ROLE(QStandardItem):
     def __init__(self, platform, level, role, homepath):
@@ -55,12 +73,33 @@ class InterestsListView(QListView):
         self.selected_row = None
         self.parent = parent
 
-    def mousePressEvent(self, e):
-        if e.type() == QEvent.MouseButtonPress:
-            if e.button() == Qt.LeftButton:
-                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
-                self.selected_row = self.indexAt(e.pos()).row()
-                self.parent.updateSelectedInterest(self.selected_row)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)  # 设置上下文菜单策略
+        self.customContextMenuRequested.connect(self.showContextMenu)  # 连接右键菜单请求信号到槽函数
+
+
+    def showContextMenu(self, pos):
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return  # 如果没有有效的索引，则不显示菜单
+
+        menu = QMenu(self)
+
+        # 添加删除动作
+        delete_action = menu.addAction("删除")
+        delete_action.triggered.connect(lambda: self.handleDelete(index))
+
+        # 显示菜单
+        menu.exec_(self.viewport().mapToGlobal(pos))
+
+
+    def handleDelete(self, index):
+        # 在这里实现删除操作的逻辑
+        reply = QMessageBox.question(self, '删除确认', '确定要删除这条记录吗？', QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            model = self.model()
+            if model is not None:
+                model.removeRow(index.row())
 
 class INTEREST(QStandardItem):
     def __init__(self, homepath, platform, maincat, subcat1, subcat2="", subcat3="", subcat4="", subcat5=""):
@@ -656,7 +695,6 @@ class BotNewWin(QMainWindow):
         self.tabs.addTab(self.prvpflWidget, QApplication.translate("QTabWidget", "Private Profile"))
         self.tabs.addTab(self.setngsWidget, QApplication.translate("QTabWidget", "Settings"))
         self.tabs.addTab(self.statWidget, QApplication.translate("QTabWidget", "Status"))
-
         self.layout.addWidget(self.tabs)
         self.layout.addLayout(self.bLayout)
 
@@ -796,6 +834,7 @@ class BotNewWin(QMainWindow):
     # fill GUI from data.
     def setBot(self, bot):
         self.newBot = bot
+        self.tabs.setCurrentIndex(0)
         #now populate the GUI to reflect info in this bot.
         self.acctpw_edit.setText(bot.getAcctPw())
         self.age_edit.setText(str(bot.getAge()))
@@ -848,6 +887,7 @@ class BotNewWin(QMainWindow):
         self.loadInterests(bot)
 
     def loadRoles(self, bot):
+        self.roleModel.clear()
         rp_options = ['Amazon', 'Etsy', 'Ebay']
         rl_options = ['green', 'experienced', 'expert']
         rr_options = ['Buyer', 'Seller']
@@ -884,10 +924,10 @@ class BotNewWin(QMainWindow):
 
             self.selected_role_row = 0
             self.selected_role_item = self.roleModel.item(self.selected_role_row)
-        else:
-            self.roleModel.clear()
+
 
     def loadInterests(self, bot):
+        self.interestModel.clear()
         intp_options = ['Amazon', 'Etsy', 'Ebay', 'any']
         imc_options = ['any']
         isc1_options = ['any']
@@ -965,8 +1005,6 @@ class BotNewWin(QMainWindow):
 
             self.selected_interest_row = 0
             self.selected_interest_item = self.interestModel.item(self.selected_interest_row)
-        else:
-            self.interestModel.clear()
         self.parent.showMsg("bot intests loaded......")
 
 

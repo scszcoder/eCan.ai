@@ -193,6 +193,16 @@ class SqlProcessor:
             self.dbcon.commit()
         else:
             self.parent.showMsg("No rows were updated.", "warn")
+    def find_missions_by_search(self, startTime, endTime, search):
+        sql = 'SELECT * FROM missions where 1=1'
+        if len(startTime) > 0 and len(endTime) > 0:
+            sql += ' AND createon BETWEEN ' + startTime + ' AND ' + endTime
+        if len(search)>0:
+            sql += ' AND (asin LIKE "%' + search + '%" OR store LIKE "%' + search + '%" OR brand LIKE "%' + search + '%" OR title LIKE "%' + search + '%" OR pseudoStore LIKE "%' + search + '%" OR pseudoBrand LIKE "%' + search + '%" OR pseudoASIN LIKE "%' + search + '%")'
+        res = self.dbCursor.execute(sql)
+        data = res.fetchall()
+        self.parent.showMsg("mission fetchall" + json.dumps(data))
+        return data
 
     def delete_missions_by_mid(self, mid):
         sql = f"DELETE FROM missions WHERE mid = {mid}"
@@ -233,6 +243,16 @@ class SqlProcessor:
         db_data = self.dbCursor.fetchall()
         self.parent.showMsg("Just Added Local DB Bot Row(s): " + json.dumps(db_data), "debug")
         return db_data
+    def find_bots_by_search(self, startTime, endTime, search):
+        sql = 'SELECT * FROM bots where 1=1'
+        if len(startTime) > 0 and len(endTime) > 0:
+            sql += ' AND createon BETWEEN ' + startTime + ' AND ' + endTime
+        if len(search) > 0:
+            sql += ' AND (name LIKE "%' + search + '%" OR pseudoname LIKE "%' + search + '%" OR nickname LIKE "%' + search + '%" OR email LIKE "%' + search + '%" OR phone LIKE "%' + search + '%" OR addr LIKE "%' + search + '%" OR shipaddr LIKE "%' + search + '%")'
+        res = self.dbCursor.execute(sql)
+        data = res.fetchall()
+        self.parent.showMsg("BOTS fetchall" + json.dumps(data))
+        return data
 
     def find_all_bots(self):
         sql = 'SELECT * FROM bots'

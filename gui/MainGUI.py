@@ -344,7 +344,7 @@ class MainWindow(QMainWindow):
         self.mission_search_edit.setClearButtonEnabled(True)
         self.mission_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'),
                                            QLineEdit.LeadingPosition)
-        self.mission_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
+        self.mission_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Enter filter information"))
         self.mission_search_edit.returnPressed.connect(self.search_mission_button.click)
         self.mission_search_layout.addWidget(self.mission_from_date_label)
         self.mission_search_layout.addWidget(self.mission_from_date_edit)
@@ -373,7 +373,7 @@ class MainWindow(QMainWindow):
         self.bot_search_edit.setClearButtonEnabled(True)
         self.bot_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'),
                                        QLineEdit.LeadingPosition)
-        self.bot_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
+        self.bot_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Enter filter information"))
         self.bot_search_edit.returnPressed.connect(self.search_bot_button.click)
         self.bot_search_layout.addWidget(self.bot_from_date_label)
         self.bot_search_layout.addWidget(self.bot_from_date_edit)
@@ -629,8 +629,10 @@ class MainWindow(QMainWindow):
         self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
             # load skills into memory.
-            self.loadLocalBots()
-            self.loadLocalMissions()
+            bots_data = self.sql_processor.find_all_bots()
+            self.loadLocalBots(bots_data)
+            missions_data = self.sql_processor.find_missions_by_createon()
+            self.loadLocalMissions(missions_data)
             self.dailySkillsetUpdate()
 
         # Done with all UI stuff, now do the instruction set extension work.
@@ -2993,7 +2995,6 @@ class MainWindow(QMainWindow):
             mid_list = [mission.getMid() for mission in new_missions]
             self.sql_processor.find_missions_by_mids(mid_list)
 
-
     def updateMissions(self, missions):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
         # otherwise, only update locally.
@@ -3446,7 +3447,6 @@ class MainWindow(QMainWindow):
         if self.missionWin == None:
             self.missionWin = MissionNewWin(self)
             self.missionWin.setOwner(self.owner)
-            # self.BotNewWin.resize(400, 200)
         else:
             self.missionWin.setMode("new")
 
@@ -4256,19 +4256,7 @@ class MainWindow(QMainWindow):
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
-    def loadLocalBots(self):
-        skill_def_files = []
-        # sql = 'SELECT * FROM bots'
-
-        # column_name = 'your_column_name'
-        # column_value = 'your_column_value'
-        #
-        # # Construct the SQL query with placeholders
-        # query = f"SELECT * FROM your_table_name WHERE {column_name} = ?"
-        #
-        # # Execute the query and fetch the results
-        # cursor.execute(query, (column_value,))
-        db_data = self.sql_processor.find_all_bots()
+    def loadLocalBots(self, db_data):
 
         self.showMsg("get local bots from DB::" + json.dumps(db_data))
         if len(db_data) != 0:
@@ -4289,8 +4277,7 @@ class MainWindow(QMainWindow):
             # self.newBotFromFile()
 
     # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
-    def loadLocalMissions(self):
-        db_data = self.sql_processor.find_missions_by_createon()
+    def loadLocalMissions(self, db_data):
         self.showMsg("get local missions from db::" + json.dumps(db_data))
         if len(db_data) != 0:
             self.showMsg("mission fetchall" + json.dumps(db_data))
@@ -5075,93 +5062,17 @@ class MainWindow(QMainWindow):
             return None
 
     def searchLocalMissions(self):
-        mcols = ['botid', 'status', 'acd', 'n_retries', 'cuspas', 'category', 'phrase', 'pseudoStore', 'pseudoBrand',
-                 'pseudoASIN', 'asin', 'store', 'customer', 'type', 'config', 'delDate', 'platoon', 'result']
         self.showMsg("Searching local missions based on createdon date range and field parameters....")
-        date_valid = False
-        pattern = r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD pattern
-
-        search_cols = []
-        sql = "SELECT * FROM missions WHERE "
-        vals = []
-        fromDateString = self.mission_from_date_edit.text()
-        toDateString = self.mission_to_date_edit.text()
-        from_matches = re.findall(pattern, fromDateString)
-        to_matches = re.findall(pattern, toDateString)
-        if len(from_matches) > 0 and len(to_matches) > 0:
-            sql = sql + "createon BETWEEN ? AND ?"
-            vals.append(fromDateString.strip())
-            vals.append(toDateString.strip())
-            date_valid = True
-
-        if self.mission_search_edit.text() != "":
-            search_words = self.mission_search_edit.text().split(",")
-            i = 0
-            for sw in search_words:
-                self.showMsg("search word:" + sw)
-                sw_words = sw.split(":")
-                col_name = sw_words[0].strip()
-                col_txt = sw_words[1].strip()
-                if col_name in mcols:
-                    if i == 0 and not date_valid:
-                        sql = sql + col_name + " = ?"
-                    else:
-                        sql = sql + " AND " + col_name + " = ?"
-
-                    if col_name == "botid" or col_name == "n_retries":
-                        col_val = int(col_txt)
-                    else:
-                        col_val = col_txt
-
-                    vals.append(col_val)
-
-                i = i + 1
-        vals_tuple = tuple(vals)
-        self.showMsg("MISSION QUERY SQL<" + sql + ">TUPLE:(" + ", ".join(str(x) for x in vals_tuple) + ")")
-        # self.loadLocalMissions(sql, vals_tuple)
+        data = self.sql_processor.find_missions_by_search(self.mission_from_date_edit.text(), self.mission_to_date_edit.text(),self.mission_search_edit.text())
+        self.loadLocalMissions(data)
 
     def searchLocalBots(self):
-        bcols = ['birthday', 'levels', 'roles', 'status', 'location', 'interests', 'gender']
         self.showMsg("Searching local bots based on createdon date range and field parameters....")
-        date_valid = False
-        pattern = r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD pattern
+        data = self.sql_processor.find_bots_by_search(self.bot_from_date_edit.text(),
+                                                          self.bot_to_date_edit.text(),
+                                                          self.bot_search_edit.text())
+        self.loadLocalBots(data)
 
-        search_cols = []
-        sql = "SELECT * FROM bots WHERE "
-        vals = []
-        fromDateString = self.bot_from_date_edit.text()
-        toDateString = self.bot_to_date_edit.text()
-        from_matches = re.findall(pattern, fromDateString)
-        to_matches = re.findall(pattern, toDateString)
-        if len(from_matches) > 0 and len(to_matches) > 0:
-            sql = sql + "birthday BETWEEN ? AND ?"
-            vals.append(fromDateString.strip())
-            vals.append(toDateString.strip())
-            date_valid = True
-
-        if self.bot_search_edit.text() != "":
-            search_words = self.bot_search_edit.text().split(",")
-            i = 0
-            for sw in search_words:
-                self.showMsg("search word:" + sw)
-                sw_words = sw.split(":")
-                col_name = sw_words[0].strip()
-                col_txt = sw_words[1].strip()
-                if col_name in bcols:
-                    if i == 0 and not date_valid:
-                        sql = sql + col_name + " = ?"
-                    else:
-                        sql = sql + " AND " + col_name + " = ?"
-
-                    col_val = col_txt
-
-                    vals.append(col_val)
-
-                i = i + 1
-
-        vals_tuple = tuple(vals)
-        self.showMsg("MISSION QUERY SQL<" + sql + "> TUPLE:(" + ", ".join(str(x) for x in vals_tuple) + ")")
-        # self.loadLocalBots(sql, vals_tuple)
 
     # build up a dictionary of bot - to be visited site list required by today's mission.
     # this list will be used to filter out cookies of unrelated site, otherwise the
