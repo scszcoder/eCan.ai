@@ -38,7 +38,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
     def __init__(self, topgui, on_con_lost):
         self.topgui = topgui
         self.on_con_lost = on_con_lost
-        self.msg_queue = topgui.get_msg_queue()
+        self.msg_queue = topgui.get_gui_msg_queue()
         print("tcp server protocol initialized....")
 
     def connection_made(self, transport):
@@ -85,7 +85,7 @@ class communicatorProtocol(asyncio.Protocol):
         self.message = message
         self.on_con_lost = on_con_lost
         self.topgui = topgui
-        self.msg_queue = topgui.get_msg_queue()
+        self.msg_queue = topgui.get_gui_msg_queue()
         print("comm protocol initialized.....")
 
     def connection_made(self, transport):

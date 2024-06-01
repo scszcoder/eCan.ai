@@ -211,8 +211,9 @@ class Login(QDialog):
     def get_mainwin(self):
         return self.mainwin
 
-    def get_msg_queue(self):
+    def get_gui_msg_queue(self):
         return self.gui_net_msg_queue
+
 
     def set_xport(self, xport):
         self.xport = xport

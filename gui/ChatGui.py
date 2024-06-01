@@ -232,6 +232,7 @@ class ChatWin(QMainWindow):
     def __init__(self, parent):
         super(ChatWin, self).__init__(parent)
         self.parent = parent
+        self.botAgents = []
         self.teamList = BotListView(self)
         self.teamList.installEventFilter(self)
         self.botModel = QStandardItemModel(self.teamList)
@@ -242,7 +243,7 @@ class ChatWin(QMainWindow):
         self.chatWidget = ChatWidget(self)  # Assuming ChatWidget is your existing chat UI class
         self.selected_index = -1
         self.selected_agent = None
-        self.botAgents = []
+
 
         # Use QSplitter for adjustable panels
         self.splitter = QSplitter(Qt.Horizontal)

@@ -22,6 +22,7 @@ import os
 import openpyxl
 from datetime import datetime, date
 import platform
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -137,6 +138,8 @@ class MainWindow(QMainWindow):
             self.homepath = homepath
 
         self.gui_net_msg_queue = gui_msg_queue
+        self.gui_rpa_msg_queue = asyncio.Queue()
+        self.gui_monitor_msg_queue = asyncio.Queue()
         self.lang = lang
         self.tz = self.obtainTZ()
         self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_1.png'
@@ -713,18 +716,35 @@ class MainWindow(QMainWindow):
         # self.async_interface = AsyncInterface()
         self.showMsg("ready to spawn mesg server task")
         if not self.hostrole == "Platoon":
-            asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
+            self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
         else:
-            asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
+            self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
 
         # the message queue are
-        asyncio.create_task(self.runbotworks(self.gui_chat_msg_queue))
+        self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
         self.showMsg("spawned runbot task")
 
-        asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
+        # the message queue are
+        # asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+        # self.showMsg("spawned runbot task")
 
+        self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
         self.showMsg("spawned chat task")
 
+        # with ThreadPoolExecutor(max_workers=3) as self.executor:
+        #     self.rpa_task_future = asyncio.wrap_future(self.executor.submit(self.runbotworks, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+        #     self.showMsg("spawned RPA task")
+
+        # await asyncio.gather(peer_task, monitor_task, chat_task, rpa_task_future)
+        loop = asyncio.get_event_loop()
+        # executor = ThreadPoolExecutor()
+        # asyncio.run_coroutine_threadsafe(self.run_async_tasks(loop, executor), loop)
+
+        asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
+
+    async def run_async_tasks(self):
+        self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+        await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task)
 
     def dailySkillsetUpdate(self):
         # this will handle all skill bundled into software itself.
@@ -1355,6 +1375,7 @@ class MainWindow(QMainWindow):
                         bodyobj = json.load(test_schedule_file)
 
                     self.showMsg("bodyobj: "+json.dumps(bodyobj))
+                    # bodyobj =[]
                     if len(bodyobj) > 0:
                         self.addNewlyAddedMissions(bodyobj)
                         # now that todays' newly added missions are in place, generate the cookie site list for the run.
@@ -1620,8 +1641,10 @@ class MainWindow(QMainWindow):
 
                     needed_skills = needed_skills + m_skids
                     m_main_skid = m_skids[0]
-                    m_main_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == m_main_skid), None)
+
+                    m_main_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == m_main_skid), None)
                     if m_main_skill:
+                        print("found skill")
                         needed_skills = needed_skills + m_main_skill.getDependencies()
                         print("needed skills add dependencies", m_main_skill.getDependencies())
                     else:
@@ -1670,9 +1693,9 @@ class MainWindow(QMainWindow):
     def getUnassignedVehiclesByOS(self):
         self.showMsg("N vehicles " + str(len(self.vehicles)))
         result = {
-            "win": [v for v in self.vehicles if v.getOS() == "Windows" and len(v.getBotIds()) == 0],
-            "mac": [v for v in self.vehicles if v.getOS() == "Mac" and len(v.getBotIds()) == 0],
-            "linux": [v for v in self.vehicles if v.getOS() == "Linux" and len(v.getBotIds()) == 0]
+            "win": [v for v in self.vehicles if v.getOS().lower() in "Windows".lower() and len(v.getBotIds()) == 0],
+            "mac": [v for v in self.vehicles if v.getOS().lower() in "Mac".lower() and len(v.getBotIds()) == 0],
+            "linux": [v for v in self.vehicles if v.getOS().lower() in "Linux".lower() and len(v.getBotIds()) == 0]
         }
         self.showMsg("N vehicles win " + str(len(result["win"]))+" " + str(len(result["mac"]))+" " + str(len(result["linux"])))
         if self.hostrole == "Commander" and not self.rpa_work_assigned_for_today:
@@ -1981,7 +2004,7 @@ class MainWindow(QMainWindow):
             found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
             if found_skill:
                 psk_file = self.homepath + found_skill.getPskFileName()
-                self.showMsg("Empowering platoon with skill PSK")
+                self.showMsg("Empowering platoon with skill PSK"+psk_file)
                 self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
             else:
                 self.showMsg("ERROR: skid NOT FOUND [" + str(skid) + "]")
@@ -2182,7 +2205,7 @@ class MainWindow(QMainWindow):
 
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
-    async def runRPA(self, worksTBD, scheduler_msg_queue):
+    async def runRPA(self, worksTBD, rpa_msg_queue, monitor_msg_queue):
         global rpaConfig
         global skill_code
 
@@ -2195,7 +2218,6 @@ class MainWindow(QMainWindow):
             if bot_idx >= 0:
                 self.showMsg("found BOT to be run......")
                 running_bot = self.bots[bot_idx]
-                bot_queue = running_bot.getMsgQ()
 
             rpaScripts = []
 
@@ -2277,7 +2299,7 @@ class MainWindow(QMainWindow):
                     # forseaable future.
                     rpaScripts.append(rpa_script)
                     # self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
-                    self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] ")
+                    self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+str(len(relevant_skills))+" "+str(worksettings["midx"])+" "+str(len(self.missions)))
 
 
                     # (steps, mission, skill, mode="normal"):
@@ -2288,8 +2310,9 @@ class MainWindow(QMainWindow):
                     # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
                     # self.showMsg("running skid:"+str(rpaSkillIds[0])+"len(self.skills): "+str(len(self.skills))+"skill 0 skid: "+str(self.skills[0].getSkid()))
                     # self.showMsg("running skill: "+json.dumps(running_skill))
-                    runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], bot_queue, scheduler_msg_queue))
-                    runResult = await runStepsTask
+                    # runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue))
+                    # runResult = await runStepsTask
+                    runResult = await runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
 
                     # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
                     # the timer tick will trigger the run of the next mission on the list....
@@ -3687,7 +3710,7 @@ class MainWindow(QMainWindow):
                 elif selected_act == self.cusMissionUpdateAction:
                     self.updateCusMissionStatus(self.selected_cus_mission_item)
                 elif selected_act == self.cusMissionRunAction:
-                    asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_chat_msg_queue))
+                    asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue))
 
             return True
         elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
@@ -3854,7 +3877,7 @@ class MainWindow(QMainWindow):
         #     # now that delete is successfull, update local file as well.
         #     self.writeMissionJsonFile()
 
-    async def runCusMissionNow(self, amission, gui_chat_queue):
+    async def runCusMissionNow(self, amission, gui_rpa_queue):
         # check if psk is already there, if not generate psk, then run it.
         self.showMsg("run mission now....")
         worksTBD = {"works": [{
@@ -3865,7 +3888,7 @@ class MainWindow(QMainWindow):
             "ads_xlsx_profile": ""
         }], "current widx":0}
 
-        current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_chat_queue)
+        current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_rpa_queue)
 
 
     def _createBotRCEditAction(self):
@@ -4686,15 +4709,16 @@ class MainWindow(QMainWindow):
             await asyncio.sleep(1)
 
     # this is be run as an async task.
-    async def runbotworks(self, gui_chat_queue):
+    async def runbotworks(self, gui_rpa_queue, gui_monitor_queue):
         # run all the work
         running = True
 
         while running:
+            print("looping runbotworks.....")
             botTodos = None
             if self.workingState == "Idle":
                 if self.getNumUnassignedWork() > 0:
-                    self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork()))
+                    self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                     self.assignWork()
 
                 botTodos = self.checkNextToRun()
@@ -4702,7 +4726,7 @@ class MainWindow(QMainWindow):
                     self.showMsg("working on..... "+botTodos["name"])
                     self.workingState = "Working"
                     if botTodos["name"] == "fetch schedule":
-                        self.showMsg("fetching schedule..........")
+                        self.showMsg("fetching schedule.........."+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                         last_start = int(datetime.now().timestamp()*1)
 
                         # this should be a daily routine, do it along with fetch schedule which is also daily routine.
@@ -4717,6 +4741,8 @@ class MainWindow(QMainWindow):
                         self.showMsg("POP the daily initial fetch schedule task from queue")
                         finished = self.todays_work["tbd"].pop(0)
                         self.todays_completed.append(finished)
+                        time.sleep(5)
+                        self.showMsg("done fetching schedule."+"<>" + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
                     elif botTodos["name"] == "automation":
                         # run 1 bot's work
@@ -4724,7 +4750,7 @@ class MainWindow(QMainWindow):
                         if "Completed" not in botTodos["status"]:
                             self.showMsg("time to run RPA........"+json.dumps(botTodos))
                             last_start = int(datetime.now().timestamp()*1)
-                            current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_chat_queue)
+                            current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_rpa_queue, gui_monitor_queue)
                             last_end = int(datetime.now().timestamp()*1)
 
                         # else:
@@ -4776,7 +4802,7 @@ class MainWindow(QMainWindow):
                 self.workingState = "Idle"
 
             print("running bot works whenever there is some to run....")
-            await asyncio.sleep(1)
+            # await asyncio.sleep(1)
 
 
     #update a vehicle's missions status
@@ -5128,13 +5154,16 @@ class MainWindow(QMainWindow):
         elif msg["cmd"] == "reqCancelAllMissions":
             # update vehicle status display.
             self.showMsg(json.dumps(msg["content"]))
+            self.sendRPAMessage(msg_data)
         elif msg["cmd"] == "reqHaltMissions":
             # update vehicle status display.
             self.showMsg(json.dumps(msg["content"]))
+            self.sendRPAMessage(msg_data)
             # simply change the mission's status to be "Halted" again, this will make task runner to run this mission
         elif msg["cmd"] == "reqResumeMissions":
             # update vehicle status display.
             self.showMsg(json.dumps(msg["content"]))
+            self.sendRPAMessage(msg_data)
             # simply change the mission's status to be "Scheduled" again, this will make task runner to run this mission
         elif msg["cmd"] == "reqAddMissions":
             # update vehicle status display.
@@ -5155,6 +5184,8 @@ class MainWindow(QMainWindow):
 
 
 
+    def sendRPAMessage(self, msg_data):
+        asyncio.create_task(self.gui_rpa_msg_queue.put(msg_data))
 
 
     # a run report is just an array of the following object:
@@ -5534,6 +5565,33 @@ class MainWindow(QMainWindow):
             await asyncio.sleep(1)
 
 
+    # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
+    async def runRPAMonitor(self, monitor_msg_queue):
+        running = True
+        ticks = 0
+        while running:
+            ticks = ticks + 1
+            if ticks > 255:
+                ticks = 0
+
+            #ping cloud every 8 second to see whether there is any monitor/control internet. use amazon's sqs
+            if ticks % 8 == 0:
+                self.showMsg(f"Access Internet Here with Websocket...")
+
+
+            if not monitor_msg_queue.empty():
+                message = await monitor_msg_queue.get()
+                self.showMsg(f"RPA Monitor message: {message}")
+                self.update_moitor_gui(message)
+                monitor_msg_queue.task_done()
+
+            # print("polling chat msg queue....")
+            await asyncio.sleep(1)
+
+
+    def update_moitor_gui(self, in_message):
+        self.showMsg(f"RPA Monitor:"+in_message)
+
     # note recipient could be a group ID.
     def sendBotChatMessage(self, sender, recipient, text):
         # first find out where the recipient is at (which vehicle) and then, send the message to it.
@@ -5569,6 +5627,9 @@ class MainWindow(QMainWindow):
 
                     # get updated recipients
                     recipients = list(receivers)
+
+        # if there are still recipients not sent, that means these are local bots,
+        #self.send_chat_to_local_bot(text)
 
         if len(recipient) > 0:
             # recipient here could be comma seperated recipient ids.
