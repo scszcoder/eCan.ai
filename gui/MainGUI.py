@@ -4021,24 +4021,24 @@ class MainWindow(QMainWindow):
         self.showMsg("loading skill from a file..."+filename)
         if filename != "":
             api_skills = []
-            new_skill_file = open(filename)
-            if new_skill_file != None:
-                # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
-                filebskill = json.load(new_skill_file)
-                if len(filebskill) > 0:
-                    #add bots to the relavant data structure and add these bots to the cloud and local DB.
-                    # send_add_skills_to_cloud
-                    jresp = (self.session, filebskill, self.tokens['AuthenticationResult']['IdToken'])
+            try:
+                with open(filename, 'r') as new_skill_file:
+                    # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+                    skill_json = json.load(new_skill_file)
+                    if skill_json:
+                        #add skills to the relavant data structure and add these bots to the cloud and local DB.
+                        # send_add_skills_to_cloud
+                        jresp = send_add_skills_request_to_cloud(self.session, [skill_json], self.tokens['AuthenticationResult']['IdToken'])
 
-                    if "errorType" in jresp:
-                        screen_error = True
-                        self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
-                    else:
-                        self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
-                        jbody = jresp["body"]
-                        # now that add is successfull, update local file as well.
+                        if "errorType" in jresp:
+                            screen_error = True
+                            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                        else:
+                            self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
+                            jbody = jresp["body"]
+                            # now that add is successfull, update local file as well.
 
-                        # now add bot to local DB.
+                            # now add bot to local DB.
 
                             for i in range(len(jbody)):
                                 self.showMsg(str(i))
@@ -4065,27 +4065,7 @@ class MainWindow(QMainWindow):
                                     "price": new_skill.getPrice(),
                                     "privacy": new_skill.getPrivacy(),
                                 })
-
-                                sql = ''' INSERT INTO skills (skid, owner, platform, app, applink, appargs, site, sitelink, name, path, main, createdon, extensions, runtime, price_model, price, privacy)
-                                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                                data_tuple = (
-                                api_skills[i]["skid"], api_skills[i]["owner"], api_skills[i]["platform"], \
-                                api_skills[i]["app"], api_skills[i]["applink"], api_skills[i]["appargs"], api_skills[i]["site"], \
-                                api_skills[i]["sitelink"], api_skills[i]["name"], api_skills[i]["path"], api_skills[i]["main"],\
-                                api_skills[i]["createdon"], api_skills[i]["extensions"], api_skills[i]["runtime"], \
-                                api_skills[i]["price_model"], api_skills[i]["price"], api_skills[i]["privacy"])
-
-                                self.dbCursor.execute(sql, data_tuple)
-
-                                sql = 'SELECT * FROM skills'
-                                res = self.dbCursor.execute(sql)
-                                self.showMsg("fetchall"+json.dumps(res.fetchall()))
-                                # important about format: returned here is a list of tuples (,,,,)
-                                #for column in res.description:
-                                #    self.showMsg(str(column[0]))
                                 self.sql_processor.insert_skill(api_skills[i])
-
-
                     else:
                         self.warn(QApplication.translate("QMainWindow", "Warning: NO skills in the file."))
             except Exception as e:
