@@ -178,8 +178,6 @@ class MainWindow(QMainWindow):
         self.PRODUCT_SEL_TYPES = ["ac", "op", "bs", "mr", "mhr", "cp", "cus"]
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
-
-
         self.tokens = inTokens
         self.machine_role = machine_role
         self.ip = ip
@@ -1366,7 +1364,7 @@ class MainWindow(QMainWindow):
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
                     # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
 
-                    with open('C:/temp/scheduleResultTest9.json') as test_schedule_file:
+                    with open('C:/software/scheduleResultTest7.json') as test_schedule_file:
                         bodyobj = json.load(test_schedule_file)
 
                     self.showMsg("bodyobj: "+json.dumps(bodyobj))
@@ -1636,8 +1634,10 @@ class MainWindow(QMainWindow):
 
                     needed_skills = needed_skills + m_skids
                     m_main_skid = m_skids[0]
-                    m_main_skill = next((sk for i, sk in enumerate(self.skills) if str(sk.getSkid()) == m_main_skid), None)
+
+                    m_main_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == m_main_skid), None)
                     if m_main_skill:
+                        print("found skill")
                         needed_skills = needed_skills + m_main_skill.getDependencies()
                         print("needed skills add dependencies", m_main_skill.getDependencies())
                     else:
@@ -1686,9 +1686,9 @@ class MainWindow(QMainWindow):
     def getUnassignedVehiclesByOS(self):
         self.showMsg("N vehicles " + str(len(self.vehicles)))
         result = {
-            "win": [v for v in self.vehicles if v.getOS() == "Windows" and len(v.getBotIds()) == 0],
-            "mac": [v for v in self.vehicles if v.getOS() == "Mac" and len(v.getBotIds()) == 0],
-            "linux": [v for v in self.vehicles if v.getOS() == "Linux" and len(v.getBotIds()) == 0]
+            "win": [v for v in self.vehicles if v.getOS().lower() in "Windows".lower() and len(v.getBotIds()) == 0],
+            "mac": [v for v in self.vehicles if v.getOS().lower() in "Mac".lower() and len(v.getBotIds()) == 0],
+            "linux": [v for v in self.vehicles if v.getOS().lower() in "Linux".lower() and len(v.getBotIds()) == 0]
         }
         self.showMsg("N vehicles win " + str(len(result["win"]))+" " + str(len(result["mac"]))+" " + str(len(result["linux"])))
         if self.hostrole == "Commander" and not self.rpa_work_assigned_for_today:
@@ -1997,7 +1997,7 @@ class MainWindow(QMainWindow):
             found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
             if found_skill:
                 psk_file = self.homepath + found_skill.getPskFileName()
-                self.showMsg("Empowering platoon with skill PSK")
+                self.showMsg("Empowering platoon with skill PSK"+psk_file)
                 self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
             else:
                 self.showMsg("ERROR: skid NOT FOUND [" + str(skid) + "]")
@@ -4711,7 +4711,7 @@ class MainWindow(QMainWindow):
             botTodos = None
             if self.workingState == "Idle":
                 if self.getNumUnassignedWork() > 0:
-                    self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork()))
+                    self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                     self.assignWork()
 
                 botTodos = self.checkNextToRun()
@@ -4719,7 +4719,7 @@ class MainWindow(QMainWindow):
                     self.showMsg("working on..... "+botTodos["name"])
                     self.workingState = "Working"
                     if botTodos["name"] == "fetch schedule":
-                        self.showMsg("fetching schedule..........")
+                        self.showMsg("fetching schedule.........."+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                         last_start = int(datetime.now().timestamp()*1)
 
                         # this should be a daily routine, do it along with fetch schedule which is also daily routine.
@@ -4734,6 +4734,8 @@ class MainWindow(QMainWindow):
                         self.showMsg("POP the daily initial fetch schedule task from queue")
                         finished = self.todays_work["tbd"].pop(0)
                         self.todays_completed.append(finished)
+                        time.sleep(5)
+                        self.showMsg("done fetching schedule."+"<>" + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
                     elif botTodos["name"] == "automation":
                         # run 1 bot's work
