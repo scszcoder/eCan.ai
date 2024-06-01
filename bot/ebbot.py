@@ -245,14 +245,14 @@ class BOT_PUB_PROFILE():
     def __init__(self):
         super().__init__()
         self.bid = 0
-        self.pseudo_name = "Jonny"
-        self.pseudo_first_name = "Jonny"
-        self.pseudo_last_name = "Doe"
-        self.nick_name = "Jonny"
-        self.location = "austin,tx"
-        self.pubbirthday = "1992-01-01"
-        self.age = 32
-        self.gender = "M"
+        self.pseudo_name = ""
+        self.pseudo_first_name = ""
+        self.pseudo_last_name = ""
+        self.nick_name = ""
+        self.location = ""
+        self.pubbirthday = ""
+        self.age = ""
+        self.gender = ""
         self.interests = ""
         self.roles = ""
         self.owner = ""
@@ -510,12 +510,14 @@ class EBBOT(QStandardItem):
         return self.pubProfile.roles
 
     def getAge(self):
-        birthday = datetime.strptime(self.pubProfile.pubbirthday, '%Y-%m-%d')
-        # Get the current date
-        today = datetime.today()
-        # Calculate the age
-        age = today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
-        return age
+        if self.pubProfile.pubbirthday != "":
+            birthday = datetime.strptime(self.pubProfile.pubbirthday, '%Y-%m-%d')
+            # Get the current date
+            today = datetime.today()
+            # Calculate the age
+            age = today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
+            return age
+        return ""
 
     def getInventories(self):
         return self.seller_inventories

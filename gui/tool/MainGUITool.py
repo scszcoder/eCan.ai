@@ -266,15 +266,15 @@ class SqlProcessor:
             self.parent.showMsg("No rows were updated.")
 
     def inset_bots_batch(self, bots, api_bots):
-        sql = """INSERT INTO bots (owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw, backemail_site) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        sql = """INSERT INTO bots (botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw, backemail_site) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
         data_tuple = []
         for j in range(len(bots)):
             newbot = bots[j]
             data_tuple.append(
-                (newbot["bid"], newbot["owner"], newbot["levels"], newbot["gender"], newbot["birthday"], \
-                 newbot["interests"], newbot["location"], newbot["roles"], newbot["status"], newbot["delDate"], \
+                (newbot["bid"], newbot["owner"], newbot["levels"], newbot["gender"], newbot["birthday"],
+                 newbot["interests"], newbot["location"], newbot["roles"], newbot["status"], newbot["delDate"],
                  api_bots[j]["name"], api_bots[j]["pseudoname"], api_bots[j]["nickname"], api_bots[j]["addr"],
-                 api_bots[j]["shipaddr"], \
+                 api_bots[j]["shipaddr"],
                  api_bots[j]["phone"], api_bots[j]["email"], api_bots[j]["epw"], api_bots[j]["backemail"],
                  api_bots[j]["ebpw"], api_bots[j]["backemail_site"]))
         self.parent.showMsg("bot insert SQL:[" + sql + "] DATA TUPLE:(" + ", ".join(str(x) for x in data_tuple) + ")")
