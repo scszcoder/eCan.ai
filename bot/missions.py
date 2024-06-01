@@ -401,6 +401,8 @@ class EBMISSION(QStandardItem):
     def getParentSettings(self):
         return self.parent_settings
 
+    def getParent(self):
+        return self.parent
     def setMid(self, mid):
         self.pubAttributes.missionId = mid
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)

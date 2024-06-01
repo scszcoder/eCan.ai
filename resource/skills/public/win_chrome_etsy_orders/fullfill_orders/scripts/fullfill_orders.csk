@@ -39,8 +39,8 @@
                         "ref_location" : [{
                                 "dir": "<",
                                 "ref": "bottom",
-                                "offset": 90;
-                                "offset_unit": "%";
+                                "offset": 90,
+                                "offset_unit": "%"
                             }
                         ]
                     },
@@ -79,8 +79,8 @@
                         "ref_location" : [{
                                 "dir": "<",
                                 "ref": "bottom",
-                                "offset": 90;
-                                "offset_unit": "%";
+                                "offset": 90,
+                                "offset_unit": "%"
                             }
                         ]
                     },                  
@@ -122,8 +122,8 @@
                         "refs" : [{
                                 "dir": "below",
                                 "ref": "ship_to",
-                                "offset": 0;
-                                "offset_unit": "box";
+                                "offset": 0,
+                                "offset_unit": "box"
                             }
                         ]
                     }, 
@@ -135,11 +135,11 @@
                         "refs" : [{
                                 "dir": "above",
                                 "ref": "complete_order",
-                                "offset": 0;
-                                "offset_unit": "box";
+                                "offset": 0,
+                                "offset_unit": "box"
                             }
                         ]
-                    }, 
+                    }
                 ]
             },
             "completion" : {
@@ -152,8 +152,8 @@
                         "ref_location" : [{
                                 "dir": "<",
                                 "ref": "bottom",
-                                "offset": 90;
-                                "offset_unit": "%";
+                                "offset": 90,
+                                "offset_unit": "%"
                             }
                         ]
                     },                  
@@ -195,8 +195,8 @@
                         "refs" : [{
                                 "dir": "below",
                                 "ref": "ship_to",
-                                "offset": 0;
-                                "offset_unit": "box";
+                                "offset": 0,
+                                "offset_unit": "box"
                             }
                         ]
                     }, 
@@ -208,11 +208,11 @@
                         "refs" : [{
                                 "dir": "above",
                                 "ref": "complete_order",
-                                "offset": 0;
-                                "offset_unit": "box";
+                                "offset": 0,
+                                "offset_unit": "box"
                             }
                         ]
-                    }, 
+                    }
                 ]
             }
 	    }

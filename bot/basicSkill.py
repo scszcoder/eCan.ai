@@ -18,6 +18,7 @@ import traceback
 from ping3 import ping, verbose_ping
 from Logger import *
 
+
 if sys.platform == 'win32':
     import win32gui
     import win32con
@@ -773,6 +774,8 @@ def list_windows():
                 break
 
         return active_app_name, window_rect
+
+
 def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.parent_settings
     global screen_loc
@@ -883,6 +886,117 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
             return []
 
 
+async def read_screen8(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
+    settings = mission.parent_settings
+    global screen_loc
+
+    window_name, window_rect = get_top_visible_window()
+
+    if not os.path.exists(os.path.dirname(sfile)):
+        os.makedirs(os.path.dirname(sfile))
+
+    #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
+    # im0 = await asyncio.to_thread(pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3])))
+    im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    im0.save(sfile)
+    screen_loc = (window_rect[0], window_rect[1])
+
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    #upload screen to S3
+    await upload_file8(settings["session"], sfile, settings["token"], "screen")
+
+    m_skill_names = [sk_settings["skname"]]
+    m_psk_names = [sk_settings["skfname"]]
+    csk_name = sk_settings["skfname"].replace("psk", "csk")
+    m_csk_names = [csk_name]
+
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    # request an analysis of the uploaded screen
+    # some example options usage:
+    # Note: options is a global variable name that actually contains the options json string as shown below:
+    # "options": "{\"info\": [{\"info_name\": \"label_row\", \"info_type\": \"lines 1\", \"template\": \"2\", \"ref_method\": \"1\", \"refs\": [{\"dir\": \"right inline\", \"ref\": \"entries\", \"offset\": 0, \"offset_unit\": \"box\"}]}]}",
+    # basically let a user to modify csk file by appending some user defined way to extract certain information element.
+
+    request = [{
+        "id": mission.getMid(),
+        "bid": mission.getBid(),
+        "os": sk_settings["platform"],
+        "app": sk_settings["app"],
+        "domain": sk_settings["site"],
+        "page": site_page,
+        "layout": layout,
+        "skill_name": m_skill_names[0],
+        "psk": m_psk_names[0].replace("\\", "\\\\"),
+        "csk": m_csk_names[0].replace("\\", "\\\\"),
+        "lastMove": page_sect,
+        "options": "",
+        "theme": page_theme,
+        "imageFile": sfile.replace("\\", "\\\\"),
+        "factor": factors
+    }]
+
+    if options != "":
+        if isinstance(symTab[options], str):
+            request[0]["options"] = symTab[options]
+        elif isinstance(symTab[options], dict):
+            full_width = window_rect[2] - window_rect[0]
+            full_height = window_rect[3] - window_rect[1]
+            if "attention_area" in symTab[options]:
+                full_width = window_rect[2] - window_rect[0]
+                full_height = window_rect[3] - window_rect[1]
+                symTab[options]["attention_area"] = [ int(symTab[options]["attention_area"][0]*full_width),
+                                                      int(symTab[options]["attention_area"][1]*full_height),
+                                                      int(symTab[options]["attention_area"][2]*full_width),
+                                                      int(symTab[options]["attention_area"][3]*full_height) ]
+
+            request[0]["options"] = json.dumps(symTab[options]).replace('"', '\\"')
+    else:
+        # attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
+        # attention_targets is a list of text strings to find in the attention area. this whole attention scheme is about using more
+        # robust image to text algorithms on the cloud side to get a better reading of the results. The downside is the image process time
+        # is long, so limiting only certain area of the image helps keep speed in tact. Usually we home in on right half of the screen.
+        # or center half of the screen.
+        half_width = int((window_rect[2] - window_rect[0])/2)
+        half_height = int((window_rect[3] - window_rect[1]) / 2)
+        full_width = window_rect[2] - window_rect[0]
+        full_height = window_rect[3] - window_rect[1]
+        # request[0]["options"]["attention_area"] = [half_width, 0, full_width, full_height]
+        # request[0]["options"]["attention_targets"] = []
+        request[0]["options"] = json.dumps({"attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
+
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    result = await req_cloud_read_screen8(settings["session"], request, settings["token"])
+    # log3("result::: "+json.dumps(result))
+    jresult = json.loads(result['body'])
+    log3("cloud result data: "+json.dumps(jresult["data"]))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    if "errors" in jresult:
+        screen_error = True
+        log3("ERROR Type: "+json.dumps(jresult["errors"][0]["errorType"])+"ERROR Info: "+json.dumps(jresult["errors"][0]["errorInfo"]))
+        return []
+    else:
+        # log3("cloud result data body: "+json.dumps(result["body"]))
+        jbody = json.loads(result["body"])
+        # for p in jbody["data"]:
+        #     if p["name"] == "paragraph":
+        #         for tl in p["txt_struct"]:
+        #             log3("TXT LINE: "+tl["text"])
+
+
+
+        # global var "last_screen" always contains information extracted from the last screen shot.
+        if len(jbody["data"]) > 0:
+            symTab["last_screen"] = jbody["data"]
+            return jbody["data"]
+        else:
+            symTab["last_screen"] = []
+            return []
+
+
 # actual processing skill routines =========================================================>
 def build_current_context():
     global mission_vars
@@ -952,6 +1066,8 @@ def processExtractInfo(step, i, mission, skill):
     log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
+    mainwin = mission.getParent()
+
     global screen_error
 
     ex_stat = DEFAULT_RUN_STATUS
@@ -1012,18 +1128,112 @@ def processExtractInfo(step, i, mission, skill):
         fdir = fdir + step_settings["skname"] + "/images/"
         sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
         log3("sfile: "+sfile)
-
-
+        found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
+        sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        icon_names = get_csk_icon_names(skill, step["page"], step["section"])
-        factors = findAndFormIconScaleFactors(machine_name, skill.getSkid(), step["page"], step["section"], icon_names)
+        icon_names = get_csk_icon_names(found_skill, step["page"], step["section"])
+        factors = findAndFormIconScaleFactors(machine_name, sk_name, step["page"], step["section"], icon_names)
 
         result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         if len(result) > 0:
-            updateIconScalesDict(machine_name, skill.getSkid(), step["page"], step["section"], result)
+            updateIconScalesDict(machine_name, sk_name, step["page"], step["section"], result)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorExtractInfo:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i+1), ex_stat
+
+
+async def processExtractInfo8(step, i, mission, skill):
+    # mission_id, session, token, top_win, skill_name, uid
+    log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    mainwin = mission.getParent()
+
+    global screen_error
+
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        screen_error = False
+        dtnow = datetime.now()
+
+        if step["page_data_info"]:
+            page_layout = symTab[step["page_data_info"]]["products"]["layout"]
+        else:
+            page_layout = ""
+
+        log3("page layout is: ["+page_layout+"]")
+
+        date_word = dtnow.strftime("%Y%m%d")
+        dt_string = str(int(dtnow.timestamp()))
+        log3("date string:"+dt_string)
+
+        if skill.getPrivacy() == "public":
+            ppword = skill.getPrivacy()
+        else:
+            ppword = mission.parent_settings["uid"]
+
+        date_word = dtnow.strftime("%Y%m%d")
+        dt_string = str(int(dtnow.timestamp()))
+        log3("date string:"+dt_string)
+        sfile = "C:/Users/songc/PycharmProjects/testdata/"
+        #sfile = sfile + settings["uid"] + "/win/adspower/"
+        #sfile = sfile + "scrn" + settings["uid"] + "_" + dt_string + ".png"
+        if skill.getPrivacy() == "public":
+            ppword = skill.getPrivacy()
+        else:
+            ppword = mission.parent_settings["uid"]
+
+        log3("mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS()+"step settings:"+json.dumps(step["settings"]))
+
+        if type(step["settings"]) == str:
+            step_settings = symTab[step["settings"]]
+            log3("SETTINGS FROM STRING...."+json.dumps(step_settings))
+        else:
+            step_settings = step["settings"]
+
+        log3("STEP SETTINGS"+json.dumps(step_settings))
+        platform = step_settings["platform"]
+        app = step_settings["app"]
+        site = step_settings["site"]
+        page = step_settings["page"]
+        machine_name = step_settings["machine_name"]
+        if step_settings["root_path"][len(step_settings["root_path"])-1]=="/":
+            step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"])-1]
+
+        fdir = ecb_data_homepath + "/runlogs/"
+        fdir = fdir + date_word + "/"
+
+        fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
+        # fdir = fdir + ppword + "/"
+        fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
+        fdir = fdir + step_settings["skname"] + "/images/"
+        sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
+        log3("sfile: "+sfile)
+        found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
+        sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
+        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        icon_names = get_csk_icon_names(found_skill, step["page"], step["section"])
+        factors = findAndFormIconScaleFactors(machine_name, sk_name, step["page"], step["section"], icon_names)
+
+        result = await read_screen8(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
+        symTab[step["data_sink"]] = result
+        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+        if len(result) > 0:
+            updateIconScalesDict(machine_name, sk_name, step["page"], step["section"], result)
 
 
     except Exception as e:
@@ -2109,8 +2319,49 @@ def processCallExtern(step, i):
         #     symTab[step["output"]] = copy.deepcopy(result)
 
         symTab[step["output"]] = result
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallExtern:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallExtern: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i+1), ex_stat
 
 
+async def processCallExtern8(step, i):
+    log3("Run External Script/code as strings .....")
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        if step["entity"] == "file":
+            cmdline = ["python", step["file"]]
+
+            if step["args"] != "":
+                args_strings = json.loads(step["args"])
+                # converts string(var name) into variables in symbol table.
+                args = list(map(lambda x: symTab[x], args_strings))
+            else:
+                args = []
+
+            cmdline.extend(args)
+            oargs = ["capture_output=True", "text=True"]
+            cmdline.extend(oargs)
+            log3("command line: " + json.dumps(cmdline))
+            result = subprocess.call(cmdline, shell=True)
+        else:
+            # execute a string as raw python code.
+            result = exec(step["file"])
+            if "nNRP" in step["file"]:
+                log3("nNRP: " + json.dumps(symTab["nNRP"]))
+        # if symTab[step["fill_method"]] == "assign":
+        #     symTab[step["output"]] = result
+        # elif symTab[step["fill_method"]] == "copy_obj":
+        #     symTab[step["output"]] = copy.deepcopy(result)
+
+        symTab[step["output"]] = result
 
     except Exception as e:
         # Get the traceback information
@@ -3314,37 +3565,59 @@ def processReportToBoss(step, i):
 
     return (i + 1), ex_stat
 
-def updateIconScalesDict(machine_name, skid, page, section, screen_data):
+def updateIconScalesDict(machine_name, sk_name, page, section, screen_data):
     all_icons = [x for x in screen_data if (x["type"] == "anchor icon")]
+    print("all icons with scale factors to be saved: ", all_icons)
     icon_scales = []
     icon_scale_data = {}
-    uniq_icon_names = list(icon_match_dict[machine_name][skid][page][section].keys())
+    print("updating icon_match_dict:", icon_match_dict)
+    if len(all_icons) > 0:
+        # build up an empty dictionary if needed.
+        if machine_name not in icon_match_dict:
+            icon_match_dict[machine_name] = {sk_name: {page: {section: {}}}}
+        elif sk_name not in icon_match_dict[machine_name]:
+            icon_match_dict[machine_name][sk_name] = {page: {section: {}}}
+        elif page not in icon_match_dict[machine_name][sk_name]:
+            icon_match_dict[machine_name][sk_name][page] = {section: {}}
+        elif section not in icon_match_dict[machine_name][sk_name][page]:
+            icon_match_dict[machine_name][sk_name][page][section] = {}
 
-    for icon in all_icons:
-        if icon["name"] not in uniq_icon_names:
-            icon_match_dict[machine_name][skid][page][section][icon["name"]] = [icon["scale"]]
-        else:
-            icon_match_dict[machine_name][skid][page][section][icon["name"]].append(icon["scale"])
+        uniq_icon_names = list(icon_match_dict[machine_name][sk_name][page][section].keys())
 
-    # save the updated to a file.
-    run_experience_file = ecb_data_homepath + "/run_experience.txt"
-    with open(run_experience_file, 'wb') as fileTBSaved:
-        json.dump(icon_match_dict, fileTBSaved, indent=4)
-        fileTBSaved.close()
+        for icon in all_icons:
+            if icon["name"] not in uniq_icon_names:
+                icon_match_dict[machine_name][sk_name][page][section][icon["name"]] = [icon["scale"]]
+            else:
+                if icon["scale"] not in icon_match_dict[machine_name][sk_name][page][section][icon["name"]]:
+                    icon_match_dict[machine_name][sk_name][page][section][icon["name"]].append(icon["scale"])
+
+        # save the updated to a file.
+        run_experience_file = ecb_data_homepath + "/run_experience.txt"
+        print("run_experience_file: "+run_experience_file)
+        print("icon match dict: ", icon_match_dict)
+        with open(run_experience_file, 'w') as fileTBSaved:
+            json.dump(icon_match_dict, fileTBSaved, indent=4)
+            fileTBSaved.close()
 
 
-def findAndFormIconScaleFactors(machine_name, skid, page, section, icon_names):
+def findAndFormIconScaleFactors(machine_name, sk_name, page, section, icon_names):
     icon_scale_option = "{}"
-    found_icon_scales = []
+    found_icon_scales = {}
+    # print("finding scale from:", machine_name, sk_name, page, section)
+    # print("current icon_match_dict:", icon_match_dict)
     if machine_name in icon_match_dict:
-        if skid in icon_match_dict[machine_name]:
-            if page in icon_match_dict[machine_name][skid]:
-                if section in icon_match_dict[machine_name][skid][page][section]:
-                    icon_scales = icon_match_dict[machine_name][skid][page][section]
-                    found_icon_scales = [x for x in icon_names if x in icon_scales]
-                    if len(found_icon_scales) > 0:
+        if sk_name in icon_match_dict[machine_name]:
+            if page in icon_match_dict[machine_name][sk_name]:
+                if section in icon_match_dict[machine_name][sk_name][page]:
+                    icon_scales = icon_match_dict[machine_name][sk_name][page][section]
+                    found_icon_names = [x for x in icon_names if x in icon_scales]
+                    if len(found_icon_names) > 0:
+                        for icon_name in found_icon_names:
+                            found_icon_scales[icon_name] = [round(float(x), 2) for x in icon_scales[icon_name]]
                         icon_scale_option = json.dumps(found_icon_scales).replace('"', '\\"')
+                        print("found previous icon scale factors:", icon_scale_option)
 
+    print("formed icon scale option:", icon_scale_option)
     return icon_scale_option
 
 
@@ -3352,13 +3625,19 @@ def get_csk_icon_names(skill, page, section):
     icon_names = []
     csk_file_name = skill.getCskFileName()
     csk_json = None
+    print("checking csk file:", skill.getSkid(), csk_file_name)
     if os.path.exists(csk_file_name):
         with open(csk_file_name, 'rb') as csk_file:
             csk_json = json.load(csk_file)
             csk_file.close()
-
+    # print("read csk json:", page, section, csk_json)
     if csk_json:
-        if page in csk_json:
-            if section in csk_json[page]:
-                icon_names = [x["anchor_name"] for x in csk_json[page][section]["anchors"] if x["anchor_type"] == "icon"]
+        for page_section in csk_json:
+            if page in page_section:
+                if section in page_section[page]:
+                    # print("read page section of csk json:", page_section[page][section])
+                    icon_names = [x["anchor_name"] for x in page_section[page][section]["anchors"] if x["anchor_type"] == "icon"]
+                    break
+
+    print("csk icon names:", icon_names)
     return icon_names

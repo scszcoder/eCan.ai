@@ -223,8 +223,9 @@ class Login(QDialog):
     def get_mainwin(self):
         return self.mainwin
 
-    def get_msg_queue(self):
+    def get_gui_msg_queue(self):
         return self.gui_net_msg_queue
+
 
     def set_xport(self, xport):
         self.xport = xport
@@ -234,7 +235,7 @@ class Login(QDialog):
 
     def read_role(self):
         self.machine_role = "Platoon"
-
+        print("ROLE FILE: "+ROLE_FILE)
         if exists(ROLE_FILE):
             with open(ROLE_FILE, 'r') as file:
                 mr_data = json.load(file)
