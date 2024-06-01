@@ -4,6 +4,8 @@ import re
 import ast
 import pyautogui
 import time
+import asyncio
+import inspect
 from Cloud import *
 import ctypes
 import os
@@ -152,6 +154,82 @@ RAIS = {
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
 
+ARAIS = {
+    "Halt": lambda x,y: processHalt(x, y),
+    "Wait": lambda x,y: processWait(x, y),
+    "Save Html": lambda x,y,z,k: processSaveHtml(x, y, z, k),
+    "Browse": lambda x,y: processBrowse(x, y),
+    "Text To Number": lambda x,y: processTextToNumber(x, y),
+    # "Extract Info": lambda x,y,z,k: processExtractInfo8(x, y, z, k),
+    "Extract Info": processExtractInfo8,
+    "Text Input": lambda x,y: processTextInput(x, y),
+    "Mouse Click": lambda x,y: processMouseClick(x, y),
+    "Mouse Scroll": lambda x,y: processMouseScroll(x, y),
+    "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
+    "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
+    "Key Input": lambda x,y: processKeyInput(x, y),
+    "App Open": lambda x,y: processOpenApp(x, y),
+    "Create Data": lambda x,y: processCreateData(x, y),
+    "Fill Data": lambda x,y: processFillData(x, y),
+    "Load Data": lambda x,y: processLoadData(x, y),
+    "Save Data": lambda x,y: processSaveData(x, y),
+    "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
+    "Repeat": lambda x,y,z: processRepeat(x, y, z),
+    "Goto": lambda x,y,z: processGoto(x, y, z),
+    "Call Function": lambda x,y,z,v,w: processCallFunction(x, y, z, v, w),
+    "Return": lambda x,y,z,w: processReturn(x, y, z, w),
+    "Use Skill": lambda x,y,z,u,v,w: processUseSkill(x, y, z, u, v, w),
+    "Overload Skill": lambda x,y,z,w: processOverloadSkill(x, y, z, w),
+    "Stub": lambda x,y,z,u,v,w: processStub(x, y, z, u, v, w),
+    "Call Extern": lambda x,y: processCallExtern(x, y),
+    "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
+    "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
+    "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
+    "Search Word Line": lambda x, y: processSearchWordLine(x, y),
+    "Think": lambda x, y: processThink8(x, y, z),
+    "FillRecipients": lambda x,y: processFillRecipients(x, y),
+    "Search Scroll": lambda x,y: processSearchScroll(x, y),
+    "Seven Zip": lambda x,y: process7z(x, y),
+    "List Dir": lambda x, y: processListDir(x, y),
+    "Check Existence": lambda x, y: processCheckExistence(x, y),
+    "Create Dir": lambda x, y: processCreateDir(x, y),
+    "print Label": lambda x,y: processPrintLabel(x, y),
+    "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
+    "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
+    "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
+    "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
+    "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
+    "AMZ Scrape Details Html": lambda x, y: processAMZScrapeDetailsHtml(x, y),
+    "AMZ Scrape Buy Orders Html": lambda x, y: processAMZScrapeBuyOrdersHtml(x, y),
+    "AMZ Browse Reviews": lambda x,y: processAMZBrowseReviews(x, y),
+    "AMZ Scrape Reviews Html": lambda x, y: processAMZScrapeReviewsHtml(x, y),
+    "AMZ Scrape Sold Orders Html": lambda x, y: processAMZScrapeSoldOrdersHtml(x, y),
+    "AMZ Scrape Msg Lists": lambda x, y: processAmzScrapeMsgList(x, y),
+    "AMZ Buy Check Shipping": lambda x, y: processAmzBuyCheckShipping(x, y),
+    "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
+    "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
+    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
+    "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
+    "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
+    "Gen Resp Msg": lambda x, y: processGenRespMsg(x, y),
+    "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
+    "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
+    "Etsy Set Order Clicked Status": lambda x, y: processEtsySetOrderClickedStatus(x, y),
+    "Etsy Find Screen Order": lambda x, y: processEtsyFindScreenOrder(x, y),
+    "Etsy Remove Expanded": lambda x, y: processEtsyRemoveAlreadyExpanded(x, y),
+    "Etsy Extract Tracking": lambda x, y: processEtsyExtractTracking(x, y),
+    "Etsy Add Page Of Order": lambda x, y: processEtsyAddPageOfOrder(x, y),
+    "ETSY Scrape Msg Lists": lambda x, y: processEtsyScrapeMsgLists(x, y),
+    "ETSY Scrape Msg Thread": lambda x, y: processEtsyScrapeMsgThread(x, y),
+    "Create ADS Profile Batches": lambda x, y, z: processADSProfileBatches(x, y, z),
+    "Update Buy Mission Result": lambda x, y, z: processUpdateBuyMissionResult(x, y, z),
+    "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
+    "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
+    "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
+    "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
+    "Go To Window": lambda x,y: processGoToWindow(x, y),
+    "Report To Boss": lambda x,y: processReportToBoss(x, y)
+}
 
 # read an psk fill into steps (json data structure)
 # input: steps - data structure to hold the results.
@@ -267,52 +345,77 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     running = True
     run_stack = []
     log3("running all steps....."+json.dumps(mission.genJson()))
+    last_error_stat = "None"
     stepKeys = list(steps.keys())
     # for k in stepKeys:
     #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
     log3("====================================="+str(len(stepKeys)))
-    while next_step_index <= len(stepKeys)-1 and running:
-        last_step = next_step_index
-        next_step_index, step_stat = run1step(steps, next_step_index, mission, skill, run_stack)
+    while next_step_index <= len(stepKeys)-1:
+        if running:
+            last_step = next_step_index
+            next_step_index, step_stat = await run1step8(steps, next_step_index, mission, skill, run_stack)
 
-        if step_stat == DEFAULT_RUN_STATUS:
+            if step_stat == DEFAULT_RUN_STATUS:
 
-            # debugging mode. if the next instruction is one of the breakpoints, then stop and pendin for
-            # keyboard input. (should fix later to support GUI button press.....)
-            if next_step_index in breakpoints:
-                cmd = input("cmd for next action('<Space>' to step, 'c' to continue to run, 'q' to abort. \n")
-                if cmd == "c":
-                    mode = "normal"
-                elif cmd == "q":
-                    break
+                # debugging mode. if the next instruction is one of the breakpoints, then stop and pendin for
+                # keyboard input. (should fix later to support GUI button press.....)
+                if next_step_index in breakpoints:
+                    cmd = input("cmd for next action('<Space>' to step, 'c' to continue to run, 'q' to abort. \n")
+                    if cmd == "c":
+                        mode = "normal"
+                    elif cmd == "q":
+                        break
 
-            # in case an exeption occurred, handle the exception.
-            if in_exception:
-                log3("EXCEPTION THROWN:")
-                # push next_step_index onto exception stack.
-                exception_stack.append(next_step_index)
+                # in case an exeption occurred, handle the exception.
+                if in_exception:
+                    log3("EXCEPTION THROWN:")
+                    # push next_step_index onto exception stack.
+                    exception_stack.append(next_step_index)
 
-                # set the next_step_index to be the start of the exception handler, which always starts @8000000
-                next_step_index = stepKeys.index("step8000000")
+                    # set the next_step_index to be the start of the exception handler, which always starts @8000000
+                    next_step_index = stepKeys.index("step8000000")
 
-            if mode == "debug":
-                input("hit any key to continue")
+                if mode == "debug":
+                    input("hit any key to continue")
 
-            log3("next_step_index: "+str(next_step_index)+"len(stepKeys)-1: "+str(len(stepKeys)-1))
-        else:
-            break
+                log3("next_step_index: "+str(next_step_index)+"len(stepKeys)-1: "+str(len(stepKeys)-1))
+            else:
+                last_error_stat = step_stat+":"+stepKeys[last_step]
+
 
         # check whether there is any msging handling need.
         if not in_msg_queue.empty():
             message = await in_msg_queue.get()
-            log3(f"RunAllSteps message: {message}")
+            log3(f"Rx RunAllSteps message: {message}")
+            msg = json.loads(message)
+            if msg["cmd"] == "reqCancelAllMissions":
+                # set program counter to the end, this shall stop it.
+                next_step_index = len(stepKeys)
+            elif msg["cmd"] == "reqCancelCurrentMission":
+                next_step_index = len(stepKeys)
+            elif msg["cmd"] == "reqHaltMissions":
+                running = False
+            elif msg["cmd"] == "reqResumeMissions":
+                running = True
+            elif msg["cmd"] == "reqMissionStatus":
+                # send back current running status based on msg["content"]
+                # basically sends back str(next_step_index)
+                rpa_stat_msg = json.dumps({"type": "rpa_running_status", "mid": mission.getMid(), "step": stepKeys[next_step_index], "last error": last_error_stat})
+                sendGUIMessage(out_msg_queue, rpa_stat_msg)
+
             in_msg_queue.task_done()
+
+        if step_stat != DEFAULT_RUN_STATUS:
+            break
 
     if step_stat != DEFAULT_RUN_STATUS:
         log3("RUN Error!")
         run_result = "Incomplete:"+step_stat+":"+str(last_step)
 
     return run_result
+
+def sendGUIMessage(msg_queue, msg_data):
+    asyncio.create_task(msg_queue.put(msg_data))
 
 def runNSteps(steps, prev_step, i_step, e_step, mission, skill, run_stack):
     global last_step
@@ -361,6 +464,80 @@ def run1step(steps, si, mission, skill, stack):
         else:
             print("step type:"+step["type"])
             si,isat = RAIS[step["type"]](step, si)
+
+    else:
+        si = si + 1
+        isat = "ErrorInstructionNotType:400"
+
+    return si, isat
+
+
+async def run1step8(steps, si, mission, skill, stack):
+    global next_step
+    global last_step
+    # settings = mission.parent_settings
+    i = next_step
+    stepKeys = list(steps.keys())
+    step = steps[stepKeys[si]]
+    last_si = si
+    log3("============>running step ["+str(si)+"]: "+json.dumps(step))
+
+    if "type" in step:
+        if step["type"] == "Halt":
+            # run step using the funcion look up table.
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si)
+
+        elif step["type"] == "Goto" or step["type"] == "Check Condition" or step["type"] == "Repeat":
+            # run step using the funcion look up table.
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si, stepKeys)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stepKeys)
+
+        elif step["type"] == "Extract Info" or step["type"] == "Save Html":
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si, mission, skill)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
+
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM":
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si, mission)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission)
+
+        elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si, stack, stepKeys)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, stepKeys)
+
+        elif step["type"] == "Stub" or step["type"] == "Use Skill":
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, skill_stack, skill_table, stepKeys)
+
+        elif step["type"] == "Call Function":
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si, stack, function_table, stepKeys)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, function_table, stepKeys)
+
+        elif "EXT:" in step["type"]:
+            if step["type"].index("EXT:") == 0:
+                # this is an extension instruction, execute differently, simply call extern. as to what to actually call, it's all
+                # embedded in the step dictionary.
+                si,isat = await asyncio.to_thread(processCallExtern, step, si)
+        else:
+            print("step type:"+step["type"])
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si)
 
     else:
         si = si + 1
@@ -606,7 +783,6 @@ def processCalibrateScroll(step, i):
         ex_stat = "ErrorCalibrateScroll:" + str(i)
 
     return (i + 1), ex_stat
-
 
 
 

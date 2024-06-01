@@ -8,6 +8,8 @@ from requests_aws4auth import AWS4Auth
 from datetime import datetime
 import os
 from Logger import *
+import asyncio
+import aiohttp
 
 # Constants Copied from AppSync API 'Settings'
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
@@ -877,23 +879,21 @@ def gen_feedback_request_string(fbReq):
     log3(query_string)
     return query_string
 
-
-
 def set_up_cloud():
     REGION = 'us-east-1'
-    session = requests.Session()
-    # session.auth = AWS4Auth(
-    #     # An AWS 'ACCESS KEY' associated with an IAM user.
-    #     ACCESS_KEY,
-    #     # The 'secret' that goes with the above access key.
-    #     SECRET_KEY,
-    #     # The region you want to access.
-    #     REGION,
-    #     # The service you want to access.
-    #     'appsync'
-    # )
+    this_session = requests.Session()
 
-    return session
+    return this_session
+
+
+async def set_up_cloud8():
+    REGION = 'us-east-1'
+    this_session = None
+    # session = requests.Session()
+
+    async with aiohttp.ClientSession() as session:
+        this_session = session
+    return this_session
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
@@ -931,6 +931,23 @@ def req_cloud_read_screen(session, request, token):
         jresponse = json.loads(jresp["data"]["reqScreenTxtRead"])
 
     return jresponse
+
+
+async def req_cloud_read_screen8(session, request, token):
+
+    query = gen_screen_read_request_string(request)
+
+    jresp = await appsync_http_request8(query, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reqScreenTxtRead"])
+
+    return jresponse
+
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
@@ -1446,3 +1463,79 @@ def appsync_http_request2(query_string, session, token):
     jresp = response.json()
 
     return jresp
+
+
+async def appsync_http_request8(query_string, session, token):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+
+    headers = {
+        'Content-Type': "application/graphql",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+    async with aiohttp.ClientSession() as session8:
+        async with session8.post(
+                url=APPSYNC_API_ENDPOINT_URL,
+                timeout=aiohttp.ClientTimeout(total=300),
+                headers=headers,
+                json={'query': query_string}
+        ) as response:
+            jresp = await response.json()
+            print(jresp)
+            return jresp
+
+
+async def send_file_op_request_to_cloud8(session, fops, token):
+
+    queryInfo = gen_file_op_request_string(fops)
+
+    jresp = await appsync_http_request8(queryInfo, session, token)
+
+    # log3("file op response:"+json.dumps(jresp))
+    if "errors" in jresp:
+        screen_error = True
+        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reqFileOp"])
+
+    return jresponse
+
+
+async def send_file_with_presigned_url8(session, src_file, resp):
+    async with aiohttp.ClientSession() as session:
+        with open(src_file, 'rb') as f:
+            form = aiohttp.FormData()
+            for key, value in resp['fields'].items():
+                form.add_field(key, value)
+            form.add_field('file', f, filename=src_file)
+
+            async with session.post(resp['url'], data=form) as r:
+                log3(str(r.status))
+                return r.status
+
+
+async def upload_file8(session, f2ul, token, ftype):
+    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    fname = os.path.basename(f2ul)
+    fwords = f2ul.split("/")
+    relf2ul = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
+    prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
+
+    fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
+    log3("fopreqs:"+json.dumps(fopreqs))
+
+    # get presigned URL
+    res = await send_file_op_request_to_cloud8(session, fopreqs, token)
+    log3("cloud response: "+json.dumps(res['body']['urls']['result']))
+    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    resd = json.loads(res['body']['urls']['result'])
+    log3("resd: "+json.dumps(resd))
+
+    # now perform the upload of the presigned URL
+    log3("f2ul:"+json.dumps(f2ul))
+    resp = await send_file_with_presigned_url8(session, f2ul, resd['body'][0])
+    # log3("upload result: "+json.dumps(resp))
+    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))

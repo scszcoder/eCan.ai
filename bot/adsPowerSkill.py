@@ -67,7 +67,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # wait 3 seconds till it logs in....
-    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    this_step, step_words = genStepWait(6, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     # now that we have logged in, load profiles.
@@ -89,7 +89,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     # check whether there is any pop up ads, there might be multiple advertising pop ups, if so, close it one by one until we see the
     # adspower's main home screen. The indication of whether the main screen is shown is to to check whether the button "All groups" is
     # found on screen, if not that means some pop up(s) block it. use hot key shift+esc to close it.
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "subscription", "direct", "anchor text", "any", "useless", "ad_shown", "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["limited", "rights", "reward"], "direct", ["anchor text","anchor text","anchor text"], "any", "useless", "ad_shown", "ads", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("ad_shown", "", "", "ADSPowerLaunch" + str(this_step), this_step)
