@@ -2787,8 +2787,8 @@ class MainWindow(QMainWindow):
         # self.centralWidget.setText("<b>File > New</b> clicked")
         if self.BotNewWin == None:
             self.BotNewWin = BotNewWin(self)
-        else:
-            self.BotNewWin.setMode("new")
+        self.BotNewWin.setMode("new")
+        self.BotNewWin.setBot(EBBOT(self))
         self.BotNewWin.show()
 
     def trainNewSkill(self):
@@ -3724,16 +3724,9 @@ class MainWindow(QMainWindow):
         return new_action
 
     def editBot(self):
-        # File actions
-        if self.BotNewWin:
-            self.showMsg("populating bot GUI............")
-            self.BotNewWin.setBot(self.selected_bot_item)
-        else:
-            self.showMsg("creating bot GUI .......")
+        if self.BotNewWin == None:
             self.BotNewWin = BotNewWin(self)
-            self.showMsg("Done creating bot GUI .......")
-            self.BotNewWin.setBot(self.selected_bot_item)
-            self.showMsg("Done updating bot GUI .......")
+        self.BotNewWin.setBot(self.selected_bot_item)
 
         self.BotNewWin.setMode("update")
         self.BotNewWin.show()

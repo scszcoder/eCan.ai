@@ -801,8 +801,12 @@ class BotNewWin(QMainWindow):
         self.age_edit.setText(str(bot.getAge()))
         self.bd_edit.setText(bot.getPubBirthday())
         self.backem_edit.setText(bot.getBackEm())
-        self.loccity_edit.setText(bot.getLocation().split(",")[0])
-        self.locstate_edit.setText(bot.getLocation().split(",")[1])
+        if bot.getLocation() == "":
+            self.loccity_edit.setText("")
+            self.locstate_edit.setText("")
+        else:
+            self.loccity_edit.setText(bot.getLocation().split(",")[0])
+            self.locstate_edit.setText(bot.getLocation().split(",")[1])
         self.em_edit.setText(bot.getEmail())
         self.empw_edit.setText(bot.getEmPW())
         self.backem_edit.setText(bot.getBackEm())
@@ -811,10 +815,7 @@ class BotNewWin(QMainWindow):
         self.pln_edit.setText(bot.getPseudoLastName())
         self.pfn_edit.setText(bot.getPseudoFirstName())
         self.backem_site_edit.setText(bot.getBackEmSite())
-        self.parent.showMsg("hihii???")
-        # self.pnn_edit.setText(bot.getNickName())
         self.phone_edit.setText(bot.getPhone())
-        # self.icon_path_edit.setText(bot.getIconLink())
         self.tag_edit.setReadOnly(False)
         self.tag_edit.setText(str(bot.getBid()))
         self.tag_edit.setReadOnly(True)
@@ -883,6 +884,8 @@ class BotNewWin(QMainWindow):
 
             self.selected_role_row = 0
             self.selected_role_item = self.roleModel.item(self.selected_role_row)
+        else:
+            self.roleModel.clear()
 
     def loadInterests(self, bot):
         intp_options = ['Amazon', 'Etsy', 'Ebay', 'any']
@@ -962,7 +965,8 @@ class BotNewWin(QMainWindow):
 
             self.selected_interest_row = 0
             self.selected_interest_item = self.interestModel.item(self.selected_interest_row)
-
+        else:
+            self.interestModel.clear()
         self.parent.showMsg("bot intests loaded......")
 
 
