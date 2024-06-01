@@ -403,16 +403,23 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "rights_reserved",
+                        "anchor_name"  : "rights",
                         "anchor_type"  : "text",
-                        "template"     : "All rights reserved",
+                        "template"     : "rights",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "limited_time",
+                        "anchor_name"  : "reward",
                         "anchor_type"  : "text",
-                        "template"     : "limited time",
+                        "template"     : "Reward",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "limited",
+                        "anchor_type"  : "text",
+                        "template"     : "limited",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -420,6 +427,13 @@
                         "anchor_name"  : "big_limited_time",
                         "anchor_type"  : "text",
                         "template"     : "Limited-time",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "display again",
+                        "anchor_type"  : "text",
+                        "template"     : "display again",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
