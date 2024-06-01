@@ -16,6 +16,7 @@ from qasync import QEventLoop
 from envi import *
 from setproctitle import setproctitle
 
+
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
@@ -27,7 +28,6 @@ def main():
     # app = QApplication(sys.argv)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
-
     global login
     login = Login()
 
