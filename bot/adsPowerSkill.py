@@ -47,7 +47,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     this_step, step_words = genStepWait(8, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.8, 0.75],'attention_targets':['New Profile', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # now read screen, if there is log in, then click on log in.
@@ -503,7 +503,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global in_os\nin_os = fin[5]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.8, 0.75],'attention_targets':['New Profile', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
