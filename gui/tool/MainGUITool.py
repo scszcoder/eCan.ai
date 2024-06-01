@@ -46,14 +46,17 @@ class SqlProcessor:
         self.dbCursor.execute(sql)
 
     def insert_skill(self, api_skills):
-        sql = ''' INSERT INTO skills (skid, owner, platform, app, site, name, path, runtime, price_model, price, privacy)
-                                                   VALUES(?,?,?,?,?,?,?,?,?,?,?); '''
+        sql = ''' INSERT INTO skills (skid, owner, platform, app, applink, appargs, site, sitelink, name, path, main, createdon, extensions, runtime, price_model, price, privacy)
+                                                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
         data_tuple = (
             api_skills["skid"], api_skills["owner"], api_skills["platform"],
-            api_skills["app"], api_skills["site"], api_skills["name"],
-            api_skills["path"], api_skills["runtime"], api_skills["price_model"],
-            api_skills["price"], api_skills["privacy"])
+            api_skills["app"], api_skills["applink"], api_skills["appargs"], api_skills["site"],
+            api_skills["sitelink"], api_skills["name"], api_skills["path"], api_skills["main"],
+            api_skills["createdon"], api_skills["extensions"], api_skills["runtime"],
+            api_skills["price_model"], api_skills["price"], api_skills["privacy"])
+
         self.dbCursor.execute(sql, data_tuple)
+
         sql = 'SELECT * FROM skills'
         res = self.dbCursor.execute(sql)
         self.parent.showMsg("fetchall" + json.dumps(res.fetchall()))
@@ -193,11 +196,12 @@ class SqlProcessor:
             self.dbcon.commit()
         else:
             self.parent.showMsg("No rows were updated.", "warn")
+
     def find_missions_by_search(self, startTime, endTime, search):
         sql = 'SELECT * FROM missions where 1=1'
         if len(startTime) > 0 and len(endTime) > 0:
             sql += ' AND createon BETWEEN ' + startTime + ' AND ' + endTime
-        if len(search)>0:
+        if len(search) > 0:
             sql += ' AND (asin LIKE "%' + search + '%" OR store LIKE "%' + search + '%" OR brand LIKE "%' + search + '%" OR title LIKE "%' + search + '%" OR pseudoStore LIKE "%' + search + '%" OR pseudoBrand LIKE "%' + search + '%" OR pseudoASIN LIKE "%' + search + '%")'
         res = self.dbCursor.execute(sql)
         data = res.fetchall()
@@ -243,6 +247,7 @@ class SqlProcessor:
         db_data = self.dbCursor.fetchall()
         self.parent.showMsg("Just Added Local DB Bot Row(s): " + json.dumps(db_data), "debug")
         return db_data
+
     def find_bots_by_search(self, startTime, endTime, search):
         sql = 'SELECT * FROM bots where 1=1'
         if len(startTime) > 0 and len(endTime) > 0:
