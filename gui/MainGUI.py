@@ -4483,7 +4483,7 @@ class MainWindow(QMainWindow):
                 self.workingState = "Idle"
 
             print("running bot works whenever there is some to run....")
-            # await asyncio.sleep(1)
+            await asyncio.sleep(1)
 
     # update a vehicle's missions status
     # rx_data is a list of mission status for each mission that belongs to the vehicle.
