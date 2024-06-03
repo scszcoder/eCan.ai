@@ -1,135 +1,10 @@
-import sys
-import random
-
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent
 from PySide6.QtGui import QFont, QStandardItemModel
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QFileDialog, QTabWidget, QScrollArea, \
+from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QFileDialog, QTabWidget, \
     QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QMessageBox, QTableView, \
-    QStyledItemDelegate, QAbstractItemDelegate
-from ebbot import *
-from locale import getdefaultlocale
+    QStyledItemDelegate
 from FlowLayout import *
 from ebbot import *
-
-
-
-class RoleListView(QListView):
-    def __init__(self, parent):
-        super(RoleListView, self).__init__()
-        self.selected_row = None
-        self.parent = parent
-        self.setContextMenuPolicy(Qt.CustomContextMenu)  # 设置上下文菜单策略
-        self.customContextMenuRequested.connect(self.showContextMenu)  # 连接右键菜单请求信号到槽函数
-
-    def showContextMenu(self, pos):
-        index = self.indexAt(pos)
-        if not index.isValid():
-            return  # 如果没有有效的索引，则不显示菜单
-
-        menu = QMenu(self)
-
-        # 添加删除动作
-        delete_action = menu.addAction("删除")
-        delete_action.triggered.connect(lambda: self.handleDelete(index))
-
-        # 显示菜单
-        menu.exec_(self.viewport().mapToGlobal(pos))
-
-    def handleDelete(self, index):
-        # 在这里实现删除操作的逻辑
-        reply = QMessageBox.question(self, '删除确认', '确定要删除这条记录吗？', QMessageBox.Yes | QMessageBox.No,
-                                     QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            model = self.model()
-            if model is not None:
-                model.removeRow(index.row())
-
-class ROLE(QStandardItem):
-    def __init__(self, platform, level, role, homepath):
-        super().__init__()
-        self.platform = platform
-        self.level = level
-        self.role = role
-        self.name = platform+"_"+level+"_"+role
-
-        self.setText(self.name)
-        self.icon = QIcon(homepath+'/resource/images/icons/duty0-64.png')
-        self.setIcon(self.icon)
-
-    def getData(self):
-        return self.platform, self.level, self.role
-
-    def setPlatform(self, platform):
-        self.platform = platform
-
-    def setLevel(self, level):
-        self.level = level
-
-    def setRole(self, role):
-        self.role = role
-
-class InterestsListView(QListView):
-    def __init__(self, parent):
-        super(InterestsListView, self).__init__()
-        self.selected_row = None
-        self.parent = parent
-
-        self.setContextMenuPolicy(Qt.CustomContextMenu)  # 设置上下文菜单策略
-        self.customContextMenuRequested.connect(self.showContextMenu)  # 连接右键菜单请求信号到槽函数
-
-
-    def showContextMenu(self, pos):
-        index = self.indexAt(pos)
-        if not index.isValid():
-            return  # 如果没有有效的索引，则不显示菜单
-
-        menu = QMenu(self)
-
-        # 添加删除动作
-        delete_action = menu.addAction("删除")
-        delete_action.triggered.connect(lambda: self.handleDelete(index))
-
-        # 显示菜单
-        menu.exec_(self.viewport().mapToGlobal(pos))
-
-
-    def handleDelete(self, index):
-        # 在这里实现删除操作的逻辑
-        reply = QMessageBox.question(self, '删除确认', '确定要删除这条记录吗？', QMessageBox.Yes | QMessageBox.No,
-                                     QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            model = self.model()
-            if model is not None:
-                model.removeRow(index.row())
-
-class INTEREST(QStandardItem):
-    def __init__(self, homepath, platform, maincat, subcat1, subcat2="", subcat3="", subcat4="", subcat5=""):
-        super().__init__()
-        self.platform = platform
-        self.homepath = homepath
-        self.main_category = maincat
-        self.sub_category1 = subcat1
-        self.sub_category2 = subcat2
-        self.sub_category3 = subcat3
-        self.sub_category4 = subcat4
-        self.sub_category5 = subcat5
-        self.name = platform+"|"+maincat+"|"+subcat1
-        if subcat2 != "" and subcat2 != "any":
-            self.name = self.name + "|" + subcat2
-        if subcat3 != "" and subcat3 != "any":
-            self.name = self.name + "|" + subcat3
-        if subcat4 != "" and subcat4 != "any":
-            self.name = self.name + "|" + subcat4
-        if subcat5 != "" and subcat5 != "any":
-            self.name = self.name + "|" + subcat5
-
-        self.setText(self.name)
-        self.icon = QIcon(homepath+'/resource/images/icons/interests-64.png')
-        self.setIcon(self.icon)
-
-    def getData(self):
-        return self.platform, self.main_category, self.sub_category1, self.sub_category2, self.sub_category3, self.sub_category4, self.sub_category5
-
 
 class ComboBoxDelegate(QStyledItemDelegate):
     def __init__(self, parent, items):
@@ -137,10 +12,10 @@ class ComboBoxDelegate(QStyledItemDelegate):
         self.items = items
 
     def createEditor(self, parent, option, index):
-        combobox = QComboBox(parent)
-        combobox.addItems(self.items)
-        combobox.currentIndexChanged.connect(lambda: self.commitData.emit(combobox))
-        return combobox
+            combobox = QComboBox(parent)
+            combobox.addItems(self.items)
+            combobox.currentIndexChanged.connect(lambda: self.commitData.emit(combobox))
+            return combobox
 
     def setEditorData(self, editor, index):
         value = index.model().data(index, Qt.EditRole)
@@ -1083,23 +958,6 @@ class BotNewWin(QMainWindow):
             self.show_interest_custom_sub_category3()
             self.selected_interest_sub_category3 = self.interest_custom_sub_category3_edit.text()
 
-
-    # def interestSubCategory4Sel_changed(self):
-    #     if self.interest_sub_category4_sel.currentText() != 'Custom':
-    #         self.hide_interest_custom_sub_category4()
-    #         self.selected_interest_sub_category4 = self.interest_sub_category4_sel.currentText()
-    #     else:
-    #         self.show_interest_custom_sub_category4()
-    #         self.selected_interest_sub_category4 = self.interest_custom_sub_category4_edit.text()
-    #
-    # def interestSubCategory5Sel_changed(self):
-    #     if self.interest_sub_category5_sel.currentText() != 'Custom':
-    #         self.hide_interest_custom_sub_category5()
-    #         self.selected_interest_sub_category5 = self.interest_sub_category5_sel.currentText()
-    #     else:
-    #         self.show_interest_custom_sub_category5()
-    #         self.selected_interest_sub_category5 = self.interest_custom_sub_category5_edit.text()
-
     def shipaddr_same_checkbox_toggled(self):
         if self.shipaddr_same_checkbox.isChecked():
             self.shipaddr_l1_edit.setText(self.addr_l1_edit.text())
@@ -1146,8 +1004,11 @@ class BotNewWin(QMainWindow):
         return super().eventFilter(obj, event)
 
     def deleteSelectedRow(self, tableView, model):
-        indexes = tableView.selectionModel().selectedIndexes()
-        if indexes:
-            rows_to_delete = sorted(set(index.row() for index in indexes), reverse=True)
-            for row in rows_to_delete:
-                model.removeRow(row)
+        reply = QMessageBox.question(self, '删除确认', '确定要删除这条记录吗？', QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            indexes = tableView.selectionModel().selectedIndexes()
+            if indexes:
+                rows_to_delete = sorted(set(index.row() for index in indexes), reverse=True)
+                for row in rows_to_delete:
+                    model.removeRow(row)
