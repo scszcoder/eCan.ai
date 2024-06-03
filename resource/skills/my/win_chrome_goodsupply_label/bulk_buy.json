@@ -14,7 +14,7 @@
     "site_name": "goodsupply",
     "site": "https://goodsupply.xyz/Dashboard/UploadBulk",
     "page": "label",
-    "private_skill": {
+    "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
         "runConfig": {
@@ -24,5 +24,7 @@
     "cloud_skill": {
         "path": "pubilc/win_chrome_goodsupply_label/bulk_buy"
     },
+    "main": "F",
+    "runtime": 1,
     "description": "this skills handles bulk shipping label purchase on goodsupply site."
 }
