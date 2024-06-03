@@ -14,7 +14,7 @@
     "site_name": "local",
     "site": "",
     "page": "unzip",
-    "private_skill": {
+    "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
         "runConfig": {
