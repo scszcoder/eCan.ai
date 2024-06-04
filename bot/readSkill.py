@@ -973,6 +973,8 @@ def prepRun1Skill(name_space, skill_file, lvl = 0):
 # load all runnable skill files into memeory space, and start to assemble them into runnable instructions.
 def prepRunSkill(all_skill_codes):
     global skill_code
+    # need to clear from previous runs first.
+    skill_code = []
 
     for sk in all_skill_codes:
         log3("READING SKILL CODE:"+sk["ns"]+" "+sk["skfile"])
@@ -983,7 +985,7 @@ def prepRunSkill(all_skill_codes):
         # print("run steps:", run_steps)
 
         if skill_code:
-            skill_code.update(run_steps)         # merge run steps.
+            skill_code.update(run_steps)       # merge run steps.
             # skill_code = skill_code + run_steps
         else:
             skill_code = run_steps
@@ -994,9 +996,8 @@ def prepRunSkill(all_skill_codes):
     #2nd pass: resolve overload.
     gen_addresses(skill_code, 2)
     # print("skill code after pass 2:", skill_code)
-    log3("DONE generating addressess...")
     # log3("READY2RUN: ", skill_code)
-    log3(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    log3(">>>>>>>>>>>DONE generating addressess>>>>>>>>>>>>>>")
     return skill_code
 
 def genNextStepNumber(currentN, steps=1):
