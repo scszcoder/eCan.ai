@@ -10,6 +10,7 @@ from gui.LoginoutGUI import Login
 from gui.WaitGui import WaitWindow
 from bot.envi import getECBotDataHome
 from bot.network import runCommanderLAN, runPlatoonLAN
+# from test.unittests import *
 
 
 # Press Shift+F10 to execute it or replace it with your code.
