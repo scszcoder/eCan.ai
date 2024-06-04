@@ -14,7 +14,7 @@
     "site_name": "etsy",
     "site": "https://www.etsy.com/your/orders/sold",
     "page": "orders",
-    "private_skill": {
+    "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
         "runConfig": {

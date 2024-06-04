@@ -230,7 +230,7 @@ class WORKSKILL(QStandardItem):
         self.page = "home"
         self.main = "F"
         self.runtime = 1
-        self.private_skill = PROCEDURAL_SKILL(parent)
+        self.procedural_skill = PROCEDURAL_SKILL(parent)
         self.cloud_skill = CLOUD_SKILL(parent)
         self.setText('Skill'+str(self.getSkid()))
         self.icon = QIcon(parent.file_resouce.skill_icon_path)
@@ -250,17 +250,17 @@ class WORKSKILL(QStandardItem):
     def setDependencies(self, deps):
         self.dependencies = deps
 
-    def add_private_skill(self, procedural_skill):
-        self.private_skill = procedural_skill
+    def add_procedural_skill(self, procedural_skill):
+        self.procedural_skill = procedural_skill
 
     def getSteps(self):
-        return self.private_skill.getSteps()
+        return self.procedural_skill.getSteps()
 
     def getRunConfig(self):
-        return self.private_skill.getConfig()
+        return self.procedural_skill.getConfig()
 
     def get_run_steps_file(self):
-        return self.private_skill.getRunStepsFile()
+        return self.procedural_skill.getRunStepsFile()
 
     def add_cloud_skill(self, info_skill):
         self.cloud_skill = info_skill
@@ -410,7 +410,7 @@ class WORKSKILL(QStandardItem):
         self.runtime = rt
 
     def setConfig(self, cfg):
-        self.private_skill.setConfig(cfg)
+        self.procedural_skill.setConfig(cfg)
 
     def setNetRespJsonData(self, nrjd):
         self.pubAttributes.loadNetRespJson(nrjd)
@@ -449,8 +449,8 @@ class WORKSKILL(QStandardItem):
         if "app_args" in jd:
             self.app_args = jd["app_args"]
 
-        if "private_skill" in jd:
-            self.private_skill.loadJson(jd["private_skill"])
+        if "procedural_skill" in jd:
+            self.procedural_skill.loadJson(jd["procedural_skill"])
 
         if "cloud_skill" in jd:
             self.cloud_skill.loadJson(jd["cloud_skill"])

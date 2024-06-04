@@ -2069,7 +2069,7 @@ class SkillGUI(QMainWindow):
             "site_name": self.pbskDomainEdit.text(),
             "site": self.pbskDomainURLEdit.text(),
             "page": self.pbskPageEdit.text(),
-            "private_skill": {
+            "procedural_skill": {
                 "nameSpace": "",
                 "runStepsFile": "",
                 "runConfig": {}

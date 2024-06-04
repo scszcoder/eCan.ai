@@ -14,7 +14,7 @@
     "site_name": "ebay",
     "site": "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT",
     "page": "orders",
-    "private_skill": {
+    "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
         "runConfig": {
