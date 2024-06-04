@@ -96,15 +96,15 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCheckCondition("fin[0] == 'open'", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_open", "anchor text", "", 1, "center", [0, 0], "box", 0, 0, [0, 0], this_step)
+    # click on OPEN button to complete the drill (don't use open, use offset from canel button for better certainty
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_cancel", "anchor text", "", [0, 0], "left", [2, 0], "box", 0, 5, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_cancel", "anchor text", "", [0, 0], "left", [2, 0], "box", 0, 5, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_cancel", "anchor text", "", [0, 0], "left", [0, 0], "box", 0, 5, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
