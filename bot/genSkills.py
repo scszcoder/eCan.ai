@@ -427,9 +427,11 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     try:
         if sk_full_name in SkillGeneratorTable.keys():
             if privacy == "public":
+                # at this time, the settings is not yet known, so simply set it to None, later on in reAddrAndUpdateSteps(), we set the true value of settings there..
                 this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
             else:
                 log3("gen private.....")
+                # at this time, the settings is not yet known, so simply set it to None, , later on in reAddrAndUpdateSteps(), we set the true value of settings there.
                 this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme, PUBLIC)
 
             with open(sk_file_name, 'w+') as skf:

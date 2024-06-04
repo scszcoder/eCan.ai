@@ -199,7 +199,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # wait 9 seconds for the browser to be brought up.
-    this_step, step_words = genStepWait(6, 1, 3, this_step)
+    this_step, step_words = genStepWait(8, 1, 3, this_step)
     psk_words = psk_words + step_words
 
     # # following is for test purpose. hijack the flow, go directly to browse....
@@ -267,6 +267,34 @@ def genAMZLoginInSteps(stepN, theme):
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "usa", "direct", "anchor text", "any", "useless", "ip_obtained", "", False, this_step)
     psk_words = psk_words + step_words
 
+    # retry a few times
+    this_step, step_words = genStepLoop("retry_count > 0 and not ip_obtained", "", "", "connProxy" + str(stepN),
+                                        this_step)
+    psk_words = psk_words + step_words
+
+    # just keep on refreshing....
+    this_step, step_words = genStepKeyInput("", True, "f5", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # wait some random time for proxy to connect
+    this_step, step_words = genStepWait(0, 5, 8, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                               this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "usa", "direct", "anchor text", "any", "useless",
+                                                    "ip_obtained", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "amazon_site", "direct", "anchor text", "any",
+                                                    "useless", "site_loaded", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCheckCondition("ip_obtained", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -302,39 +330,11 @@ def genAMZLoginInSteps(stepN, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # end condition for "ip_obtained"
+    # else condition for "ip_obtained"
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # retry a few times
-    this_step, step_words = genStepLoop("retry_count > 0 and not ip_obtained", "", "", "connProxy"+str(stepN), this_step)
-    psk_words = psk_words + step_words
-
-    # just keep on refreshing....
-    this_step, step_words = genStepKeyInput("", True, "f5", "", 3, this_step)
-    psk_words = psk_words + step_words
-
-    # wait some random time for proxy to connect
-    this_step, step_words = genStepWait(0, 5, 8, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "amazon_site", "direct", "anchor text", "any", "useless", "site_loaded", "", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepCheckCondition("not ip_obtained", "", "", this_step)
-    psk_words = psk_words + step_words
-
     this_step, step_words = genStepCallExtern("global mission_failed\nmission_failed = True", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     # end condition for "ip_obtained"
