@@ -154,45 +154,8 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genEbayLoginInSteps(this_step, theme)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
     psk_words = psk_words + step_words
@@ -205,7 +168,7 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
-    # # from collected etsy orders, generate gs label purchase order files.
+    # # from collected ebay orders, generate gs label purchase order files.
     # dtnow = datetime.now()
     # date_word = dtnow.strftime("%Y%m%d")
     # fdir = ecb_data_homepath + "/runlogs/"
@@ -354,7 +317,7 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
 
     dtnow = datetime.now()
     dt_string = str(int(dtnow.timestamp()))
-    hfname = "etsyOrders" + dt_string + ".html"
+    hfname = "ebayOrders" + dt_string + ".html"
 
     log3("SAVE HTML FILE: "+hfname)
 
@@ -398,7 +361,7 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
     this_step, step_words = genStepWait(3, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepLoop("endOfOrderList != True", "", "", "browseEtsyOL" + str(stepN), this_step)
+    this_step, step_words = genStepLoop("endOfOrderList != True", "", "", "browseEbayOL" + str(stepN), this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global endOfOrdersPage\nendOfOrdersPage = False", "", "in_line", "", this_step)
@@ -406,7 +369,7 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
 
 
     # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
-    this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
+    this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEbayOrderPage" + str(this_step), this_step)
     psk_words = psk_words + step_words
 
     # now extract the screen info.
@@ -414,10 +377,10 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ship_to_summery"], "direct", ["info 2"], "any", "shipToSummeries", "useless", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ship_to_summery"], "direct", ["info 2"], "any", "shipToSummeries", "useless", "ebay", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ship_to"], "direct", ["anchor text"], "any", "shipTos", "useless", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ship_to"], "direct", ["anchor text"], "any", "shipTos", "useless", "ebay", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "numShipTos", "NA", "len(shipTos)-1", this_step)
@@ -468,7 +431,7 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
 
     # check end of page information again
     # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["etsy_inc"], "direct", ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["ebay_inc"], "direct", ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "ebay", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -1349,5 +1312,147 @@ def genWinADSEbayHandleMsgsSkill(worksettings, stepN, theme):
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
     log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+
+    return this_step, psk_words
+
+def genEbayLoginInSteps(stepN, theme):
+    psk_words = ""
+
+    # check the 1st tab to make sure the connection to internet thru proxy is normal, the way to check
+    # is to check wither there is a valid IP address, there is IPV4 and IPV6, and/or the green dot around
+    # the typical web site.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,1", "", 3, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "usa", "direct", "anchor text", "any", "useless", "ip_obtained", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("ip_obtained", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # if so, then check whether the site page is opened? if not, search "Amazon.com"  above "start.adspower.net",
+    # if there is, click on "Amazon.com"
+    # open the site page.
+
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "amazon_site", "direct", "anchor text", "any", "useless", "site_loaded", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("site_loaded", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "amazon_site", "anchor text", "", [0, 0], "center", [0, 0], "box", 1, 1, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # open a new tab with hot-key ctrl-t
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # since the mouse cursor will be automatiall put at the right location, just start typing.... www.amazcon.com
+    this_step, step_words = genStepTextInput("var", False, "www.amazon.com", "direct", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+    # end condition for "site_loaded"
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # end condition for "ip_obtained"
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # retry a few times
+    this_step, step_words = genStepLoop("retry_count > 0 and not ip_obtained", "", "", "connProxy"+str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # just keep on refreshing....
+    this_step, step_words = genStepKeyInput("", True, "f5", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # wait some random time for proxy to connect
+    this_step, step_words = genStepWait(0, 5, 8, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "amazon_site", "direct", "anchor text", "any", "useless", "site_loaded", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCheckCondition("not ip_obtained", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global mission_failed\nmission_failed = True", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # end condition for "ip_obtained"
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+    #
+    # make sure logged in. by check whether there is "sign in" to the right of "Hello"(info ref_method=1), if so, move mouse over to "hello", then
+    #  click on "sign in" button below, then type in "email" and hit "continue" button, then type in password and hit "Sign in" button
+    # once in, double check the Hello - sign in relation ship again to double check. then, calibrate screen.
+    # typically its expected that the account is already setup on ADS, so that the account should be logged in directly...
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["sign_in"], "direct", ["anchor text"], "any", "useless", "not_logged_in", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not_logged_in", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "hello", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "email", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepTextInput("var", False, "bemail", "direct", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "continue", "anchor text", "", "0", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "password", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepTextInput("var", False, "bpassword", "direct", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "sign_in_button", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["sign_in"], "direct", ["info 1"], "any", "useless", "not_logged_in", "", False, this_step)
+    psk_words = psk_words + step_words
+
+
+    # end condition for "not_logged_in"
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
 
     return this_step, psk_words

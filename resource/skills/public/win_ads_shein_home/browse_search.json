@@ -14,7 +14,7 @@
     "site_name": "shein",
     "site": "https://www.shein.com",
     "page": "home",
-    "private_skill": {
+    "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
         "runConfig": {

@@ -283,8 +283,16 @@
                         "anchor_name"  : "checked",
                         "anchor_type"  : "icon",
                         "template"     : "checked0.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "all_groups",
+                                "side": "bottom",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
                     },
                    {
                         "anchor_name"  : "windows_checked",
