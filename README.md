@@ -1,4 +1,4 @@
-# ecbot
+# ECBOT
 E-Commerce Bot is an RPA software to free e-business owners from the daily chores of running an e-business.
 Even though ECBot is for e-commerce, but it is designed to be extensible be a general purpose RPA software allowing
 one to automate any task. The bot software emulates human's view and move work pattern by extracting structured
@@ -43,7 +43,14 @@ of instructions that the virtual machine can execute. The instruction set is div
 one set is for the procedural work related, the other set is for describing structured 
 contents on a screen image.
 
-##### The Procedures Related JOBS Instruction Set
+The key files related to JOBS-DL are .psk .rsk and .csk files. They are described below.
+
+##### The Procedural Skill File (.psk)
+The .PSK file is a file contains description of the prccess to be automated.
+It is a JSON Object Based Skill (JOBS) description language, with an abstract instruction set.
+each instruction is written as a json object.
+
+###### The Procedures Related JOBS Instruction Set
 Here are the procedures related instruction sets of the ecbots RPA virtual machine:
 
 
@@ -183,7 +190,17 @@ Here are the procedures related instruction sets of the ecbots RPA virtual machi
 
 With the above basic instruction set, one can pretty much create a skill for any task flow.
 
-##### The Contents Related JOBS Instruction Set
+##### Runnable Skill File (.rsk file)
+this is a file to be run by the RPA virtual machine. 
+it contains reformated address including namespace.
+and as well as the entire code, also skill settings is
+put in place and ready to be used at run time.
+(skill settings is a set of parameters used by various
+instructions. some at compile time, some at run time.)
+
+##### The Contents Skill File (.csk file)
+This file resides on both cloud side and local side and is used to describe useful contents expected to be seen a page.
+This file is in JSON format.
 Here are the contents related instruction sets of the ecbots RPA virtual machine:
 
 | Name                      | Description                        | Syntax                                                                                                                                                                                                                                                                                                                           | Attributes |
