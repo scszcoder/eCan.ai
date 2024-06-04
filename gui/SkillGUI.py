@@ -517,7 +517,7 @@ class BSQGraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.parent.showMsg("view press event"+json.dumps(event.pos())+"::"+json.dumps(event.screenPos())+":::"+json.dumps(event.scenePosition()))
+            self.parentWin.showMsg("view press event"+str(event.pos().toTuple())+"::"+str(event.screenPos().toTuple())+":::"+str(event.scenePosition().toTuple()))
             self.drawStartPos = self.mapToScene(event.pos())
             self.drawStartScenePos = self.mapToScene(event.scenePosition().toPoint())
             #self.drawStartPos = self.mapToScene(event.scenePosition().toPoint())

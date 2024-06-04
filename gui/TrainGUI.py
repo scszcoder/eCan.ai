@@ -1,21 +1,8 @@
-import sys
-import random
 
 from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
-from locale import getdefaultlocale
 
-import ctypes as ct
-# from ctypes import wintypes as wt
-import time
-import json
+from pynput import keyboard, mouse
 
-from pynput import mouse
-from pynput import keyboard
-import threading
-
-import pyautogui
-from Cloud import *
 from SkillGUI import *
 
 
@@ -64,9 +51,9 @@ class ReminderWin(QMainWindow):
 class TrainNewWin(QMainWindow):
     def __init__(self, parent):
         super(TrainNewWin, self).__init__(parent)
+        self.mouse_listener = None
+        self.kb_listener = None
 
-    # def __init__(self):
-    #     super().__init__()
         self.newSkill = None
         self.parent = parent
         self.mainWidget = QWidget()
@@ -102,6 +89,7 @@ class TrainNewWin(QMainWindow):
         self.record = []
         self.steps = 0
         self.actionRecord = [{"step": 0}]
+
 
     def mousePressEvent(self, event):
         self.oldPos = event.globalPos()
@@ -215,15 +203,15 @@ class TrainNewWin(QMainWindow):
         #self.move(800, 0)
         #reminder.setGeometry(800, 0, 100, 50)
         #self.setCentralWidget(self.reminder)
+        # time.sleep(1)
+        self.kb_listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        self.mouse_listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll)
+        self.kb_listener.start()
+        self.mouse_listener.start()
+
         self.parent.reminderWin.show()
         self.parent.reminderWin.setGeometry(800, 0, 100, 50)
-        #time.sleep(1)
-        self.mouse_listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll)
-        #time.sleep(1)
-        self.mouse_listener.start()
-        #
-        self.kb_listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
-        self.kb_listener.start()
+
         #time.sleep(1)
         #self.mouse_listener.join()
         #self.kb_listener.join()
