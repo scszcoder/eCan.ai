@@ -1,15 +1,10 @@
-import sys
-import random
+import json
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QFont, QStandardItemModel
+from PySide6.QtGui import QFont, QStandardItemModel, QStandardItem, QIcon, QAction
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QFileDialog, QTabWidget, QScrollArea, \
-    QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox
-from ebbot import *
-from locale import getdefaultlocale
-from FlowLayout import *
-from ebbot import *
-
+    QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QListView, QFrame, QMenu, QLabel
+from bot.ebbot import EBBOT
 
 
 class RoleListView(QListView):

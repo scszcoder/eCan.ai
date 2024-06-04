@@ -1,25 +1,25 @@
 from enum import Enum
 
-from skill.steps.step_app_open import StepAppOpen
-from skill.steps.step_call_function import StepCallFunction
-from skill.steps.step_check_condition import StepCheckCondition
-from skill.steps.step_create_data import StepCreateData
-from skill.steps.step_end_exception import StepEndException
-from skill.steps.step_execption_handler import StepExceptionHandler
-from skill.steps.step_extract_info import StepExtractInfo
-from skill.steps.step_fill_data import StepFillData
-from skill.steps.step_goto import StepGoto
-from skill.steps.step_key_input import StepKeyInput
-from skill.steps.step_mouse_click import StepMouseClick
-from skill.steps.step_mouse_scroll import StepMouseScroll
-from skill.steps.step_repeat import StepRepeat
-from skill.steps.step_return import StepReturn
-from skill.steps.step_search_scroll import StepSearchScroll
-from skill.steps.step_stub import StepStub
-from skill.steps.step_text_input import StepTextInput
-from skill.steps.step_text_to_number import StepTextToNumber
-from skill.steps.step_use_skill import StepUseSkill
-from skill.steps.step_wait import StepWait
+from gui.skill.steps.step_app_open import StepAppOpen
+from gui.skill.steps.step_call_function import StepCallFunction
+from gui.skill.steps.step_check_condition import StepCheckCondition
+from gui.skill.steps.step_create_data import StepCreateData
+from gui.skill.steps.step_end_exception import StepEndException
+from gui.skill.steps.step_execption_handler import StepExceptionHandler
+from gui.skill.steps.step_extract_info import StepExtractInfo
+from gui.skill.steps.step_fill_data import StepFillData
+from gui.skill.steps.step_goto import StepGoto
+from gui.skill.steps.step_key_input import StepKeyInput
+from gui.skill.steps.step_mouse_click import StepMouseClick
+from gui.skill.steps.step_mouse_scroll import StepMouseScroll
+from gui.skill.steps.step_repeat import StepRepeat
+from gui.skill.steps.step_return import StepReturn
+from gui.skill.steps.step_search_scroll import StepSearchScroll
+from gui.skill.steps.step_stub import StepStub
+from gui.skill.steps.step_text_input import StepTextInput
+from gui.skill.steps.step_text_to_number import StepTextToNumber
+from gui.skill.steps.step_use_skill import StepUseSkill
+from gui.skill.steps.step_wait import StepWait
 
 
 # enum step format: (name, (key, class))

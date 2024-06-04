@@ -1,33 +1,22 @@
+import json
+import os
+
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog, QListView, \
-    QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QRadioButton, QCheckBox, QHBoxLayout, \
-    QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, QDialogButtonBox, QMenu
+    QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QCheckBox, QHBoxLayout, \
+    QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, QMenu
 from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
 from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter, QTransform, QStandardItemModel, QImage, \
     QAction
 
-# from locale import getdefaultlocale
-#
-# import ctypes as ct
-# # from ctypes import wintypes as wt
-# import time
-# import json
-#
-# from pynput import mouse
-# from pynput import keyboard
-# import threading
-#
-# import pyautogui
-# from Cloud import *
-# import pyqtgraph
-# from pyqtgraph import flowchart
-# import BorderLayout
-from WorkSkill import *
-from readSkill import *
-from genSkills import *
+from bot.Cloud import req_train_read_screen, upload_file, send_add_skills_request_to_cloud, \
+    send_update_skills_request_to_cloud
+from bot.WorkSkill import ANCHOR, USER_INFO, PROCEDURAL_STEP, WORKSKILL
+from bot.basicSkill import read_screen
+from bot.genSkills import getWorkSettings, setWorkSettingsSkill
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
-
+from bot.readSkill import cancelRun, pauseRun, prepRunSkill, runAllSteps, continueRun, steps, last_step
 
 INSTALLED_PATH = ""
 USER_DIR = ""

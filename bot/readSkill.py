@@ -1,27 +1,36 @@
-import json
-import random
-import re
-import ast
-import pyautogui
-import time
 import asyncio
 import inspect
-from Cloud import *
-import ctypes
+import json
 import os
-import subprocess
-import platform
-import math
-import copy
-from printLabel import *
-from scraper import *
-from adsPowerSkill import *
-from amzBuyerSkill import *
-from amzSellerSkill import *
-from ebaySellerSkill import *
-from etsySellerSkill import *
-from labelSkill import *
-from Logger import *
+import re
+import time
+from datetime import datetime
+from difflib import SequenceMatcher
+
+from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
+    processADSProfileBatches
+from bot.amzBuyerSkill import processAMZSearchProducts, processAMZScrapePLHtml, processAMZBrowseDetails, \
+    processAMZScrapeDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
+    processAMZMatchProduct, genStepAMZSearchReviews
+from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, processTextToNumber, processExtractInfo, \
+    processTextInput, processMouseClick, processMouseScroll, processKeyInput, processOpenApp, processCreateData, \
+    processFillData, processLoadData, processSaveData, processCheckCondition, processRepeat, processGoto, \
+    processCallFunction, processReturn, processUseSkill, processOverloadSkill, processStub, processCallExtern, \
+    processExceptionHandler, processEndException, processSearchAnchorInfo, processSearchWordLine, processThink, \
+    processFillRecipients, processSearchScroll, process7z, processListDir, processCheckExistence, processCreateDir, \
+    processSellCheckShipping, processGenRespMsg, processUpdateBuyMissionResult, processGoToWindow, processReportToBoss, \
+    processExtractInfo8, DEFAULT_RUN_STATUS, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
+    genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub
+from bot.Logger import log3
+from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
+    processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
+    processPrepGSOrder
+from bot.labelSkill import processGSExtractZippedFileName
+from bot.printLabel import processPrintLabel
+from bot.scrapeGoodSupply import processGSScrapeLabels
+from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
+from bot.scraperEbay import processEbayScrapeOrdersHtml, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
+from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
 
 
 symTab["fout"] = ""
@@ -109,7 +118,7 @@ RAIS = {
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
-    "Think": lambda x, y: processThink(x, y, z),
+    "Think": lambda x, y, z: processThink(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),

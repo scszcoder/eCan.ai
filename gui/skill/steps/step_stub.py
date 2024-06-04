@@ -1,5 +1,5 @@
-from skfc.skfc_base import EnumSkType
-from skill.steps.step_base import StepBase
+from gui.skfc.skfc_base import EnumSkType
+from gui.skill.steps.step_base import StepBase
 from enum import Enum
 
 
