@@ -2188,7 +2188,7 @@ class MainWindow(QMainWindow):
                         newPskJson[new_key]["key_value"] = work_settings
                         # newPskJson[new_key]["key_value"] = copy.deepcopy(work_settings)
                         # newPskJson[new_key]["key_value"]["commander_link"] = ""
-                        # self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
+                        self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
 
                 pskJson.pop(key)
 
@@ -2209,7 +2209,7 @@ class MainWindow(QMainWindow):
 
             bot_idx = next((i for i, b in enumerate(self.bots) if str(b.getBid()) == str(worksettings["botid"])), -1)
             if bot_idx >= 0:
-                self.showMsg("found BOT to be run......")
+                self.showMsg("found BOT to be run......"+self.bots[bot_idx].getEmail())
                 running_bot = self.bots[bot_idx]
 
             rpaScripts = []
@@ -2470,8 +2470,7 @@ class MainWindow(QMainWindow):
                             widx = 0
                             self.showMsg("SWITCHED BOT:"+str(bidx))
                             if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
-                                if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx][
-                                    "start_time"]:
+                                if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx]["start_time"]:
                                     worksTBD["current grp"] = "other_works"
                                 else:
                                     worksTBD["current grp"] = "bw_works"
