@@ -668,7 +668,7 @@ class EBMISSION(QStandardItem):
 
     def setResult(self, result):
         self.privateAttributes.result = result
-        if result != "" or result != "{}":
+        if result != "" and result != "{}":
             resultJson = json.loads(result)
 
             if "order_id" in resultJson:

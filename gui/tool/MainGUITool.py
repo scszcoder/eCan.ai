@@ -146,7 +146,7 @@ class SqlProcessor:
                  api_missions[i]["actual_run_time"], jbody[i]["runtime"],
                  api_missions[i]["n_retries"], jbody[i]["cuspas"], jbody[i]["category"], jbody[i]["phrase"],
                  jbody[i]["pseudoStore"],
-                 jbody[i]["pseudoBrand"], jbody[i]["pseudoASIN"], jbody[i]["type"], jbody[i]["config"],
+                 jbody[i]["pseudoBrand"], jbody[i]["pseudoASIN"], jbody[i]["type"], str(jbody[i]["config"]),
                  jbody[i]["skills"], jbody[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"],
                  api_missions[i]["brand"],
                  api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"],
