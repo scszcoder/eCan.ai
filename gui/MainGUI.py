@@ -2823,7 +2823,7 @@ class MainWindow(QMainWindow):
         self.showMsg("adding new bots....")
         for new_bot in new_bots:
             api_bots.append({
-                "bid": new_bot.getBid(),
+                # "bid": new_bot.getBid(),
                 "owner": self.owner,
                 "roles": new_bot.getRoles(),
                 "pubbirthday": new_bot.getPubBirthday(),
@@ -2928,7 +2928,7 @@ class MainWindow(QMainWindow):
         api_missions = []
         for new_mission in new_missions:
             api_missions.append({
-                "mid": new_mission.getMid(),
+                # "mid": new_mission.getMid(),
                 "ticket": new_mission.getMid(),
                 "botid": new_mission.getBid(),
                 "status": new_mission.getStatus(),
@@ -3610,9 +3610,10 @@ class MainWindow(QMainWindow):
 
     def cloneCusMission(self):
         # File actions
-        new_mission = copy.deepcopy(self.selected_cus_mission_item)
+        new_mission = self.selected_cus_mission_item
         # new_bot.setText()
         self.addNewMissions([new_mission])
+        self.searchLocalMissions()
 
     def deleteCusMission(self):
         # File actions
@@ -3724,9 +3725,10 @@ class MainWindow(QMainWindow):
 
     def cloneBot(self):
         # File actions
-        new_bot = copy.deepcopy(self.selected_bot_item)
+        new_bot = self.selected_bot_item
         # new_bot.setText()
         self.addNewBots([new_bot])
+        self.searchLocalBots()
 
     def deleteBot(self):
         # File actions
@@ -4280,6 +4282,7 @@ class MainWindow(QMainWindow):
                 self.showMsg("loading a mission: " + json.dumps(row))
                 new_mission = EBMISSION(self)
                 new_mission.loadDBData(row)
+                new_mission.setData(row)
                 self.cuspas_to_diaplayable(new_mission)
                 new_mission.updateDisplay()
                 self.missions.append(new_mission)
