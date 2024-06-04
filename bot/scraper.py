@@ -1,14 +1,13 @@
 import json
-from bs4 import BeautifulSoup
-import pyautogui
-import numpy as np
-import re
 import random
-from calendar import isleap
+import re
 import cv2
-from productsData import *
-from scraperAmz import *
-from Logger import *
+from calendar import isleap
+from bs4 import BeautifulSoup
+
+import numpy as np
+
+from bot.Logger import log3
 
 
 

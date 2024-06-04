@@ -1,6 +1,5 @@
-from skill.steps.step_base import StepBase
-from basicSkill import STEP_GAP
-from enum import Enum
+from gui.skill.steps.step_base import StepBase
+from bot.basicSkill import STEP_GAP
 
 
 class StepCallFunction(StepBase):

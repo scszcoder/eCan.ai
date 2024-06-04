@@ -1,16 +1,13 @@
+import datetime
 import json
-from bs4 import BeautifulSoup
-from bs4.element import NavigableString
-import pyautogui
-import numpy as np
 import re
-import random
-from calendar import isleap
-import cv2
-from productsData import *
-from Logger import *
-from basicSkill import *
-DEFAULT_RUN_STATUS = "Completed:0"
+
+from bs4 import BeautifulSoup
+from bot.Logger import log3
+from bot.basicSkill import symTab, STEP_GAP, DEFAULT_RUN_STATUS
+from bot.productsData import PRODUCT, PRODUCT_SUMMERY
+
+# DEFAULT_RUN_STATUS = "Completed:0"
 
 def convNFB(nfb_txt):
     if "(" in nfb_txt:

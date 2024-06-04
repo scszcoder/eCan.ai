@@ -43,11 +43,11 @@ from qtpy.QtWidgets import QWidget, QMessageBox, QFileDialog, QAction, QShortcut
 
 # from pmgwidgets import in_unit_test
 # from pmgwidgets.widgets.composited import PMGPanel
-from skcode.ui.gotoline import Ui_DialogGoto
-from skcode.codeeditor.abstracteditor import PMAbstractEditor
+from gui.skcode.ui.gotoline import Ui_DialogGoto
+from gui.skcode.codeeditor.abstracteditor import PMAbstractEditor
 
 if TYPE_CHECKING:
-    from skcode.codeedit import PMBaseCodeEdit
+    from gui.skcode.codeedit import PMBaseCodeEdit
 
 # logger = logging.getLogger(__name__)
 from utils.logger_helper import logger_helper

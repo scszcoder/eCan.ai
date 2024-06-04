@@ -1,12 +1,17 @@
-from datetime import datetime, timedelta
+import json
+import re
+from datetime import timedelta, datetime
 
-from basicSkill import *
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
 from PyPDF2 import PdfReader
-from scrapeGoodSupply import *
-from Logger import *
+
+from bot.basicSkill import genStepHeader, genStepStub, genStepOpenApp, genStepCreateData, genStepCheckCondition, \
+    genStepTextToNumber, genStepSearchAnchorInfo, genStepLoop, genStepCallExtern, DEFAULT_RUN_STATUS, genStepMouseClick, \
+    genStepExtractInfo, genStepKeyInput, get_default_download_dir, genStepWait, genStepCheckExistence, genStepTextInput, \
+    genStepCreateDir, genStep7z, genStepUseSkill
+from bot.scrapeGoodSupply import genStepGSScrapeLabels
+from bot.Logger import log3
 
 global symTab
 global STEP_GAP

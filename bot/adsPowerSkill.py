@@ -1,11 +1,15 @@
-import os
-
-import pandas as pd
 import copy
 import json
-from Logger import *
+import os
+import traceback
 
-from basicSkill import *
+import pandas as pd
+
+from bot.Logger import log3
+from bot.basicSkill import genStepStub, genStepCreateData, genStepCallExtern, genStepOpenApp, genStepWait, \
+    genStepExtractInfo, genStepSearchAnchorInfo, genStepCheckCondition, genStepMouseClick, genStepLoop, genStepKeyInput, \
+    genStepMouseScroll, genStepTextInput, genStepHeader, STEP_GAP, symTab, DEFAULT_RUN_STATUS, genStepSearchWordLine,  \
+    genStepUseSkill
 
 ADS_BATCH_SIZE = 2
 

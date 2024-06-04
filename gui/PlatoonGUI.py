@@ -1,19 +1,12 @@
-from PySide6.QtWidgets import QStyledItemDelegate, QTableView, QHeaderView
+import json
 
-from BotGUI import *
-from MissionGUI import *
-from ScheduleGUI import *
-from ebbot import *
-from csv import reader
-from signio import *
-import platform
-from os.path import exists
-import webbrowser
-from Cloud import *
-from TrainGUI import *
-from BorderLayout import *
-from lzstring import *
-from vehicles import *
+from PySide6.QtCore import Qt, QSize, QEvent
+from PySide6.QtGui import QFont, QStandardItem, QIcon, QAction, QStandardItemModel
+from PySide6.QtWidgets import QStyledItemDelegate, QTableView, QHeaderView, QListView, QMainWindow, QWidget, \
+    QPushButton, QTabWidget, QVBoxLayout, QSplitter, QLabel, QFrame, QScrollArea, QMenu
+
+from gui.FlowLayout import DragPanel
+
 
 class IconDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):

@@ -1,18 +1,12 @@
 import json
-from bs4 import BeautifulSoup
-import pyautogui
-import numpy as np
 import re
-import random
-from calendar import isleap
-import cv2
+import traceback
+from bs4 import BeautifulSoup
 import esprima
-from esprima.visitor import Visitor
-from basicSkill import *
-from ordersData import *
-from Logger import *
 
-
+from bot.basicSkill import DEFAULT_RUN_STATUS, STEP_GAP, symTab
+from bot.Logger import log3
+from bot.ordersData import OrderedProduct, ORDER, OrderPerson, Shipping
 
 
 def ebay_seller_fetch_page_of_order_list(html_file,  pidx):

@@ -3,7 +3,7 @@ import string
 from abc import ABC
 from enum import Enum
 
-from basicSkill import STEP_GAP
+from bot.basicSkill import STEP_GAP
 import json
 
 

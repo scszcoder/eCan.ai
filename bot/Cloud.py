@@ -1,14 +1,13 @@
 import json
+import os
+from datetime import datetime
+
 import requests
 import boto3
 from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 import logging
-from requests_aws4auth import AWS4Auth
-from datetime import datetime
-import os
-from Logger import *
-import asyncio
+from bot.Logger import log3
 import aiohttp
 
 # Constants Copied from AppSync API 'Settings'

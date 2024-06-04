@@ -1,6 +1,5 @@
-import sqlite3
-from datetime import datetime, date
-from envi import *
+from datetime import datetime
+from bot.envi import getECBotDataHome
 import os
 
 # con = sqlite3.connect("mylog.db")

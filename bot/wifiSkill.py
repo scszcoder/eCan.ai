@@ -1,5 +1,6 @@
-from basicSkill import *
-from Logger import *
+from bot.basicSkill import genStepHeader, genStepStub, genStepCreateData, genStepExtractInfo, genStepSearchAnchorInfo, \
+    genStepMouseClick
+from bot.Logger import log3
 
 
 def genWinWiFiLocalReconnectLanSkill(worksettings, stepN, theme):

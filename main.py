@@ -1,20 +1,15 @@
-import sys
 import asyncio
-import qasync
-from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget, QLabel, QTextEdit
 import os
-import socket
+import sys
 
-from LoginoutGUI import *
-# from MainGUI import *
-from WaitGui import *
-from network import *
-from unittests import *
-from config.app_settings import app_settings
-import asyncio
-from qasync import QEventLoop
-from envi import *
+import qasync
+from PySide6.QtWidgets import QApplication
 from setproctitle import setproctitle
+
+from gui.LoginoutGUI import Login
+from gui.WaitGui import WaitWindow
+from bot.envi import getECBotDataHome
+from bot.network import runCommanderLAN, runPlatoonLAN
 
 
 # Press Shift+F10 to execute it or replace it with your code.

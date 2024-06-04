@@ -1,13 +1,7 @@
-import sys
-import random
-
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, QPoint
 from PySide6.QtGui import QPainter, qRed
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QCalendarWidget, QVBoxLayout
-from ebbot import *
-from locale import getdefaultlocale
-from FlowLayout import *
-from ebbot import *
+from PySide6.QtWidgets import QApplication, QWidget, QCalendarWidget, QVBoxLayout
+
 
 class ScheduleWin(QWidget):
     def __init__(self):

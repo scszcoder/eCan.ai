@@ -1,17 +1,39 @@
-
-from basicSkill import *
-from amzBuyerSkill import *
-from etsySellerSkill import *
-from ebaySellerSkill import *
-from fileSkill import *
-from rarSkill import *
-from labelSkill import *
-from wifiSkill import *
-from printLabel import *
-from envi import *
+import json
 import os
 import traceback
-from Logger import *
+from datetime import datetime
+
+from bot.Logger import log3
+from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfilesSkill, \
+    genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genADSPowerExitProfileSteps, \
+    genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt
+from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
+    genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
+    genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
+    genAMZBrowseAllReviewsPage, genScroll1StarReviewsPage, genStepAMZScrapePLHtml, genAMZBrowseProductLists, \
+    genWinChromeAMZWalkSteps, genStepAMZScrapeDetailsHtml, genStepAMZScrapeReviewsHtml, genStepAMZSearchProducts, \
+    genWinADSAMZBuySkill
+from bot.amzSellerSkill import genWinChromeAMZFullfillOrdersSkill, genWinChromeAMZCollectOrdersSkill, \
+    genWinChromeAMZUpdateShipmentTrackingSkill, genWinChromeAMZHandleMessagesSkill
+from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genStepExtractInfo, genStepFillRecipients, \
+    genStepSearchAnchorInfo, genStepSearchWordLine, genStepSearchScroll, genStepRecordTxtLineLocation, \
+    genStepMouseClick, genStepKeyInput, genStepTextInput, genStepCheckCondition, genStepGoto, genStepLoop, genStepStub, \
+    genStepListDir, genStepCheckExistence, genStepCreateDir, genStep7z, genStepTextToNumber, genStepEndException, \
+    genStepExceptionHandler, genStepWait, genStepCallExtern, genStepCallFunction, genStepReturn, genStepUseSkill, \
+    genStepOverloadSkill, genStepCreateData, genStepCheckAppRunning, genStepBringAppToFront, genStepFillData, \
+    genStepThink, genException, genStepReportToBoss
+from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
+    genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
+    genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill
+from bot.envi import getECBotDataHome
+from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
+    genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
+    genWinChromeEtsyFullfillOrdersSkill, genWinChromeEtsyHandleMessagesSkill
+from bot.fileSkill import genWinFileLocalOpenSaveSkill
+from bot.printLabel import genStepPrintLabels, genWinPrinterLocalReformatPrintSkill
+from bot.rarSkill import genWinRARLocalUnzipSkill
+from bot.scraperEtsy import genStepEtsyScrapeOrders
+from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 
 ecb_data_homepath = getECBotDataHome()
 

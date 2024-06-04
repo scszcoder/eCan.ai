@@ -5,9 +5,9 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsElli
 from gui.skfc.skfc_base import EnumItemType, SkFCBase
 from enum import Enum
 
-from skill.steps.enum_step_type import EnumStepType
-from skill.steps.step_base import StepBase
-from skill.steps.step_stub import EnumStubName
+from gui.skill.steps.enum_step_type import EnumStepType
+from gui.skill.steps.step_base import StepBase
+from gui.skill.steps.step_stub import EnumStubName
 
 ITEM_PORT_RADIUS = 3
 

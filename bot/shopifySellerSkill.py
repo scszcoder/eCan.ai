@@ -1,11 +1,6 @@
-from basicSkill import *
-import pandas as pd
-from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
-from datetime import datetime
-from envi import *
-from config.app_info import app_info
-from Logger import *
+
+from bot.Logger import log3
+from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreateData, genStepCallExtern
 
 SAME_ROW_THRESHOLD = 16
 

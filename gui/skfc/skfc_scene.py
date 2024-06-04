@@ -170,7 +170,7 @@ class SkFCScene(QGraphicsScene):
                 if target_item_group is None or target_item_group.diagram_item_port_direction is not None:
                     item = DiagramArrowItem(start_point=mouseEvent.scenePos(), line_color=self.myLineColor,
                                             context_menu=self.myItemMenu, target_item_group=target_item_group,
-                                            skfc_scene=self)
+                                            scene=self)
 
                     self.add_diagram_item(item)
                     self.selected_item = item
