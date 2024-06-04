@@ -331,7 +331,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'1717524273'+'_'+str(nthPLPage)+'.html'"
+    "key_value": "'1717525500'+'_'+str(nthPLPage)+'.html'"
 },
 "step 175":
 {
@@ -2717,7 +2717,7 @@
     "data_type": "int",
     "data_name": "down_cnt",
     "key_name": "NA",
-    "key_value": 19
+    "key_value": 17
 },
 "step 1400":
 {
@@ -2732,7 +2732,7 @@
     "type": "Repeat",
     "lc_name": "scrollDownProductList1390",
     "until": "",
-    "count": "19",
+    "count": "17",
     "end": ""
 },
 "step 1410":

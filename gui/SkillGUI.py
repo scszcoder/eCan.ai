@@ -2,10 +2,10 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget,
     QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QRadioButton, \
     QCheckBox, QHBoxLayout, \
     QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, \
-    QDialogButtonBox, QMenu
+    QDialogButtonBox, QMenu, QPlainTextEdit
 from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
 from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter, QTransform, QStandardItemModel, QImage, \
-    QAction
+    QAction, QTextCursor
 
 # from locale import getdefaultlocale
 #
@@ -29,6 +29,7 @@ from genSkills import *
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
+from utils.logger_helper import logger_helper
 
 INSTALLED_PATH = ""
 USER_DIR = ""
@@ -546,6 +547,11 @@ class SkillGUI(QMainWindow):
 
     def __init__(self, parent):
         super(SkillGUI, self).__init__(parent)
+        self.skconsole = QPlainTextEdit()
+        self.skconsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.skconsole.setReadOnly(True)
+        self.skconsole.verticalScrollBar().valueChanged.connect(self.onScrollBarValueChanged)
+        self.isAutoScroll = False
 
         self.newSkill = None
         self.home_path = app_info.app_home_path
@@ -1326,7 +1332,7 @@ class SkillGUI(QMainWindow):
 
         self.skconsolelabel = QLabel("Console")
         self.skconsolelabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.skconsole = QTextBrowser()
+
         self.consoleLayout = QVBoxLayout()
         self.consoleLayout.addWidget(self.skconsolelabel)
         self.consoleLayout.addWidget(self.skconsole)
@@ -1388,7 +1394,6 @@ class SkillGUI(QMainWindow):
 
         gridLayout.addWidget(self.saveSkMBCheckboxCloud, cbrow, cbcol + 1, cbrow_span, cbcol_span)
         self.saveSkMBCheckboxCloud.setVisible(True)
-
         # app = QApplication.instance()
         # screen = app.primaryScreen()
         # #self.show_msg('Screen: %s' % screen.name())
@@ -1398,8 +1403,81 @@ class SkillGUI(QMainWindow):
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
 
-    def show_msg(self, msg):
-        self.parent.parent.showMsg(msg)
+    def onScrollBarValueChanged(self, value):
+        """监听滚动条变化，判断是否自动滚动"""
+        scrollbar = self.skconsole.verticalScrollBar()
+        max_value = scrollbar.maximum()
+        # 如果滚动条接近底部（比如距离底部小于一个单位），则设置为自动滚动
+        if (max_value - value) <= 1:
+            self.isAutoScroll = True
+        else:
+            self.isAutoScroll = False
+    def log_text_format(self, msg, level):
+        logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        text_color = ""
+        if level == "error":
+            text_color = "color:#ff0000;"
+            logger_helper.error(msg)
+        elif level == "warn":
+            text_color = "color:#ff8000;"
+            logger_helper.warning(msg)
+        elif level == "info":
+            text_color = "color:#00ff00;"
+            logger_helper.info(msg)
+        elif level == "debug":
+            text_color = "color:#00ffff;"
+            logger_helper.debug(msg)
+
+        msg_text = """
+               <div style="display: flex; padding: 5pt;">
+                   <span  style=" font-size:12pt; font-weight:300; margin-right: 40pt;"> 
+                       %s |
+                   </span>
+                   <span style=" font-size:12pt; font-weight:300; %s">
+                       %s
+                   </span>
+                   |
+                   <span style=" font-size:12pt; font-weight:300; %s;">
+                       found %s
+                   </span>
+               </div>""" % (logTime, text_color, level, text_color, msg)
+        return msg_text
+
+    def appendDailyLogs(self, msgs, level):
+        # check if daily log file exists, if exists simply append to it, if not create and write to the file.
+        now = datetime.now()  # current date and time
+        year = now.strftime("%Y")
+        month = now.strftime("%m")
+        day = now.strftime("%d")
+        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
+        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+        time = now.strftime("%H:%M:%S - ")
+        if os.path.isfile(dailyLogFile):
+            file1 = open(dailyLogFile, "a")  # append mode
+            for msg in msgs:
+                file1.write(time + msg + "\n")
+            file1.close()
+        else:
+            if not os.path.exists(dailyLogDir):
+                os.makedirs(dailyLogDir)
+
+            file1 = open(dailyLogFile, "w")  # append mode
+            for msg in msgs:
+                file1.write(time + level + msg + "\n")
+            file1.close()
+
+    def show_msg(self, msg, level="info"):
+        msg_text = self.log_text_format(msg, level)
+        self.appendNetLogs([msg_text])
+        self.appendDailyLogs([msg], level)
+
+    def appendNetLogs(self, msgs):
+        for msg in msgs:
+            self.skconsole.appendHtml(msg)
+            if self.isAutoScroll:
+                cursor = self.skconsole.textCursor()
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+                self.skconsole.setTextCursor(cursor)
 
     def set_edit_mode(self, edmode):
         self.edit_mode = edmode
