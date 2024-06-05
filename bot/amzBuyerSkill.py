@@ -190,11 +190,14 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # wait 9 seconds for the browser to be brought up.
-    this_step, step_words = genStepWait(8, 1, 3, this_step)
+    this_step, step_words = genStepWait(5, 1, 3, this_step)
     psk_words = psk_words + step_words
 
     # following is for test purpose. hijack the flow, go directly to browse....
     this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 1, 3, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genAMZLoginInSteps(this_step, theme)
