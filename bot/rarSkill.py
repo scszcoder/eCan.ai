@@ -2,8 +2,11 @@ import os
 import subprocess
 import platform
 import errno
-from basicSkill import *
-from Logger import *
+
+from bot.basicSkill import genStepHeader, genStepCreateData, genStepStub, genStepCallExtern, genStepCheckCondition, \
+    genStepOpenApp, genStepWait, genStepExtractInfo, genStepSearchAnchorInfo, genStepKeyInput, genStepMouseClick, \
+    genStepTextInput
+from bot.Logger import log3
 
 global symTab
 global STEP_GAP

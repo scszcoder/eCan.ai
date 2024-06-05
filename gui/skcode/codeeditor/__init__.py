@@ -4,5 +4,5 @@
 # @Email: 1295752786@qq.com
 # @File: __init__.py.py
 
-from skcode.codeeditor.baseeditor import PMGBaseEditor
-from skcode.codeeditor.pythoneditor import PMGPythonEditor
+from gui.skcode.codeeditor.baseeditor import PMGBaseEditor
+from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor

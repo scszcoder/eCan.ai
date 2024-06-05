@@ -1,10 +1,19 @@
-from basicSkill import *
-from scraperAmz import *
-from adsPowerSkill import *
+import json
+import random
+from datetime import datetime
+
+from bot.Logger import log3
+from bot.basicSkill import DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepHeader, genStepStub, genStepCreateData, genStepUseSkill, genStepWait, \
+    genStepCallExtern, genStepExtractInfo, genStepSearchWordLine, genStepSearchAnchorInfo, genStepCheckCondition, \
+    genStepMouseScroll, genStepMouseClick, genStepKeyInput, genStepGoToWindow, genStepTextInput, genStepLoop, \
+    genScrollDownUntil, genStepFillData, genStepOpenApp
+from bot.adsPowerSkill import genADSPowerExitProfileSteps
 import re
 from difflib import SequenceMatcher
 import traceback
-from Logger import *
+from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml, amz_buyer_scrape_product_list, amz_buyer_scrape_product_details, \
+    amz_buyer_scrape_product_reviews
+
 SAME_ROW_THRESHOLD = 16
 
 def genStepAMZCalScroll(sink, amount, screen, marker, prev_loc, stepN):

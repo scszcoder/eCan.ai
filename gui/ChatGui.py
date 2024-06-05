@@ -1,15 +1,15 @@
-import sys
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QFrame, QLineEdit, QPushButton, QLabel, QHBoxLayout
-from PySide6.QtGui import QPainter, QBrush, QColor, QPainterPath, QPolygonF, QPen, QStandardItemModel
-from PySide6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer
-from PySide6.QtWidgets import QApplication, QSplitter, QListWidget, QListWidgetItem, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QPushButton, QLabel, QScrollArea, QMainWindow
-from PySide6.QtWidgets import QTextBrowser, QListView
-from PySide6.QtGui import QIcon
-from PySide6.QtGui import QDesktopServices
+from datetime import datetime
+
+from PySide6.QtGui import QPainter, QBrush, QColor, QPainterPath, QStandardItemModel
+from PySide6.QtCore import QRectF, QPointF, QTimer, Qt
+from PySide6.QtWidgets import QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QScrollArea, \
+    QMainWindow, QFrame, QListView
+from PySide6.QtWidgets import QTextBrowser
 import re
-from math import cos, radians, sin
-from FlowLayout import *
-from ebbot import *
+
+from gui.FlowLayout import BotListView
+from bot.ebbot import EBBOT_AGENT
+
 
 class MultiLineLineEdit(QLineEdit):
     def __init__(self, parent=None):

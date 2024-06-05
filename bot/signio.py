@@ -1,9 +1,4 @@
-import os
 import boto3
-from pycognito import Cognito
-from pycognito.aws_srp import AWSSRP
-from botocore import UNSIGNED
-from botocore.config import Config
 
 username = "abc.xyz@gmail.com"
 password = "#Abc1234"

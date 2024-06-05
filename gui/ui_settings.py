@@ -1,9 +1,6 @@
-import sys
-import random
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QFormLayout, QLineEdit, QCheckBox
-from ebbot import *
-from locale import getdefaultlocale
-from FlowLayout import *
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QPushButton, QMainWindow, QFormLayout, QLineEdit, QCheckBox, QLabel
+
 
 # select webbrowser - exe path
 # select auto run time.

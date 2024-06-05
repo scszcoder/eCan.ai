@@ -1,16 +1,11 @@
 import json
-from bs4 import BeautifulSoup
-import pyautogui
-import numpy as np
 import re
-import random
-from calendar import isleap
-import cv2
-from ordersData import *
-from basicSkill import *
+from bs4 import BeautifulSoup
 import esprima
-from esprima.visitor import Visitor
-from Logger import *
+
+from bot.basicSkill import DEFAULT_RUN_STATUS
+from bot.Logger import log3
+from bot.ordersData import ORDER, OrderPerson, Shipping, OrderedProduct
 
 global symTab
 global STEP_GAP

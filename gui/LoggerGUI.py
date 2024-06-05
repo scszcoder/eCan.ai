@@ -1,10 +1,6 @@
-import sys
-import random
-from PySide6.QtWidgets import QWidget, QPushButton, QMainWindow, QTextEdit, QVBoxLayout
-from ebbot import *
-from locale import getdefaultlocale
-from FlowLayout import *
-from ebbot import *
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QPushButton, QMainWindow, QTextEdit, QVBoxLayout, QLabel
+
 
 class CommanderLogWin(QMainWindow):
     def __init__(self, parent):
