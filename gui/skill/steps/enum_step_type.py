@@ -113,10 +113,29 @@ class EnumStepType(Enum):
 
     @staticmethod
     def belong_io_step_type_keys():
-        return [EnumStepType.TextInput,
-                EnumStepType.ExtractInfo,
-                EnumStepType.KeyInput,
-                EnumStepType.FillData]
+        return [EnumStepType.TextInput.type_key(),
+                EnumStepType.ExtractInfo.type_key(),
+                EnumStepType.KeyInput.type_key(),
+                EnumStepType.FillData.type_key()]
+
+    @staticmethod
+    def belong_start_end_step_type_keys():
+        return [EnumStepType.Stub.type_key()]
+
+    @staticmethod
+    def belong_condition_step_type_keys():
+        return [EnumStepType.CheckCondition.type_key()]
+
+    @staticmethod
+    def belong_process_step_type_keys():
+        keys = []
+        for key, value in EnumStepType.items():
+            if (key not in EnumStepType.belong_condition_step_type_keys()
+                    and key not in EnumStepType.belong_start_end_step_type_keys()
+                    and key not in EnumStepType.belong_io_step_type_keys()):
+                keys.append(key)
+
+        return keys
 
 
 if __name__ == '__main__':

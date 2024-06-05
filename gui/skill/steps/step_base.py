@@ -1,3 +1,5 @@
+import random
+import string
 from abc import ABC
 from enum import Enum
 
@@ -23,18 +25,29 @@ class StepBase(ABC):
     def __init__(self, stepN=0):
         self.stepN = stepN
         self.type = None
-        self.description = ""
+        self.tag = self.gen_tag()
+
+    def gen_tag(self):
+        characters = string.ascii_letters + string.digits  # Uppercase, lowercase letters, and digits
+        tag = ''.join(random.choice(characters) for _ in range(16))
+        return tag
 
     def get_dict_attrs(self):
         obj = self.__dict__.copy()
         del obj['stepN']
-        # if self.description is None:
-        #     del obj['description']
 
         return obj
 
     def gen_json_str(self):
-        json_str = json.dumps(self.to_dict(), indent=4)
+        obj = self.to_dict()
+
+        if self.tag is None or self.tag == "":
+            del obj['tag']
+        #
+        # if self.description is None or  self.description == "":
+        #     del obj['description']
+
+        json_str = json.dumps(obj, indent=4)
 
         return json_str
 
@@ -54,8 +67,25 @@ class StepBase(ABC):
         else:
             return 1
 
-    def gen_attrs(self):
+    # def convert_obj_attrs_to_str(self, src_obj):
+    #     dict_names = {key: None for key in src_obj}
+    #     result = []
+    #     for key in dict_names.keys():
+    #         result.append(key)
+
+    def filter_enum_show_items(self, sktype, enum):
+        print("need filter sktype", sktype, "; enum is ", enum)
+        return enum.__members__.items()
+
+    def need_hidden_fields(self):
+        return []
+
+    def gen_need_show_attrs(self):
         obj = self.get_dict_attrs()
+        for attr in self.need_hidden_fields():
+            print("need filter field: ", attr)
+            if attr in obj:
+                del obj[attr]
         obj = sorted(obj.items(), key=self.custom_sort)
 
         return dict(obj)

@@ -2305,8 +2305,8 @@ class SkillGUI(QMainWindow):
 
     def save_skill_file(self):
         # bring out the load file dialog
-        ret = self.saveSkillMessageBox.exec_()
-        if ret == QMessageBox.Yes:
+        ret = self.saveSkillMessageBox.exec()
+        if ret == QMessageBox.Ok:
             sk_prefix = "win_chrome_amz_home"
             skname = self.skFCWidget.skfc_infobox.get_skill_info().skname
             my_skill_dir_path = app_info.app_home_path + "/resource/skills/my/" + sk_prefix + "/" + skname + "/scripts/"
@@ -2584,6 +2584,4 @@ class SkillGUI(QMainWindow):
     def appDomainPage_changed(self):
         # when app, domain, page changed, that means, we need a different .csk file.
         self.parent.showMsg("app, domain, page changed....")
-
-
 

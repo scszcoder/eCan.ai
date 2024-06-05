@@ -5,7 +5,9 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsPolygonItem, QGraphicsElli
 from gui.skfc.skfc_base import EnumItemType, SkFCBase
 from enum import Enum
 
+from skill.steps.enum_step_type import EnumStepType
 from skill.steps.step_base import StepBase
+from skill.steps.step_stub import EnumStubName
 
 ITEM_PORT_RADIUS = 3
 
@@ -280,6 +282,29 @@ class DiagramNormalItem(QGraphicsPolygonItem):
         for arrow in self.arrows[:]:
             arrow.normal_item_move_redraw_path(self, event)
 
+    def other_condition_arrow_value(self, src_arrow):
+        for arrow in self.arrows[:]:
+            if arrow is not src_arrow and arrow.start_item == self:
+                return arrow.condition_text_item.get_condition_value()
+
+        return None
+
+    def change_other_condition_arrow_value(self, src_arrow, new_value):
+        for arrow in self.arrows[:]:
+            if arrow is not src_arrow and arrow.start_item == self:
+                return arrow.condition_text_item.set_condition_value(new_value)
+
+        return None
+
+    def count_arrows_of_self_start(self):
+        count = 0
+        for arrow in self.arrows[:]:
+            if arrow.start_item == self:
+                count = count+1
+
+        return count
+
+
     # def image(self):
     #     pixmap = QPixmap(250, 250)
     #     pixmap.fill(Qt.transparent)
@@ -360,6 +385,7 @@ class DiagramNormalItem(QGraphicsPolygonItem):
 
     def get_next_diagram_item(self, condition=False):
         for arrow in self.arrows:
+            print(f"step item tag name:{arrow.start_item.tag_text_item.toPlainText()}")
             if arrow.start_item == self:
                 if self.diagram_type == DiagramNormalItem.Conditional:
                     if condition is True and arrow.condition_text_item.is_condition_true():
@@ -367,7 +393,13 @@ class DiagramNormalItem(QGraphicsPolygonItem):
                     elif condition is False and not arrow.condition_text_item.is_condition_true():
                         return arrow.end_item
                 else:
-                    return arrow.end_item
+                    step = arrow.end_item.step
+                    if step and step.type == EnumStepType.Stub.type_key():
+                        if step.stub_name == EnumStubName.EndSkill:
+                            print("diagram item step is stub type and name is end skill!!")
+                            return None
+                    else:
+                        return arrow.end_item
 
         return None
 
