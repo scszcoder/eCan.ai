@@ -71,7 +71,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # wait 3 seconds till it logs in....
-    this_step, step_words = genStepWait(6, 0, 0, this_step)
+    this_step, step_words = genStepWait(8, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
