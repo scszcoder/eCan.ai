@@ -202,7 +202,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepWait(8, 1, 3, this_step)
     psk_words = psk_words + step_words
 
-    # following is for test purpose. hijack the flow, go directly to browse....
+    # following is for tests purpose. hijack the flow, go directly to browse....
     this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
     psk_words = psk_words + step_words
 
@@ -1246,7 +1246,7 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genStepWait(18, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    # SC hacking for speed up the test
+    # SC hacking for speed up the tests
     # homepath = os.environ.get("ECBOT_HOME")
     # if homepath[len(homepath)-1] == "/":
     #   homepath=homepath[:len(homepath)-1]
@@ -1321,7 +1321,7 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genAMZBrowseProductListToLastAttention("plSearchResult", this_step, worksettings, theme)
     psk_words = psk_words + step_words
 
-    # for speedy test, directly call other pages. here...
+    # for speedy tests, directly call other pages. here...
     # this_step, step_words = genAMZBrowseDetails("plSearchResult", "0", this_step, worksettings, theme1707977701.html)
 
     # this_step, step_words = genAMZBrowseAllReviewsPage("'4'", this_step, root, theme)
@@ -1481,7 +1481,7 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     # this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
     # psk_words = psk_words + step_words
 
-    # SC hacking for speed up the test   ---- uncomment above.
+    # SC hacking for speed up the tests   ---- uncomment above.
 
 
     # this_step, step_words = genStepCreateData("bool", "position_reached", "NA", "False", this_step)

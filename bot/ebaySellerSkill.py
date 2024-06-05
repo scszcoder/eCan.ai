@@ -155,7 +155,7 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepWait(6, 1, 3, this_step)
     # psk_words = psk_words + step_words
 
-    # following is for test purpose. hijack the flow, go directly to browse....
+    # following is for tests purpose. hijack the flow, go directly to browse....
     this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
     psk_words = psk_words + step_words
 

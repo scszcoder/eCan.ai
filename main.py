@@ -10,7 +10,7 @@ from gui.LoginoutGUI import Login
 from gui.WaitGui import WaitWindow
 from bot.envi import getECBotDataHome
 from bot.network import runCommanderLAN, runPlatoonLAN
-# from test.unittests import *
+# from tests.unittests import *
 
 
 # Press Shift+F10 to execute it or replace it with your code.
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     # test_schedule_check()
     # test_pyautogui()
     # test_eb_orders_scraper()
-    # print("all unit test done...")
+    # print("all unit tests done...")
     # test_scrape_amz_buy_orders()
     # list_windows()
     main()
