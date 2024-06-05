@@ -5,7 +5,7 @@ import logging
 from config.constants import *
 from config.app_info import app_info
 from utils.logger_helper import logger_helper
-from envi import *
+from bot.envi import *
 
 ecb_data_homepath = getECBotDataHome()
 runlogs_dir = ecb_data_homepath + "/runlogs"

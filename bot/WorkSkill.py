@@ -1,8 +1,11 @@
+import os
 from datetime import datetime
 
 from PySide6.QtGui import QStandardItem, QIcon
-from Logger import *
-from readSkill import *
+
+from bot.Cloud import upload_file
+from bot.Logger import log3
+
 
 # valid refMethod: "Absolute", "Anchor Offset"
 #  in case of "Anchor Offset", can list x/y relationship with up to 4 other images

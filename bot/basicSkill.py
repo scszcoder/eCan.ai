@@ -1,23 +1,27 @@
-import os
-import os.path
-
-
-import json
-import pyautogui
-import time
-import math
 import ast
-import re
-import numpy as np
-import webbrowser
-import subprocess
+import json
+import math
+import os
 import random
-import socket
+import re
+import subprocess
 import sys
+import time
 import traceback
-from ping3 import ping, verbose_ping
-from Logger import *
+import webbrowser
+from datetime import datetime
 
+import numpy as np
+import pyautogui
+from ping3 import ping
+
+from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
+    send_query_chat_request_to_cloud
+from bot.Logger import log3
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from bot.missions import EBMISSION
+from bot.envi import getECBotDataHome
 
 if sys.platform == 'win32':
     import win32gui
@@ -41,11 +45,8 @@ elif sys.platform == 'darwin':
     pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
 
 symTab = globals()
-from scraper import *
-from Cloud import *
-from pynput.mouse import Button, Controller
-from readSkill import *
-from envi import *
+from pynput.mouse import Controller
+# from bot.envi import *
 
 STEP_GAP = 5
 

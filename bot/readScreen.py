@@ -1,10 +1,9 @@
-import platform
-import sys
-import random
-from crontab import CronTab
+import os
+
 import pyautogui
 
-from Cloud import *
+from Cloud import req_cloud_read_screen
+
 
 # this function send screen image to cloud, call the API to process the image and obtain the clickables.
 class Clickables():

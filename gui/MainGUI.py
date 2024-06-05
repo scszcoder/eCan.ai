@@ -1,28 +1,63 @@
 import asyncio
+import base64
+import copy
+import json
+import math
+import random
+import re
 import sqlite3
+import subprocess
+import sys
+import time
+import traceback
+import webbrowser
+from _csv import reader
+from os.path import exists
 
-from PySide6.QtCore import QParallelAnimationGroup, QPropertyAnimation, QAbstractAnimation, QThreadPool
-from PySide6.QtWidgets import QToolButton, QMenuBar
+from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent
+from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel
+from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, QTextEdit, \
+    QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
+    QMessageBox, QFileDialog
 
-import missions
-from inventories import *
-from network import *
-from LoggerGUI import *
-from ui_settings import *
-import TestAll
 import importlib
 import importlib.util
-import pandas as pd
 
-from vehicles import *
-from unittests import *
-from SkillManagerGUI import *
-from ChatGui import *
+from test.TestAll import Tester
+from gui.BotGUI import BotNewWin
+from gui.ChatGui import ChatWin
+from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
+    send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
+    send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
+    send_get_bots_request_to_cloud
+from gui.FlowLayout import BotListView, MissionListView, DragPanel
+from bot.Logger import log3
+from gui.LoggerGUI import CommanderLogWin
+from gui.MissionGUI import MissionNewWin
+from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
+from gui.ScheduleGUI import ScheduleWin
+from gui.SkillManagerGUI import SkillManagerWindow
+from gui.TrainGUI import TrainNewWin, ReminderWin
+from bot.WorkSkill import WORKSKILL
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle
+from bot.basicSkill import STEP_GAP
+from bot.ebbot import EBBOT
+from bot.envi import getECBotDataHome
+from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
+from bot.inventories import INVENTORY
+from lzstring import LZString
 import os
 import openpyxl
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import platform
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from pynput.mouse import Controller
+
+from bot.missions import EBMISSION
+from bot.network import myname, fieldLinks
+from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, prepRunSkill, \
+    runAllSteps
+from gui.ui_settings import SettingsWidget
+from bot.vehicles import VEHICLE
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -254,7 +289,7 @@ class MainWindow(QMainWindow):
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
-        self.tester = TestAll.Tester()
+        self.tester = Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
 

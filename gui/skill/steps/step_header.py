@@ -1,6 +1,4 @@
-import json
-
-from skill.steps.step_base import StepBase, STEP_GAP
+from gui.skill.steps.step_base import StepBase, STEP_GAP
 
 
 class StepHeader(StepBase):

@@ -1,16 +1,14 @@
 import asyncio
+import json
 import os.path
-from concurrent.futures import ThreadPoolExecutor
-import qasync
 
-import socket
-import threading
 import selectors
-import aioconsole
-from PlatoonGUI import *
+import socket
+
 import platform
 import base64
 from config.app_info import app_info
+from config.app_settings import ecb_data_homepath
 
 UDP_IP = "127.0.0.1"
 

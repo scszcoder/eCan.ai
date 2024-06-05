@@ -1,12 +1,6 @@
-from basicSkill import *
-import pandas as pd
-from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
-from PyPDF2 import PdfReader
-import subprocess
-import os
-from basicSkill import *
-from Logger import *
+from bot.Logger import log3
+from bot.basicSkill import genStepHeader, genStepStub, genStepCreateData, genStepCallExtern, genStepExtractInfo, \
+    genStepMouseClick, genStepLoop, genStepKeyInput, genStepTextInput, genStepCheckCondition
 
 global symTab
 global STEP_GAP

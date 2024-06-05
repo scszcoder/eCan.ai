@@ -1,23 +1,15 @@
-import sys
-import random
-
-from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton
-from locale import getdefaultlocale
-
-import ctypes as ct
-# from ctypes import wintypes as wt
-import time
 import json
+
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
+    QFileDialog
 
 from pynput import mouse
 from pynput import keyboard
-import threading
 
 import pyautogui
-from Cloud import *
-from SkillGUI import *
 
+from gui.SkillGUI import SkillGUI
 
 counter = 0
 record_over = False

@@ -7,13 +7,13 @@ from gui.skfc.diagram_item_arrow import DiagramArrowItem
 from gui.skfc.diagram_item_normal import DiagramNormalItem
 from gui.skfc.diagram_item_text import DiagramTextItem
 from gui.skfc.skfc_base import EnumItemType
-from skill.steps.enum_step_type import EnumStepType
-from skill.steps.step_goto import StepGoto
-from skill.steps.step_header import StepHeader
-from skill.steps.step_stub import StepStub, EnumStubName
+from gui.skill.steps.enum_step_type import EnumStepType
+from gui.skill.steps.step_goto import StepGoto
+from gui.skill.steps.step_header import StepHeader
+from gui.skill.steps.step_stub import StepStub, EnumStubName
 # from typing import TYPE_CHECKING
 # if TYPE_CHECKING:
-from skill.steps.step_base import StepBase
+from gui.skill.steps.step_base import StepBase
 
 
 class SkFCSkd:

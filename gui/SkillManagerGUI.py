@@ -1,24 +1,17 @@
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QStandardItem, QStandardItemModel, QPalette
-from PySide6.QtWidgets import QApplication, QMainWindow, QTableView, QPushButton, QVBoxLayout, QWidget, QTextEdit
-from PySide6.QtCore import QModelIndex, QItemSelection, QItemSelectionModel, QPropertyAnimation, QAbstractAnimation, QParallelAnimationGroup, QAbstractTableModel
-from PySide6.QtGui import QMouseEvent, QPainter
-from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QToolButton, QItemDelegate, QHeaderView
+import json
 
-from BotGUI import *
-from MissionGUI import *
-from ScheduleGUI import *
-from ebbot import *
-from csv import reader
-from signio import *
-import platform
-from os.path import exists
-import webbrowser
-from Cloud import *
-from TrainGUI import *
-from BorderLayout import *
-from lzstring import *
-from WorkSkill import *
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPalette, QStandardItemModel, QIcon, QStandardItem, \
+    QAction
+from PySide6.QtWidgets import QTableView, QTextEdit, QStyledItemDelegate, QWidget, QScrollArea, QFrame, QGridLayout, \
+    QSizePolicy, QMainWindow, QPushButton, QApplication, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSplitter, QMenu, \
+    QMessageBox
+from PySide6.QtCore import QModelIndex, QItemSelection, QPropertyAnimation, QAbstractAnimation, QParallelAnimationGroup, \
+    QAbstractTableModel, Qt, QSize, QItemSelectionModel, QEvent
+from PySide6.QtWidgets import QStyle, QToolButton, QItemDelegate, QHeaderView
+
+from bot.Cloud import send_query_skills_request_to_cloud
+from gui.FlowLayout import DragPanel
+
 
 class IconDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):

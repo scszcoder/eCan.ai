@@ -1,10 +1,10 @@
 from enum import Enum
 
-from PySide6.QtCore import QLineF, QPointF, QRectF, QSizeF, Qt, QTimer
-from PySide6.QtGui import QPainter, QPen, QColor, QPolygonF, QPainterPath, QBrush, QFont, QPainterPathStroker, \
+from PySide6.QtCore import QLineF, QPointF, QRectF, Qt
+from PySide6.QtGui import QPainter, QPen, QColor, QPolygonF, QPainterPath, QBrush, QPainterPathStroker, \
     QTextOption, QTextCursor
 from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsItem, QMenu, QGraphicsSceneMouseEvent,
-                               QGraphicsDropShadowEffect, QGraphicsTextItem, QApplication)
+                               QGraphicsDropShadowEffect, QGraphicsTextItem)
 import math
 from datetime import datetime
 from typing import List

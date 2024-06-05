@@ -1,6 +1,4 @@
-import json
-
-from PySide6.QtCore import (QRectF, QSize, Qt)
+from PySide6.QtCore import (QRectF, Qt)
 from PySide6.QtGui import (QAction, QFont,  QIcon)
 from PySide6.QtWidgets import (QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QWidget, QGraphicsView,
                                QSplitter)
@@ -8,9 +6,9 @@ from config.app_info import app_info
 from gui.skfc.skfc_scene import SkFCScene
 from gui.skfc.diagram_item_normal import DiagramNormalItem
 from gui.skfc.skfc_toolbars import SkFCToolBars
-from skfc.skfc_infobox import SkFCInfoBox
-from skfc.skfc_skd import SkFCSkd
-from skfc.skfc_toolbox import SkFCToolBox
+from gui.skfc.skfc_infobox import SkFCInfoBox
+from gui.skfc.skfc_skd import SkFCSkd
+from gui.skfc.skfc_toolbox import SkFCToolBox
 
 
 class SkFCView(QGraphicsView):
