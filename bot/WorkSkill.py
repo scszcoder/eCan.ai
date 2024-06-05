@@ -413,7 +413,7 @@ class WORKSKILL(QStandardItem):
         self.procedural_skill.setConfig(cfg)
 
     def setNetRespJsonData(self, nrjd):
-        self.pubAttributes.loadNetRespJson(nrjd)
+        # self.pubAttributes.loadNetRespJson(nrjd)
         self.setText('mission' + str(self.getMid()))
 
     def setAppearance(self, qcolor, qfont):

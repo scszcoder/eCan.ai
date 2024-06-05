@@ -1,15 +1,12 @@
-import sys
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QFrame, QLineEdit, QPushButton, QLabel, QHBoxLayout
-from PySide6.QtGui import QPainter, QBrush, QColor, QPainterPath, QPolygonF, QPen, QStandardItemModel
-from PySide6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer
-from PySide6.QtWidgets import QApplication, QSplitter, QListWidget, QListWidgetItem, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QPushButton, QLabel, QScrollArea, QMainWindow
-from PySide6.QtWidgets import QTextBrowser, QListView
-from PySide6.QtGui import QIcon
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QPainter, QBrush, QColor, QPainterPath, QStandardItemModel
+from PySide6.QtCore import QRectF, QPointF, QTimer
+from PySide6.QtWidgets import QSplitter, QWidget, QVBoxLayout, QHBoxLayout, \
+    QLineEdit, QPushButton, QScrollArea, QMainWindow
+from PySide6.QtWidgets import QTextBrowser
 import re
-from math import cos, radians, sin
 from FlowLayout import *
 from ebbot import *
+
 
 class MultiLineLineEdit(QLineEdit):
     def __init__(self, parent=None):
@@ -20,6 +17,7 @@ class MultiLineLineEdit(QLineEdit):
             self.insert("\n")  # Insert a newline
         else:
             super().keyPressEvent(event)
+
 
 class BubbleLabel(QFrame):
     def __init__(self, text, is_self, parent=None):
@@ -173,11 +171,10 @@ class BubbleLabel(QFrame):
         painter.drawPath(path)
 
 
-
 class ChatWidget(QWidget):
     def __init__(self, parent):
         super().__init__()
-        self.partent = parent
+        self.parent = parent
         self.initUI()
 
     def initUI(self):
@@ -217,7 +214,7 @@ class ChatWidget(QWidget):
             QTimer.singleShot(100, self.scrollToBottom)
             # self.scrollToBottom()
 
-            #now actually send the to bot agent. if the bot is on local machine, simply send it to its queue.
+            # now actually send the to bot agent. if the bot is on local machine, simply send it to its queue.
             # if the bot agent is on a remote computer, send the message out via TCPIP.
             self.parent.parent.sendBotChatMessage(0, self.parent.selected_agent.getBid(), text)
 
@@ -244,7 +241,6 @@ class ChatWin(QMainWindow):
         self.selected_index = -1
         self.selected_agent = None
 
-
         # Use QSplitter for adjustable panels
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self.teamList)
@@ -259,7 +255,7 @@ class ChatWin(QMainWindow):
     def setupTeamList(self):
         # Example: Add friends to the list
         for bot in self.parent.bots:
-            self.parent.showMsg("bot agent:"+bot.text())
+            self.parent.showMsg("bot agent:" + bot.text())
             bot_agent = EBBOT_AGENT(self)
             bot_agent.setText(bot.text())
             bot_agent.setIcon(bot.icon())
@@ -273,7 +269,7 @@ class ChatWin(QMainWindow):
         self.selected_agent = self.botModel.itemFromIndex(index)
         self.selected_index = index
         selected_bid = int(self.selected_agent.text().split(":")[0][3:])
-        self.parent.showMsg("switched talks to :"+str(selected_bid))
+        self.parent.showMsg("switched talks to :" + str(selected_bid))
 
         # Clear current messages
         for i in reversed(range(self.chatWidget.main_layout.count())):
@@ -288,9 +284,10 @@ class ChatWin(QMainWindow):
                 is_self = False
                 start_idx = [li for li, letter in enumerate(message) if letter == ">"][1] + 1
 
-            chat_message = "["+message[5:19]+"]"+message[start_idx:]
+            chat_message = "[" + message[5:19] + "]" + message[start_idx:]
             self.chatWidget.addMessage(is_self, chat_message)
-        self.chatWidget.scroll_area.verticalScrollBar().setValue(self.chatWidget.scroll_area.verticalScrollBar().maximum())
+        self.chatWidget.scroll_area.verticalScrollBar().setValue(
+            self.chatWidget.scroll_area.verticalScrollBar().maximum())
 
     def addActiveChatHis(self, to_me, others, text):
         recipients = ""
@@ -298,15 +295,15 @@ class ChatWin(QMainWindow):
         date_word = dtnow.isoformat()
         if to_me:
             # this is some one sending the message to a bot agent (to agent, this is incoming)
-            self.selected_agent.addChat(date_word+">"+str(others[0])+">0>"+text)
+            self.selected_agent.addChat(date_word + ">" + str(others[0]) + ">0>" + text)
         else:
             # this a bot agent send message to some other entity (to agent, this is outgoing).
             for i, aid in enumerate(others):
-                if i == len(others)-1:
+                if i == len(others) - 1:
                     recipients = str(aid)
                 else:
                     recipients = str(aid) + ","
-            self.selected_agent.addChat(date_word + ">0>"+recipients+">" + text)
+            self.selected_agent.addChat(date_word + ">0>" + recipients + ">" + text)
 
     # a message will be add to chat history of both the sender and the receiver.
     def addNetChatHis(self, sender, recipients, msg):
@@ -324,7 +321,6 @@ class ChatWin(QMainWindow):
                 if found.getBid() == self.selected_agent.getBid():
                     self.chatWidget.addMessage(True, msg)
 
-
     def setBot(self, item):
         self.parent.showMsg(f"Switched to conversation with {item.text()}")
 
@@ -333,4 +329,3 @@ class ChatWin(QMainWindow):
 
     def loadChat(self, msg):
         self.show()
-

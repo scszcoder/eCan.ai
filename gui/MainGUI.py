@@ -6,6 +6,7 @@ from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QToolButton, QMenuBar, QPlainTextEdit
 
 import missions
+from ChatGUIV2 import ChatDialog
 from inventories import *
 from network import *
 from LoggerGUI import *
@@ -3548,12 +3549,17 @@ class MainWindow(QMainWindow):
         # File actions
         if self.chatWin:
             self.showMsg("populating Chat GUI............")
-            self.chatWin.loadChat(self.selected_bot_item)
+            self.chatWin.load_chat_history(self.selected_bot_item)
         else:
-            self.showMsg("populating a newly created Chat GUI............")
-            self.chatWin = ChatWin(self)
-            self.showMsg("done create win............" + str(self.selected_bot_item.getBid()))
-            self.chatWin.setBot(self.selected_bot_item)
+            try:
+                self.showMsg("populating a newly created Chat GUI............")
+                self.chatWin = ChatDialog(self)
+                # self.chatWin = ChatWin(self)
+                self.showMsg("done create win............" + str(self.selected_bot_item.getBid()))
+                # self.chatWin.setBot(self.selected_bot_item)
+                # self.chatWin.contact_selected(self.selected_bot_item.getBid())
+            except Exception as e:
+                print("error creating chat window: " + e)
 
         # self.chatWin.setMode("update")
         self.chatWin.show()
