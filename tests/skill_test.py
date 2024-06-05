@@ -28,7 +28,7 @@ class TestSkillFunction(unittest.TestCase):
 
         # header
         first_step = 0
-        this_step, step_words = StepHeader(first_step, "test mouse scroll", "F", "win", "1.0", "AIPPS LLC",
+        this_step, step_words = StepHeader(first_step, "tests mouse scroll", "F", "win", "1.0", "AIPPS LLC",
                                            "PUBWINFILEOP001", "File Open Dialog Handling for Windows.").gen_step()
         psk_words = psk_words + step_words
 
@@ -108,17 +108,17 @@ class TestSkillFunction(unittest.TestCase):
         }
 
         next_step = process7z(step, 10)
-        print("done unzipping test....")
+        print("done unzipping tests....")
 
     def test_multi_skills(self):
         psk1 = app_info.app_resources_path + "/testdata/ut1sk1.psk"
         psk2 = app_info.app_resources_path + "/testdata/ut1sk2.psk"
         test_settings = {"skfname": psk1}
-        # a test skill will be writen
+        # a tests skill will be writen
         genWinTestSkill1(test_settings, 0)
 
         test_settings = {"skfname": psk2}
-        # a test skill will be writen
+        # a tests skill will be writen
         genWinTestSkill2(test_settings, 0)
 
         print("done generating skill============================>")

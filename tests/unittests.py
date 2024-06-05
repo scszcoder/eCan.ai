@@ -52,12 +52,12 @@ def test_etsy_label_gen():
     genWinUnRarSkill("", "", "", "")
 
 
-# can use the following to test any skill file, except the extractInfo one which requiers cloud service.
+# can use the following to tests any skill file, except the extractInfo one which requiers cloud service.
 def test_use_func_instructions():
     psk0 = os.getenv('ECBOT_HOME') +"../testdata/ut0sk1.psk"
     test_settings = {"skfname": psk0}
 
-    # a test skill will be writen
+    # a tests skill will be writen
     genWinTestSkill(test_settings, 0)
 
     print("done generating skill============================>")
@@ -72,17 +72,17 @@ def test_use_func_instructions():
 
     print("done testing.................")
 
-# can use the following to test any skill file, except the extractInfo one which requiers cloud service.
+# can use the following to tests any skill file, except the extractInfo one which requiers cloud service.
 def test_multi_skills():
 
     psk1 = os.getenv('ECBOT_HOME') + "../testdata/ut1sk1.psk"
     psk2 = os.getenv('ECBOT_HOME') + "../testdata/ut1sk2.psk"
     test_settings = {"skfname": psk1}
-    # a test skill will be writen
+    # a tests skill will be writen
     genWinTestSkill1(test_settings, 0)
 
     test_settings = {"skfname": psk2}
-    # a test skill will be writen
+    # a tests skill will be writen
     genWinTestSkill2(test_settings, 0)
 
     print("done generating skill============================>")
@@ -278,7 +278,7 @@ def test_process7z():
     }
 
     next_step = process7z(step, 10)
-    print("done unzipping test....")
+    print("done unzipping tests....")
 
 
 def test_rar():
@@ -385,28 +385,28 @@ def test_api(parent, session, token):
     # result = send_completion_status_to_cloud(session, qs, token)
     # print("send_completion_status_to_cloud RESULT:", result)
 
-    # test passed - 2024-01-21
+    # tests passed - 2024-01-21
     # qs = [{"actid": 5, "op":"", "options": ""}]
     # result = send_add_bots_request_to_cloud(session, qs, token)
     # print("send_add_bots_request_to_cloud RESULT:", result)
     #
 
-    # test passsed - 2024-01-23
+    # tests passsed - 2024-01-23
     # abot = parent.bots[0]
     # abot.pubProfile.setPubBirthday("1992-03-01")
     # result = send_update_bots_request_to_cloud(session, [abot], token)
     # print("send_update_bots_request_to_cloud RESULT:", result)
     #
-    # test passed - 2024-01-21
+    # tests passed - 2024-01-21
     # qs = [{"id": 12, "owner": "", "reason": ""}]
     # result = send_remove_bots_request_to_cloud(session, qs, token)
     # print("send_remove_bots_request_to_cloud RESULT:", result)
     #
-    # test passed.
+    # tests passed.
     # result = send_get_bots_request_to_cloud(session, token)
     # print("send_get_bots_request_to_cloud RESULT:", result)
 
-    # test passed
+    # tests passed
     # qs = {"byowneruser": True}
     # qs = {"byowneruser": False, "qphrase": "etsy male"}
     # result = send_query_bots_request_to_cloud(session, token, qs)
@@ -415,7 +415,7 @@ def test_api(parent, session, token):
 
 
     #
-    # test passed 202-01-24
+    # tests passed 202-01-24
     # amission = EBMISSION(parent)
     # amission.setMid(30)    # MID
     # amission.setTicket(0)
@@ -439,7 +439,7 @@ def test_api(parent, session, token):
     # print("send_add_missions_request_to_cloud RESULT:", result)
     #
 
-    # test passed 202-01-24
+    # tests passed 202-01-24
     # amission = EBMISSION(parent)
     # amission.setMid(30)    # MID
     # amission.setTicket(0)
@@ -463,13 +463,13 @@ def test_api(parent, session, token):
     # result = send_update_missions_request_to_cloud(session, [amission], token)
     # print("send_update_missions_request_to_cloud RESULT:", result)
     #
-    # test passed - 2024-01-21
+    # tests passed - 2024-01-21
     # qs = [{"id": 44, "owner": "", "reason": ""}]
     # result = send_remove_missions_request_to_cloud(session, qs, token)
     # print("send_remove_missions_request_to_cloud RESULT:", result)
     #
 
-    # test passed
+    # tests passed
     # qs = {"byowneruser": True}
     # qs = {"byowneruser": False, "created_date_range": "2022-10-20 00:00:00,2022-10-25 00:00:00"}
     # result = send_query_missions_request_to_cloud(session, token, qs)
@@ -477,27 +477,27 @@ def test_api(parent, session, token):
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
 
-    # test passed.
+    # tests passed.
     # ts_skill = WORKSKILL(parent, "test_skill")
     # qs = [ts_skill]
     # result = send_add_skills_request_to_cloud(session, qs, token)
     # print("send_add_skills_request_to_cloud RESULT:", result)
     # successfull result sample: {'statusCode': 200, 'body': [{'skid': 2, 'owner': 'songc@yahoo.com', 'createdOn': '2024-01-13', 'platform': 'win', 'app': 'chrome', 'site': 'amz', 'name': 'test_skill', 'path': '/resource/skills/public/', 'description': 'This skill does great automation.', 'runtime': 1, 'price_model': '', 'price': 0, 'privacy': 'PRV'}]}
 
-    # test passed.
+    # tests passed.
     # ts_skill.setName("test_skill0")
     # ts_skill.setSkid(1)
     # result = send_update_skills_request_to_cloud(session, qs, token)
     # print("send_update_skills_request_to_cloud RESULT:", result)
     # sample successful result: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '906f94f0-d998-48aa-aca9-6faf60f1964e', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
-    # test passed.
+    # tests passed.
     # qs = [{"skid": 1, "owner": "", "reason": ""}]
     # result = send_remove_skills_request_to_cloud(session, qs, token)
     # print("send_remove_skills_request_to_cloud RESULT:", result)
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
-    # test passed.
+    # tests passed.
     # qs = {"byowneruser": True}
     # qs = {"byowneruser": False, "qphrase": "great automation"}
     # result = send_query_skills_request_to_cloud(session, token, qs)
@@ -609,10 +609,10 @@ def test_sqlite3(mw):
     # print("DB Data:", db_data)
 
 
-# test passed SC - 02/20/2024
+# tests passed SC - 02/20/2024
 def test_ads_batch(parent):
     test_dir = "C:/AmazonSeller/SelfSwipe/test_ads_batch"
-    # clean test dir first.
+    # clean tests dir first.
     for filename in os.listdir(test_dir):
         # Construct the full file path
         file_path = os.path.join(test_dir, filename)
@@ -690,7 +690,7 @@ def test_misc():
 
 def test_run_mission(main_vehicle):
     # run a skill here, to a skill, need to::
-    # 1) set up a mission that will use this skill(we can use a default test mission: self.trMission)
+    # 1) set up a mission that will use this skill(we can use a default tests mission: self.trMission)
     # 2) need to set up a bot to run this mission (if we use self.trMission, it has a imaginary bot  with id 0 assigned to it already)
     # 3) set up today's work schedule to schedule in the mission
     # 4) then, call runbotworks() this will take care of the rest....
@@ -911,7 +911,7 @@ def test_schedule_check():
 def getProfileFileName(pf_dir, pf_email):
     return pf_dir+"/"+pf_email.split("@")[0]+"txt"
 
-# test run a schedule output from the cloud.
+# tests run a schedule output from the cloud.
 def test_run_group_of_tasks(commander):
     fname = "C:/temp/scheduleResultTest2.json"
     profiles_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
@@ -1013,7 +1013,7 @@ def run_genSchedules_test_case(host, session, token, tcn):
         }
     }
 
-    jresp = send_schedule_request_to_cloud(session, token, "test", schedule_test_settings)
+    jresp = send_schedule_request_to_cloud(session, token, "tests", schedule_test_settings)
     if "errorType" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
@@ -1066,7 +1066,7 @@ def check_expected_schedule(rcvd, expected):
 
 
 async def test_send_file(xport):
-    # test sending 2 files across the network to a platoon. 1 json, 1 img
+    # tests sending 2 files across the network to a platoon. 1 json, 1 img
     file0 = "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_amz_home/browse_search/scripts/amz_walk.psk"
     file0 = "C:/temp/top1500.png"
     with open(file0, 'rb') as fileTBSent:

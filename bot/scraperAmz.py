@@ -430,14 +430,14 @@ def processAmzScrapeShipToAddress(step, i):
         with open(html_file, 'rb') as fp:
             soup = BeautifulSoup(fp, 'html.parser')
 
-            recipient_name = soup.find('span', {'data-test-id': 'shipping-section-recipient-name'}).text.strip()
+            recipient_name = soup.find('span', {'data-tests-id': 'shipping-section-recipient-name'}).text.strip()
 
             # Extract address lines
             address_lines = [line.strip() for line in
-                             soup.find('div', {'data-test-id': 'shipping-section-buyer-address'}).stripped_strings]
+                             soup.find('div', {'data-tests-id': 'shipping-section-buyer-address'}).stripped_strings]
 
             # Extract contact phone
-            contact_phone = soup.find('span', {'data-test-id': 'shipping-section-phone'}).text.strip()
+            contact_phone = soup.find('span', {'data-tests-id': 'shipping-section-phone'}).text.strip()
 
             # Extract other address information such as city, state, zip, etc. (if available)
             # Here, I assume that address lines contain all the required information, you may need to further parse it if needed

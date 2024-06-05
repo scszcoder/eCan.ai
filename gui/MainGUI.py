@@ -23,7 +23,7 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 import importlib
 import importlib.util
 
-from test.TestAll import Tester
+from tests.TestAll import Tester
 from gui.BotGUI import BotNewWin
 from gui.ChatGui import ChatWin
 from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
@@ -1320,7 +1320,7 @@ class MainWindow(QMainWindow):
         self.showMsg("done testing....")
 
     def runAllTests(self):
-        self.showMsg("running all test suits.")
+        self.showMsg("running all tests suits.")
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
         # test_get_all_wins()
@@ -1339,11 +1339,11 @@ class MainWindow(QMainWindow):
         # test_UpdateBotADSProfileFromSavedBatchTxt()
         # test_run_group_of_tasks(self)
 
-        #the grand test,
+        #the grand tests,
         # 1) fetch today's schedule.
-        # result = self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
-        # result = self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
-        # result = self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
+        # result = self.fetchSchedule("5000", None)            # tests case for chrome etsy seller task automation.
+        # result = self.fetchSchedule("4000", None)            # tests case for ads power ebay seller task automation.
+        # result = self.fetchSchedule("6000", None)            # tests case for chrome amz seller task automation.
 
         # ===================
         # 2) run all tasks, with bot profile loading on ADS taken care of....
@@ -1367,7 +1367,7 @@ class MainWindow(QMainWindow):
         #         self.showMsg(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         #         missionDS = EBMISSION(self)
         #         missionDS.loadJson(testmission)
-        #         self.showMsg("test json LOADED!!!!")
+        #         self.showMsg("tests json LOADED!!!!")
         #         steps2brun = configAMZWalkSkill(0, missionDS, testsk, self.homepath)
         #         self.showMsg("steps GENERATED!!!!")
         #         #generated
@@ -1397,14 +1397,14 @@ class MainWindow(QMainWindow):
                 # uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
                 uncompressed = "{}"
 
-                # for testing purpose, short circuit the cloud fetch schedule and load a test schedule from a test
+                # for testing purpose, short circuit the cloud fetch schedule and load a tests schedule from a tests
                 # json file instead.
 
                 # uncompressed = jresp["body"]
                 self.showMsg("decomppressed response:"+uncompressed+"!")
                 if uncompressed != "":
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
-                    # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
+                    # bodyobj = json.loads(uncompressed)                  # for tests purpose, comment out, put it back when tests is done....
 
                     with open('C:/software/scheduleResultTest7.json') as test_schedule_file:
                         bodyobj = json.load(test_schedule_file)
@@ -4566,7 +4566,7 @@ class MainWindow(QMainWindow):
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: NO products found in file."))
         else:
-            self.warn(QApplication.translate("QMainWindow", "Warning: No test products file"))
+            self.warn(QApplication.translate("QMainWindow", "Warning: No tests products file"))
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
@@ -4859,7 +4859,7 @@ class MainWindow(QMainWindow):
             self.showMsg("updating vehicle Mission status...")
             foundV.setMStats(rx_data)
 
-    # create some test data just to test out the vehichle view GUI.
+    # create some tests data just to tests out the vehichle view GUI.
     def genGuiTestDat(self):
         newV = VEHICLE(self)
         newV.setIP("192.168.22.33")
@@ -5071,7 +5071,7 @@ class MainWindow(QMainWindow):
         self.showMsg("mids: "+json.dumps(mids))
         results = []
         if test_mode:
-            # just to test commander GUI can handle the result
+            # just to tests commander GUI can handle the result
             result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Scheduled", "error": ""}
             results.append(result)
             result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Completed", "error": ""}
