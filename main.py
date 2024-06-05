@@ -14,6 +14,7 @@ from config.app_settings import app_settings
 import asyncio
 from qasync import QEventLoop
 from envi import *
+from setproctitle import setproctitle
 
 
 # Press Shift+F10 to execute it or replace it with your code.
@@ -47,6 +48,7 @@ def main():
         loop.run_forever()
 
 if __name__ == '__main__':
+    setproctitle('ECBot')
 
     ecb_data_homepath = getECBotDataHome()
     runlogs_dir = ecb_data_homepath + "/runlogs"

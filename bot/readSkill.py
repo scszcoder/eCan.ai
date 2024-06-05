@@ -979,10 +979,12 @@ def prepRunSkill(all_skill_codes):
     for sk in all_skill_codes:
         log3("READING SKILL CODE:"+sk["ns"]+" "+sk["skfile"])
 
-        f = open(sk["skfile"])
-        run_steps = json.load(f)
-        f.close()
+        # f = open(sk["skfile"])
+        # run_steps = json.load(f)
+        # f.close()
+        run_steps = readPSkillFile("", sk["skfile"], 0)
         # print("run steps:", run_steps)
+
 
         if skill_code:
             skill_code.update(run_steps)       # merge run steps.

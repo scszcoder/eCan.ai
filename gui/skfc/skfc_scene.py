@@ -1,15 +1,13 @@
 from PySide6.QtCore import (Signal, QPointF, Qt)
-from PySide6.QtGui import (QFont, QColor, QKeyEvent)
+from PySide6.QtGui import (QFont, QColor, QKeyEvent, QUndoStack)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QMenu
 from gui.skfc.diagram_item_normal import DiagramNormalItem, DiagramSubItemPort, DiagramItemGroup, \
     DiagramNormalSubTextItem
 from gui.skfc.diagram_item_text import DiagramTextItem
 from gui.skfc.diagram_item_arrow import DiagramArrowItem
-from gui.skfc.skfc_base import EnumItemType
-from skill.steps.enum_step_type import EnumStepType
-from skill.steps.step_goto import StepGoto
-from skill.steps.step_header import StepHeader
-from skill.steps.step_stub import EnumStubName, StepStub
+from gui.skfc.skfc_skd import SkFCSkd
+from gui.skfc.skfc_undo_stack import (AddDiagramItemCommand, RemoveDiagramItemCommand, ChangeColorCommand,
+                                      ChangeFontCommand)
 
 
 class SkFCScene(QGraphicsScene):
@@ -38,8 +36,9 @@ class SkFCScene(QGraphicsScene):
         self.myFont: QFont = QFont("Times New Roman", 14)
         self.gridSize = 5
         self.ignore_mouse_move = False
-
         self.diagram_item_map_stepN = {}
+
+        self.undoStack = QUndoStack(self)
 
     def setLineColor(self, color):
         self.myLineColor = color
@@ -51,20 +50,36 @@ class SkFCScene(QGraphicsScene):
     def setTextColor(self, color):
         self.myTextColor = color
         if self.isItemChange(DiagramTextItem):
-            item = self.selectedItems()[0]
+            item: DiagramTextItem = self.selectedItems()[0]
             item.setDefaultTextColor(self.myTextColor)
 
     def setItemColor(self, color):
+        old_color = self.myItemColor
         self.myItemColor = color
         if self.isItemChange(DiagramNormalItem):
             item: DiagramNormalItem = self.selectedItems()[0]
             item.setBrush(self.myItemColor)
+            self.undoStack.push(ChangeColorCommand(item, old_color, color))
+
+    def callback_update_font(self, new_font):
+        print("update font ", new_font)
+        self.myFont = new_font
+        skfc_toolbars = self.parent.skfc_toolbars
+        skfc_toolbars.reset_items_status(new_font)
 
     def setFont(self, font):
+        old_font = self.myFont
         self.myFont = font
         if self.isItemChange(DiagramTextItem):
             item: DiagramTextItem = self.selectedItems()[0]
             item.set_font(self.myFont)
+            self.undoStack.push(ChangeFontCommand(item, old_font, font, lambda x: self.callback_update_font(x)))
+        elif self.isItemChange(DiagramNormalSubTextItem):
+            item: DiagramNormalSubTextItem = self.selectedItems()[0]
+            item.set_font(self.myFont)
+            self.undoStack.push(ChangeFontCommand(item, old_font, font, lambda x: self.callback_update_font(x)))
+        else:
+            self.undoStack.push(ChangeFontCommand(None, old_font, font, lambda x: self.callback_update_font(x)))
 
     def setMode(self, mode):
         self.myMode = mode
@@ -95,9 +110,16 @@ class SkFCScene(QGraphicsScene):
         elif event.key() == Qt.Key_Escape:
             if (self.myMode == self.InsertLine and isinstance(self.selected_item, DiagramArrowItem) and
                     self.ignore_mouse_move is False):
+                print("key press event set ignore mouse move is True")
                 self.ignore_mouse_move = True
                 self.removeItem(self.selected_item)
                 self.selected_item = None
+        elif event.key() == Qt.Key_Z and event.modifiers() & Qt.ControlModifier:
+            print("key press event undo")
+            self.undoStack.undo()
+        elif event.key() == Qt.Key_Y and event.modifiers() & Qt.ControlModifier:
+            print("key press event redo")
+            self.undoStack.redo()
 
         super().keyPressEvent(event)
 
@@ -105,6 +127,8 @@ class SkFCScene(QGraphicsScene):
         item = None
         if self.isItemChange(DiagramArrowItem):
             item = self.selectedItems()[0]
+            if item.condition_text_item.textInteractionFlags() == Qt.TextEditorInteraction:
+                item = None
         elif self.isItemChange(DiagramNormalItem):
             item = self.selectedItems()[0]
         elif self.isItemChange(DiagramTextItem):
@@ -145,10 +169,12 @@ class SkFCScene(QGraphicsScene):
                 # 当点击对应的item时候，需要要有选择到 port才能开始画线
                 if target_item_group is None or target_item_group.diagram_item_port_direction is not None:
                     item = DiagramArrowItem(start_point=mouseEvent.scenePos(), line_color=self.myLineColor,
-                                            context_menu=self.myItemMenu, target_item_group=target_item_group)
+                                            context_menu=self.myItemMenu, target_item_group=target_item_group,
+                                            skfc_scene=self)
 
                     self.add_diagram_item(item)
                     self.selected_item = item
+                    print("mouse move event set ignore mouse move is False")
                     self.ignore_mouse_move = False
                 elif target_item_group is not None:
                     self.selected_item = target_item_group.diagram_normal_item
@@ -184,6 +210,7 @@ class SkFCScene(QGraphicsScene):
         else:
             print("selected item is none!!!")
         # super(SkFCScene, self).mousePressEvent(mouseEvent)
+        mouseEvent.accept()
 
     def mouseMoveEvent(self, mouseEvent):
         # super().mouseMoveEvent(mouseEvent)
@@ -194,7 +221,7 @@ class SkFCScene(QGraphicsScene):
             # print(f"moving normal item {self.selected_item}")
         elif isinstance(self.selected_item, DiagramArrowItem):
             if self.ignore_mouse_move:
-                print("ignore mouse move event")
+                print("warning:::ignore mouse move event")
                 mouseEvent.ignore()
                 return
 
@@ -205,15 +232,17 @@ class SkFCScene(QGraphicsScene):
             super().mouseMoveEvent(mouseEvent)
 
         # super().mouseMoveEvent(mouseEvent)
+        mouseEvent.accept()
 
     def mouseReleaseEvent(self, mouseEvent):
         super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
         if self.selected_item is not None:
             if isinstance(self.selected_item, DiagramArrowItem):
-                self.ignore_mouse_move = True
+                print("mouse release event set ignore mouse move is False")
+                self.ignore_mouse_move = False
                 line: DiagramArrowItem = self.selected_item
                 target_item_group = self.query_target_event_items(mouseEvent.scenePos())
-                line.mouse_release_handler(mouseEvent.scenePos(), target_item_group)
+                line.mouse_release_handler(self, mouseEvent.scenePos(), target_item_group)
                 if line.distance_too_short():
                     self.removeItem(line)
                     print("line distance is too short should removed from scene")
@@ -228,6 +257,7 @@ class SkFCScene(QGraphicsScene):
 
         self.selected_item = None
         # super(SkFCScene, self).mouseReleaseEvent(mouseEvent)
+        mouseEvent.accept()
 
     def query_target_event_items(self, point: QPointF):
         target_item_group: DiagramItemGroup = None
@@ -242,8 +272,9 @@ class SkFCScene(QGraphicsScene):
         return target_item_group
 
     def isItemChange(self, type):
-        # print(f"selected item change type {type}")
+        print(f"selected item change type {type}")
         for item in self.selectedItems():
+            print(f"###{isinstance(item, type)}")
             if isinstance(item, type):
                 print(f"selected item {item} same type {type}")
                 return True
@@ -251,6 +282,8 @@ class SkFCScene(QGraphicsScene):
 
     def add_diagram_item(self, item):
         self.addItem(item)
+        self.undoStack.push(AddDiagramItemCommand(self, item))
+        print("push item to undo stack", item)
 
     def remove_diagram_item(self, item):
         print(f"remove item {item} from scene")
@@ -263,6 +296,8 @@ class SkFCScene(QGraphicsScene):
             pass
 
         self.removeItem(item)
+        self.undoStack.push(RemoveDiagramItemCommand(self, item))
+        print("push item to redo stack", item)
 
     # def mydrawBackground(self):
     #     pen =QPen()
@@ -302,13 +337,6 @@ class SkFCScene(QGraphicsScene):
     #     else:
     #         return QGraphicsItem.itemChange(change, value)
 
-    def get_normal_item_by_uuid(self, uuid):
-        for item in self.items():
-            if isinstance(item, DiagramNormalItem) and item.uuid == uuid:
-                return item
-
-        return None
-
     def to_dict(self) -> []:
         items = []
 
@@ -316,8 +344,8 @@ class SkFCScene(QGraphicsScene):
             if isinstance(item, DiagramNormalItem):
                 items.append(item.to_dict())
             elif isinstance(item, DiagramTextItem):
-                if item.sub_item is False:
-                    items.append(item.to_dict())
+                # if item.sub_item is False:
+                items.append(item.to_dict())
             elif isinstance(item, DiagramArrowItem):
                 items.append(item.to_dict())
             else:
@@ -326,149 +354,15 @@ class SkFCScene(QGraphicsScene):
         return items
 
     def from_json(self, items, context_menu: QMenu):
-        arrow_items = []
-        for item in items:
-            diagram_item = None
-            str_item_type = item["item_type"]
-            enum_item_type = EnumItemType[str_item_type]
-
-            if enum_item_type == EnumItemType.Text:
-                diagram_item = DiagramTextItem.from_dict(item, context_menu)
-            elif enum_item_type == EnumItemType.Normal:
-                diagram_item = DiagramNormalItem.from_dict(item, context_menu)
-            elif enum_item_type == EnumItemType.Arrow:
-                diagram_item = DiagramArrowItem.from_dict(item, context_menu)
-                arrow_items.append(diagram_item)
-            else:
-                print(f"diagram scene from json error item type {enum_item_type}")
-
-            if diagram_item is not None:
-                print(f"add diagram item {diagram_item.item_type.name};{diagram_item.uuid} to scene")
-                self.addItem(diagram_item)
-
-        # 单独把创建的arrow 对象, 绑定到normal item 对象
-        for arrow in arrow_items:
-            start_item = self.get_normal_item_by_uuid(arrow.start_item_uuid)
-            arrow.add_start_item(start_item)
-
-            end_item = self.get_normal_item_by_uuid(arrow.end_item_uuid)
-            arrow.add_end_item(end_item)
-
-    def get_start_skill_diagram_item(self):
-        for item in self.items():
-            if isinstance(item, DiagramNormalItem):
-                step = item.step
-                if step and step.type == EnumStepType.Stub.type_key():
-                    if step.stub_name == EnumStubName.StartSkill:
-                        return item
-
-        return None
-
-    def get_diagram_item_stepN(self, item):
-        for key, value in self.diagram_item_map_stepN.items():
-            if value == item:
-                return key
-
-        return None
-
-    def get_next_item_steps(self, stepN, next_item):
-        this_step = stepN
-        temp_steps_stack = []
-        next_stepN = self.get_diagram_item_stepN(next_item)
-
-        # 替换为goto，如果是已经执行过的step
-        if next_stepN:
-            this_step, step_words = StepGoto(gotostep=next_stepN).gen_step(this_step)
-            temp_steps_stack.append(step_words)
-        else:
-            this_step, steps_stack = self.gen_skill_steps(next_item, this_step)
-            temp_steps_stack.extend(steps_stack)
-
-        return this_step, temp_steps_stack
-
-    def gen_skill_steps(self, diagram_item, stepN):
-        sorted_steps_stack = []
-        this_step = stepN
-
-        step = diagram_item.step
-        this_step, step_words = step.gen_step(this_step, settings=self.worksettings)
-        sorted_steps_stack.append(step_words)
-        self.diagram_item_map_stepN[this_step] = diagram_item
-        # print(f"gen step {step.type}; {this_step}")
-
-        if diagram_item.diagram_type == DiagramNormalItem.Conditional:
-            true_next_item = diagram_item.get_next_diagram_item(True)
-            if true_next_item:
-                this_step, steps_stack = self.get_next_item_steps(this_step, true_next_item)
-                sorted_steps_stack.extend(steps_stack)
-            else:
-                print(f"{diagram_item} true next item is none")
-
-            this_step, step_words = StepStub(sname=EnumStubName.Else).gen_step(this_step)
-            sorted_steps_stack.append(step_words)
-
-            false_next_item = diagram_item.get_next_diagram_item(False)
-            if false_next_item:
-                this_step, steps_stack = self.get_next_item_steps(this_step, false_next_item)
-                sorted_steps_stack.extend(steps_stack)
-            else:
-                print(f"{diagram_item} false next item is none")
-        else:
-            next_item = diagram_item.get_next_diagram_item()
-            if next_item:
-                this_step, steps_stack = self.get_next_item_steps(this_step, next_item)
-                sorted_steps_stack.extend(steps_stack)
-            else:
-                print(f"{diagram_item} next item is none")
-
-        # need end stub steps
-        if step.type in EnumStepType.need_end_step_stub_type_keys():
-            if step.type == EnumStepType.CheckCondition.type_key():
-                this_step, step_words = StepStub(sname=EnumStubName.EndCondition).gen_step(this_step)
-                sorted_steps_stack.append(step_words)
-            elif step.type == EnumStepType.Repeat.type_key():
-                this_step, step_words = StepStub(sname=EnumStubName.EndLoop).gen_step(this_step)
-                sorted_steps_stack.append(step_words)
-            elif step.type == EnumStepType.CallFunction.type_key():
-                this_step, step_words = StepStub(sname=EnumStubName.EndFunction).gen_step(this_step)
-                sorted_steps_stack.append(step_words)
-            # elif step.type == EnumStepType.Stub.type_key():
-            #     if step.stub_name == EnumStubName.StartSkill:
-            #         this_step, step_words = StepStub(sname=EnumStubName.EndSkill).gen_step(this_step)
-            #         sorted_steps_stack.append(step_words)
-
-        # print(this_step, sorted_steps_stack)
-        return this_step, sorted_steps_stack
+        diagram_items = SkFCSkd().decode_diagram_items(items, context_menu)
+        for diagram_item in diagram_items:
+            print(f"add diagram item {diagram_item.item_type.name};{diagram_item.uuid} to scene")
+            self.addItem(diagram_item)
 
     def gen_psk_words(self, worksettings):
-        psk_words = "{"
-        first_step = 0
-
-        # header
         sk_info = self.parent.skfc_infobox.get_skill_info()
-        this_step, step_words = StepHeader(first_step, sk_info.skname, sk_info.os, sk_info.version, sk_info.author,
-                                           sk_info.skid, sk_info.description).gen_step(first_step)
-        psk_words = psk_words + step_words
-
-        # body steps
-        sorted_steps_stack = []
-        start_diagram_item = self.get_start_skill_diagram_item()
-        if start_diagram_item:
-            self.diagram_item_map_stepN = {}
-            self.worksettings = worksettings
-            this_step, steps_stack = self.gen_skill_steps(start_diagram_item, this_step)
-            sorted_steps_stack.extend(steps_stack)
-
-            step_words = ''.join(sorted_steps_stack)
-            psk_words = psk_words + step_words
-        else:
-            print("Error No Start Skill Step Diagram Item")
-
-        # dummy
-        psk_words = psk_words + "\"dummy\" : \"\"}"
-        print(psk_words)
+        skfc_skd = SkFCSkd()
+        start_diagram_item = skfc_skd.get_start_skill_diagram_item(self.items())
+        psk_words = skfc_skd.gen_psk_body(sk_info, start_diagram_item, worksettings)
 
         return psk_words
-
-
-

@@ -3,8 +3,8 @@ from PySide6.QtGui import Qt, QIcon, QPixmap, QBrush, QPainter, QPen
 from PySide6.QtWidgets import QToolBox, QGraphicsView, QWidget, QButtonGroup, QGridLayout, QSizePolicy, QToolButton, \
     QLabel
 
-from skfc.diagram_item_normal import DiagramNormalItem
-from skfc.skfc_scene import SkFCScene
+from gui.skfc.diagram_item_normal import DiagramNormalItem
+from gui.skfc.skfc_scene import SkFCScene
 from config.app_info import app_info
 
 

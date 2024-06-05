@@ -28,7 +28,7 @@ class TestSkillFunction(unittest.TestCase):
 
         # header
         first_step = 0
-        this_step, step_words = StepHeader(first_step, "test mouse scroll", "win", "1.0", "AIPPS LLC",
+        this_step, step_words = StepHeader(first_step, "test mouse scroll", "F", "win", "1.0", "AIPPS LLC",
                                            "PUBWINFILEOP001", "File Open Dialog Handling for Windows.").gen_step()
         psk_words = psk_words + step_words
 

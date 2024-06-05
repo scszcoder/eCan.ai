@@ -1,144 +1,119 @@
 {
     "sk_info": {
         "skname": "test",
+        "sktype": "F",
         "os": "win",
         "version": "1.0",
         "author": "AIPPS LLC",
         "skid": "",
-        "description": "test skill"
+        "description": ""
     },
     "items": [
         {
-            "uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
-            "item_type": "Normal",
-            "diagram_type": 2,
-            "text_color": "#000000",
-            "item_color": "#ffffff",
-            "position": {
-                "x": 158.0,
-                "y": 139.0
-            },
-            "font": {
-                "family": "Times New Roman",
-                "pointSize": 14,
-                "weight": "Normal",
-                "italic": false,
-                "underline": false
-            },
-            "name_text_item": {
-                "uuid": "aa15fe03-ce08-4607-b9df-6047b237bd8a",
-                "item_type": "Text",
-                "sub_item": true,
-                "plain_text": "hello",
-                "position": {
-                    "x": -18.0,
-                    "y": 18.0
+            "uuid": "76949908-3f3e-4097-b374-55ecb666ec50",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 285.0,
+                    "y": 337.0
                 },
-                "font": {
-                    "family": "Times New Roman",
-                    "pointSize": 14,
-                    "weight": "Normal",
-                    "italic": false,
-                    "underline": false
+                {
+                    "x": 270.0,
+                    "y": 337.0
                 },
-                "color": "#000000"
-            },
-            "tag_text_item": {
-                "uuid": "f2708ad7-1e41-4dff-9b39-a57c320baaad",
-                "item_type": "Text",
-                "sub_item": true,
-                "plain_text": "tag here",
-                "position": {
-                    "x": -30.0,
-                    "y": -12.5
+                {
+                    "x": 270.0,
+                    "y": 267.0
                 },
-                "font": {
-                    "family": "Times New Roman",
-                    "pointSize": 14,
-                    "weight": "Normal",
-                    "italic": false,
-                    "underline": false
+                {
+                    "x": 148.0,
+                    "y": 267.0
                 },
-                "color": "#000000"
-            },
-            "step": {
-                "type": "Stub",
-                "description": null,
-                "stub_name": "start skill",
-                "func_name": null,
-                "fargs": null
-            }
+                {
+                    "x": 148.0,
+                    "y": 282.0
+                }
+            ],
+            "start_item_uuid": "47923211-4a83-43d1-97ec-b0702c8d8781",
+            "end_item_uuid": "007d9111-0fe1-4081-897b-b73e5af77849",
+            "start_item_port_direction": "LEFT",
+            "end_item_port_direction": "TOP",
+            "condition_text": "True"
         },
         {
-            "uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
-            "item_type": "Normal",
-            "diagram_type": 2,
-            "text_color": "#000000",
-            "item_color": "#ffffff",
-            "position": {
-                "x": 163.0,
-                "y": 573.0
-            },
-            "font": {
-                "family": "Times New Roman",
-                "pointSize": 14,
-                "weight": "Normal",
-                "italic": false,
-                "underline": false
-            },
-            "name_text_item": {
-                "uuid": "5b3f66a0-5b99-4545-985e-7c6131f33d23",
-                "item_type": "Text",
-                "sub_item": true,
-                "plain_text": "hello",
-                "position": {
-                    "x": -18.0,
-                    "y": 18.0
+            "uuid": "3d12045c-3ead-43d2-8026-d75af142826e",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 330.0,
+                    "y": 445.0
                 },
-                "font": {
-                    "family": "Times New Roman",
-                    "pointSize": 14,
-                    "weight": "Normal",
-                    "italic": false,
-                    "underline": false
+                {
+                    "x": 330.0,
+                    "y": 460.0
                 },
-                "color": "#000000"
-            },
-            "tag_text_item": {
-                "uuid": "08f0b7f6-4ead-4ead-b10a-a22f12e51c3d",
-                "item_type": "Text",
-                "sub_item": true,
-                "plain_text": "tag here",
-                "position": {
-                    "x": -30.0,
-                    "y": -12.5
+                {
+                    "x": 207.0,
+                    "y": 460.0
                 },
-                "font": {
-                    "family": "Times New Roman",
-                    "pointSize": 14,
-                    "weight": "Normal",
-                    "italic": false,
-                    "underline": false
+                {
+                    "x": 207.0,
+                    "y": 361.0
                 },
-                "color": "#000000"
-            },
-            "step": {
-                "type": "Stub",
-                "description": null,
-                "stub_name": "end skill",
-                "func_name": null,
-                "fargs": null
-            }
+                {
+                    "x": 192.0,
+                    "y": 361.0
+                }
+            ],
+            "start_item_uuid": "686234ff-dadf-41a1-86c9-4c0c41e5755b",
+            "end_item_uuid": "b02314d7-d356-4683-aa73-1b5dd166f264",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "RIGHT",
+            "condition_text": ""
         },
         {
-            "uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
+            "uuid": "d242bf81-695e-4a2c-aefb-736e326eadce",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 335.0,
+                    "y": 352.0
+                },
+                {
+                    "x": 335.0,
+                    "y": 367.0
+                },
+                {
+                    "x": 335.0,
+                    "y": 400.0
+                },
+                {
+                    "x": 330.0,
+                    "y": 400.0
+                },
+                {
+                    "x": 330.0,
+                    "y": 415.0
+                }
+            ],
+            "start_item_uuid": "47923211-4a83-43d1-97ec-b0702c8d8781",
+            "end_item_uuid": "686234ff-dadf-41a1-86c9-4c0c41e5755b",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP",
+            "condition_text": "false"
+        },
+        {
+            "uuid": "686234ff-dadf-41a1-86c9-4c0c41e5755b",
             "item_type": "Normal",
             "diagram_type": 0,
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 143.0,
-                "y": 368.0
+                "x": 330.0,
+                "y": 430.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -148,9 +123,6 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "9b62a363-13c7-4364-bcaf-311070b27862",
-                "item_type": "Text",
-                "sub_item": true,
                 "plain_text": "hello",
                 "position": {
                     "x": -18.0,
@@ -166,9 +138,6 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "c5171d6e-bafe-4627-9216-f02b81d6d1b2",
-                "item_type": "Text",
-                "sub_item": true,
                 "plain_text": "tag here",
                 "position": {
                     "x": -30.0,
@@ -185,89 +154,60 @@
             },
             "step": {
                 "type": "App Open",
-                "description": null,
+                "tag": "",
                 "action": "cmd",
                 "save_rb": true,
                 "target_type": "browser",
-                "target_link": "https://www.baidu.com",
+                "target_link": "https://www.jd.com",
                 "anchor_type": "text",
-                "anchor_value": null,
+                "anchor_value": "",
                 "cargs_type": "direct",
                 "cargs": "",
-                "wait": 2.0
+                "wait": 0.0,
+                "description": ""
             }
         },
         {
-            "uuid": "b784fba7-f166-4b1b-95ae-dc068133835e",
+            "uuid": "3c597461-159b-4e8a-adb4-949e496e95fe",
             "item_type": "Arrow",
             "line_color": "#000000",
             "path_points": [
                 {
-                    "x": 158.0,
-                    "y": 154.0
+                    "x": 358.0,
+                    "y": 238.0
                 },
                 {
-                    "x": 158.0,
-                    "y": 169.0
+                    "x": 358.0,
+                    "y": 253.0
                 },
                 {
-                    "x": 240.0,
-                    "y": 169.0
+                    "x": 358.0,
+                    "y": 307.0
                 },
                 {
-                    "x": 240.0,
-                    "y": 180.0
+                    "x": 335.0,
+                    "y": 307.0
                 },
                 {
-                    "x": 240.0,
-                    "y": 195.0
+                    "x": 335.0,
+                    "y": 322.0
                 }
             ],
-            "start_item_uuid": "4e7a6858-b138-459f-9140-0fac375f9021",
-            "end_item_uuid": "63b899c6-1410-4799-b699-65726e9b39da",
+            "start_item_uuid": "6f3a3e6b-a2a3-4af1-8b9b-cd37eecdaf7d",
+            "end_item_uuid": "47923211-4a83-43d1-97ec-b0702c8d8781",
             "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
+            "end_item_port_direction": "TOP",
+            "condition_text": ""
         },
         {
-            "uuid": "396f54bf-ec48-4f7e-93ff-45bdf8997d13",
-            "item_type": "Arrow",
-            "line_color": "#000000",
-            "path_points": [
-                {
-                    "x": 319.0,
-                    "y": 509.0
-                },
-                {
-                    "x": 319.0,
-                    "y": 524.0
-                },
-                {
-                    "x": 319.0,
-                    "y": 543.0
-                },
-                {
-                    "x": 163.0,
-                    "y": 543.0
-                },
-                {
-                    "x": 163.0,
-                    "y": 558.0
-                }
-            ],
-            "start_item_uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
-            "end_item_uuid": "59abdf72-9081-4c70-a6f7-036380a56c91",
-            "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
-        },
-        {
-            "uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
+            "uuid": "47923211-4a83-43d1-97ec-b0702c8d8781",
             "item_type": "Normal",
-            "diagram_type": 0,
+            "diagram_type": 1,
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 254.0,
-                "y": 426.0
+                "x": 335.0,
+                "y": 337.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -277,9 +217,6 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "34923d2b-1292-459e-82f8-7dccefdcaa59",
-                "item_type": "Text",
-                "sub_item": true,
                 "plain_text": "hello",
                 "position": {
                     "x": -18.0,
@@ -295,9 +232,6 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "9b013768-6c8a-4468-838f-eaf6369569e1",
-                "item_type": "Text",
-                "sub_item": true,
                 "plain_text": "tag here",
                 "position": {
                     "x": -30.0,
@@ -313,59 +247,23 @@
                 "color": "#000000"
             },
             "step": {
-                "type": "Mouse Scroll",
-                "description": null,
-                "action": "scroll down",
-                "screen": "screen_info",
-                "amount": 50,
-                "resolution": "scroll_resolution",
-                "random_min": 0,
-                "random_max": 0,
-                "breakpoint": false,
-                "postwait": 5.0,
-                "unit": "screen"
+                "type": "Check Condition",
+                "tag": "",
+                "condition": "open_baidu==True",
+                "if_else": null,
+                "if_end": null,
+                "description": ""
             }
         },
         {
-            "uuid": "f169b2c8-ec47-4e3e-9a00-0d3346271dac",
-            "item_type": "Arrow",
-            "line_color": "#000000",
-            "path_points": [
-                {
-                    "x": 143.0,
-                    "y": 383.0
-                },
-                {
-                    "x": 143.0,
-                    "y": 398.0
-                },
-                {
-                    "x": 254.0,
-                    "y": 398.0
-                },
-                {
-                    "x": 254.0,
-                    "y": 396.0
-                },
-                {
-                    "x": 254.0,
-                    "y": 411.0
-                }
-            ],
-            "start_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
-            "end_item_uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
-            "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
-        },
-        {
-            "uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
+            "uuid": "6f3a3e6b-a2a3-4af1-8b9b-cd37eecdaf7d",
             "item_type": "Normal",
-            "diagram_type": 0,
+            "diagram_type": 3,
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 319.0,
-                "y": 494.0
+                "x": 358.0,
+                "y": 223.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -375,9 +273,6 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "76c67748-5fc8-4b0f-bbb8-6e55371b98d2",
-                "item_type": "Text",
-                "sub_item": true,
                 "plain_text": "hello",
                 "position": {
                     "x": -18.0,
@@ -393,9 +288,6 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "df1d1181-a5b0-4bec-8472-2f4e1439009a",
-                "item_type": "Text",
-                "sub_item": true,
                 "plain_text": "tag here",
                 "position": {
                     "x": -30.0,
@@ -411,59 +303,24 @@
                 "color": "#000000"
             },
             "step": {
-                "type": "Mouse Scroll",
-                "description": null,
-                "action": "scroll down",
-                "screen": "screen_info",
-                "amount": 100,
-                "resolution": "scroll_resolution",
-                "random_min": 0,
-                "random_max": 0,
-                "breakpoint": false,
-                "postwait": 5.0,
-                "unit": "screen"
+                "type": "Create Data",
+                "tag": "",
+                "data_type": "bool",
+                "data_name": "open_baidu",
+                "key_name": "NA",
+                "key_value": "False",
+                "description": ""
             }
         },
         {
-            "uuid": "2a92a314-2bac-4a19-bc09-eb4310d317fc",
-            "item_type": "Arrow",
-            "line_color": "#000000",
-            "path_points": [
-                {
-                    "x": 254.0,
-                    "y": 441.0
-                },
-                {
-                    "x": 254.0,
-                    "y": 456.0
-                },
-                {
-                    "x": 319.0,
-                    "y": 456.0
-                },
-                {
-                    "x": 319.0,
-                    "y": 464.0
-                },
-                {
-                    "x": 319.0,
-                    "y": 479.0
-                }
-            ],
-            "start_item_uuid": "aa159796-ccce-4373-ab2c-f5ba327b3826",
-            "end_item_uuid": "fb1fa377-3aa7-4a3e-b40f-95e6c86b1997",
-            "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
-        },
-        {
-            "uuid": "63b899c6-1410-4799-b699-65726e9b39da",
+            "uuid": "23d11dc5-277b-4e2f-89b6-2c3f83e1a3a6",
             "item_type": "Normal",
-            "diagram_type": 0,
+            "diagram_type": 2,
             "text_color": "#000000",
             "item_color": "#ffffff",
             "position": {
-                "x": 240.0,
-                "y": 210.0
+                "x": 140.0,
+                "y": 62.0
             },
             "font": {
                 "family": "Times New Roman",
@@ -473,9 +330,6 @@
                 "underline": false
             },
             "name_text_item": {
-                "uuid": "036658bb-be12-4976-8259-27655157eafb",
-                "item_type": "Text",
-                "sub_item": true,
                 "plain_text": "hello",
                 "position": {
                     "x": -18.0,
@@ -491,10 +345,119 @@
                 "color": "#000000"
             },
             "tag_text_item": {
-                "uuid": "01220b7c-9ef5-4b7c-b4d8-c5db75f4be10",
-                "item_type": "Text",
-                "sub_item": true,
-                "plain_text": "tag here",
+                "plain_text": "start",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "Stub",
+                "tag": "",
+                "stub_name": "start skill",
+                "func_name": null,
+                "fargs": null,
+                "description": ""
+            }
+        },
+        {
+            "uuid": "20d289d8-4842-415c-8e31-db92bff5bce6",
+            "item_type": "Normal",
+            "diagram_type": 2,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 122.0,
+                "y": 462.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "plain_text": "end",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "Stub",
+                "tag": "",
+                "stub_name": "end skill",
+                "func_name": null,
+                "fargs": null,
+                "description": ""
+            }
+        },
+        {
+            "uuid": "75f1de4e-f6b5-40ad-87b1-e02ddeddd413",
+            "item_type": "Normal",
+            "diagram_type": 0,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 143.0,
+                "y": 196.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "plain_text": "extract info",
                 "position": {
                     "x": -30.0,
                     "y": -12.5
@@ -510,47 +473,267 @@
             },
             "step": {
                 "type": "Extract Info",
-                "description": "",
-                "settings": "",
+                "tag": "",
+                "settings": {},
                 "template": "",
                 "option": "",
                 "data_sink": "screen_info",
                 "page": "home",
                 "page_data_info": "",
                 "theme": "",
-                "section": "top"
+                "section": "top",
+                "description": ""
             }
         },
         {
-            "uuid": "3e7c96d9-f80c-441a-99cc-67d87e87c5e4",
+            "uuid": "007d9111-0fe1-4081-897b-b73e5af77849",
+            "item_type": "Normal",
+            "diagram_type": 0,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 148.0,
+                "y": 297.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "plain_text": "open app",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "App Open",
+                "tag": "",
+                "action": "cmd",
+                "save_rb": true,
+                "target_type": "browser",
+                "target_link": "https://www.baidu.com",
+                "anchor_type": "text",
+                "anchor_value": "",
+                "cargs_type": "direct",
+                "cargs": "",
+                "wait": 0.0,
+                "description": ""
+            }
+        },
+        {
+            "uuid": "b02314d7-d356-4683-aa73-1b5dd166f264",
+            "item_type": "Normal",
+            "diagram_type": 0,
+            "text_color": "#000000",
+            "item_color": "#ffffff",
+            "position": {
+                "x": 142.0,
+                "y": 361.0
+            },
+            "font": {
+                "family": "Times New Roman",
+                "pointSize": 14,
+                "weight": "Normal",
+                "italic": false,
+                "underline": false
+            },
+            "name_text_item": {
+                "plain_text": "hello",
+                "position": {
+                    "x": -18.0,
+                    "y": 18.0
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "tag_text_item": {
+                "plain_text": "wait",
+                "position": {
+                    "x": -30.0,
+                    "y": -12.5
+                },
+                "font": {
+                    "family": "Times New Roman",
+                    "pointSize": 14,
+                    "weight": "Normal",
+                    "italic": false,
+                    "underline": false
+                },
+                "color": "#000000"
+            },
+            "step": {
+                "type": "Wait",
+                "tag": "",
+                "random_min": 0,
+                "random_max": 0,
+                "time": 5.0,
+                "description": ""
+            }
+        },
+        {
+            "uuid": "4e39f209-85ef-495f-897b-17be69161904",
             "item_type": "Arrow",
             "line_color": "#000000",
             "path_points": [
                 {
-                    "x": 240.0,
-                    "y": 225.0
+                    "x": 140.0,
+                    "y": 77.0
                 },
                 {
-                    "x": 240.0,
-                    "y": 240.0
-                },
-                {
-                    "x": 240.0,
-                    "y": 338.0
+                    "x": 140.0,
+                    "y": 92.0
                 },
                 {
                     "x": 143.0,
-                    "y": 338.0
+                    "y": 92.0
                 },
                 {
                     "x": 143.0,
-                    "y": 353.0
+                    "y": 166.0
+                },
+                {
+                    "x": 143.0,
+                    "y": 181.0
                 }
             ],
-            "start_item_uuid": "63b899c6-1410-4799-b699-65726e9b39da",
-            "end_item_uuid": "cf151ddb-3498-4187-9550-0c91a1799b1f",
+            "start_item_uuid": "23d11dc5-277b-4e2f-89b6-2c3f83e1a3a6",
+            "end_item_uuid": "75f1de4e-f6b5-40ad-87b1-e02ddeddd413",
             "start_item_port_direction": "BOTTOM",
-            "end_item_port_direction": "TOP"
+            "end_item_port_direction": "TOP",
+            "condition_text": ""
+        },
+        {
+            "uuid": "bbcbf52d-9363-4c9b-a479-9ba540a6b5e0",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 143.0,
+                    "y": 211.0
+                },
+                {
+                    "x": 143.0,
+                    "y": 226.0
+                },
+                {
+                    "x": 201.0,
+                    "y": 226.0
+                },
+                {
+                    "x": 201.0,
+                    "y": 193.0
+                },
+                {
+                    "x": 358.0,
+                    "y": 193.0
+                },
+                {
+                    "x": 358.0,
+                    "y": 208.0
+                }
+            ],
+            "start_item_uuid": "75f1de4e-f6b5-40ad-87b1-e02ddeddd413",
+            "end_item_uuid": "6f3a3e6b-a2a3-4af1-8b9b-cd37eecdaf7d",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP",
+            "condition_text": ""
+        },
+        {
+            "uuid": "2aedd686-dc30-4959-b786-e025fa704426",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 148.0,
+                    "y": 312.0
+                },
+                {
+                    "x": 148.0,
+                    "y": 327.0
+                },
+                {
+                    "x": 148.0,
+                    "y": 331.0
+                },
+                {
+                    "x": 142.0,
+                    "y": 331.0
+                },
+                {
+                    "x": 142.0,
+                    "y": 346.0
+                }
+            ],
+            "start_item_uuid": "007d9111-0fe1-4081-897b-b73e5af77849",
+            "end_item_uuid": "b02314d7-d356-4683-aa73-1b5dd166f264",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP",
+            "condition_text": ""
+        },
+        {
+            "uuid": "9dea14cb-f255-4484-8bd6-915f4bb2c7a6",
+            "item_type": "Arrow",
+            "line_color": "#000000",
+            "path_points": [
+                {
+                    "x": 142.0,
+                    "y": 376.0
+                },
+                {
+                    "x": 142.0,
+                    "y": 391.0
+                },
+                {
+                    "x": 142.0,
+                    "y": 432.0
+                },
+                {
+                    "x": 122.0,
+                    "y": 432.0
+                },
+                {
+                    "x": 122.0,
+                    "y": 447.0
+                }
+            ],
+            "start_item_uuid": "b02314d7-d356-4683-aa73-1b5dd166f264",
+            "end_item_uuid": "20d289d8-4842-415c-8e31-db92bff5bce6",
+            "start_item_port_direction": "BOTTOM",
+            "end_item_port_direction": "TOP",
+            "condition_text": ""
         }
     ]
 }

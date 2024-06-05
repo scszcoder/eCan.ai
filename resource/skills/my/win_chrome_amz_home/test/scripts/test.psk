@@ -39,8 +39,8 @@
         "mid": 20231225,
         "midx": 0,
         "run_config": null,
-        "root_path": "/Users/liuqiang/MyDocuments/Workspace/scszcoder/ecbot",
-        "log_path_prefix": "/Users/liuqiang/MyDocuments/Workspace/scszcoder/ecbot/runlogs/20240129/b1m20231225/",
+        "root_path": "/Users/liuqiang02/Desktop/workspace/ecbot",
+        "log_path_prefix": "/Users/liuqiang02/Desktop/workspace/ecbot/runlogs/20240130/b1m20231225/",
         "log_path": "",
         "platform": "Windows",
         "site": "Amazon",
@@ -493,7 +493,7 @@
 {
     "type": "Check Condition",
     "description": "",
-    "condition": null,
+    "condition": "open_baidu==True",
     "if_else": null,
     "if_end": null
 },
@@ -553,7 +553,7 @@
 {
     "type": "Goto",
     "description": "",
-    "goto": 40
+    "goto": 35
 },
 "step 55":
 {
