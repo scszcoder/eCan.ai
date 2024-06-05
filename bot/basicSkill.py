@@ -3384,6 +3384,8 @@ def processThink(step, i, mission):
 
     date_word = dtnow.isoformat()
     try:
+        # goal could be "customer service", "procure web search","procure chat","sales chat", "test"
+        # background is the thread up to the latest message, msg_thread is the latest message
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
                "goal": step["setup"], "background": "", "msg": symTab[step["query"]]}]
         settings = mission.parent_settings
@@ -3415,7 +3417,7 @@ def processGenRespMsg(step, i, mission):
             print("respond:")
 
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
-               "goal": step["setup"], "background": "", "msg": symTab[step["query"]]}]
+               "goal": step["setup"], "background": "", "msg_thread": symTab[step["query"]]}]
         settings = mission.parent_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
 
