@@ -1437,6 +1437,7 @@ class MainWindow(QMainWindow):
             self.showMsg("ERROR EXCEPTION:")
             fetch_stat = "ErrorFetchSchedule:" + jresp["errorType"]
 
+        self.showMsg("done with fetch schedule:"+ fetch_stat)
         return fetch_stat
 
     def fetchScheduleFromFile(self):
@@ -1877,7 +1878,7 @@ class MainWindow(QMainWindow):
     # main types will be: "buy", "goodFB", "badFB", "goodRating", "badRating"
     # sub types will be: 'addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"
     def add_buy_searchs(self, p_task_groups):
-        print("taskgroup:", p_task_groups)
+        print("add buy to taskgroup:", p_task_groups)
 
         #1st find all 1st stage buy missions.
         self.showMsg("task name:" + json.dumps([tsk["name"]  for tsk in p_task_groups]))
@@ -1958,7 +1959,7 @@ class MainWindow(QMainWindow):
             p_task_groups = self.unassigned_task_groups[platform]
             p_nsites = len(v_groups[platform])
 
-            self.showMsg("p_nsites:"+str(p_nsites))
+            self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
 
             if p_nsites > 0:
                 if len(p_task_groups) > p_nsites:
@@ -2110,8 +2111,8 @@ class MainWindow(QMainWindow):
                     nextrun = self.todays_work["tbd"][0]
             elif "Completed" not in self.todays_work["tbd"][0]["status"]:
                 # in case the 1st todos is an automation task.
+                print("eastern:", self.todays_work["tbd"][0]["works"]["eastern"])
                 self.showMsg("self.todays_work[\"tbd\"][0] : "+json.dumps(self.todays_work["tbd"][0]))
-                self.showMsg("time right now is: "+self.time2ts(pt))
                 tz = self.todays_work["tbd"][0]["current tz"]
 
                 bith = self.todays_work["tbd"][0]["current bidx"]
@@ -2119,9 +2120,11 @@ class MainWindow(QMainWindow):
                 # determin next task group:
                 current_bw_idx = self.todays_work["tbd"][0]["current widx"]
                 current_other_idx = self.todays_work["tbd"][0]["current oidx"]
+                self.showMsg("time right now is: "+self.time2ts(pt)+"("+str(pt)+")"+datetime.now().strftime('%Y-%m-%d %H:%M:%S')+" tz:"+tz+" bith:"+str(bith)+" bw idx:"+str(current_bw_idx)+"other idx:"+str(current_other_idx))
 
                 if current_bw_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"]):
                     current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
+                    self.showMsg("current bw start time: " + str(current_bw_start_time))
                 else:
                     # just give it a huge number so that, this group won't get run
                     current_bw_start_time = 1000
@@ -2129,6 +2132,7 @@ class MainWindow(QMainWindow):
 
                 if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
                     current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
+                    self.showMsg("current bw start time: " + str(current_other_start_time))
                 else:
                     # in case, all just give it a huge number so that, this group won't get run
                     current_other_start_time = 1000
@@ -2230,7 +2234,7 @@ class MainWindow(QMainWindow):
                         newPskJson[new_key]["key_value"] = work_settings
                         # newPskJson[new_key]["key_value"] = copy.deepcopy(work_settings)
                         # newPskJson[new_key]["key_value"]["commander_link"] = ""
-                        self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(pskJson[new_key]))
+                        self.showMsg("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(newPskJson[new_key]))
 
                 pskJson.pop(key)
 
@@ -2296,7 +2300,7 @@ class MainWindow(QMainWindow):
                     all_skill_codes = []
                     step_idx = 0
                     for sk in relevant_skills:
-                        self.showMsg("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName())
+                        self.showMsg("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName()+" "+worksettings["b_email"])
                         setWorkSettingsSkill(worksettings, sk)
                         # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
 
@@ -2324,7 +2328,7 @@ class MainWindow(QMainWindow):
                     self.showMsg("all_skill_codes: "+json.dumps(all_skill_codes))
 
                     rpa_script = prepRunSkill(all_skill_codes)
-                    # self.showMsg("generated psk: "+json.dumps(rpa_script))
+                    self.showMsg("generated ready2run: "+json.dumps(rpa_script))
                     # self.showMsg("generated psk: " + str(len(rpa_script.keys())))
 
                     # doing this just so that the code below can run multiple codes if needed. but in reality
@@ -2347,6 +2351,8 @@ class MainWindow(QMainWindow):
                     # self.showMsg("running skill: "+json.dumps(running_skill))
                     # runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue))
                     # runResult = await runStepsTask
+
+                    self.showMsg("BEFORE RUN: " + worksettings["b_email"])
                     runResult = await runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
 
                     # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
@@ -4790,7 +4796,7 @@ class MainWindow(QMainWindow):
                         # else:
                             # now need to chop off the 0th todo since that's done by now....
                             #
-                            print("total # of works:"+str(len(botTodos["works"])))
+                            print("total # of works:"+str(botTodos["current widx"])+":"+str(len(botTodos["works"])))
                             if current_mid >= 0:
                                 current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
 
@@ -5240,18 +5246,18 @@ class MainWindow(QMainWindow):
             current_bid = 0
 
         # self.showMsg("GEN REPORT FOR WORKS:"+json.dumps(works))
-        self.showMsg("GEN REPORT FOR WORKS...")
         if not self.hostrole == "CommanderOnly":
             mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
             self.showMsg("mission_report:"+json.dumps(mission_report))
 
             if self.hostrole != "Platoon":
                 # add generated report to report list....
-                # self.showMsg("commander gen run report....."+json.dumps(self.todaysReport))
+                self.showMsg("commander gen run report....."+str(len(self.todaysReport)) + str(len(works)))
                 self.todaysReport.append(mission_report)
                 # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
                 # on commander machine, todaysPlatoonReports contains a collection of reports from each host machine
                 if len(self.todaysReport) == len(works):
+                    self.showMsg("time to pack today's non-platoon report")
                     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
                     self.todaysPlatoonReports.append(rpt)
                     self.todaysReport = []
@@ -5262,10 +5268,12 @@ class MainWindow(QMainWindow):
                 # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
                 # on platoon machine, todaysPlatoonReports contains a collection of individual task reports on this machine.
                 if len(self.todaysReport) == len(works):
+                    self.showMsg("time to pack today's platoon report")
                     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
                     self.todaysPlatoonReports.append(rpt)
                     self.todaysReport = []
 
+        self.showMsg("GEN REPORT FOR WORKS..."+json.dumps(self.todaysReport))
         return self.todaysReport
 
     def updateMissionsStatsFromReports(self, all_reports):

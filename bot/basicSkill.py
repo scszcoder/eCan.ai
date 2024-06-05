@@ -2570,7 +2570,7 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
             next_i = stack.pop()
 
         if step["stub_name"] == "end skill":
-            log3("end of a skill "+step["func_name"]+" reached.")
+            log3("end of a skill "+step["func_name"]+" reached.<"+str(len(sk_stack))+">")
             if len(sk_stack) == 0:
                 #set next_i to be a huage number, that wuold stop the code.
                 next_i = MAX_STEPS
@@ -2593,6 +2593,12 @@ def processStub(step, i, stack, sk_stack, sk_table, step_keys):
 
                 log3("TEST_RUN_CNT ex_stat:"+str(TEST_RUN_CNT)+"[" + ex_stat + "]")
                 TEST_RUN_CNT = TEST_RUN_CNT + 1
+        elif step["stub_name"] == "start skill main":
+            stack.append(0)
+            stack.append("main_in")
+            stack.append("main_out")
+            stack.append("main_settings")
+            stack.append("main_args")
 
 
 
