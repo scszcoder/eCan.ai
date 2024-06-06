@@ -1,15 +1,18 @@
 import asyncio
-import os
 import sys
+import traceback
 
 import qasync
 from PySide6.QtWidgets import QApplication
 from setproctitle import setproctitle
 
+from config.app_settings import app_settings
 from gui.LoginoutGUI import Login
 from gui.WaitGui import WaitWindow
-from bot.envi import getECBotDataHome
 from bot.network import runCommanderLAN, runPlatoonLAN
+from utils.logger_helper import logger_helper
+
+
 # from tests.unittests import *
 
 
@@ -43,13 +46,10 @@ def main():
 
         loop.run_forever()
 
+
 if __name__ == '__main__':
     setproctitle('ECBot')
 
-    ecb_data_homepath = getECBotDataHome()
-    runlogs_dir = ecb_data_homepath + "/runlogs"
-    if not os.path.isdir(runlogs_dir):
-        os.mkdir(runlogs_dir)
     # test_eb_orders_scraper()
     # test_etsy_label_gen()
     # test_use_func_instructions()
@@ -70,5 +70,10 @@ if __name__ == '__main__':
     # print("all unit tests done...")
     # test_scrape_amz_buy_orders()
     # list_windows()
-    main()
+    try:
+        main()
+    except Exception as e:
+        error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
+        logger_helper.error(error_info)
+
     # qasync.run(main())
