@@ -329,6 +329,14 @@ def getWorkRunSettings(lieutenant, bot_works):
     fdir = fdir + "/runlogs/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
+    scroll_resolution = 250     # default scroll resolution.
+    scroll_resolution_file = ecb_data_homepath + "/scroll_resolution.json"
+    if os.path.exists(scroll_resolution_file):
+        with open(scroll_resolution_file, 'r') as fileTBR:
+            scroll_resolution = json.load(fileTBR)
+
+            fileTBR.close()
+
     bot = lieutenant.bots[bot_idx]
 
     #create seller information json for seller related work in case
@@ -377,6 +385,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "options": "{}",
             "self_ip": lieutenant.ip,
             "machine_name": lieutenant.machine_name,
+            "scroll_resolution": scroll_resolution,
             # "commander_link": lieutenant.commanderXport,
             "name_space": name_space
             }
