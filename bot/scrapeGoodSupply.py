@@ -1,16 +1,7 @@
 import json
+
+from bot.Logger import log3
 from bs4 import BeautifulSoup
-import pyautogui
-import numpy as np
-import re
-import random
-from calendar import isleap
-import cv2
-from ordersData import *
-from basicSkill import *
-import esprima
-from esprima.visitor import Visitor
-from Logger import *
 
 global symTab
 global STEP_GAP

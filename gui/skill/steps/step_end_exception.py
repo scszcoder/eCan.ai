@@ -1,5 +1,4 @@
-from skill.steps.step_base import StepBase
-from enum import Enum
+from gui.skill.steps.step_base import StepBase
 
 
 class StepEndException(StepBase):

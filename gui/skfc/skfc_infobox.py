@@ -1,20 +1,20 @@
 from enum import Enum
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon, QFont, QPainter, QColor
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QLabel, QTableWidgetItem, QGraphicsView, \
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QLabel, QGraphicsView, \
     QHBoxLayout, QFrame, QLineEdit, QHeaderView, QComboBox, QCheckBox, QApplication
 
 from gui.skfc.diagram_item_normal import DiagramNormalItem
-from skfc.skfc_base import EnumSkType
-from skfc.skfc_scene import SkFCScene
+from gui.skfc.skfc_base import EnumSkType
+from gui.skfc.skfc_scene import SkFCScene
 from config.app_info import app_info
-from skill.steps.enum_step_type import EnumStepType
-from skill.steps.step_base import StepBase
-from skill.steps.step_check_condition import StepCheckCondition
-from skill.steps.step_fill_data import StepFillData
-from skill.steps.step_stub import StepStub
-from skill.steps.step_wait import StepWait
+from gui.skill.steps.enum_step_type import EnumStepType
+from gui.skill.steps.step_base import StepBase
+from gui.skill.steps.step_check_condition import StepCheckCondition
+from gui.skill.steps.step_fill_data import StepFillData
+from gui.skill.steps.step_stub import StepStub
+from gui.skill.steps.step_wait import StepWait
 
 PROPS_COLUMN_COUNT = 2
 STEP_ATTR_KEY = "step_attr_key"

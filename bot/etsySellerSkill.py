@@ -1,13 +1,21 @@
-from basicSkill import *
-from scraperEtsy import *
+import copy
+import json
+import os
+import re
+from datetime import datetime
+
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-from datetime import datetime
-from envi import *
-from config.app_info import app_info
-from Logger import *
 
+from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreateData, genStepCallExtern, genStepUseSkill, \
+    genStepOpenApp, genStepLoop, genStepExtractInfo, genStepSearchAnchorInfo, genStepMouseClick, genStepCheckCondition, \
+    genStepMouseScroll, genStepCreateDir, genStepKeyInput, STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepTextInput
+from bot.Logger import log3
+from bot.envi import getECBotDataHome
+from config.app_info import app_info
+from bot.ordersData import ORDER, OrderPerson, OrderedProduct, Shipping
+from bot.scraperEtsy import genStepEtsyScrapeOrders
 
 SAME_ROW_THRESHOLD = 16
 tracking_code = ""

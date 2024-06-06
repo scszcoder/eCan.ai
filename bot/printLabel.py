@@ -1,17 +1,19 @@
 # This is a sample Python script.
+import json
+import os
+import subprocess
+from datetime import datetime
 
+import numpy as np
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-import os, sys, time, argparse
-import subprocess
+
+from PIL import Image
 import cv2
-from PIL import ImageFont, ImageDraw, Image
-import numpy as np
 from pdf2image import convert_from_path
-# import win32print
-import datetime
-from basicSkill import *
-from Logger import *
+
+from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub
+from bot.Logger import log3
 
 
 def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):

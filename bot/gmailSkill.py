@@ -1,9 +1,5 @@
-
-import os
-
-import pandas as pd
-
-from basicSkill import *
+from bot.basicSkill import genStepHeader, genStepMouseClick, genStepStub, genStepKeyInput, genStepCallExtern, genStepWait, \
+    genStepExtractInfo, genStepTextInput, genStepSearchAnchorInfo, genStepCreateData, genStepCheckCondition
 
 ADS_BATCH_SIZE = 2
 

@@ -1,16 +1,11 @@
 import json
-from bs4 import BeautifulSoup
-import pyautogui
-import numpy as np
 import re
-import random
-from calendar import isleap
-import cv2
-from ordersData import *
-from basicSkill import *
+from bs4 import BeautifulSoup
 import esprima
-from esprima.visitor import Visitor
-from Logger import *
+
+from bot.basicSkill import DEFAULT_RUN_STATUS
+from bot.Logger import log3
+from bot.ordersData import ORDER, OrderPerson, Shipping, OrderedProduct
 
 global symTab
 global STEP_GAP
@@ -157,7 +152,7 @@ def processEtsyScrapeOrders(step, i):
                 # this is for unexpanded recipient address
                 recipientItems = item.findAll("div", attrs={"class": "break-word"})
                 for bi in recipientItems:
-                    recipient_loc_tags = bi.findAll("span", attrs={"data-test-id": 'unsanitize'})
+                    recipient_loc_tags = bi.findAll("span", attrs={"data-tests-id": 'unsanitize'})
 
                     if len(recipient_loc_tags) == 3:
                         order = ORDER("", "", "", "", "", "", "")
@@ -170,7 +165,7 @@ def processEtsyScrapeOrders(step, i):
                     else:
                         log3("no unexpanded addr....")
 
-                    # oid_tags = item.findAll("span", attrs={"data-test-id": 'unsanitize'})
+                    # oid_tags = item.findAll("span", attrs={"data-tests-id": 'unsanitize'})
 
                 # extract product title info.
                 aItems = item.findAll("a", attrs={"class": "text-gray-darkest break-word"})
@@ -400,7 +395,7 @@ def processEtsyScrapeMsgLists(step, i):
                 # this is for unexpanded recipient address
                 recipientItems = item.findAll("div", attrs={"class": "break-word"})
                 for bi in recipientItems:
-                    recipient_loc_tags = bi.findAll("span", attrs={"data-test-id": 'unsanitize'})
+                    recipient_loc_tags = bi.findAll("span", attrs={"data-tests-id": 'unsanitize'})
 
                     if len(recipient_loc_tags) == 3:
                         order = ORDER("", "", "", "", "", "", "")
@@ -413,7 +408,7 @@ def processEtsyScrapeMsgLists(step, i):
                     else:
                         log3("no unexpanded addr....")
 
-                    # oid_tags = item.findAll("span", attrs={"data-test-id": 'unsanitize'})
+                    # oid_tags = item.findAll("span", attrs={"data-tests-id": 'unsanitize'})
 
                 # extract product title info.
                 aItems = item.findAll("a", attrs={"class": "text-gray-darkest break-word"})

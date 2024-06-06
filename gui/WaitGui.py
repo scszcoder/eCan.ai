@@ -1,7 +1,3 @@
-import sys
-import asyncio
-import os
-
 from PySide6.QtCore import QObject, QEvent, Signal, Qt, QByteArray
 from PySide6.QtGui import QMovie, QShortcut, QKeySequence
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QLabel, QSizePolicy, QVBoxLayout

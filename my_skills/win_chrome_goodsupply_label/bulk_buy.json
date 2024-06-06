@@ -1,0 +1,32 @@
+{
+    "name": "bulk_buy",
+    "main": false,
+    "skid": 24,
+    "createdOn": "2023-12-25",
+    "owner": "public",
+    "price": 0,
+    "price_model": "free",
+    "path": "/my_skills/",
+    "privacy": "private",
+    "platform": "win",
+    "app": "chrome",
+    "app_link": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    "app_args": "",
+    "site_name": "goodsupply",
+    "site": "https://goodsupply.xyz/Dashboard/UploadBulk",
+    "page": "label",
+    "generator": "genWinChromeGSLabelBulkBuySkill",
+    "procedural_skill": {
+        "nameSpace": "",
+        "runStepsFile": "",
+        "runConfig": {
+            "estRunTime" : 1
+        }
+    },
+    "cloud_skill": {
+        "path": "my/win_chrome_goodsupply_label/bulk_buy"
+    },
+    "main": "F",
+    "runtime": 1,
+    "description": "this skills handles bulk shipping label purchase on goodsupply site."
+}

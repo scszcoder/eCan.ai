@@ -1,20 +1,16 @@
-import sys
 import asyncio
-import qasync
-from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget, QLabel, QTextEdit
 import os
-import socket
+import sys
 
-from LoginoutGUI import *
-# from MainGUI import *
-from WaitGui import *
-from network import *
-from unittests import *
-from config.app_settings import app_settings
-import asyncio
-from qasync import QEventLoop
-from envi import *
+import qasync
+from PySide6.QtWidgets import QApplication
 from setproctitle import setproctitle
+
+from gui.LoginoutGUI import Login
+from gui.WaitGui import WaitWindow
+from bot.envi import getECBotDataHome
+from bot.network import runCommanderLAN, runPlatoonLAN
+# from tests.unittests import *
 
 
 # Press Shift+F10 to execute it or replace it with your code.
@@ -71,7 +67,7 @@ if __name__ == '__main__':
     # test_schedule_check()
     # test_pyautogui()
     # test_eb_orders_scraper()
-    # print("all unit test done...")
+    # print("all unit tests done...")
     # test_scrape_amz_buy_orders()
     # list_windows()
     main()

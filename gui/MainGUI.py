@@ -1,34 +1,67 @@
 import asyncio
+import base64
+import copy
+import json
+import math
+import random
+import re
 import sqlite3
+import subprocess
+import sys
+import time
+import traceback
+import webbrowser
+from _csv import reader
+from os.path import exists
 
-from PySide6.QtCore import QParallelAnimationGroup, QPropertyAnimation, QAbstractAnimation, QThreadPool
-from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QToolButton, QMenuBar, QPlainTextEdit
+from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent
+from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
+from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, QTextEdit, \
+    QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
+    QMessageBox, QFileDialog
 
-import missions
-from ChatGUIV2 import ChatDialog
-from inventories import *
-from network import *
-from LoggerGUI import *
-from tool.MainGUITool import FileResource, SqlProcessor
-from ui_settings import *
-import TestAll
 import importlib
 import importlib.util
-import pandas as pd
 
-from utils.logger_helper import logger_helper
-from vehicles import *
-from unittests import *
-from SkillManagerGUI import *
-from ChatGui import *
+from tests.TestAll import Tester
+
+from ChatGUIV2 import ChatDialog
+from gui.BotGUI import BotNewWin
+from gui.ChatGui import ChatWin
+from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
+    send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
+    send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
+    send_get_bots_request_to_cloud
+from gui.FlowLayout import BotListView, MissionListView, DragPanel
+from bot.Logger import log3
+from gui.LoggerGUI import CommanderLogWin
+from gui.MissionGUI import MissionNewWin
+from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
+from gui.ScheduleGUI import ScheduleWin
+from gui.SkillManagerGUI import SkillManagerWindow
+from gui.TrainGUI import TrainNewWin, ReminderWin
+from bot.WorkSkill import WORKSKILL
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle
+from bot.basicSkill import STEP_GAP
+from bot.ebbot import EBBOT
+from bot.envi import getECBotDataHome
+from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
+from bot.inventories import INVENTORY
+from lzstring import LZString
 import os
 import openpyxl
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import platform
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from pynput.mouse import Controller
 
-START_TIME = 15  # 15 x 20 minute = 5 o'clock in the morning
+from bot.missions import EBMISSION
+from bot.network import myname, fieldLinks
+from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, prepRunSkill, \
+    runAllSteps
+from gui.ui_settings import SettingsWidget
+from bot.vehicles import VEHICLE
+
+START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
 Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
 
@@ -98,13 +131,15 @@ class Expander(QWidget):
         self.toggleAnimation.setDirection(direction)
         self.toggleAnimation.start()
 
+
+
     def setContentLayout(self, contentLayout):
         # Not sure if this is equivalent to self.contentArea.destroy()
         self.contentArea.destroy()
         self.contentArea.setLayout(contentLayout)
         collapsedHeight = self.sizeHint().height() - self.contentArea.maximumHeight()
         contentHeight = contentLayout.sizeHint().height()
-        for i in range(self.toggleAnimation.animationCount() - 1):
+        for i in range(self.toggleAnimation.animationCount()-1):
             expandAnimation = self.toggleAnimation.animationAt(i)
             expandAnimation.setDuration(self.animationDuration)
             expandAnimation.setStartValue(collapsedHeight)
@@ -131,13 +166,12 @@ class AsyncInterface:
             self.showMsg(f"Processed message from GUI: {message}")
             self.queue.task_done()
 
-
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
         super(MainWindow, self).__init__()
-        if homepath[len(homepath) - 1] == "/":
-            self.homepath = homepath[:len(homepath) - 1]
+        if homepath[len(homepath)-1] == "/":
+            self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
 
@@ -248,7 +282,7 @@ class MainWindow(QMainWindow):
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
-        self.tester = TestAll.Tester()
+        self.tester = Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
 
@@ -380,6 +414,7 @@ class MainWindow(QMainWindow):
         self.centralScrollLayout.addWidget(self.centralScroll)
         self.centralScrollArea.setLayout(self.centralScrollLayout)
 
+
         self.east0ScrollLayout.addWidget(self.east0ScrollLabel)
         self.east0ScrollLayout.addWidget(self.east0Scroll)
         self.east0ScrollArea.setLayout(self.east0ScrollLayout)
@@ -440,6 +475,7 @@ class MainWindow(QMainWindow):
         self.skillUploadAction = self._createSkillUploadAction()
 
         self.skillNewFromFileAction = self._createSkillNewFromFileAction()
+
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
@@ -533,15 +569,19 @@ class MainWindow(QMainWindow):
 
             self.skillNewFromFileAction.setDisabled(True)
 
+
         # centralWidget.addBot(self.botListView)
         self.centralScroll.setWidget(self.botListView)
 
-        # centralWidget.setPlainText("Central widget")
+
+        #centralWidget.setPlainText("Central widget")
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignTop)
         self.centralSplitter = QSplitter(Qt.Horizontal)
         self.bottomSplitter = QSplitter(Qt.Vertical)
+
+
 
         # Because BorderLayout doesn't call its super-class addWidget() it
         # doesn't take ownership of the widgets until setLayout() is called.
@@ -591,6 +631,7 @@ class MainWindow(QMainWindow):
         #layout.addWidget(self.centralSplitter)
         #layout.addLayout(self.south_layout)
 
+
         self.mainWidget.setLayout(layout)
         self.setCentralWidget(self.mainWidget)
 
@@ -601,13 +642,12 @@ class MainWindow(QMainWindow):
         self.checkVehicles()
 
         # get current wifi ssid and store it.
-        self.showMsg("OS platform: " + self.platform)
+        self.showMsg("OS platform: "+self.platform)
         wifi_info = None
         if self.platform == "win":
             wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
         elif self.platform == 'dar':
-            wifi_info = subprocess.check_output(
-                ['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'])
+            wifi_info = subprocess.check_output(['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'])
 
         if wifi_info:
             wifi_data = wifi_info.decode('utf-8')
@@ -618,6 +658,7 @@ class MainWindow(QMainWindow):
                 self.wifis.append(ssid)
         else:
             print("***wifi info is None!")
+
 
         self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
@@ -632,7 +673,7 @@ class MainWindow(QMainWindow):
         self.showMsg("set up rais extensions ")
         rais_extensions_file = ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
         rais_extensions_dir = ecb_data_homepath + "/my_rais_extensions/"
-        added_handlers = []
+        added_handlers=[]
         if os.path.isfile(rais_extensions_file):
             with open(rais_extensions_file, 'r') as rais_extensions:
                 user_rais_modules = json.load(rais_extensions)
@@ -759,6 +800,7 @@ class MainWindow(QMainWindow):
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
+
 
     def getHomePath(self):
         return self.homepath
@@ -963,6 +1005,7 @@ class MainWindow(QMainWindow):
 
         return new_action
 
+
     def _createBotNewFromFileAction(self):
         # File actions
         new_action = QAction(self)
@@ -988,7 +1031,9 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Load All Local Bots"))
-        new_action.triggered.connect(self.findAllBot)
+        new_action.triggered.connect(self.getAllBotsFromLocalDB)
+        # ew_action.connect(QAction.)
+
         return new_action
 
     def _createSaveAllAction(self):
@@ -1039,12 +1084,14 @@ class MainWindow(QMainWindow):
 
         return new_action
 
+
     def _createFieldMonitorAction(self):
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Field Monitor"))
         #new_action.triggered.connect(self.newMissionView)
 
         return new_action
+
 
     def _createCommandSendAction(self):
         new_action = QAction(self)
@@ -1055,11 +1102,13 @@ class MainWindow(QMainWindow):
 
         return new_action
 
+
     def _createMissionDelAction(self):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Delete M"))
         return new_action
+
 
     def _createMissionImportAction(self):
         # File actions
@@ -1068,11 +1117,13 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.newMissionFromFile)
         return new_action
 
+
     def _createMissionEditAction(self):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Edit"))
         return new_action
+
 
     def _createSettingsAccountAction(self):
         # File actions
@@ -1087,6 +1138,7 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.editSettings)
         return new_action
 
+
     def _createRunRunAllAction(self):
         # File actions
         new_action = QAction(self)
@@ -1100,6 +1152,7 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Run All Tests"))
         new_action.triggered.connect(self.runAllTests)
         return new_action
+
 
     def _createScheduleCalendarViewAction(self):
         # File actions
@@ -1152,18 +1205,18 @@ class MainWindow(QMainWindow):
     # after click, should pop up a windows to ask user to choose from 3 options
     # start from scratch, start from template, start by interactive show and learn tip bubble "most popular".
     def _createSkillNewAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Create New"))
-        new_action.triggered.connect(self.trainNewSkill)
-        return new_action
+            # File actions
+            new_action = QAction(self)
+            new_action.setText(QApplication.translate("QAction", "&Create New"))
+            new_action.triggered.connect(self.trainNewSkill)
+            return new_action
 
     def _createSkillManagerAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Manager"))
-        new_action.triggered.connect(self.showSkillManager)
-        return new_action
+            # File actions
+            new_action = QAction(self)
+            new_action.setText(QApplication.translate("QAction", "&Manager"))
+            new_action.triggered.connect(self.showSkillManager)
+            return new_action
 
     def _createSkillDeleteAction(self):
             # File actions
@@ -1247,7 +1300,7 @@ class MainWindow(QMainWindow):
         self.showMsg("done testing....")
 
     def runAllTests(self):
-        self.showMsg("running all test suits.")
+        self.showMsg("running all tests suits.")
         htmlfile = 'C:/temp/pot.html'
         # self.test_scroll()
         # test_get_all_wins()
@@ -1266,11 +1319,11 @@ class MainWindow(QMainWindow):
         # test_UpdateBotADSProfileFromSavedBatchTxt()
         # test_run_group_of_tasks(self)
 
-        #the grand test,
+        #the grand tests,
         # 1) fetch today's schedule.
-        # result = self.fetchSchedule("5000", None)            # test case for chrome etsy seller task automation.
-        # result = self.fetchSchedule("4000", None)            # test case for ads power ebay seller task automation.
-        # result = self.fetchSchedule("6000", None)            # test case for chrome amz seller task automation.
+        # result = self.fetchSchedule("5000", None)            # tests case for chrome etsy seller task automation.
+        # result = self.fetchSchedule("4000", None)            # tests case for ads power ebay seller task automation.
+        # result = self.fetchSchedule("6000", None)            # tests case for chrome amz seller task automation.
 
         # ===================
         # 2) run all tasks, with bot profile loading on ADS taken care of....
@@ -1294,7 +1347,7 @@ class MainWindow(QMainWindow):
         #         self.showMsg(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         #         missionDS = EBMISSION(self)
         #         missionDS.loadJson(testmission)
-        #         self.showMsg("test json LOADED!!!!")
+        #         self.showMsg("tests json LOADED!!!!")
         #         steps2brun = configAMZWalkSkill(0, missionDS, testsk, self.homepath)
         #         self.showMsg("steps GENERATED!!!!")
         #         #generated
@@ -1324,7 +1377,7 @@ class MainWindow(QMainWindow):
                 # uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
                 uncompressed = "{}"
 
-                # for testing purpose, short circuit the cloud fetch schedule and load a test schedule from a test
+                # for testing purpose, short circuit the cloud fetch schedule and load a tests schedule from a tests
                 # json file instead.
 
                 # uncompressed = jresp["body"]
@@ -1442,8 +1495,9 @@ class MainWindow(QMainWindow):
 
             file1 = open(dailyLogFile, "w")  # append mode
             for msg in msgs:
-                file1.write(time + level + msg + "\n")
+                file1.write(time+msg + "\n")
             file1.close()
+
 
     def logDailySchedule(self, netSched):
         now = datetime.now()  # current date and time
@@ -1452,7 +1506,7 @@ class MainWindow(QMainWindow):
         day = now.strftime("%d")
         time = now.strftime("%H:%M:%S - ")
         dailyScheduleLogFile = ecb_data_homepath + "/runlogs/{}/schedule{}{}{}.txt".format(year, month, day, year)
-        print("netSched:: " + netSched)
+        print("netSched:: "+netSched)
         if os.path.isfile(dailyScheduleLogFile):
             file1 = open(dailyScheduleLogFile, "a")  # append mode
             file1.write(json.dumps(time+netSched) + "\n=====================================================================\n")
@@ -3253,9 +3307,11 @@ class MainWindow(QMainWindow):
                 self.botJsonData = json.load(file)
                 self.translateBotsJson(self.botJsonData)
 
+            file.close()
+
 
     def saveBotJsonFile(self):
-        if self.file_resouce.BOTS_FILE == None:
+        if self.BOTS_FILE == None:
             filename, _ = QFileDialog.getSaveFileName(
                 self,
                 'Save Json File',
@@ -4545,7 +4601,7 @@ class MainWindow(QMainWindow):
             self.showMsg("updating vehicle Mission status...")
             foundV.setMStats(rx_data)
 
-    # create some test data just to test out the vehichle view GUI.
+    # create some tests data just to tests out the vehichle view GUI.
     def genGuiTestDat(self):
         newV = VEHICLE(self)
         newV.setIP("192.168.22.33")
@@ -4757,7 +4813,7 @@ class MainWindow(QMainWindow):
         self.showMsg("mids: "+json.dumps(mids))
         results = []
         if test_mode:
-            # just to test commander GUI can handle the result
+            # just to tests commander GUI can handle the result
             result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Scheduled", "error": ""}
             results.append(result)
             result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Completed", "error": ""}

@@ -230,7 +230,7 @@
                     {
                         "anchor_name"  : "all_groups",
                         "anchor_type"  : "text",
-                        "template"     : "All groups",
+                        "template"     : "All",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },

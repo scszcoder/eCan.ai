@@ -16,10 +16,10 @@ from qtpy.QtWidgets import QApplication, QWidget, QPlainTextEdit, QTableWidget, 
 from qtpy.QtGui import QTextCursor, QKeyEvent, QMouseEvent, QIcon, QFocusEvent
 from typing import List, Tuple, Dict, TYPE_CHECKING
 
-from skcode.highlighters.python import PythonHighlighter
-from skcode.syntaxana import getIndent
+from gui.skcode.highlighters.python import PythonHighlighter
+from gui.skcode.syntaxana import getIndent
 
-from skcode.linenumber import QCodeEditor
+from gui.skcode.linenumber import QCodeEditor
 
 # from pmgwidgets import create_icon
 

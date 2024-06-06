@@ -1,17 +1,39 @@
-
-from basicSkill import *
-from amzBuyerSkill import *
-from etsySellerSkill import *
-from ebaySellerSkill import *
-from fileSkill import *
-from rarSkill import *
-from labelSkill import *
-from wifiSkill import *
-from printLabel import *
-from envi import *
+import json
 import os
 import traceback
-from Logger import *
+from datetime import datetime
+
+from bot.Logger import log3
+from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfilesSkill, \
+    genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genADSPowerExitProfileSteps, \
+    genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt
+from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
+    genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
+    genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
+    genAMZBrowseAllReviewsPage, genScroll1StarReviewsPage, genStepAMZScrapePLHtml, genAMZBrowseProductLists, \
+    genWinChromeAMZWalkSteps, genStepAMZScrapeDetailsHtml, genStepAMZScrapeReviewsHtml, genStepAMZSearchProducts, \
+    genWinADSAMZBuySkill
+from bot.amzSellerSkill import genWinChromeAMZFullfillOrdersSkill, genWinChromeAMZCollectOrdersSkill, \
+    genWinChromeAMZUpdateShipmentTrackingSkill, genWinChromeAMZHandleMessagesSkill
+from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genStepExtractInfo, genStepFillRecipients, \
+    genStepSearchAnchorInfo, genStepSearchWordLine, genStepSearchScroll, genStepRecordTxtLineLocation, \
+    genStepMouseClick, genStepKeyInput, genStepTextInput, genStepCheckCondition, genStepGoto, genStepLoop, genStepStub, \
+    genStepListDir, genStepCheckExistence, genStepCreateDir, genStep7z, genStepTextToNumber, genStepEndException, \
+    genStepExceptionHandler, genStepWait, genStepCallExtern, genStepCallFunction, genStepReturn, genStepUseSkill, \
+    genStepOverloadSkill, genStepCreateData, genStepCheckAppRunning, genStepBringAppToFront, genStepFillData, \
+    genStepThink, genException, genStepReportToBoss
+from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
+    genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
+    genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill
+from bot.envi import getECBotDataHome
+from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
+    genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
+    genWinChromeEtsyFullfillOrdersSkill, genWinChromeEtsyHandleMessagesSkill
+from bot.fileSkill import genWinFileLocalOpenSaveSkill
+from bot.printLabel import genStepPrintLabels, genWinPrinterLocalReformatPrintSkill
+from bot.rarSkill import genWinRARLocalUnzipSkill
+from bot.scraperEtsy import genStepEtsyScrapeOrders
+from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -307,6 +329,14 @@ def getWorkRunSettings(lieutenant, bot_works):
     fdir = fdir + "/runlogs/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
+    scroll_resolution = 250     # default scroll resolution.
+    scroll_resolution_file = ecb_data_homepath + "/scroll_resolution.json"
+    if os.path.exists(scroll_resolution_file):
+        with open(scroll_resolution_file, 'r') as fileTBR:
+            scroll_resolution = json.load(fileTBR)
+
+            fileTBR.close()
+
     bot = lieutenant.bots[bot_idx]
 
     #create seller information json for seller related work in case
@@ -355,6 +385,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "options": "{}",
             "self_ip": lieutenant.ip,
             "machine_name": lieutenant.machine_name,
+            "scroll_resolution": scroll_resolution,
             # "commander_link": lieutenant.commanderXport,
             "name_space": name_space
             }
@@ -465,7 +496,7 @@ def genWinTestSkill(worksettings, start_step):
     skf.write("\n")
 
     psk_words = "{"
-    this_step, step_words = genStepHeader("test skill", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "test skill for Windows.", start_step)
+    this_step, step_words = genStepHeader("tests skill", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "tests skill for Windows.", start_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "counter1", "NA", 3, this_step)
@@ -481,7 +512,7 @@ def genWinTestSkill(worksettings, start_step):
     this_step, step_words = genStepCallExtern("global tresult\nprint('tresut....',tresult)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "test skill", "", this_step)
+    this_step, step_words = genStepStub("end skill", "tests skill", "", this_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepStub("start function", "doubler", "", this_step)
@@ -514,7 +545,7 @@ def genWinTestSkill1(worksettings, start_step):
     skf.write("\n")
 
     psk_words = "{"
-    this_step, step_words = genStepHeader("test_skill1", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "test skill for Windows.", start_step)
+    this_step, step_words = genStepHeader("test_skill1", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "tests skill for Windows.", start_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepStub("start function", "doubler", "", this_step)
@@ -534,7 +565,7 @@ def genWinTestSkill1(worksettings, start_step):
     this_step, step_words = genStepCallExtern("global tresult\nprint('tresut....',tresult)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "test skill", "", this_step)
+    this_step, step_words = genStepStub("end skill", "tests skill", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -554,7 +585,7 @@ def genWinTestSkill2(worksettings, start_step):
     skf.write("\n")
 
     psk_words = "{"
-    this_step, step_words = genStepHeader("doubler", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "test skill for Windows.", start_step)
+    this_step, step_words = genStepHeader("doubler", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "tests skill for Windows.", start_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepStub("start function", "doubler", "", this_step)
@@ -596,7 +627,7 @@ def genTestRunSimpleLoopSkill(worksettings, stepN, theme):
 
     # delete everything there
     # do some overall review scroll, should be mostly positive.
-    lcvarname = "test" + str(stepN)
+    lcvarname = "tests" + str(stepN)
     this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
     psk_words = psk_words + step_words
 
@@ -614,6 +645,6 @@ def genTestRunSimpleLoopSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    # log3("DEBUG", "generated skill for windows loop test...." + psk_words)
+    # log3("DEBUG", "generated skill for windows loop tests...." + psk_words)
 
     return this_step, psk_words
