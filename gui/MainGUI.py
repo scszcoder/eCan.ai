@@ -18,7 +18,7 @@ from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAn
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
 from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, QTextEdit, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
-    QMessageBox, QFileDialog
+    QMessageBox, QFileDialog, QPlainTextEdit
 
 import importlib
 import importlib.util
@@ -60,6 +60,8 @@ from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFi
     runAllSteps
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
+from tool.MainGUITool import FileResource, SqlProcessor
+from utils.logger_helper import logger_helper
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -1031,9 +1033,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Load All Local Bots"))
-        new_action.triggered.connect(self.getAllBotsFromLocalDB)
-        # ew_action.connect(QAction.)
-
+        new_action.triggered.connect(self.findAllBot)
         return new_action
 
     def _createSaveAllAction(self):

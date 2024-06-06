@@ -8,7 +8,7 @@ from os.path import exists
 from pycognito import Cognito, AWSSRP
 
 import boto3
-from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, Qt, QEvent
+from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, Qt, QEvent, QSettings
 from PySide6.QtGui import QPixmap, QFont, QIcon
 from PySide6.QtWidgets import QDialog, QLabel, QComboBox, QApplication, QLineEdit, QPushButton, QCheckBox, QHBoxLayout, \
     QVBoxLayout, QMessageBox
@@ -20,7 +20,7 @@ from bot.signio import CLIENT_ID, USER_POOL_ID
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP, commanderServer, commanderXport
-from utils.fernet import encrypt_password
+from utils.fernet import encrypt_password, decrypt_password
 
 # ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
 # ecbhomepath = getECBotHome()

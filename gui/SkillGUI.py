@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog, QListView, \
     QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QRadioButton, \
@@ -15,6 +16,7 @@ from bot.Cloud import req_train_read_screen, upload_file, send_add_skills_reques
 from bot.WorkSkill import ANCHOR, USER_INFO, PROCEDURAL_STEP, WORKSKILL
 from bot.basicSkill import read_screen
 from bot.genSkills import getWorkSettings, setWorkSettingsSkill
+from envi import getECBotDataHome
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
@@ -38,7 +40,7 @@ PAGE_DIR = ""
 # price_model	varchar(50)	YES		NULL
 # price	int(11)	YES		NULL
 
-
+ecb_data_homepath = getECBotDataHome()
 class SkillListView(QListView):
     def __init__(self, parent):
         super(SkillListView, self).__init__()
