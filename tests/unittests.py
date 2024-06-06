@@ -375,7 +375,7 @@ def test_api(parent, session, token):
     # send_completion_status_to_cloud(session, allTodoReports, token)
 
 
-    qs = [{"msgID": "1", "user": "john", "timeStamp": "2024-04-09T12:00:00.000Z", "product": "resistance band", "goal": "customer service", "background": "", "msg_thread": "hi, do you sell fabric type?"}]
+    qs = [{"msgID": "1", "user": "john", "timeStamp": "2024-04-09T12:00:00.000Z", "product": "resistance band", "goals": "customer service", "background": "", "msg_thread": "hi, do you sell fabric type?"}]
     result = send_query_chat_request_to_cloud(session, token, qs)
     print("send_query_chat_request_to_cloud RESULT:", result)
 

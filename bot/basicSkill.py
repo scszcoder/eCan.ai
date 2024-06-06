@@ -3488,10 +3488,15 @@ def processThink(step, i, mission):
 
     date_word = dtnow.isoformat()
     try:
-        # goal could be "customer service", "procure web search","procure chat","sales chat", "test"
-        # background is the thread up to the latest message, msg_thread is the latest message
-        qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
-               "goal": step["setup"], "background": "", "msg": symTab[step["query"]]}]
+        # goals is a json converted string, the json is of the following format:
+        # { "pass_method": "", "total_score": 0, "passing_score": 0, goals":[{"name": "xxx", "type": "xxx", "mandatory": true/false, "score": "", "standards": number/set of string, "weight": 1, passed": true/false}....]
+        # each individual goal "name" could be "customer service", "procure web search","procure chat","sales chat", "test", if set goal name to "test", this
+        # will get a simple echo back of whatever message sent upstream.
+        # background could the thread up to the latest message, msg is the latest message
+        # background is also a json converted string. in terms of chat or messaging, the json is of the following format:
+        # {"orderID": "", "thread": [{"time stamp": yyyy-mm-dd hh:mm:ss, "from": "", "msg txt": "", "attachments": ["",...], }....]}
+        qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "products": symTab[step["products"]],
+               "goals": step["setup"], "background": "", "msg": symTab[step["query"]]}]
         settings = mission.parent_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
 
@@ -3521,7 +3526,7 @@ def processGenRespMsg(step, i, mission):
             print("respond:")
 
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
-               "goal": step["setup"], "background": "", "msg_thread": symTab[step["query"]]}]
+               "goals": step["setup"], "background": "", "msg_thread": symTab[step["query"]]}]
         settings = mission.parent_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
 

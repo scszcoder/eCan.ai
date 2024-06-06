@@ -133,8 +133,8 @@ def gen_query_chat_request_string(query):
         rec_string = rec_string + "{ msgID: \"" + query[i]["msgID"] + "\", "
         rec_string = rec_string + "user: \"" + query[i]["user"] + "\", "
         rec_string = rec_string + "timeStamp: \"" + query[i]["timeStamp"] + "\", "
-        rec_string = rec_string + "product: \"" + query[i]["product"] + "\", "
-        rec_string = rec_string + "goal: \"" + query[i]["goal"] + "\", "
+        rec_string = rec_string + "products: \"" + query[i]["products"] + "\", "
+        rec_string = rec_string + "goals: \"" + query[i]["goals"] + "\", "
         rec_string = rec_string + "background: \"" + query[i]["background"] + "\", "
         rec_string = rec_string + "msg: \"" + query[i]["msg"] + "\" }"
 
