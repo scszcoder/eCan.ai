@@ -416,6 +416,34 @@ def genStepCreateDir(dirname, nametype, result_var, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepReadFile(filename, nametype, filetype, datasink, result_var, stepN):
+    stepjson = {
+        "type": "Read File",
+        "filename": filename,
+        "name_type": nametype,
+        "filetype": filetype,
+        "datasink": datasink,
+        "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepWriteFile(filename, nametype, filetype, datasource, mode, result_var, stepN):
+    stepjson = {
+        "type": "Write File",
+        "filename": filename,
+        "name_type": nametype,
+        "filetype": filetype,
+        "mode": mode,
+        "datasource": datasource,
+        "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 def genStep7z(action, var_type, exe_var, in_var, out_path, out_var, result, stepN):
     stepjson = {
@@ -2726,6 +2754,82 @@ def processCreateDir(step, i):
 
     return (i + 1), ex_stat
 
+def processReadFile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["result"]] = True
+    try:
+        if step["name_type"] == "direct":
+            file_full_path = step["filename"]
+        else:
+            exec("file_full_path = " + step["filename"])
+
+        log3("Read from file:"+file_full_path)
+        if os.path.exists(file_full_path):
+            #create only if the dir doesn't exist
+            with open(file_full_path, 'r') as fileTBR:
+                if step["filetype"] == "json":
+                    symTab[step["datasink"]] = json.load(fileTBR)
+
+            fileTBR.close()
+        else:
+            log3("ERROR: File not exists")
+            symTab[step["result"]] = False
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReadFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReadFile: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+def processWriteFile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["result"]] = True
+    try:
+        if step["name_type"] == "direct":
+            file_full_path = step["filename"]
+        else:
+            exec("file_full_path = " + step["filename"])
+
+        log3("Write to file:" + file_full_path)
+        if os.path.exists(file_full_path):
+            # create only if the dir doesn't exist
+            if step["mode"] == "overwrite":
+                with open(file_full_path, 'w') as fileTBW:
+                    if step["filetype"] == "json":
+                        json.dump(symTab[step["datasource"]], fileTBW)
+                    elif step["filetype"] == "text":
+                        fileTBW.writelines(symTab[step["datasource"]])
+                fileTBW.close()
+            else:
+                # append mode
+                with open(file_full_path, 'a') as fileTBW:
+                    if step["filetype"] == "json":
+                        json.dump(symTab[step["datasource"]], fileTBW)
+                    elif step["filetype"] == "text":
+                        fileTBW.writelines(symTab[step["datasource"]])
+
+                fileTBW.close()
+        else:
+            log3("ERROR: File not exists")
+            symTab[step["result"]] = False
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWriteFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWriteFile: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
 
 # run 7z for the zip and unzip.
 def process7z(step, i):
@@ -2791,7 +2895,7 @@ def processSearchAnchorInfo(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
-        log3("SEARCH SCREEN INFO:"+json.dumps(scrn))
+        # log3("SEARCH SCREEN INFO:"+json.dumps(scrn))
         logic = step["logic"]
         fault_names = ["site_not_reached", "bad_request"]
         fault_found = []

@@ -36,7 +36,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     log3("fopen_f_path: "+fopen_f_path+"fopen_f_name: "+fopen_f_name)
 
     # this_step, step_words = genStepCallExtern("global file_wo_extension\nfile_wo_extension = file_wo_extension + todate + tail", "", "in_line", "", this_step)
-    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['Open', 'File name']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['Open', 'File name:']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # readn screen
@@ -104,7 +104,7 @@ def genWinFileLocalOpenSaveSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # click on OPEN button to complete the drill
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_cancel", "anchor text", "", [0, 0], "left", [0, 0], "box", 0, 5, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "file_cancel", "anchor text", "", [0, 0], "left", [2, 0], "box", 0, 5, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)

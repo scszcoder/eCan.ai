@@ -3449,6 +3449,8 @@ class MainWindow(QMainWindow):
                 self.botJsonData = json.load(file)
                 self.translateBotsJson(self.botJsonData)
 
+            file.close()
+
 
     def saveBotJsonFile(self):
         if self.BOTS_FILE == None:
