@@ -163,6 +163,7 @@ RAIS = {
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
 
+# async RAIS - this one should be used to prevent blocking GUI and other tasks.
 ARAIS = {
     "Halt": lambda x,y: processHalt(x, y),
     "Wait": lambda x,y: processWait(x, y),
@@ -202,6 +203,8 @@ ARAIS = {
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),
+    "Read File": lambda x, y: processReadFile(x, y),
+    "Write File": lambda x, y: processWriteFile(x, y),
     "print Label": lambda x,y: processPrintLabel(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
