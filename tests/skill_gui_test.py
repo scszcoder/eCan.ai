@@ -93,9 +93,9 @@ class SkillWindow(QMainWindow):
         self.skill_gui.skFCWidget.skfc_scene.gen_psk_words(None)
 
     def dir_gen_psk_file(self):
-        # skd_file = "/Users/liuqiang02/Desktop/workspace/ecbot/resource/skills/my/win_chrome_amz_home/test/scripts/test.skd"
+        # skd_file = "/Users/liuqiang02/Desktop/workspace/ecbot/resource/skills/my/win_chrome_amz_home/tests/scripts/tests.skd"
         skd_file = 'skill_gui_test.skd'
-        psk_file_dir = "/Users/liuqiang02/Desktop/workspace/ecbot/resource/skills/my/win_chrome_amz_home/test/scripts"
+        psk_file_dir = "/Users/liuqiang02/Desktop/workspace/ecbot/resource/skills/my/win_chrome_amz_home/tests/scripts"
 
         SkFCSkd().gen_psk_file(skd_file, psk_file_dir)
 

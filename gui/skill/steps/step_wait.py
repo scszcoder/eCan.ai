@@ -1,4 +1,4 @@
-from skill.steps.step_base import StepBase
+from gui.skill.steps.step_base import StepBase
 
 
 class StepWait(StepBase):

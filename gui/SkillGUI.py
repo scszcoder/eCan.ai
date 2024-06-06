@@ -1,3 +1,6 @@
+import json
+import os
+
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog, QListView, \
     QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QRadioButton, \
     QCheckBox, QHBoxLayout, \
@@ -7,35 +10,21 @@ from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
 from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter, QTransform, QStandardItemModel, QImage, \
     QAction, QTextCursor
 
-# from locale import getdefaultlocale
-#
-# import ctypes as ct
-# # from ctypes import wintypes as wt
-# import time
-# import json
-#
-# from pynput import mouse
-# from pynput import keyboard
-# import threading
-#
-# import pyautogui
-# from Cloud import *
-# import pyqtgraph
-# from pyqtgraph import flowchart
-# import BorderLayout
-from WorkSkill import *
-from readSkill import *
-from genSkills import *
+from bot.Cloud import req_train_read_screen, upload_file, send_add_skills_request_to_cloud, \
+    send_update_skills_request_to_cloud
+from bot.WorkSkill import ANCHOR, USER_INFO, PROCEDURAL_STEP, WORKSKILL
+from bot.basicSkill import read_screen
+from bot.genSkills import getWorkSettings, setWorkSettingsSkill
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
+from bot.readSkill import cancelRun, pauseRun, prepRunSkill, runAllSteps, continueRun, steps, last_step
 from utils.logger_helper import logger_helper
 
 INSTALLED_PATH = ""
 USER_DIR = ""
 OS_DIR = ""
 PAGE_DIR = ""
-
 
 # skill parameters:
 # skid	int(11)	NO	PRI	NULL	auto_increment
@@ -128,10 +117,10 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         # self.parent.showMsg("hover move"+json.dumps(moveEvent.pos()))
         if self.isSelected():
             handle = self.handleAt(moveEvent.pos())
-            # self.parent.showMsg("hover selected....", handle)
+            #self.parent.showMsg("hover selected....", handle)
             cursor = Qt.ArrowCursor if handle is None else self.handleCursors[handle]
             self.setCursor(cursor)
-            # self.setCursor(Qt.ClosedHandCursor)
+            #self.setCursor(Qt.ClosedHandCursor)
         super(BSQGraphicsRectItem, self).hoverMoveEvent(moveEvent)
 
     def hoverLeaveEvent(self, moveEvent):
@@ -1103,8 +1092,7 @@ class SkillGUI(QMainWindow):
         self.pbMouseActionLabel = QLabel(QApplication.translate("QLabel", "Mouse Action: "))
         self.pbMouseActionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbMouseActionSel = QComboBox()
-        self.add_items_of_combobox(self.pbMouseActionSel,
-                                   ['Single Click', 'Double Click', 'Right Click', 'Scroll Up', 'Scroll Down'])
+        self.add_items_of_combobox(self.pbMouseActionSel, ['Single Click', 'Double Click', 'Right Click', 'Scroll Up', 'Scroll Down'])
 
         self.pbMouseActionAmountLabel = QLabel(QApplication.translate("QLabel", "Scroll Amount: "))
         self.pbMouseActionAmountLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -2515,8 +2503,7 @@ class SkillGUI(QMainWindow):
         all_skill_codes = [{"ns": "B0M20231225!!", "skfile": psk_file_path}]
 
         rpa_script = prepRunSkill(all_skill_codes)
-        runResult = runAllSteps(rpa_script, trMission,
-                                sk)  # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
+        runResult = runAllSteps(rpa_script, trMission, sk)   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
 
     def continue_run(self):
         continueRun(steps, last_step)
@@ -2579,8 +2566,7 @@ class SkillGUI(QMainWindow):
         # File actions
         msgBox = QMessageBox()
         QApplication.translate("QMessageBox", "Are you sure about deleting this anchor?")
-        msgBox.setText(
-            QApplication.translate("QMessageBox", "The anchor will be removed and won't be able recover from it.."))
+        msgBox.setText(QApplication.translate("QMessageBox", "The anchor will be removed and won't be able recover from it.."))
         msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this anchor?"))
         msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
         msgBox.setDefaultButton(QMessageBox.Yes)
@@ -2610,8 +2596,7 @@ class SkillGUI(QMainWindow):
     def deleteUserData(self):
         # File actions
         msgBox = QMessageBox()
-        msgBox.setText(
-            QApplication.translate("QMessageBox", "The step will be removed and won't be able recover from it.."))
+        msgBox.setText(QApplication.translate("QMessageBox", "The step will be removed and won't be able recover from it.."))
         msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this step?"))
         msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
         msgBox.setDefaultButton(QMessageBox.Yes)

@@ -1,13 +1,22 @@
-from basicSkill import *
-from scraperAmz import *
-from adsPowerSkill import *
+import json
+import random
+from datetime import datetime
+
+from bot.Logger import log3
+from bot.basicSkill import DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepHeader, genStepStub, genStepCreateData, genStepUseSkill, genStepWait, \
+    genStepCallExtern, genStepExtractInfo, genStepSearchWordLine, genStepSearchAnchorInfo, genStepCheckCondition, \
+    genStepMouseScroll, genStepMouseClick, genStepKeyInput, genStepGoToWindow, genStepTextInput, genStepLoop, \
+    genScrollDownUntil, genStepFillData, genStepOpenApp
+from bot.adsPowerSkill import genADSPowerExitProfileSteps
 import re
 from difflib import SequenceMatcher
 import traceback
-from Logger import *
+from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml, amz_buyer_scrape_product_list, amz_buyer_scrape_product_details, \
+    amz_buyer_scrape_product_reviews
+
 SAME_ROW_THRESHOLD = 16
 
-def genStepAMZCalScroll(sink, amount, screen, marker, prev_loc, stepN):
+def genStepCalibrateScroll(sink, amount, screen, marker, prev_loc, filepath, stepN):
     stepjson = {
         "type": "Calibrate Scroll",
         "action": "Extract",
@@ -15,6 +24,7 @@ def genStepAMZCalScroll(sink, amount, screen, marker, prev_loc, stepN):
         "amount": amount,
         "screen": screen,
         "last_record": prev_loc,
+        "file_path": filepath,
         "marker": marker
     }
 
@@ -99,106 +109,112 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("bool", "mission_failed", "NA", False, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("bool", "not_logged_in", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
     # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
-    this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWait(1, 0, 0, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
+    # # scroll down half screen and check again if nothing found in the 1st glance.
+    # this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCheckCondition("not bot_loaded and not nothing_loaded", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # if not on screen, scroll down and check again.
+    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 80, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # if not found, call the batch load profile subskill to load the correct profile batch.
+    # this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "profile_name_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # due to screen real-estate, some long email address might not be dispalyed in full, but usually
+    # # it can display up until @ char on screen, so only use this as the tag.
+    # this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA", "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # once the correct user profile is loaded, the open button corresponding to the user profile will be clicked to open the profile.
+    # this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input", "browser_up", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("else", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepMouseClick("Single Click", " ", True, "screen_info", "bot_open", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # wait 9 seconds for the browser to be brought up.
+    # this_step, step_words = genStepWait(5, 1, 3, this_step)
+    # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
-    # scroll down half screen and check again if nothing found in the 1st glance.
-    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("not bot_loaded and not nothing_loaded", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # if not on screen, scroll down and check again.
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 80, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # if not found, call the batch load profile subskill to load the correct profile batch.
-    this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "profile_name_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
-    psk_words = psk_words + step_words
-
-    # due to screen real-estate, some long email address might not be dispalyed in full, but usually
-    # it can display up until @ char on screen, so only use this as the tag.
-    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA", "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]", this_step)
-    psk_words = psk_words + step_words
-
-    # once the correct user profile is loaded, the open button corresponding to the user profile will be clicked to open the profile.
-    this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input", "browser_up", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", " ", True, "screen_info", "bot_open", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # wait 9 seconds for the browser to be brought up.
-    this_step, step_words = genStepWait(8, 1, 3, this_step)
-    psk_words = psk_words + step_words
-
-    # following is for test purpose. hijack the flow, go directly to browse....
+    # following is for tests purpose. hijack the flow, go directly to browse....
     this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genAMZLoginInSteps(this_step, theme)
+    this_step, step_words = genStepWait(3, 1, 3, this_step)
     psk_words = psk_words + step_words
+
+    # this_step, step_words = genAMZLoginInSteps(this_step, theme)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
     psk_words = psk_words + step_words
@@ -207,8 +223,8 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     #now call the amz chrome browse sub-skill to go thru the walk process.
-    # this_step, step_words = genWinChromeAMZWalkSteps("sk_work_settings", this_step, theme)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genWinChromeAMZWalkSteps("sk_work_settings", this_step, theme)
+    psk_words = psk_words + step_words
 
     # end condition for "not_logged_in == False"
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -400,9 +416,13 @@ def genAMZScrollProductListToBottom(stepN, worksettings, start):
     this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, stepN)
     psk_words = psk_words + step_words
 
+
     # give it a random value between 15 and 25 - magic number .  that's how many scrolls will have
     rand_count = random.randrange(15, 20)
     this_step, step_words = genStepCreateData("int", "down_cnt", "NA", rand_count, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('SCROLL DOWN PRODUCT LIST.....', down_cnt)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("", str(rand_count), "", lcvarname, this_step)
@@ -416,6 +436,9 @@ def genAMZScrollProductListToBottom(stepN, worksettings, start):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('DONE SCROLL DOWN PRODUCT LIST.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     log3("scroll reached BOTTOM of the page")
@@ -435,6 +458,9 @@ def genAMZScrollProductListToTop(down_cnt, stepN, worksettings):
     this_step, step_words = genStepCallExtern("global "+down_cnt+", up_cnt\nup_cnt = int("+down_cnt+"* 1.5)", "", "in_line", "", stepN)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('SCROLL UP PRODUCT LIST.....', up_cnt)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # up must be preceeded by a down scroll, so the cnt is fixed :
     this_step, step_words = genStepLoop("up_cnt > 0", "", "", "scrollUpProductList"+str(stepN), this_step)
     psk_words = psk_words + step_words
@@ -452,6 +478,9 @@ def genAMZScrollProductListToTop(down_cnt, stepN, worksettings):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('DONE SCROLL UP PRODUCT LIST.....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     log3("scroll reached TOP of the page")
 
     return this_step,psk_words
@@ -461,6 +490,9 @@ def genAMZScrollProductDetailsToTop(pagesize, stepN, work_settings):
     psk_words = ""
     log3("DEBUG", "gen_psk_for_scroll_to_bottom...")
     this_step, step_words = genStepCreateData("bool", "at_pd_top", "NA", False, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('SCROLL PRODUCT DETAILS TO TOP.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("attop != True", "", "", "scrollUpProductDetails"+str(stepN), this_step)
@@ -473,6 +505,9 @@ def genAMZScrollProductDetailsToTop(pagesize, stepN, work_settings):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('DONE SCROLL PRODUCT DETAILS TO TOP.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     log3("scroll reached TOP of the product details page")
@@ -508,6 +543,8 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, worksettings, theme):
     this_step, step_words = genStepCreateData("bool", "atbottom", "NA", False, stepN)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('BROWSING DOWN PRODUCT LIST.....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
     # scroll page until the 1st product's bottom is near bottom 10% of the page height.
     this_step, step_words = genScrollDownUntil("free_delivery", 90, this_step, worksettings, "amz", theme)
@@ -597,6 +634,8 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, worksettings, theme):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('DONE BROWSING DOWN PRODUCT LIST.....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
     return this_step,psk_words
 
@@ -780,6 +819,8 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
     this_step, step_words = genStepCreateData("bool", "no_reviews", "NA", False, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('BROWSING PRODUCT DETAILS.....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
     lvl = atpl + "[" + tbb_index +"]['detailLvl']"
     purchase = atpl + "[" + tbb_index + "]['purchase']"
@@ -1031,6 +1072,9 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('DONE BROWSING PRODUCT DETAILS.....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     return this_step,psk_words
 
@@ -1072,6 +1116,9 @@ def genAMZBrowseAllReviewsPage(level, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "nPRP_up", "NA", "nPRP+3", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('BROWSE ALL REVIEWS.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global nNRP, nPRP, nPRP_up\nprint('nNRP, nPRP, nPRP_up:', nNRP, nPRP, nPRP_up)", "", "in_line", "", this_step)
@@ -1151,6 +1198,9 @@ def genAMZBrowseAllReviewsPage(level, stepN, worksettings, theme):
 
     # now simply go back to the previous browser page. by press alt-left
     this_step, step_words = genStepKeyInput("", True, "alt,left", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('DONE BROWSE ALL REVIEWS.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     return this_step,psk_words
@@ -1237,7 +1287,7 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genStepWait(18, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    # SC hacking for speed up the test
+    # SC hacking for speed up the tests
     # homepath = os.environ.get("ECBOT_HOME")
     # if homepath[len(homepath)-1] == "/":
     #   homepath=homepath[:len(homepath)-1]
@@ -1312,7 +1362,7 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genAMZBrowseProductListToLastAttention("plSearchResult", this_step, worksettings, theme)
     psk_words = psk_words + step_words
 
-    # for speedy test, directly call other pages. here...
+    # for speedy tests, directly call other pages. here...
     # this_step, step_words = genAMZBrowseDetails("plSearchResult", "0", this_step, worksettings, theme1707977701.html)
 
     # this_step, step_words = genAMZBrowseAllReviewsPage("'4'", this_step, root, theme)
@@ -1447,33 +1497,42 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global scroll_resolution\nscroll_resolution = sk_work_settings['scroll_resolution']\nprint('scroll_resolution from settings:', scroll_resolution)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # if screen resolution is default value, then needs calibration.
+    this_step, step_words = genStepCheckCondition("scroll_resolution == 250", "", "", this_step)
+    psk_words = psk_words + step_words
+
     # get the location of text "Search" nearest to the top of the screen and store it in variable random_line.
     # loc, txt, screen, tovar, stepN
-    # this_step, step_words = genStepRecordTxtLineLocation("middle", "", "screen_info", "cal_marker", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepRecordTxtLineLocation("middle", "", "screen_info", "cal_marker", this_step)
+    psk_words = psk_words + step_words
 
     # now scroll down 30 unit.
-    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
 
-    # this_step, step_words = genStepWait(2, 0, 0, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepWait(2, 0, 0, this_step)
+    psk_words = psk_words + step_words
 
     # extract the amazon home page info again.
-    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
 
     # then calibrate the  # of pixels per scroll, the result is stored in scroll_resolution variable
     # sink, amount, screen, marker, prev_loc, stepN
-    # this_step, step_words = genStepAMZCalScroll("scroll_resolution", "1", "screen_info", "", "cal_marker", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepCalibrateScroll("scroll_resolution", "1", "screen_info", "", "cal_marker", this_step)
+    psk_words = psk_words + step_words
 
     # scroll back up so that we can start search.
-    # this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
 
-    # SC hacking for speed up the test   ---- uncomment above.
-
+    # end condition for scroll_resolution == 250
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+    # SC hacking for speed up the tests   ---- uncomment above.
 
     # this_step, step_words = genStepCreateData("bool", "position_reached", "NA", "False", this_step)
     # psk_words = psk_words + step_words

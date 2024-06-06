@@ -2,7 +2,7 @@ import asyncio
 import platform
 import json
 from datetime import datetime, date
-from Logger import *
+from bot.Logger import log3
 from PySide6.QtGui import QStandardItem, QIcon
 
 

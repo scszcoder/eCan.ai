@@ -1,13 +1,4 @@
-import platform
-import sys
-import random
-from crontab import CronTab
-import json
-from WorkSkill import *
-from readSkill import *
-import os
-from ebbot import *
-from Logger import *
+from PySide6.QtGui import QStandardItem, QIcon
 
 
 class VEHICLE(QStandardItem):

@@ -1,5 +1,5 @@
 import json
-from Logger import *
+from bot.Logger import log3
 
 
 class INV_PRODUCT:

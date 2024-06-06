@@ -1,11 +1,14 @@
-from WorkSkill import *
-from readSkill import *
-from datetime import datetime
+import json
+
 import shutil
-import os
-from Logger import *
-import pytz
+from datetime import datetime
+
+from PySide6.QtGui import QStandardItem, QIcon
+
+from bot.Logger import log3
 import tzlocal
+
+from bot.readSkill import runAllSteps
 
 TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
@@ -938,6 +941,6 @@ class EBMISSION(QStandardItem):
             self.pubAttributes.skills[si].loadSkill()
             log3("run all steps ....."+json.dumps(self.pubAttributes.skills[si].get_all_steps()))
             log3("settings:"+json.dumps(self.parent_settings))
-            runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.parent_settings)
+            await runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.parent_settings)
 
         return run_result

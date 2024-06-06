@@ -1,27 +1,26 @@
-import os
-
-from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, QSettings
-# import winreg
-from PySide6.QtWidgets import QDialog
-import botocore
-from botocore.exceptions import ClientError
-import boto3
-from signio import *
-from BorderLayout import *
-import json
-from os.path import exists
-import locale
-from MainGUI import *
-from pycognito.aws_srp import AWSSRP
-from envi import *
-from Cloud import *
-from config.app_info import app_info
-from datetime import datetime
-
 import asyncio
-import qasync
-from network import *
-from utils.fernet import encrypt_password, decrypt_password
+import json
+import os
+import platform
+import time
+from datetime import datetime
+from os.path import exists
+from pycognito import Cognito, AWSSRP
+
+import boto3
+from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, Qt, QEvent
+from PySide6.QtGui import QPixmap, QFont, QIcon
+from PySide6.QtWidgets import QDialog, QLabel, QComboBox, QApplication, QLineEdit, QPushButton, QCheckBox, QHBoxLayout, \
+    QVBoxLayout, QMessageBox
+import botocore
+import locale
+
+from gui.MainGUI import MainWindow
+from bot.signio import CLIENT_ID, USER_POOL_ID
+from config.app_info import app_info
+from bot.envi import getECBotDataHome
+from bot.network import commanderIP, commanderServer, commanderXport
+from utils.fernet import encrypt_password
 
 # ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
 # ecbhomepath = getECBotHome()
@@ -336,6 +335,7 @@ class Login(QDialog):
         self.user_label.resize(200, 100);
         self.user_label.setAlignment(Qt.AlignTop)
 
+
         self.buttonLogin.clicked.disconnect(self.handleLogin)
         self.buttonLogin.clicked.connect(self.handleForgotPassword)
 
@@ -386,15 +386,14 @@ class Login(QDialog):
                 if not variable_updated:
                     file.write(f'\n{env_var_command}\n')
 
-            print(
-                f"Environment variable {var_name} {'updated' if variable_updated else 'set'} successfully in {config_file}.")
+            print(f"Environment variable {var_name} {'updated' if variable_updated else 'set'} successfully in {config_file}.")
         except IOError as e:
             print(f"Error: Unable to open or write to {config_file} - {e}")
 
     def handleLogin(self):
         print("logging in....")
-        global commanderServer
-        global commanderXport
+        # global commanderServer
+        # global commanderXport
 
         try:
             self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
@@ -442,7 +441,7 @@ class Login(QDialog):
             self.hide()
 
             if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
-                global commanderServer
+                # global commanderServer
 
                 self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath,
                                           self.gui_net_msg_queue, self.machine_role, self.lang)
@@ -452,7 +451,7 @@ class Login(QDialog):
                 self.mainwin.setCogClient(self.aws_client)
                 self.mainwin.show()
             else:
-                global commanderXport
+                # global commanderXport
 
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
                 self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,

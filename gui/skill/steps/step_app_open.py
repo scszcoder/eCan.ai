@@ -1,4 +1,4 @@
-from skill.steps.step_base import StepBase, EnumAnchorType
+from gui.skill.steps.step_base import StepBase, EnumAnchorType
 from enum import Enum
 
 

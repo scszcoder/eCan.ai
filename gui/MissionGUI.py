@@ -1,18 +1,16 @@
-import sys
-import random
+import json
 
-from PySide6.QtCore import QEvent, QStringListModel
-from PySide6.QtGui import QStandardItemModel, QColor, QFont, QPalette
+from PySide6.QtCore import QEvent, QStringListModel, Qt
+from PySide6.QtGui import QStandardItemModel, QColor, QPalette, QIcon, QAction, QStandardItem
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QTabWidget, QVBoxLayout, QLineEdit, \
-    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QCheckBox, QFileDialog, QButtonGroup, QStyledItemDelegate, QFontComboBox
-from ebbot import *
-from locale import getdefaultlocale
-from FlowLayout import *
-from ebbot import *
-from missions import *
-from Logger import *
+    QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QFileDialog, QButtonGroup, QStyledItemDelegate, \
+    QListView, QLabel, QFrame, QMenu
+from bot.Logger import log3
 import traceback
 import time
+
+from bot.missions import TIME_SLOT_MINS, EBMISSION
+
 
 class SkillListView(QListView):
     def __init__(self, parent):

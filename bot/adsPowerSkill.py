@@ -1,11 +1,15 @@
-import os
-
-import pandas as pd
 import copy
 import json
-from Logger import *
+import os
+import traceback
 
-from basicSkill import *
+import pandas as pd
+
+from bot.Logger import log3
+from bot.basicSkill import genStepStub, genStepCreateData, genStepCallExtern, genStepOpenApp, genStepWait, \
+    genStepExtractInfo, genStepSearchAnchorInfo, genStepCheckCondition, genStepMouseClick, genStepLoop, genStepKeyInput, \
+    genStepMouseScroll, genStepTextInput, genStepHeader, STEP_GAP, symTab, DEFAULT_RUN_STATUS, genStepSearchWordLine,  \
+    genStepUseSkill
 
 ADS_BATCH_SIZE = 2
 
@@ -179,7 +183,10 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_selected", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_selected", "anchor text", "", 0, "center", [0, 0], "box", 2, 3, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
@@ -212,8 +219,10 @@ def genADSPowerExitProfileSteps(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "text_file", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 1, False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)

@@ -1,12 +1,17 @@
-from basicSkill import *
-from scraperEbay import *
-import pandas as pd
-from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
+import json
+import os
 from datetime import datetime
-from envi import *
+
+from bot.amzBuyerSkill import found_match
+from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreateData, genStepGoToWindow, \
+    genStepCheckCondition, genStepUseSkill, genStepOpenApp, genStepCallExtern, genStepLoop, genStepExtractInfo, \
+    genStepSearchAnchorInfo, genStepMouseClick, genStepMouseScroll, genStepCreateDir, genStepKeyInput, genStepTextInput, \
+    STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink
+from bot.Logger import log3
+from bot.scraperEbay import ebay_seller_fetch_page_of_order_list
 from config.app_info import app_info
-from Logger import *
+from config.app_settings import ecb_data_homepath
+from bot.etsySellerSkill import genStepEtsyFindScreenOrder
 
 SAME_ROW_THRESHOLD = 16
 
@@ -150,7 +155,7 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepWait(6, 1, 3, this_step)
     # psk_words = psk_words + step_words
 
-    # following is for test purpose. hijack the flow, go directly to browse....
+    # following is for tests purpose. hijack the flow, go directly to browse....
     this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
     psk_words = psk_words + step_words
 

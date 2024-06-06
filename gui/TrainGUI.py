@@ -1,18 +1,26 @@
-from PySide6.QtCore import QPoint
+import json
 
-from pynput import keyboard
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
+    QFileDialog
+
 from pynput.mouse import Listener as MouseListener
 from pynput.keyboard import Listener as KeyboardListener
 
-from SkillGUI import *
+import pyautogui
+
+from gui.SkillGUI import SkillGUI
+
+counter = 0
+record_over = False
+
 
 class TrainDialogWin(QMainWindow):
     def __init__(self, parent):
         super(TrainDialogWin, self).__init__(parent)
 
         self.mainWidget = QWidget()
-        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"),
-                                     alignment=Qt.AlignLeft)
+        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"), alignment=Qt.AlignLeft)
 
         self.start_button = QPushButton(QApplication.translate("QPushButton", "Start Training"))
         self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
@@ -28,8 +36,7 @@ class ReminderWin(QMainWindow):
         super(ReminderWin, self).__init__(parent)
 
         self.mainWidget = QWidget()
-        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"),
-                                     alignment=Qt.AlignLeft)
+        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"), alignment=Qt.AlignLeft)
         self.rLayout = QHBoxLayout()
         self.rLayout.addWidget(self.reminder_label)
         self.mainWidget.setLayout(self.rLayout)
@@ -62,7 +69,7 @@ class TrainNewWin(QMainWindow):
         self.bLayout = QHBoxLayout(self)
         self.rLayout = QHBoxLayout(self)
 
-        # self.label = QLabel()
+        #self.label = QLabel()
         self.bLayout.addWidget(self.start_tutor_button)
         self.bLayout.addWidget(self.start_demo_button)
         self.bLayout.addWidget(self.start_skill_button)
@@ -224,3 +231,4 @@ class TrainNewWin(QMainWindow):
     def set_cloud(self, session, cog):
         self.session = session
         self.cog = cog
+
