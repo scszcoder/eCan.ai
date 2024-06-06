@@ -487,7 +487,7 @@ def genWinTestSkill(worksettings, start_step):
     skf.write("\n")
 
     psk_words = "{"
-    this_step, step_words = genStepHeader("test skill", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "test skill for Windows.", start_step)
+    this_step, step_words = genStepHeader("tests skill", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "tests skill for Windows.", start_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "counter1", "NA", 3, this_step)
@@ -503,7 +503,7 @@ def genWinTestSkill(worksettings, start_step):
     this_step, step_words = genStepCallExtern("global tresult\nprint('tresut....',tresult)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "test skill", "", this_step)
+    this_step, step_words = genStepStub("end skill", "tests skill", "", this_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepStub("start function", "doubler", "", this_step)
@@ -536,7 +536,7 @@ def genWinTestSkill1(worksettings, start_step):
     skf.write("\n")
 
     psk_words = "{"
-    this_step, step_words = genStepHeader("test_skill1", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "test skill for Windows.", start_step)
+    this_step, step_words = genStepHeader("test_skill1", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "tests skill for Windows.", start_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepStub("start function", "doubler", "", this_step)
@@ -556,7 +556,7 @@ def genWinTestSkill1(worksettings, start_step):
     this_step, step_words = genStepCallExtern("global tresult\nprint('tresut....',tresult)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "test skill", "", this_step)
+    this_step, step_words = genStepStub("end skill", "tests skill", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -576,7 +576,7 @@ def genWinTestSkill2(worksettings, start_step):
     skf.write("\n")
 
     psk_words = "{"
-    this_step, step_words = genStepHeader("doubler", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "test skill for Windows.", start_step)
+    this_step, step_words = genStepHeader("doubler", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ0000001", "tests skill for Windows.", start_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepStub("start function", "doubler", "", this_step)
@@ -618,7 +618,7 @@ def genTestRunSimpleLoopSkill(worksettings, stepN, theme):
 
     # delete everything there
     # do some overall review scroll, should be mostly positive.
-    lcvarname = "test" + str(stepN)
+    lcvarname = "tests" + str(stepN)
     this_step, step_words = genStepCreateData("int", lcvarname, "NA", 0, this_step)
     psk_words = psk_words + step_words
 
@@ -636,6 +636,6 @@ def genTestRunSimpleLoopSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    # log3("DEBUG", "generated skill for windows loop test...." + psk_words)
+    # log3("DEBUG", "generated skill for windows loop tests...." + psk_words)
 
     return this_step, psk_words
