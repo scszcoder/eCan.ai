@@ -31,6 +31,7 @@ from bot.scrapeGoodSupply import processGSScrapeLabels
 from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
 from bot.scraperEbay import processEbayScrapeOrdersHtml, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
+from bot.envi import getECBotDataHome
 
 
 symTab["fout"] = ""
@@ -789,6 +790,13 @@ def processCalibrateScroll(step, i):
 
         symTab[resolution] = scroll_resolution
         symTab[screen] = symTab["last_screen_cal01"]
+
+        scroll_resolution_file = getECBotDataHome() + "/scroll_resolution.json"
+        with open(scroll_resolution_file, 'w') as fileTBW:
+            json.dump({"resolution": scroll_resolution}, fileTBW)
+
+            fileTBW.close()
+
         log3("scroll resolution is found as: "+str(scroll_resolution)+" stored in var: "+str(resolution))
 
     except:

@@ -16,7 +16,7 @@ from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml, amz_buyer_scrape_produ
 
 SAME_ROW_THRESHOLD = 16
 
-def genStepAMZCalScroll(sink, amount, screen, marker, prev_loc, stepN):
+def genStepCalibrateScroll(sink, amount, screen, marker, prev_loc, filepath, stepN):
     stepjson = {
         "type": "Calibrate Scroll",
         "action": "Extract",
@@ -24,6 +24,7 @@ def genStepAMZCalScroll(sink, amount, screen, marker, prev_loc, stepN):
         "amount": amount,
         "screen": screen,
         "last_record": prev_loc,
+        "file_path": filepath,
         "marker": marker
     }
 
@@ -1496,33 +1497,42 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global scroll_resolution\nscroll_resolution = sk_work_settings['scroll_resolution']\nprint('scroll_resolution from settings:', scroll_resolution)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # if screen resolution is default value, then needs calibration.
+    this_step, step_words = genStepCheckCondition("scroll_resolution == 250", "", "", this_step)
+    psk_words = psk_words + step_words
+
     # get the location of text "Search" nearest to the top of the screen and store it in variable random_line.
     # loc, txt, screen, tovar, stepN
-    # this_step, step_words = genStepRecordTxtLineLocation("middle", "", "screen_info", "cal_marker", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepRecordTxtLineLocation("middle", "", "screen_info", "cal_marker", this_step)
+    psk_words = psk_words + step_words
 
     # now scroll down 30 unit.
-    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
 
-    # this_step, step_words = genStepWait(2, 0, 0, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepWait(2, 0, 0, this_step)
+    psk_words = psk_words + step_words
 
     # extract the amazon home page info again.
-    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
 
     # then calibrate the  # of pixels per scroll, the result is stored in scroll_resolution variable
     # sink, amount, screen, marker, prev_loc, stepN
-    # this_step, step_words = genStepAMZCalScroll("scroll_resolution", "1", "screen_info", "", "cal_marker", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepCalibrateScroll("scroll_resolution", "1", "screen_info", "", "cal_marker", this_step)
+    psk_words = psk_words + step_words
 
     # scroll back up so that we can start search.
-    # this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
 
+    # end condition for scroll_resolution == 250
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
     # SC hacking for speed up the tests   ---- uncomment above.
-
 
     # this_step, step_words = genStepCreateData("bool", "position_reached", "NA", "False", this_step)
     # psk_words = psk_words + step_words
