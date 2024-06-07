@@ -444,6 +444,17 @@ def genStepWriteFile(filename, nametype, filetype, datasource, mode, result_var,
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepDeleteFile(filename, nametype, result_var, stepN):
+    stepjson = {
+        "type": "Delete File",
+        "filename": filename,
+        "name_type": nametype,
+        "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 def genStep7z(action, var_type, exe_var, in_var, out_path, out_var, result, stepN):
     stepjson = {
@@ -1679,11 +1690,12 @@ def processMouseClick(step, i):
             else:
                 log3("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]"+step["target_name"])
                 exec("global click_target\nclick_target = " + step["target_name"])
-                log3("box: "+json.dumps(symTab["target_name"]))
-                box = [symTab["target_name"][1], symTab["target_name"][0], symTab["target_name"][3], symTab["target_name"][2]]
+                log3("box: "+step["target_name"]+" "+json.dumps(click_target))
+                # box = [symTab["target_name"][1], symTab["target_name"][0], symTab["target_name"][3], symTab["target_name"][2]]
+                box = [click_target[1], click_target[0], click_target[3], click_target[2]]
                 loc = box_center(box)
-                post_offset_y = (symTab["target_name"][2] - symTab["target_name"][0]) * step["post_move"][0]
-                post_offset_x = (symTab["target_name"][3] - symTab["target_name"][1]) * step["post_move"][1]
+                post_offset_y = (click_target[2] - click_target[0]) * step["post_move"][1]
+                post_offset_x = (click_target[3] - click_target[1]) * step["post_move"][0]
                 post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
 
             log3("direct calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset_x)+","+str(post_offset_y)+")"+"post_loc:"+json.dumps(post_loc))
@@ -2830,6 +2842,37 @@ def processWriteFile(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+def processDeleteFile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["result"]] = True
+    try:
+        if step["name_type"] == "direct":
+            file_full_path = step["filename"]
+        else:
+            exec("file_full_path = " + step["filename"])
+
+        log3("Delete a file:" + file_full_path)
+        if os.path.exists(file_full_path):
+            # create only if the dir doesn't exist
+            os.remove(file_full_path)
+        else:
+            log3("WARNING: File not exists")
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorDeleteFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorDeleteFile: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
 
 # run 7z for the zip and unzip.
 def process7z(step, i):

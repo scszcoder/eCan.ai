@@ -206,6 +206,7 @@ ARAIS = {
     "Create Dir": lambda x, y: processCreateDir(x, y),
     "Read File": lambda x, y: processReadFile(x, y),
     "Write File": lambda x, y: processWriteFile(x, y),
+    "Delete File": lambda x, y: processDeleteFile(x, y),
     "print Label": lambda x,y: processPrintLabel(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
@@ -397,6 +398,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
 
         # check whether there is any msging handling need.
+        # log3("listening to message queue......")
         if not in_msg_queue.empty():
             message = await in_msg_queue.get()
             log3(f"Rx RunAllSteps message: {message}")
