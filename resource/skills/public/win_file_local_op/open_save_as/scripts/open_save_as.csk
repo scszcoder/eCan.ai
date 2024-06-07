@@ -6,7 +6,7 @@
                     {
                         "anchor_name"  : "file_name",
                         "anchor_type"  : "text",
-                        "template"     : "File name:",
+                        "template"     : "name:",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
