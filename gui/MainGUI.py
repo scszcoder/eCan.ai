@@ -31,7 +31,7 @@ from gui.ChatGui import ChatWin
 from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud, send_completion_status_to_cloud
+    send_get_bots_request_to_cloud, send_query_missions_request_to_cloud, send_query_bots_request_to_cloud
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from bot.Logger import log3
 from gui.LoggerGUI import CommanderLogWin
@@ -748,6 +748,7 @@ class MainWindow(QMainWindow):
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
         self.find_all_missions()
+        self.find_all_bots()
 
     async def run_async_tasks(self):
         self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
@@ -2891,9 +2892,22 @@ class MainWindow(QMainWindow):
         # now should close the main window and bring back up the login screen?
 
 
+    def find_all_bots(self):
+        jresp = send_query_bots_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], {"byowneruser": True})
+        print(jresp)
+        all_bots = json.loads(jresp['body'])
+        for bot in all_bots:
+            bid = bot['bid']
+            local_bot = self.sql_processor.find_bot_by_botid([bid])
+            if local_bot is not None and len(local_bot) > 0:
+                self.updateBots([bot])
+            else:
+                self.addNewBots([bot])
+
+
     def find_all_missions(self):
-        all_messions = send_completion_status_to_cloud(self.session, [], self.tokens['AuthenticationResult']['IdToken'])
-        print(all_messions)
+        jresp = send_query_missions_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], {"byowneruser": True})
+        print(jresp)
 
     def addNewBots(self, new_bots):
         # Logic for creating a new bot:
@@ -2952,6 +2966,7 @@ class MainWindow(QMainWindow):
             #now read back just added bots and echo it back onto display...
             bid_list = [bot.getBid() for bot in new_bots]
             self.sql_processor.find_bot_by_botid(bid_list)
+
 
     def updateBots(self, bots):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
