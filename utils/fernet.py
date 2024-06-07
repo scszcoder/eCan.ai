@@ -12,7 +12,8 @@ def encrypt_password(password: str) -> bytes:
 
 # 解密密码
 def decrypt_password(encrypted_password: bytes) -> str:
-    return cipher_suite.decrypt(encrypted_password).decode()
+    password = cipher_suite.decrypt(encrypted_password)
+    return password.decode()
 
 
 if __name__ == '__main__':
