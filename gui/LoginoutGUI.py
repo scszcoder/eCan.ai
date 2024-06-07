@@ -147,7 +147,7 @@ class Login(QDialog):
                 self.textName.setText(data["user"])
                 if self.show_visibility:
                     stored_encrypted_password = bytes.fromhex(self.settings.value(self.pwd_key, ""))
-                    if stored_encrypted_password is not None:
+                    if stored_encrypted_password is not None and len(stored_encrypted_password) > 0:
                         decrypted_password = decrypt_password(stored_encrypted_password)
                         self.textPass.setText(decrypted_password)
                     else:
