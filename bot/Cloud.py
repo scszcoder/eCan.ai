@@ -975,20 +975,20 @@ def req_train_read_screen(session, request, token):
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_completion_status_to_cloud(session, missionStats, token):
-    # if len(missionStats) > 0:
-    query = gen_daily_update_string(missionStats)
+    if len(missionStats) > 0:
+        query = gen_daily_update_string(missionStats)
 
-    jresp = appsync_http_request(query, session, token)
+        jresp = appsync_http_request(query, session, token)
 
-    if "errors" in jresp:
-        screen_error = True
-        jresponse = jresp["errors"][0]
-        logger_helper.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
+        if "errors" in jresp:
+            screen_error = True
+            jresponse = jresp["errors"][0]
+            logger_helper.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
+        else:
+            jresponse = json.loads(jresp["data"]["reportStatus"])
     else:
-        jresponse = json.loads(jresp["data"]["reportStatus"])
-    # else:
-    #     logger_helper.error("ERROR Type: EMPTY DAILY REPORTS")
-    #     jresponse = "ERROR: EMPTY REPORTS"
+        logger_helper.error("ERROR Type: EMPTY DAILY REPORTS")
+        jresponse = "ERROR: EMPTY REPORTS"
     return jresponse
 
 
