@@ -333,7 +333,8 @@ def getWorkRunSettings(lieutenant, bot_works):
     scroll_resolution_file = ecb_data_homepath + "/scroll_resolution.json"
     if os.path.exists(scroll_resolution_file):
         with open(scroll_resolution_file, 'r') as fileTBR:
-            scroll_resolution = json.load(fileTBR)
+            scroll_resolution_json = json.load(fileTBR)
+            scroll_resolution = scroll_resolution_json["resolution"]
 
             fileTBR.close()
 
