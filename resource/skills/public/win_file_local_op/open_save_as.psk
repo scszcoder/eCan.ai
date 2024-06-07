@@ -50,7 +50,7 @@
 "step 30":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['Open', 'File name']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['Open', 'File name:']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -237,14 +237,17 @@
     "action_args": "",
     "save_rb": true,
     "screen": "screen_info",
-    "target_name": "file_open",
+    "target_name": "file_cancel",
     "target_type": "anchor text",
     "text": "",
-    "nth": 1,
-    "offset_from": "center",
+    "nth": [
+        0,
+        0
+    ],
+    "offset_from": "left",
     "offset_unit": "box",
     "offset": [
-        0,
+        2,
         0
     ],
     "move_pause": 0,
@@ -252,7 +255,7 @@
         0,
         0
     ],
-    "post_wait": 0
+    "post_wait": 5
 },
 "step 120":
 {
