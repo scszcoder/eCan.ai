@@ -31,7 +31,7 @@ from gui.ChatGui import ChatWin
 from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud
+    send_get_bots_request_to_cloud, send_completion_status_to_cloud
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from bot.Logger import log3
 from gui.LoggerGUI import CommanderLogWin
@@ -746,6 +746,8 @@ class MainWindow(QMainWindow):
         # asyncio.run_coroutine_threadsafe(self.run_async_tasks(loop, executor), loop)
 
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
+
+        self.find_all_missions()
 
     async def run_async_tasks(self):
         self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
@@ -2888,6 +2890,10 @@ class MainWindow(QMainWindow):
         self.showMsg("logged out........"+result)
         # now should close the main window and bring back up the login screen?
 
+
+    def find_all_missions(self):
+        all_messions = send_completion_status_to_cloud(self.session, [], self.tokens['AuthenticationResult']['IdToken'])
+        print(all_messions)
 
     def addNewBots(self, new_bots):
         # Logic for creating a new bot:
