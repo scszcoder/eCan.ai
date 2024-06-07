@@ -1,3 +1,4 @@
+import subprocess
 import tempfile
 
 from PyInstaller.__main__ import run
@@ -18,8 +19,8 @@ def build_app():
     options = [
         '--name=ecbot',  # 替换为你的应用程序名称
         '--windowed',
-        '--clean',
-        '--noconsole',
+        # '--clean',
+        # '--noconsole',
         '--log-level=DEBUG',
         '--onefile',
         '--icon=ECBot.ico',
@@ -36,6 +37,9 @@ def build_app():
     print(options)
     # 运行 PyInstaller 打包
     run(options + ['main.py'])
+
+    # 执行shell脚本，构建dmg文件
+    result = subprocess.run(['sh', 'build_dmg.sh'], capture_output=True, text=True)
 
 
 def remove_directory(path):
