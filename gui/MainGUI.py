@@ -4274,6 +4274,40 @@ class MainWindow(QMainWindow):
         self.addNewMissions(missions_from_file)
 
 
+    def newBuyMissionFromFiles(self):
+        new_orders_dir = ecb_data_homepath + "/new_orders/"
+        self.showMsg("working on new orders:" + new_orders_dir)
+
+        if os.path.isdir(new_orders_dir):
+            files = os.listdir(new_orders_dir)
+            xlsx_files = [os.path.join(new_orders_dir, file) for file in files if os.path.isfile(os.path.join(new_orders_dir, file)) and file.endswith('.xlsx')]
+
+            for xlsx_file in xlsx_files:
+                xls = openpyxl.load_workbook(xlsx_file, data_only=True)
+
+                # Initialize an empty list to store JSON data
+                botsJson = []
+                # Iterate over each sheet in the Excel file
+                title_cells = []
+                for idx, sheet in enumerate(xls.sheetnames):
+                    # Read the sheet into a DataFrame
+                    ws = xls[sheet]
+
+                    # Iterate over each row in the sheet
+                    for ri, row in enumerate(ws.iter_rows(values_only=True)):
+                        if idx == 0 and ri == 0:
+                            title_cells = [cell for cell in row]
+                        elif ri > 0:
+                            if len(row) == 25:
+                                botJson = {}
+                                for ci, cell in enumerate(title_cells):
+                                    if cell == "DoB":
+                                        botJson[cell] = row[ci].strftime('%Y-%m-%d')
+                                    else:
+                                        botJson[cell] = row[ci]
+
+                                botsJson.append(botJson)
+
     def fillNewSkill(self, nskjson, nsk):
         self.showMsg("filling mission data")
         nsk.setNetRespJsonData(nskjson)
