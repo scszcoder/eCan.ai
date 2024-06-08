@@ -23,6 +23,10 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 import importlib
 import importlib.util
 
+from sqlalchemy import select
+
+from globals import model
+from globals.model import BotModel, MissionModel
 from tests.TestAll import Tester
 
 from ChatGUIV2 import ChatDialog
@@ -665,8 +669,10 @@ class MainWindow(QMainWindow):
         self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
             # load skills into memory.
+            self.sql_processor.sync_cloud_bot_data(self.session, self.tokens)
             bots_data = self.sql_processor.find_all_bots()
             self.loadLocalBots(bots_data)
+            self.sql_processor.sync_cloud_mission_data(self.session, self.tokens)
             missions_data = self.sql_processor.find_missions_by_createon()
             self.loadLocalMissions(missions_data)
             self.dailySkillsetUpdate()
@@ -747,8 +753,6 @@ class MainWindow(QMainWindow):
 
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
-        self.find_all_missions()
-        self.find_all_bots()
 
     async def run_async_tasks(self):
         self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
@@ -2400,7 +2404,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("updatin 1 work run status:"+this_stat+" "+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])))
 
-        if worksTBD["current widx"] >= len( worksTBD["works"]):
+        if worksTBD["current widx"] >= len(worksTBD["works"]):
             worksTBD["current widx"] = self.checkTaskGroupCompleteness(worksTBD)
             self.showMsg("current widx pointer after checking retries:"+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])))
             if worksTBD["current widx"] >= len(worksTBD["works"]):
@@ -2892,23 +2896,6 @@ class MainWindow(QMainWindow):
         # now should close the main window and bring back up the login screen?
 
 
-    def find_all_bots(self):
-        jresp = send_query_bots_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], {"byowneruser": True})
-        print(jresp)
-        all_bots = json.loads(jresp['body'])
-        for bot in all_bots:
-            bid = bot['bid']
-            local_bot = self.sql_processor.find_bot_by_botid([bid])
-            if local_bot is not None and len(local_bot) > 0:
-                self.updateBots([bot])
-            else:
-                self.addNewBots([bot])
-
-
-    def find_all_missions(self):
-        jresp = send_query_missions_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], {"byowneruser": True})
-        print(jresp)
-
     def addNewBots(self, new_bots):
         # Logic for creating a new bot:
         api_bots = []
@@ -2948,25 +2935,15 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             #now that add is successfull, update local file as well.
             # first, update bot ID both in data structure and in GUI display.
-            idx = 0
             for i, resp_rec in enumerate(jresp["body"]):
                 new_bots[i].setBid(resp_rec["bid"])
                 new_bots[i].setInterests(resp_rec["interests"])
                 self.bots.append(new_bots[i])
                 self.botModel.appendRow(new_bots[i])
-
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
             self.sql_processor.inset_bots_batch(jbody, api_bots)
-
-            # update self data structure and save in json file for easy access (1 line of python code)
-            # self.saveBotJsonFile(jbody)
-
-            #now read back just added bots and echo it back onto display...
-            bid_list = [bot.getBid() for bot in new_bots]
-            self.sql_processor.find_bot_by_botid(bid_list)
-
 
     def updateBots(self, bots):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
@@ -3009,10 +2986,6 @@ class MainWindow(QMainWindow):
                 self.sql_processor.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
-
-            # now read back just added bots and echo it back onto display...
-            bid_list = [bot.getBid() for bot in bots]
-            self.sql_processor.find_bot_by_botid(bid_list)
 
     def addNewMissions(self, new_missions):
         # Logic for creating a new mission:
@@ -3980,6 +3953,7 @@ class MainWindow(QMainWindow):
             '',
             QApplication.translate("QFileDialog", "Mission Files (*.json *.xlsx *.csv)")
         )
+        botsJson = []
         if filename != "":
             if "json" in filename:
                 api_missions = []
@@ -4061,7 +4035,6 @@ class MainWindow(QMainWindow):
                 xls = openpyxl.load_workbook(filename, data_only=True)
 
                 # Initialize an empty list to store JSON data
-                botsJson = []
                 # Iterate over each sheet in the Excel file
                 title_cells = []
                 for idx, sheet in enumerate(xls.sheetnames):
@@ -4369,15 +4342,14 @@ class MainWindow(QMainWindow):
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
-    def loadLocalBots(self, db_data):
-
-        self.showMsg("get local bots from DB::" + json.dumps(db_data))
+    def loadLocalBots(self, db_data: [BotModel]):
+        dict_results = [result.to_dict() for result in db_data]
+        self.showMsg("get local bots from DB::" + json.dumps(dict_results))
         if len(db_data) != 0:
-            self.showMsg("bot fetchall" + json.dumps(db_data))
             self.bots = []
             self.botModel.clear()
             for row in db_data:
-                self.showMsg("loading a bot: "+json.dumps(row))
+                self.showMsg("loading a bot: "+json.dumps(row.to_dict()))
                 new_bot = EBBOT(self)
                 new_bot.loadDBData(row)
                 new_bot.updateDisplay()
@@ -4392,14 +4364,14 @@ class MainWindow(QMainWindow):
 
 
     # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
-    def loadLocalMissions(self, db_data):
-        self.showMsg("get local missions from db::" + json.dumps(db_data))
+    def loadLocalMissions(self, db_data: [MissionModel]):
+        dict_results = [result.to_dict() for result in db_data]
+        self.showMsg("get local missions from db::" + json.dumps(dict_results))
         if len(db_data) != 0:
-            self.showMsg("mission fetchall"+json.dumps(db_data))
             self.missions = []
             self.missionModel.clear()
             for row in db_data:
-                self.showMsg("loading a mission: "+json.dumps(row))
+                self.showMsg("loading a mission: "+json.dumps(row.to_dict()))
                 new_mission = EBMISSION(self)
                 new_mission.loadDBData(row)
                 new_mission.setData(row)

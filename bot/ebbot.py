@@ -5,6 +5,8 @@ from datetime import datetime, date
 from bot.Logger import log3
 from PySide6.QtGui import QStandardItem, QIcon
 
+from globals.model import BotModel
+
 
 # Every bot has a run schedule which is specified in the following parameters
 # start time for the day, example: 7am pacific time.
@@ -22,6 +24,7 @@ class BOT_Schedule():
         self.start_time_uncertainty = 5
         self.num_retry = 3
         self.retry_wait_min = 1
+
 
 # Here are supported tasks and their attributes.
 # RANDOM_BROWSE, KW_SEARCH, CAT_SEARCH, BUY, RETURN, FEEDBACK
@@ -51,7 +54,6 @@ class BOT_SETTINGS():
 
         # self.
 
-
     def loadJson(self, dj):
         if "platform" in dj:
             self.platform = dj["platform"]
@@ -69,14 +71,13 @@ class BOT_SETTINGS():
 
     def genJson(self):
         jd = {
-                "platform": self.platform,
-                "os": self.os,
-                "machine": self.machine,
-                "browser": self.browser
-            }
-        log3("genJson:"+json.dumps(jd))
+            "platform": self.platform,
+            "os": self.os,
+            "machine": self.machine,
+            "browser": self.browser
+        }
+        log3("genJson:" + json.dumps(jd))
         return jd
-
 
 
 class BOT_PRIVATE_PROFILE():
@@ -109,24 +110,26 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrzip = ""
 
     def setFirstLastName(self, fn, ln):
-        self.name = fn+" "+ln
+        self.name = fn + " " + ln
         self.first_name = fn
         self.last_name = ln
 
     def setName(self, nm):
         self.name = nm
-        nm_words = nm.split()
-
-        if len(nm_words) >= 2:
-            self.first_name = nm_words[0]
-            self.last_name = nm_words[len(nm_words)-1]
-        elif len(nm_words) == 0:
+        if nm is None:
             self.first_name = ""
             self.last_name = ""
         else:
-            self.first_name = nm_words[0]
-            self.last_name = ""
-
+            nm_words = nm.split()
+            if len(nm_words) >= 2:
+                self.first_name = nm_words[0]
+                self.last_name = nm_words[len(nm_words) - 1]
+            elif len(nm_words) == 0:
+                self.first_name = ""
+                self.last_name = ""
+            else:
+                self.first_name = nm_words[0]
+                self.last_name = ""
 
     def setAddr(self, l1, l2, city, state, zip):
         self.addrl1 = l1
@@ -140,7 +143,6 @@ class BOT_PRIVATE_PROFILE():
 
     def setAddr1(self, addr):
         self.addr = addr
-
 
     def setShippingAddr(self, l1, l2, city, state, zip):
         self.shipping_addrl1 = l1
@@ -174,7 +176,7 @@ class BOT_PRIVATE_PROFILE():
         self.backup_email_site = site
 
     def setBirthday(self, bdtxt):
-        log3("SETTING BIRTHDAY:"+bdtxt)
+        log3("SETTING BIRTHDAY:" + bdtxt)
         self.privateProfile.birthday = bdtxt
         format = '%Y-%m-%d'
 
@@ -184,7 +186,6 @@ class BOT_PRIVATE_PROFILE():
     def getBirthday(self):
         return self.privateProfile.birthdaydt
 
-
     def setAcct(self, email, epw, phone, back_email, acct_pw, back_email_site):
         self.email = email
         self.email_pw = epw
@@ -192,7 +193,6 @@ class BOT_PRIVATE_PROFILE():
         self.backup_email = back_email
         self.backup_email_site = back_email_site
         self.acct_pw = acct_pw
-
 
     def loadJson(self, dj):
         self.first_name = dj["first_name"]
@@ -215,29 +215,28 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrstate = dj["shipaddrstate"]
         self.shipping_addrzip = dj["shipaddrzip"]
 
-
     def genJson(self):
         jd = {
-                "first_name": self.first_name,
-                "last_name": self.last_name,
-                "email": self.email,
-                "email_pw": self.email_pw,
-                "phone": self.phone,
-                "backup_email": self.backup_email,
-                "backup_email_site": self.backup_email_site,
-                "acct_pw": self.acct_pw,
-                "birthday": self.birthday,
-                "addrl1": self.addrl1,
-                "addrl2": self.addrl2,
-                "addrcity": self.addrcity,
-                "addrstate": self.addrstate,
-                "addrzip": self.addrzip,
-                "shipaddrl1": self.shipping_addrl1,
-                "shipaddrl2": self.shipping_addrl2,
-                "shipaddrcity": self.shipping_addrcity,
-                "shipaddrstate": self.shipping_addrstate,
-                "shipaddrzip": self.shipping_addrzip
-            }
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "email": self.email,
+            "email_pw": self.email_pw,
+            "phone": self.phone,
+            "backup_email": self.backup_email,
+            "backup_email_site": self.backup_email_site,
+            "acct_pw": self.acct_pw,
+            "birthday": self.birthday,
+            "addrl1": self.addrl1,
+            "addrl2": self.addrl2,
+            "addrcity": self.addrcity,
+            "addrstate": self.addrstate,
+            "addrzip": self.addrzip,
+            "shipaddrl1": self.shipping_addrl1,
+            "shipaddrl2": self.shipping_addrl2,
+            "shipaddrcity": self.shipping_addrcity,
+            "shipaddrstate": self.shipping_addrstate,
+            "shipaddrzip": self.shipping_addrzip
+        }
         return jd
 
 
@@ -274,21 +273,24 @@ class BOT_PUB_PROFILE():
     def setPseudoFirstLastName(self, pfn, pln):
         self.pseudo_first_name = pfn
         self.pseudo_last_name = pln
-        self.pseudo_name = pfn+" "+pln
-
+        self.pseudo_name = pfn + " " + pln
 
     def setPseudoName(self, pn):
-        name_words = pn.split()
-        log3("name_words"+str(len(name_words))+":"+json.dumps(name_words))
-        if len(name_words) >= 2:
-            self.pseudo_first_name = name_words[0]
-            self.pseudo_last_name = name_words[len(name_words)-1]
-        elif len(name_words) == 1:
-            self.pseudo_first_name = name_words[0]
-            self.pseudo_last_name = ""
-        else:
+        if pn is None:
             self.pseudo_first_name = ""
             self.pseudo_last_name = ""
+        else:
+            name_words = pn.split()
+            log3("name_words" + str(len(name_words)) + ":" + json.dumps(name_words))
+            if len(name_words) >= 2:
+                self.pseudo_first_name = name_words[0]
+                self.pseudo_last_name = name_words[len(name_words) - 1]
+            elif len(name_words) == 1:
+                self.pseudo_first_name = name_words[0]
+                self.pseudo_last_name = ""
+            else:
+                self.pseudo_first_name = ""
+                self.pseudo_last_name = ""
         self.pseudo_name = pn
 
     def setNickName(self, nn):
@@ -328,13 +330,14 @@ class BOT_PUB_PROFILE():
             self.pubbirthdaydt = datetime.strptime(pbbd, format)
 
             today = date.today()
-            self.age = today.year - self.pubbirthdaydt.year - ((today.month, today.day) < (self.pubbirthdaydt.month, self.pubbirthdaydt.day))
+            self.age = today.year - self.pubbirthdaydt.year - (
+                        (today.month, today.day) < (self.pubbirthdaydt.month, self.pubbirthdaydt.day))
         except ValueError:
             self.pubbirthday = "2000-01-01"
             self.pubbirthdaydt = datetime.strptime("2000-01-01", format)
             today = date.today()
             self.age = today.year - self.pubbirthdaydt.year - (
-                        (today.month, today.day) < (self.pubbirthdaydt.month, self.pubbirthdaydt.day))
+                    (today.month, today.day) < (self.pubbirthdaydt.month, self.pubbirthdaydt.day))
 
     def setPersonal(self, gender):
         self.gender = gender
@@ -372,20 +375,22 @@ class BOT_PUB_PROFILE():
 
     def genJson(self):
         jd = {
-                "pseudo_nick_name": self.nick_name,
-                "pseudo_name": self.pseudo_name,
-                "location": self.location,
-                "pubbirthday": self.pubbirthday,
-                "mf": self.gender,
-                "interests": self.interests,
-                "roles": self.roles,
-                "levels": self.levels,
-                "bid": self.bid,
-                "gender": self.gender,
-                "status": self.status
-            }
+            "pseudo_nick_name": self.nick_name,
+            "pseudo_name": self.pseudo_name,
+            "location": self.location,
+            "pubbirthday": self.pubbirthday,
+            "mf": self.gender,
+            "interests": self.interests,
+            "roles": self.roles,
+            "levels": self.levels,
+            "bid": self.bid,
+            "gender": self.gender,
+            "status": self.status
+        }
         return jd
-#Notes:
+
+
+# Notes:
 # Bot will never visit the user profile page will reveals critical account information.
 # review will be done manually, and the GUI should have a place for user to confirm review completion and record review date.
 # same thing with the purchase? BOT can put itmes into the shopping cart, but should never complete the buy action, instead
@@ -433,6 +438,7 @@ class CircularMessageQueue:
     def delete_messages(self, idx):
         self.queue.pop(idx)
 
+
 # a light weight twin of the EB_BOT
 class EBBOT_AGENT(QStandardItem):
     def __init__(self, parent):
@@ -460,9 +466,10 @@ class EBBOT_AGENT(QStandardItem):
     def deleteChat(self, msgTBD):
         msg_parts = msgTBD.split(">")
         sender = msg_parts[1]
-        #find the message index
+        # find the message index
         if str(sender) in self.chat_histories:
-            found_idx = next((i for i, msg in enumerate(self.chat_histories[str(sender)].get_messages()) if msg == msgTBD), -1)
+            found_idx = next(
+                (i for i, msg in enumerate(self.chat_histories[str(sender)].get_messages()) if msg == msgTBD), -1)
             self.chat_histories[sender].delete_messages(found_idx)
 
     def getChat(self, sender):
@@ -481,23 +488,25 @@ class EBBOT(QStandardItem):
 
         self.ebType = "AMZ"
         if len(self.getFn()) > 1:
-            self.icon_text = 'bot' + str(self.getBid())+":"+self.getFn()[:1]+" "+self.getLn() + ":" + self.getLocation()
+            self.icon_text = 'bot' + str(self.getBid()) + ":" + self.getFn()[
+                                                                :1] + " " + self.getLn() + ":" + self.getLocation()
             self.setText(self.icon_text)
         else:
-            self.icon_text ='bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
+            self.icon_text = 'bot' + str(
+                self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
             self.setText(self.icon_text)
         self.setFont(parent.std_item_font)
         # self.icon = QIcon(parent.bot_icon_path)
         self.setIcon(QIcon(parent.file_resouce.bot_icon_path))
 
         self.seller_inventories = []
-        self.msg_queue = asyncio.Queue()            #this is the messaging queue for the bot.
+        self.msg_queue = asyncio.Queue()  # this is the messaging queue for the bot.
 
     def getMsgQ(self):
         return self.msg_queue
 
     def setEmail(self, em):
-            self.privateProfile.email = em
+        self.privateProfile.email = em
 
     def setBotIcon(self, icon):
         self.icon = icon
@@ -572,10 +581,10 @@ class EBBOT(QStandardItem):
 
     def getAddrShippingAddrSame(self):
         if self.privateProfile.shipping_addrzip == self.privateProfile.addrzip and \
-            self.privateProfile.shipping_addrstate == self.privateProfile.addrstate and \
-            self.privateProfile.shipping_addrcity == self.privateProfile.addrcity and \
-            self.privateProfile.shipping_addrl2 == self.privateProfile.addrl2 and \
-            self.privateProfile.shipping_addrl1 == self.privateProfile.addrl1:
+                self.privateProfile.shipping_addrstate == self.privateProfile.addrstate and \
+                self.privateProfile.shipping_addrcity == self.privateProfile.addrcity and \
+                self.privateProfile.shipping_addrl2 == self.privateProfile.addrl2 and \
+                self.privateProfile.shipping_addrl1 == self.privateProfile.addrl1:
             return True
         else:
             return False
@@ -657,9 +666,11 @@ class EBBOT(QStandardItem):
     def setBid(self, bid):
         self.pubProfile.bid = bid
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
+            self.setText(
+                'bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
+            self.setText(
+                'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def setOwner(self, owner):
         self.pubProfile.owner = owner
@@ -673,63 +684,67 @@ class EBBOT(QStandardItem):
     def setInterests(self, interests):
         self.pubProfile.setInterests(interests)
 
-
-
     # fill up data structure from json data.
     def loadJson(self, nbJson):
         self.pubProfile.loadJson(nbJson["pubProfile"])
         self.privateProfile.loadJson(nbJson["privateProfile"])
         self.settings.loadJson(nbJson["settings"])
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
+            self.setText(
+                'bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
+            self.setText(
+                'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
+            self.setText(
+                'bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
+            self.setText(
+                'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def genJson(self):
         # log3("generating Json..........>>>>")
         jsd = {
-                "pubProfile": self.pubProfile.genJson(),
-                "privateProfile": self.privateProfile.genJson(),
-                "settings": self.settings.genJson()
-                }
+            "pubProfile": self.pubProfile.genJson(),
+            "privateProfile": self.privateProfile.genJson(),
+            "settings": self.settings.genJson()
+        }
         # log3(json.dumps(jsd))
         return jsd
 
     def updateDisplay(self):
         if len(self.getFn()) > 1:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
+            self.setText(
+                'bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
         else:
-            self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
+            self.setText(
+                'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
-    def loadDBData(self, dbd):
-        self.pubProfile.setBid(dbd[0])
-        self.pubProfile.setOwner(dbd[1])
-        self.pubProfile.setLevels(dbd[2])
-        self.pubProfile.setGender(dbd[3])
-        self.pubProfile.setPubBirthday(dbd[4])
-        self.pubProfile.setInterests(dbd[5])
-        self.pubProfile.setLoc(dbd[6])
-        self.pubProfile.setRoles(dbd[7])
-        self.pubProfile.setStatus(dbd[8])
-        self.pubProfile.setDelDate(dbd[9])
-        self.privateProfile.setName(dbd[10])
-        self.pubProfile.setPseudoName(dbd[11])
-        self.pubProfile.setNickName(dbd[12])
-        self.privateProfile.setAddr1(dbd[13])
-        self.privateProfile.setShippingAddr1(dbd[14])
-        self.privateProfile.setPhone(dbd[15])
-        self.privateProfile.setEmail(dbd[16])
-        self.privateProfile.setEPW(dbd[17])
-        self.privateProfile.setBackEmail(dbd[18])
-        self.privateProfile.setEBPW(dbd[19])
-        self.privateProfile.setBackEmailSite(dbd[20])
+    def loadDBData(self, dbd: BotModel):
+        self.pubProfile.setBid(dbd.botid)
+        self.pubProfile.setOwner(dbd.owner)
+        self.pubProfile.setLevels(dbd.levels)
+        self.pubProfile.setGender(dbd.gender)
+        self.pubProfile.setPubBirthday(dbd.birthday)
+        self.pubProfile.setInterests(dbd.interests)
+        self.pubProfile.setLoc(dbd.location)
+        self.pubProfile.setRoles(dbd.roles)
+        self.pubProfile.setStatus(dbd.status)
+        self.pubProfile.setDelDate(dbd.delDate)
+        self.privateProfile.setName(dbd.name)
+        self.pubProfile.setPseudoName(dbd.pseudoname)
+        self.pubProfile.setNickName(dbd.nickname)
+        self.privateProfile.setAddr1(dbd.addr)
+        self.privateProfile.setShippingAddr1(dbd.shipaddr)
+        self.privateProfile.setPhone(dbd.phone)
+        self.privateProfile.setEmail(dbd.email)
+        self.privateProfile.setEPW(dbd.epw)
+        self.privateProfile.setBackEmail(dbd.backemail)
+        self.privateProfile.setEBPW(dbd.ebpw)
+        self.privateProfile.setBackEmailSite(dbd.backemail_site)
         self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def loadXlsxData(self, jd):
@@ -738,12 +753,12 @@ class EBBOT(QStandardItem):
         self.pubProfile.setGender(jd["Gender"])
         self.pubProfile.setPubBirthday(jd["DoB"])
         self.pubProfile.setInterests(jd["Interests"])
-        self.pubProfile.setLoc(jd["Proxy City"]+","+jd["State"])
+        self.pubProfile.setLoc(jd["Proxy City"] + "," + jd["State"])
         self.pubProfile.setRoles(jd["Roles"])
         self.pubProfile.setStatus("")
         self.pubProfile.setDelDate("2121-01-01")
-        self.privateProfile.setName(jd["New First Name"]+" "+jd["Last Name"])
-        self.pubProfile.setPseudoName(jd["PseudoFN"]+" "+jd["PseudoLN"])
+        self.privateProfile.setName(jd["New First Name"] + " " + jd["Last Name"])
+        self.pubProfile.setPseudoName(jd["PseudoFN"] + " " + jd["PseudoLN"])
         self.pubProfile.setNickName("")
         self.privateProfile.setAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
         self.privateProfile.setShippingAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
