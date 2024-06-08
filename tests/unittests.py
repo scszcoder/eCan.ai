@@ -375,7 +375,25 @@ def test_api(parent, session, token):
     # send_completion_status_to_cloud(session, allTodoReports, token)
 
 
-    qs = [{"msgID": "1", "user": "john", "timeStamp": "2024-04-09T12:00:00.000Z", "product": "resistance band", "goals": "customer service", "background": "", "msg_thread": "hi, do you sell fabric type?"}]
+    # // { "pass_method": "", "total_score": 0, "passing_score": 0, goals":[{"name": "xxx", "type": "xxx", "mandatory": true/false, "score": "", "standards": number/set of string, "weight": 1, passed": true/false}....]
+    goals_json = {
+        "pass_method": "all mandatory",
+        "total_score": 0,
+        "passed": False,
+        "goals": [
+            {
+                "name": "test",
+                "type": "echo",
+                "mandatory": True,
+                "score": 0,
+                "standards": [],
+                "weight": 1,
+                "passed": False
+            }
+        ]
+    }
+    goals_string = json.dumps(goals_json).replace('"', '\\"')
+    qs = [{"msgID": "1", "user": "john", "timeStamp": "2024-04-09T12:00:00.000Z", "products": "", "goals": goals_string, "background": "", "msg": "hi, do you sell fabric type?"}]
     result = send_query_chat_request_to_cloud(session, token, qs)
     print("send_query_chat_request_to_cloud RESULT:", result)
 
