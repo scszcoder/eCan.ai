@@ -9,6 +9,7 @@ from bot.Logger import log3
 import tzlocal
 
 from bot.readSkill import runAllSteps
+from globals.model import MissionModel
 
 TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
@@ -671,7 +672,7 @@ class EBMISSION(QStandardItem):
 
     def setResult(self, result):
         self.privateAttributes.result = result
-        if result != "" and result != "{}":
+        if result is not None and result != "" and result != "{}":
             resultJson = json.loads(result)
 
             if "order_id" in resultJson:
@@ -853,46 +854,46 @@ class EBMISSION(QStandardItem):
         # self.parent_settings["uid"] = jd["parent_settings"]["uid"]
 
     # load data from a row in sqlite DB.
-    def loadDBData(self, dbd):
-        self.setMid(dbd[0])
-        self.setTicket(dbd[1])
-        self.setBid(dbd[2])
-        self.setOwner(dbd[3])
-        self.setStatus(dbd[4])
-        self.setBD(dbd[5])
-        self.setEsd(dbd[6])
-        self.setEcd(dbd[7])
-        self.setAsd(dbd[8])
-        self.setAbd(dbd[9])
-        self.setAad(dbd[10])
-        self.setAfd(dbd[11])
-        self.setAcd(dbd[12])
-        self.setActualStartTime(dbd[13])
-        self.setEstimatedStartTime(dbd[14])
-        self.setActualRunTime(dbd[15])
-        self.setEstimatedRunTime(dbd[16])
-        self.setNRetries((dbd[16]))
-        self.setCusPAS(dbd[17])
-        self.setSearchCat(dbd[18])
-        self.setSearchKW(dbd[19])
-        self.setPseudoStore(dbd[20])
-        self.setPseudoBrand(dbd[21])
-        self.setPseudoASIN(dbd[22])
-        self.setMtype(dbd[23])
-        self.setConfig(dbd[24])
-        self.setSkills(dbd[25])
-        self.setDelDate(dbd[26])
-        self.setASIN(dbd[27])
-        self.setStore(dbd[28])
-        self.setBrand(dbd[29])
-        self.setImagePath(dbd[30])
-        self.setTitle(dbd[31])
-        self.setRating(dbd[32])
-        self.setFeedbacks(dbd[33])
-        self.setPrice(dbd[34])
-        self.setCustomerID(dbd[35])
-        self.setPlatoon(dbd[36])
-        self.setResult(dbd[37])
+    def loadDBData(self, dbd: MissionModel):
+        self.setMid(dbd.mid)
+        self.setTicket(dbd.ticket)
+        self.setBid(dbd.botid)
+        self.setOwner(dbd.owner)
+        self.setStatus(dbd.status)
+        self.setBD(dbd.createon)
+        self.setEsd(dbd.esd)
+        self.setEcd(dbd.ecd)
+        self.setAsd(dbd.asd)
+        self.setAbd(dbd.abd)
+        self.setAad(dbd.aad)
+        self.setAfd(dbd.afd)
+        self.setAcd(dbd.acd)
+        self.setActualStartTime(dbd.actual_start_time)
+        self.setEstimatedStartTime(dbd.est_start_time)
+        self.setActualRunTime(dbd.actual_runtime)
+        self.setEstimatedRunTime(dbd.est_runtime)
+        self.setNRetries(dbd.n_retries)
+        self.setCusPAS(dbd.cuspas)
+        self.setSearchCat(dbd.category)
+        self.setSearchKW(dbd.phrase)
+        self.setPseudoStore(dbd.pseudoStore)
+        self.setPseudoBrand(dbd.pseudoBrand)
+        self.setPseudoASIN(dbd.pseudoASIN)
+        self.setMtype(dbd.type)
+        self.setConfig(dbd.config)
+        self.setSkills(dbd.skills)
+        self.setDelDate(dbd.delDate)
+        self.setASIN(dbd.asin)
+        self.setStore(dbd.store)
+        self.setBrand(dbd.brand)
+        self.setImagePath(dbd.img)
+        self.setTitle(dbd.title)
+        self.setRating(dbd.rating)
+        self.setFeedbacks(dbd.feedbacks)
+        self.setPrice(dbd.price)
+        self.setCustomerID(dbd.customer)
+        self.setPlatoon(dbd.platoon)
+        self.setResult(dbd.result)
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadXlsxData(self, jd):
