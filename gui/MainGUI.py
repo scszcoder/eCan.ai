@@ -58,6 +58,7 @@ from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFi
     runAllSteps
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
+from tests.unittests import *
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -1329,7 +1330,7 @@ class MainWindow(QMainWindow):
         # test_sqlite3(self)
         # test_misc()
         # test_scrape_amz_prod_list()
-        # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
         # run_genSchedules_test_case(self, self.session, self.tokens['AuthenticationResult']['IdToken'], 1)
         # test_run_mission(self)
 
