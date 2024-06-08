@@ -39,6 +39,13 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "ok",
+                        "anchor_type"  : "text",
+                        "template"     : "OK",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "export_icon",
                         "anchor_type"  : "icon",
                         "template"     : "export0.png",
@@ -48,7 +55,7 @@
                     {
                         "anchor_name"  : "export_selected",
                         "anchor_type"  : "text",
-                        "template"     : "Export selected",
+                        "template"     : "Export",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -63,6 +70,13 @@
                         "anchor_name"  : "checkbox",
                         "anchor_type"  : "icon",
                         "template"     : "checkbox0.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "checked",
+                        "anchor_type"  : "icon",
+                        "template"     : "checked0.png",
                         "ref_method"   : "1",
                         "ref_location" : [
                             {
@@ -250,6 +264,69 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "tags",
+                        "anchor_type"  : "text",
+                        "template"     : "Tags",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "url_open",
+                        "anchor_type"  : "text",
+                        "template"     : "URL to open",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "txt_extension",
+                        "anchor_type"  : "text",
+                        "template"     : ".txt",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "profile_info",
+                        "anchor_type"  : "text",
+                        "template"     : "Profile information",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "proxy",
+                        "anchor_type"  : "text",
+                        "template"     : "Proxy",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "region",
+                        "anchor_type"  : "text",
+                        "template"     : "Region",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "city",
+                        "anchor_type"  : "text",
+                        "template"     : "City",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "fingerprints",
+                        "anchor_type"  : "text",
+                        "template"     : "fingerprints",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "screen_resolution",
+                        "anchor_type"  : "text",
+                        "template"     : "Screen_Resolution",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "other",
                         "anchor_type"  : "text",
                         "template"     : "other",
@@ -416,6 +493,20 @@
             "popup" : {
                 "anchors": [
                     {
+                        "anchor_name"  : "close",
+                        "anchor_type"  : "text",
+                        "template"     : "Close",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "wait",
+                        "anchor_type"  : "text",
+                        "template"     : "Wait",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "close_button",
                         "anchor_type"  : "icon",
                         "template"     : "ads_close.png",
@@ -503,6 +594,13 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "top_search",
+                        "anchor_type"  : "icon",
+                        "template"     : "main_search.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "your_account",
                         "anchor_type"  : "text",
                         "template"     : "Your Account",
@@ -534,6 +632,457 @@
                 "info": [
                 ]
             }
+	    }
+	},
+    {
+        "product_list": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "department",
+                        "anchor_type"  : "text",
+                        "template"     : "Department",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "free_delivery",
+                        "anchor_type"  : "text",
+                        "template"     : "FREE delivery",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                ]
+            }
+	    }
+	},
+    {
+        "product_list": {
+            "body" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "full_star",
+                        "anchor_type"  : "icon",
+                        "template"     : "full_star.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "amazon_choice",
+                        "anchor_type"  : "text",
+                        "template"     : "Amazon\\'s Choice",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "overall_pick",
+                        "anchor_type"  : "text",
+                        "template"     : "Overall Pick",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "highly_rated",
+                        "anchor_type"  : "text",
+                        "template"     : "HIGHLY RATED",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "best_seller",
+                        "anchor_type"  : "text",
+                        "template"     : "Best Seller",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "sponsored",
+                        "anchor_type"  : "text",
+                        "template"     : "Sponsored",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "dollar_sign",
+                        "anchor_type"  : "text",
+                        "template"     : "$",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "free_shipping",
+                        "anchor_type"  : "text",
+                        "template"     : "FREE Shipping",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "free_delivery",
+                        "anchor_type"  : "text",
+                        "template"     : "FREE delivery",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "free_delivery",
+                        "anchor_type"  : "text",
+                        "template"     : "FREE delivery",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "product_left_edge",
+                        "anchor_type"  : "v_line",
+                        "template"     : "",                     
+                        "ref_method"   : "1",
+                        "ref_location" : {
+                            "x_dir": "nearest",
+                            "x_type":  "signed",
+                            "x_value":  "-1",
+                            "x_unit" : "pix",
+                            "y_dir": "within",
+                            "y_type":  "signed percent",
+                            "y_value":  "-90",
+                            "y_unit" : "img height",
+                            "refs" : ["free_shipping"]
+                        }
+                    },
+                    {
+                        "anchor_name"  : "product_right_edge",
+                        "anchor_type"  : "v_line",
+                        "template"     : "", 
+                        "ref_method"   : "1",
+                        "ref_location" : {
+                            "x_dir": "nearest",
+                            "x_type":  "signed",
+                            "x_value":  "1",
+                            "x_unit" : "pix",
+                            "y_dir": "within",
+                            "y_type":  "signed percent",
+                            "y_value":  "-90",
+                            "y_unit" : "img height",
+                            "refs" : ["free_shipping"]
+                        }
+                    },
+                    {
+                        "anchor_name"  : "with_coupon",
+                        "anchor_type"  : "text",
+                        "template"     : "with coupon",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "save",
+                        "anchor_type"  : "text",
+                        "template"     : "Save",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "limited",
+                        "anchor_type"  : "text",
+                        "template"     : "Limited time deal",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "previous",
+                        "anchor_type"  : "text",
+                        "template"     : "Previous",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "next",
+                        "anchor_type"  : "text",
+                        "template"     : "Next",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "end_of_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Back to top",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                ]
+            }
+	    }
+	},
+    {
+        "product_list": {
+            "bottom" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "previous",
+                        "anchor_type"  : "text",
+                        "template"     : "Previous",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "next",
+                        "anchor_type"  : "text",
+                        "template"     : "Next",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "end_of_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Back to top",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [ 
+
+                ]
+            }
+	    }
+	},
+    {
+        "product_details": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "main_bottom",
+                        "anchor_type"  : "text",
+                        "template"     : "Back to top",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "asin",
+                        "anchor_type"  : "text",
+                        "template"     : "ASIN",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "start_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "Top reviews from the United States",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "product_details",
+                        "anchor_type"  : "text",
+                        "template"     : "Product details",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "back_pointer",
+                        "anchor_type"  : "text",
+                        "template"     : "Back to results",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "review_helpful",
+                        "anchor_type"  : "text",
+                        "template"     : "found this helpful",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "next_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Next page",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "previous_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Previous page",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "report_abuse",
+                        "anchor_type"  : "text",
+                        "template"     : "Report abuse",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "all_positive_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "All positive reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "all_critical_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "All critical reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "main_image",
+                        "anchor_type"  : "text",
+                        "template"     : "Roll over image to zoom in",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "product_information",
+                        "anchor_type"  : "text",
+                        "template"     : "Product information",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "see_all_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "See all reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "see_more_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "See more reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "product_description",
+                        "anchor_type"  : "text",
+                        "template"     : "Product Description",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "read_more",
+                        "anchor_type"  : "text",
+                        "template"     : "Read more",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "read_less",
+                        "anchor_type"  : "text",
+                        "template"     : "Read less",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "buy_now",
+                        "anchor_type"  : "text",
+                        "template"     : "Buy Now",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "add_to_cart",
+                        "anchor_type"  : "text",
+                        "template"     : "Add to Cart",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "about_this_item",
+                        "anchor_type"  : "text",
+                        "template"     : "About this item",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "customer_qa",
+                        "anchor_type"  : "text",
+                        "template"     : "Customer questions & answers",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                    {
+                        "info_name"  : "asin_info",
+                        "info_type"  : "closest 1 lines",
+                        "template"     : "",
+                        "ref_method"   : "2",
+                        "refs" : [
+                            {
+                                "dir": "right",
+                                "ref": "asin",
+                                "offset": 8,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    }
+                ]
+            }
+
+	    }
+	}, 
+    {
+        "all_reviews": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "back_pointer",
+                        "anchor_type"  : "text",
+                        "template"     : "Back to results",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "next_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Next page",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "previous_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Previous page",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "reviewd_in",
+                        "anchor_type"  : "text",
+                        "template"     : "Reviewd in",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "all_positive_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "All positive reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "all_critical_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "All critical reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "see_all_details",
+                        "anchor_type"  : "text",
+                        "template"     : "See all details",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                ]
+            }
+
 	    }
 	}
 ]
