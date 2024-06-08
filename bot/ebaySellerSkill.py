@@ -853,11 +853,81 @@ def genWinChromeEbayHandleMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_chrome_ebay_orders/handle_messages", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepLoop("n_message_needs_process != n_message_processed", "", "", "browseEtsyOL" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # obtain response from LLM model, sends to cloud lambda
+    this_step, step_words = genStepGenRespMsg("openai", "chatgpt4o", "parameters", "products", "setup", "query", "response", "chat_result", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("chat_result", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # type in the response.
+    this_step, step_words = genStepTextInput("var", False, "response_text", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    # click on the send button.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "send", "anchor text", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_message_processed\nn_message_processed = n_message_processed+1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("response_action == 'resend'", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepStub("end skill", "public/win_chrome_ebay_orders/handle_messages", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
     log3("DEBUG", "generated skill for windows chrome ebay handle messages...." + psk_words)
+
+    return this_step, psk_words
+
+# input: a list of items to be returned: item, quantity, size weight, sender.
+def genStepCreateReturnLabels(stepN):
+    psk_words = "{"
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
+
+    return this_step, psk_words
+
+# input: a list of items to be resend: item, quantity, size weight, recipient.
+def genStepCreateResends(stepN):
+    psk_words = "{"
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
+
+    return this_step, psk_words
+
+# input: a list of orders to be refunded: order id, amount to refund (%), amount to refund (value), pre-condition (return received?), when?.
+def genStepHandleRefunds(stepN):
+    psk_words = "{"
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
 
     return this_step, psk_words
 
