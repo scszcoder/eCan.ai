@@ -160,6 +160,7 @@ RAIS = {
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
+    "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
@@ -241,6 +242,7 @@ ARAIS = {
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
+    "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
@@ -518,7 +520,7 @@ async def run1step8(steps, si, mission, skill, stack):
             else:
                 si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Obtain Reviews" or step["type"] == "Ask LLM":
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)
             else:
