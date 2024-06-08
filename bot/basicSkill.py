@@ -454,6 +454,16 @@ def genStepDeleteFile(filename, nametype, result_var, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepObtainReviews(product, instructions, review, result_var, stepN):
+    stepjson = {
+        "type": "Obtain Reviews",
+        "product": product,
+        "instructions": instructions,
+        "review": review,
+        "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 def genStep7z(action, var_type, exe_var, in_var, out_path, out_var, result, stepN):
@@ -2873,6 +2883,26 @@ def processDeleteFile(step, i):
     return (i + 1), ex_stat
 
 
+def processObtainReviews(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+
+    review_request = [{"product": symTab[step["product"]], "instructions": symTab[step["instructions"]]}]
+    try:
+        settings = mission.parent_settings
+        resp = req_cloud_obtain_review(settings["session"], review_request, settings["token"])
+        symTab[step["review"]]
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorObtainReview:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorObtainReview: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
 
 # run 7z for the zip and unzip.
 def process7z(step, i):
@@ -3170,7 +3200,10 @@ def processSearchScroll(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
-        anchor = step["anchor"]
+        if isinstance(step["anchor"], list):
+            anchors = step["anchor"]
+        else:
+            anchors = [step["anchor"]]
         at_loc_top = int(step["at_loc"][0])/100
         at_loc_bottom = int(step["at_loc"][1]) / 100
         target_loc = int(step["target_loc"])/100
@@ -3184,10 +3217,10 @@ def processSearchScroll(step, i):
         log3(" target_loc_V: "+str(target_loc_v)+"at_loc_top_v: "+str(at_loc_top_v)+"at_loc_bottom_v: "+str(at_loc_bottom_v))
 
         # find all images matches the name and above the at_loc
-        log3("finding....:"+json.dumps(anchor))
-        anyancs = [element for index, element in enumerate(scrn) if element["name"] == anchor]
+        log3("finding....:"+json.dumps(anchors))
+        anyancs = [element for index, element in enumerate(scrn) if element["name"] in anchors]
         log3("found any anchorss: "+json.dumps(anyancs))
-        ancs = [element for index, element in enumerate(scrn) if element["name"] == anchor and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
+        ancs = [element for index, element in enumerate(scrn) if element["name"] in anchors and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
         log3("found anchorss in bound: "+json.dumps(ancs))
         if len(ancs) > 0:
             # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
@@ -3223,7 +3256,7 @@ def processSearchScroll(step, i):
 # for grid based layout, it's be enough to do only 1 row, for row based layout, it could be multple rows captured.
 # target_anchor: to anchor to adjust postion to
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
-def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
+def genScrollDownUntil(target_anchor, tilpos, page, section, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
     log3("DEBUG", "gen_psk_for_scroll_down_until...")
@@ -3238,7 +3271,7 @@ def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
     # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "product_list", "body", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", page, section, theme, this_step, None)
     psk_words = psk_words + step_words
 
 

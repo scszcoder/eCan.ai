@@ -203,7 +203,7 @@ class MainWindow(QMainWindow):
 
         self.SM_PLATFORMS = ['WhatsApp','Messenger','Facebook','Instagram', 'Snap', 'Telegraph','Google','Line','Wechat','Tiktok','QQ', 'Custom']
         self.BUY_TYPES = ['buy', 'goodFB', 'badFB', 'goodRating', 'badRating']
-        self.SUB_BUY_TYPES = ['addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"]
+        self.SUB_BUY_TYPES = ['addCart', 'pay', 'addCartPay', "checkShipping", 'rate', 'feedback', "checkFB"]
         self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
         self.SUB_SELL_TYPES = []
         self.OP_TYPES = ['opProcure', 'opPromote', 'opAccount', 'opCustom']
@@ -1784,49 +1784,90 @@ class MainWindow(QMainWindow):
 
 
     # generate a buy associated browse-search configuration
-    def gen_new_buy_search(self, mission):
-        new_search = {
-			            "type": "browse",
-			            "site": mission.getSite(),
-	 		            "os": mission.getPlatform(),
-			            "app": mission.getApp(),
-			            "entry_paths": { "type": "Search", "words": [mission.getSearchKW()] },
-			            "top_menu_item": "",
-			            "prodlist_pages": [
-				            {
-					            "flow_type": "down,up,down",
-					            "products": [
-						            { "selType": "bs", "detailLvl": 2, "purchase": [] },
-						            { "selType": "cus", "detailLvl": 2, "purchase": [] }
-					            ]
-				            },
+    def gen_new_buy_search(self, work, mission):
+        # simply modify mission's search configuration to fit our need.
+        # we'll randomely pick one of the searches and modify its parameter.
+        nth_search = random.randrange(0, len(work["config"]["searches"]))
+        n_pages = len(work["config"]["searches"][nth_search]["prodlist_pages"])
+
+        work["config"]["searches"][nth_search]["entry_paths"]["type"] = "Search"
+        work["config"]["searches"][nth_search]["entry_paths"]["words"] = [mission.getSearchKW()]
+
+        # simply duplate the last prodlist_pages enough times to satisfy up to 5 pages requreiment
+        if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
+            last_page = work["config"]["searches"][nth_search]["prodlist_pages"][n_pages-1]
+            if n_pages < 5:  # we will browse up to 5 pages for a product purchase.
+                for i in range(5-n_pages):
+                    work["config"]["searches"][nth_search]["prodlist_pages"].append(copy.deepcopy(last_page))
+
+            # on each pages, add the target buy product onto the list.
+            for page in work["config"]["searches"][nth_search]["prodlist_pages"]:
+                if work["name"].split("_")[1] in ["addCart", "pay"]:
+                    target_buy = {
+                        "selType": "cus",   # this is key,
+                        "detailLvl": 3,
+                        "purchase": [{
+                                    "action": work["name"].split("_")[1],
+                                    "asin": mission.getASIN(),
+                                    "seller": mission.getStore(),
+                                    "brand": mission.getBrand(),
+                                    "img": mission.getImagePath(),
+                                    "title": mission.getTitle(),
+                                    "rating": mission.getRating(),
+                                    "feedbacks": mission.getFeedbacks(),
+                                    "price": mission.getPrice(),
+                                }]
+                    }
+
+                elif work["name"].split("_")[1] in ["addCartPay"]:
+                    target_buy = {
+                        "selType": "cus",  # this is key,
+                        "detailLvl": 3,
+                        "purchase": [
                             {
-                                "flow_type": "down,up,down",
-                                "products": [
-                                    { "selType": "mhr", "detailLvl": 2, "purchase": [] },
-                                    { "selType": "cus", "detailLvl": 2, "purchase": [] }
-                                ]
-                            },
-                            {
-                                "flow_type": "down,up,down",
-                                "products": [
-                                    { "selType": "mr", "detailLvl": 2, "purchase": [] },
-                                    { "selType": "cus", "detailLvl": 2, "purchase": [] }
-                                ]
+                                "action": "addCart",
+                                "asin": mission.getASIN(),
+                                "seller": mission.getStore(),
+                                "brand": mission.getBrand(),
+                                "img": mission.getImagePath(),
+                                "title": mission.getTitle(),
+                                "rating": mission.getRating(),
+                                "feedbacks": mission.getFeedbacks(),
+                                "price": mission.getPrice()
                             }
-			            ],
-			            "buy_cfg": {
-                            "asin": mission.getASIN(),
-                            "seller": mission.getStore(),
-                            "brand": mission.getBrand(),
-                            "img": mission.getImagePath(),
-                            "title": mission.getTitle(),
-                            "rating": mission.getRating(),
-                            "feedbacks": mission.getFeedbacks(),
-                            "price": mission.getPrice(),
-                        }
-		            }
-        return new_search
+                        ]
+                    }
+                page["products"].append(target_buy)
+        elif work["name"].split("_")[1] in ["pay", "checkShipping", "rate", "feedback", "checkFB"]:
+            # in all other case, simply replace last st product of the 1st page.
+            first_page = work["config"]["searches"][nth_search]["prodlist_pages"][0]
+            first_page["products"][0] = target_buy = {
+                        "selType": "cus",  # this is key,
+                        "detailLvl": 0,
+                        "purchase": [
+                            {
+                                "action": work["name"].split("_")[1],
+                                "asin": mission.getASIN(),
+                                "seller": mission.getStore(),
+                                "brand": mission.getBrand(),
+                                "img": mission.getImagePath(),
+                                "title": mission.getTitle(),
+                                "rating": mission.getRating(),
+                                "feedbacks": mission.getFeedbacks(),
+                                "price": mission.getPrice(),
+                                "order_id": mission.getOrderID(),
+                                "feedback_rating": mission.getFeedbackRating(),
+                                "feedback_title": mission.getFeedbackTitle(),
+                                "feedback_text": mission.getFeedbackText(),
+                                "feedback_image": mission.getFeedbackImgLink(),
+                                "feedback_video": mission.getFeedbackVideoLink(),
+                                "feedback_instructions": mission.getFeedbackInstructions()
+                            }
+                        ]
+                    }
+
+        log3("Modified Buy Work:"+json.dumps(work))
+
 
     def gen_prod_sel(self):
         idx = math.floor(random.random() * (len(self.PRODUCT_SEL_TYPES.length) - 1));
@@ -1877,22 +1918,23 @@ class MainWindow(QMainWindow):
     # task name will be mainType_subType for example buy_addCart or goodFB_pay
     # main types will be: "buy", "goodFB", "badFB", "goodRating", "badRating"
     # sub types will be: 'addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"
+    # 06-07-2024 actually not add, but again replace the configuration, otherwise, time will be wasted...
     def add_buy_searchs(self, p_task_groups):
         print("add buy to taskgroup:", p_task_groups)
 
         #1st find all 1st stage buy missions.
         self.showMsg("task name:" + json.dumps([tsk["name"]  for tsk in p_task_groups]))
         buys = [tsk for tsk in p_task_groups if (tsk["name"].split("_")[0] in self.BUY_TYPES)]
-        initial_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] in ['addCart', 'pay']))]
-        later_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] not in ['addCart', 'pay']))]
+        initial_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] in ['addCart', 'pay', 'addCartPay']))]
+        later_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] not in ['addCart', 'pay', 'addCartPay']))]
         print(len(buys), len(initial_buys), len(later_buys))
-        for buytask in initial_buys:
+        for buytask in buys:
             # make sure we do search before buy
             midx = next( (i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
             if midx >= 0:
                 task_mission = self.missions[midx]
                 original_buy = self.find_original_buy(task_mission)
-
+                # first, fill the mission with original buy's private attributes for convenience.
                 task_mission.setASIN(original_buy.getASIN())
                 task_mission.setTitle(original_buy.getTitle())
                 task_mission.setStore(original_buy.getStore())
@@ -1903,43 +1945,8 @@ class MainWindow(QMainWindow):
                 task_mission.setPrice(original_buy.getPrice())
                 task_mission.setResult(original_buy.getResult())
 
-                new_search = self.gen_new_buy_search(original_buy)
-            else:
-                new_search = {}
-            buytask["config"]["searches"].append(new_search)
+                self.gen_new_buy_search(buytask, task_mission)
 
-        for buytask in later_buys:
-            midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
-            if midx >= 0:
-                task_mission = self.missions[midx]
-                original_buy = self.find_original_buy(task_mission)
-
-                task_mission.setASIN(original_buy.getASIN())
-                task_mission.setTitle(original_buy.getTitle())
-                task_mission.setStore(original_buy.getStore())
-                task_mission.setBrand(original_buy.getBrand())
-                task_mission.setImagePath(original_buy.getImagePath())
-                task_mission.setRating(original_buy.getRating())
-                task_mission.setFeedbacks(original_buy.getFeedbacks())
-                task_mission.setPrice(original_buy.getPrice())
-                task_mission.setResult(original_buy.getResult())
-
-                mission_result = json.loads(original_buy.getResult())
-                # make sure we provided necessary info for completing the taskl
-                if buytask["name"].split("_")[1] in ["checkShipping", "rate", "checkFB"]:
-                    buytask["config"]["order_id"] = mission_result["order_id"]
-                elif buytask["name"].split("_")[1] == "feedback":
-                    buytask["config"]["order_id"] = mission_result["order_id"]
-                    buytask["config"]["feedback_img_file"] = mission_result["feedback_img_file"]
-                    buytask["config"]["feedback_video_file"] = mission_result["feedback_video_file"]
-                    buytask["config"]["feedback_text"] = mission_result["feedback_text"]
-                    if buytask["config"]["feedback_text"] == "":
-                        if "bad" in buytask["name"].split("_")[0]:
-                            buytask["config"]["feedback_text"] = self.obtain_feedback_text("bad", original_buy.getTitle())
-                        else:
-                            buytask["config"]["feedback_text"] = self.obtain_feedback_text("good", original_buy.getTitle())
-            else:
-                buytask["config"]["order_id"] = ""
 
 
     # assign per vehicle task group work, if this commander runs, assign works for commander,
