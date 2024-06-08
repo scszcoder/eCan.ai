@@ -252,6 +252,38 @@ def gen_screen_read_request_string(query):
     logger_helper.debug(query_string)
     return query_string
 
+
+def gen_obtain_review_request_string(query):
+    log3("in query:" + json.dumps(query))
+    query_string = """
+            query MyQuery {
+          getFB (fb_reqs:[
+        """
+    rec_string = ""
+    for i in range(len(query)):
+        # rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ number: 1, "
+        rec_string = rec_string + "product: " + str(int(query[i]["product"])) + ", "
+        rec_string = rec_string + "orderID: \"\", "
+        rec_string = rec_string + "payType: \"\", "
+        rec_string = rec_string + "total: \"\", "
+        rec_string = rec_string + "transactionID: \"\", "
+        rec_string = rec_string + "customerMail: \"\", "
+        rec_string = rec_string + "customerPhone: \"\", "
+        rec_string = rec_string + "instructions: \"" + query[i]["instructions"] + "\", "
+        rec_string = rec_string + "origin:  \"" + str(query[i]["origin"]) + "\"" + " }"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+        ]) 
+        }"""
+    query_string = query_string + rec_string + tail_string
+    log3(query_string)
+    return query_string
+
+
 # reqTrain(input: [Skill]!): AWSJSON!
 def gen_train_request_string(query):
     query_string = """
@@ -950,6 +982,22 @@ async def req_cloud_read_screen8(session, request, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqScreenTxtRead"])
+
+    return jresponse
+
+
+def req_cloud_obtain_review(session, request, token):
+
+    query = gen_obtain_review_request_string(request)
+
+    jresp = appsync_http_request(query, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["getFB"])
 
     return jresponse
 

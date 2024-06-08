@@ -61,7 +61,10 @@ class M_Private_Attributes():
         self.result = ""
         self.feedback_img_link = ""
         self.feedback_video_link = ""
+        self.feedback_instructions = ""
+        self.feedback_title = ""
         self.feedback_text = ""
+        self.feedback_rating = ""
         self.order_id = ""
 
 
@@ -102,6 +105,14 @@ class M_Private_Attributes():
         self.feedbacks = dj["feedbacks"]
         self.result = dj["result"]
 
+        self.feedback_img_link = dj["feedback_img_link"]
+        self.feedback_video_link = dj["feedback_video_link"]
+        self.feedback_instructions = dj["feedback_instructions"]
+        self.feedback_title = dj["feedback_title"]
+        self.feedback_text = dj["feedback_text"]
+        self.feedback_rating = dj["feedback_rating"]
+        self.order_id = dj["order_id"]
+
     def genJson(self):
         jd = {
                 "item_number": self.item_number,
@@ -111,7 +122,13 @@ class M_Private_Attributes():
                 "price": self.price,
                 "rank": self.rank,
                 "feedbacks": self.feedbacks,
-                "result": self.result
+                "result": self.result,
+                "feedback_img_link": self.feedback_img_link,
+                "feedback_video_link": self.feedback_video_link,
+                "feedback_instructions": self.feedback_instructions,
+                "feedback_text": self.feedback_text,
+                "feedback_rating": self.feedback_rating,
+                "order_id": self.order_id
             }
         return jd
 
@@ -669,6 +686,15 @@ class EBMISSION(QStandardItem):
 
     def getFeedbackText(self):
         return self.privateAttributes.feedback_text
+
+    def getFeedbackTitle(self):
+        return self.privateAttributes.feedback_title
+
+    def getFeedbackRating(self):
+        return self.privateAttributes.feedback_rating
+
+    def getFeedbackInstructions(self):
+        return self.privateAttributes.feedback_instructions
 
     def setResult(self, result):
         self.privateAttributes.result = result
