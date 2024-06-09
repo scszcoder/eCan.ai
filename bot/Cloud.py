@@ -917,9 +917,7 @@ def gen_feedback_request_string(fbReq):
     return query_string
 
 def set_up_cloud():
-    REGION = 'us-east-1'
     this_session = requests.Session()
-
     return this_session
 
 
