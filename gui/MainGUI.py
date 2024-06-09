@@ -1,14 +1,9 @@
 import asyncio
 import base64
 import copy
-import json
 import math
 import random
-import re
-import sqlite3
-import subprocess
 import sys
-import time
 import traceback
 import webbrowser
 from _csv import reader
@@ -23,15 +18,19 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 import importlib
 import importlib.util
 
+from globals.bot_service import BotService
+from globals.mission_service import MissionService
+from globals.model import BotModel, MissionModel
+from globals.product_service import ProductService
+from globals.skill_service import SkillService
 from tests.TestAll import Tester
 
-from ChatGUIV2 import ChatDialog
 from gui.BotGUI import BotNewWin
 from gui.ChatGui import ChatWin
 from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud, send_query_missions_request_to_cloud, send_query_bots_request_to_cloud
+    send_get_bots_request_to_cloud
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from bot.Logger import log3
 from gui.LoggerGUI import CommanderLogWin
@@ -43,24 +42,22 @@ from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle
 from bot.basicSkill import STEP_GAP
-from bot.ebbot import EBBOT
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
 from bot.lzstring import LZString
 import os
 import openpyxl
-from datetime import datetime, date, timedelta
+from datetime import timedelta
 import platform
 from pynput.mouse import Controller
 
-from bot.missions import EBMISSION
 from bot.network import myname, fieldLinks
-from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, prepRunSkill, \
-    runAllSteps
+from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
-from tool.MainGUITool import FileResource, SqlProcessor
+from tool.MainGUITool import FileResource, StaticResource, init_sql_file
+from tool.MainGUITool import SqlProcessor
 from utils.logger_helper import logger_helper
 from tests.unittests import *
 import pandas as pd
@@ -173,13 +170,13 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
+    def __init__(self, parent, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
         super(MainWindow, self).__init__()
+        self.loginout_gui = parent
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
-
         self.gui_net_msg_queue = gui_msg_queue
         self.gui_rpa_msg_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
@@ -189,25 +186,7 @@ class MainWindow(QMainWindow):
         self.SELLER_INVENTORY_FILE = ecb_data_homepath + "/resource/inventory.json"
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
-
-        self.PLATFORMS = ['windows', 'mac', 'linux']
-        self.APPS = ['chrome', 'edge','firefox','ads','multilogin','safari','Custom']
-        self.SITES = ['Amazon','Etsy','Ebay','Temu','Shein','Walmart','Wayfair','Tiktok','Facebook','Google', 'AliExpress','Custom']
-        self.SITES_SH_DICT = {'Amazon': "amz",'Etsy': "etsy",'Ebay': "ebay",'Temu': "temu",'Shein': "shein",'Walmart': "walmart",'Wayfair': "wf",'Tiktok': "tiktok",'Facebook': "fb",'Google': "google", 'AliExpress': 'ali'}
-        self.SH_SITES_DICT = {'amz': "Amazon",'etsy': "Etsy",'ebay': "Ebay",'temu': "Temu",'shein': "Shein",'walmart': "Walmart",'wf': "Wayfair",'tiktok': "Tiktok",'fb': "Facebook",'google': "Google", 'ali': 'AliExpress'}
-        self.PLATFORMS_SH_DICT = {'windows': "win",'mac': "mac",'linux': "linux"}
-        self.SH_PLATFORMS_DICT = {'win': "windows",'mac': "mac",'linux': "linux" }
-
-        self.SM_PLATFORMS = ['WhatsApp','Messenger','Facebook','Instagram', 'Snap', 'Telegraph','Google','Line','Wechat','Tiktok','QQ', 'Custom']
-        self.BUY_TYPES = ['buy', 'goodFB', 'badFB', 'goodRating', 'badRating']
-        self.SUB_BUY_TYPES = ['addCart', 'pay', 'addCartPay', "checkShipping", 'rate', 'feedback', "checkFB"]
-        self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
-        self.SUB_SELL_TYPES = []
-        self.OP_TYPES = ['opProcure', 'opPromote', 'opAccount', 'opCustom']
-        self.SUB_OP_TYPES = []
-        self.STATUS_TYPES = ['Unassigned', 'Assigned', 'Incomplete', 'Completed']
-        self.BUY_STATUS_TYPES = ['Searched', 'InCart', 'Paid', 'Arrived', 'RatingDone', 'FBDone', 'RatingConfirmed', 'FBConfirmed']
-        self.PRODUCT_SEL_TYPES = ["ac", "op", "bs", "mr", "mhr", "cp", "cus"]
+        self.static_resource = StaticResource()
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
         self.tokens = inTokens
@@ -313,7 +292,11 @@ class MainWindow(QMainWindow):
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
         if self.machine_role != "Platoon":
-            self.sql_processor = SqlProcessor(self)
+            init_sql_file(self.dbfile)
+            self.bot_service = BotService(self)
+            self.mission_service = MissionService(self)
+            self.product_service = ProductService(self)
+            self.skill_service = SkillService(self)
 
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
@@ -669,9 +652,11 @@ class MainWindow(QMainWindow):
         self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
             # load skills into memory.
-            bots_data = self.sql_processor.find_all_bots()
+            self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
+            bots_data = self.bot_service.find_all_bots()
             self.loadLocalBots(bots_data)
-            missions_data = self.sql_processor.find_missions_by_createon()
+            self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
+            missions_data = self.mission_service.find_missions_by_createon()
             self.loadLocalMissions(missions_data)
             self.dailySkillsetUpdate()
 
@@ -751,9 +736,6 @@ class MainWindow(QMainWindow):
 
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
-        self.find_all_missions()
-        self.find_all_bots()
-
     async def run_async_tasks(self):
         self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
         await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task)
@@ -815,13 +797,13 @@ class MainWindow(QMainWindow):
         return self.homepath
 
     def getPLATFORMS(self):
-        return self.PLATFORMS
+        return self.static_resource.PLATFORMS
 
     def getAPPS(self):
-        return self.APPS
+        return self.static_resource.APPS
 
     def getSITES(self):
-        return self.SITES
+        return self.static_resource.SITES
 
     def getSMPLATFORMS(self):
         return self.SM_PLATFORMS
@@ -830,47 +812,47 @@ class MainWindow(QMainWindow):
         return self.BUY_TYPES
 
     def getSUBBUYTYPES(self):
-        return self.SUB_BUY_TYPES
+        return self.static_resource.SUB_BUY_TYPES
 
     def getSELLTYPES(self):
-        return self.SELL_TYPES
+        return self.static_resource.SELL_TYPES
 
     def getSUBSELLTYPES(self):
-        return self.SUB_SELL_TYPES
+        return self.static_resource.SUB_SELL_TYPES
 
     def getOPTYPES(self):
-        return self.OP_TYPES
+        return self.static_resource.OP_TYPES
 
     def getSUBOPTYPES(self):
-        return self.SUB_OP_TYPES
+        return self.static_resource.SUB_OP_TYPES
 
     def getSTATUSTYPES(self):
-        return self.STATUS_TYPES
+        return self.static_resource.STATUS_TYPES
 
     def getBUYSTATUSTYPES(self):
-        return self.BUY_STATUS_TYPES
+        return self.static_resource.BUY_STATUS_TYPES
 
     def translateSiteName(self, site_text):
-        if site_text in self.SITES_SH_DICT.keys():
-            return self.SITES_SH_DICT[site_text]
+        if site_text in self.static_resource.SITES_SH_DICT.keys():
+            return self.static_resource.SITES_SH_DICT[site_text]
         else:
             return site_text
 
     def translatePlatform(self, site_text):
-        if site_text in self.PLATFORMS_SH_DICT.keys():
-            return self.PLATFORMS_SH_DICT[site_text]
+        if site_text in self.static_resource.PLATFORMS_SH_DICT.keys():
+            return self.static_resource.PLATFORMS_SH_DICT[site_text]
         else:
             return site_text
 
     def translateShortSiteName(self, site_text):
-        if site_text in self.SH_SITES_DICT.keys():
-            return self.SH_SITES_DICT[site_text]
+        if site_text in self.static_resource.SH_SITES_DICT.keys():
+            return self.static_resource.SH_SITES_DICT[site_text]
         else:
             return site_text
 
     def translateShortPlatform(self, site_text):
-        if site_text in self.SH_PLATFORMS_DICT.keys():
-            return self.SH_PLATFORMS_DICT[site_text]
+        if site_text in self.static_resource.SH_PLATFORMS_DICT.keys():
+            return self.static_resource.SH_PLATFORMS_DICT[site_text]
         else:
             return site_text
 
@@ -1826,7 +1808,6 @@ class MainWindow(QMainWindow):
                                     "brand": mission.getBrand(),
                                     "img": mission.getImagePath(),
                                     "title": mission.getTitle(),
-                                    "variations": mission.getVariations(),
                                     "rating": mission.getRating(),
                                     "feedbacks": mission.getFeedbacks(),
                                     "price": mission.getPrice(),
@@ -1845,7 +1826,6 @@ class MainWindow(QMainWindow):
                                 "brand": mission.getBrand(),
                                 "img": mission.getImagePath(),
                                 "title": mission.getTitle(),
-                                "variations": mission.getVariations(),
                                 "rating": mission.getRating(),
                                 "feedbacks": mission.getFeedbacks(),
                                 "price": mission.getPrice()
@@ -1867,7 +1847,6 @@ class MainWindow(QMainWindow):
                                 "brand": mission.getBrand(),
                                 "img": mission.getImagePath(),
                                 "title": mission.getTitle(),
-                                "variations": mission.getVariations(),
                                 "rating": mission.getRating(),
                                 "feedbacks": mission.getFeedbacks(),
                                 "price": mission.getPrice(),
@@ -1886,8 +1865,9 @@ class MainWindow(QMainWindow):
 
 
     def gen_prod_sel(self):
-        idx = math.floor(random.random() * (len(self.PRODUCT_SEL_TYPES.length) - 1));
-        return self.PRODUCT_SEL_TYPES[idx];
+        idx = math.floor(random.random() * (len(self.static_resource.PRODUCT_SEL_TYPES.length) - 1));
+        return self.static_resource.PRODUCT_SEL_TYPES[idx];
+
 
 
     # given a derived buy mission, find out the original buy mission that was put in order by the users.
@@ -1895,7 +1875,7 @@ class MainWindow(QMainWindow):
     # might not be loaded from memory, so directly search DB.
     def find_original_buy(self, buy_mission):
         # Construct the SQL query with a parameterized IN clause
-        db_data = self.sql_processor.delete_missions_by_ticket(buy_mission.getTicket())
+        db_data = self.mission_service.delete_missions_by_ticket(buy_mission.getTicket())
         self.showMsg("same ticket missions: " + json.dumps(db_data))
         if len(db_data) != 0:
             original_buy_mission = EBMISSION(self)
@@ -2406,7 +2386,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("updatin 1 work run status:"+this_stat+" "+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])))
 
-        if worksTBD["current widx"] >= len( worksTBD["works"]):
+        if worksTBD["current widx"] >= len(worksTBD["works"]):
             worksTBD["current widx"] = self.checkTaskGroupCompleteness(worksTBD)
             self.showMsg("current widx pointer after checking retries:"+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])))
             if worksTBD["current widx"] >= len(worksTBD["works"]):
@@ -2419,14 +2399,15 @@ class MainWindow(QMainWindow):
         next_run_index = len(mids)
         for j, mid in enumerate(mids):
             midx = next((i for i, m in enumerate(self.missions) if m.getMid() == mid), -1)
-            this_stat = self.missions[midx].getStatus()
-            n_2b_retried = self.missions[midx].getRetry()
-            retry_count = self.missions[midx].getNRetries()
-            self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
-            if "Complete" not in this_stat and retry_count < n_2b_retried:
-                self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
-                next_run_index = j
-                break
+            if midx != -1:
+                this_stat = self.missions[midx].getStatus()
+                n_2b_retried = self.missions[midx].getRetry()
+                retry_count = self.missions[midx].getNRetries()
+                self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
+                if "Complete" not in this_stat and retry_count < n_2b_retried:
+                    self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
+                    next_run_index = j
+                    break
         return next_run_index
 
     def updateRunStatus(self, worksTBD, midx):
@@ -2886,7 +2867,7 @@ class MainWindow(QMainWindow):
         self.saveRunReports()
 
     def findAllBot(self):
-        self.sql_processor.find_all_bots()
+        self.bot_service.find_all_bots()
 
     def logOut(self):
         self.showMsg("logging out........")
@@ -2894,26 +2875,10 @@ class MainWindow(QMainWindow):
         #result = self.cog_client.global_sign_out(AccessToken=self.cog.access_token)
         result = self.cog.logout()
 
-        self.showMsg("logged out........"+result)
+        self.showMsg("logged out........")
+        self.close()
         # now should close the main window and bring back up the login screen?
 
-
-    def find_all_bots(self):
-        jresp = send_query_bots_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], {"byowneruser": True})
-        print(jresp)
-        all_bots = json.loads(jresp['body'])
-        for bot in all_bots:
-            bid = bot['bid']
-            local_bot = self.sql_processor.find_bot_by_botid([bid])
-            if local_bot is not None and len(local_bot) > 0:
-                self.updateBots([bot])
-            else:
-                self.addNewBots([bot])
-
-
-    def find_all_missions(self):
-        jresp = send_query_missions_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], {"byowneruser": True})
-        print(jresp)
 
     def addNewBots(self, new_bots):
         # Logic for creating a new bot:
@@ -2954,25 +2919,15 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             #now that add is successfull, update local file as well.
             # first, update bot ID both in data structure and in GUI display.
-            idx = 0
             for i, resp_rec in enumerate(jresp["body"]):
                 new_bots[i].setBid(resp_rec["bid"])
                 new_bots[i].setInterests(resp_rec["interests"])
                 self.bots.append(new_bots[i])
                 self.botModel.appendRow(new_bots[i])
-
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
-            self.sql_processor.inset_bots_batch(jbody, api_bots)
-
-            # update self data structure and save in json file for easy access (1 line of python code)
-            # self.saveBotJsonFile(jbody)
-
-            #now read back just added bots and echo it back onto display...
-            bid_list = [bot.getBid() for bot in new_bots]
-            self.sql_processor.find_bot_by_botid(bid_list)
-
+            self.bot_service.inset_bots_batch(jbody, api_bots)
 
     def updateBots(self, bots):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
@@ -3012,13 +2967,9 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
 
             if jbody['numberOfRecordsUpdated'] == len(bots):
-                self.sql_processor.update_bots_batch(api_bots)
+                self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
-
-            # now read back just added bots and echo it back onto display...
-            bid_list = [bot.getBid() for bot in bots]
-            self.sql_processor.find_bot_by_botid(bid_list)
 
     def addNewMissions(self, new_missions):
         # Logic for creating a new mission:
@@ -3085,10 +3036,10 @@ class MainWindow(QMainWindow):
                 new_mission.setEsd(jbody[i]["esd"])
                 self.missions.append(new_mission)
                 self.missionModel.appendRow(new_mission)
-            self.sql_processor.insert_missions_batch(jbody, api_missions)
+            self.mission_service.insert_missions_batch(jbody, api_missions)
 
             mid_list = [mission.getMid() for mission in new_missions]
-            self.sql_processor.find_missions_by_mids(mid_list)
+            self.mission_service.find_missions_by_mids(mid_list)
 
     def updateMissions(self, missions):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
@@ -3129,7 +3080,6 @@ class MainWindow(QMainWindow):
                 "brand": amission.getBrand(),
                 "image": amission.getImagePath(),
                 "title": amission.getTitle(),
-                "variations": amission.getVariations(),
                 "rating": amission.getRating(),
                 "feedbacks": amission.getFeedbacks(),
                 "price": amission.getPrice(),
@@ -3146,9 +3096,9 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             self.showMsg("Update Cloud side result:"+json.dumps(jbody))
             if jbody['numberOfRecordsUpdated'] == len(missions):
-                self.sql_processor.update_missions_by_ticket(api_missions)
+                self.mission_service.update_missions_by_ticket(api_missions)
                 mid_list = [mission.getMid() for mission in missions]
-                self.sql_processor.find_missions_by_mids(mid_list)
+                self.mission_service.find_missions_by_mids(mid_list)
             else:
                 self.showMsg("WARNIN: cloud NOT updated.", "warn")
 
@@ -3340,7 +3290,7 @@ class MainWindow(QMainWindow):
 
 
     def saveBotJsonFile(self):
-        if self.BOTS_FILE == None:
+        if self.file_resouce.BOTS_FILE == None:
             filename, _ = QFileDialog.getSaveFileName(
                 self,
                 'Save Json File',
@@ -3665,16 +3615,15 @@ class MainWindow(QMainWindow):
     def chatBot(self):
         # bring up the chat windows with this bot.
         # File actions
-        if self.chatWin:
+        if self.chatWin and self.chatWin.isVisible():
             self.showMsg("populating Chat GUI............")
-            self.chatWin.load_chat_history(self.selected_bot_item)
+            self.chatWin.select_contact(self.selected_bot_item.getBid())
+            self.chatWin.load_chat_history(self.selected_bot_item.getBid())
         else:
             self.showMsg("populating a newly created Chat GUI............")
-            self.chatWin = ChatDialog(self)
+            from ChatGUIV2 import ChatDialog
+            self.chatWin = ChatDialog(self, self.selected_bot_item.getBid())
             self.showMsg("done create win............"+str(self.selected_bot_item.getBid()))
-            # self.chatWin.setBot(self.selected_bot_item)
-
-        # self.chatWin.setMode("update")
         self.chatWin.show()
 
     def _createCusMissionViewAction(self):
@@ -3770,7 +3719,7 @@ class MainWindow(QMainWindow):
 
                     for m in api_removes:
                         # missionTBDId = next((x for x in self.missions if x.getMid() == m["id"]), None)
-                        self.sql_processor.delete_missions_by_mid(m["id"])
+                        self.mission_service.delete_missions_by_mid(m["id"])
 
                     for m in api_removes:
                         midx = next((i for i, x in enumerate(self.missions) if x.getMid() == m["id"]), -1)
@@ -3885,7 +3834,7 @@ class MainWindow(QMainWindow):
 
                     for b in api_removes:
                         botTBDId = next((x for x in self.bots if x.getBid() == b["id"]), None)
-                        self.sql_processor.delete_bots_by_botid(b["id"])
+                        self.bot_service.delete_bots_by_botid(b["id"])
 
                     for b in api_removes:
                         bidx = next((i for i, x in enumerate(self.bots) if x.getBid() == b["id"]), -1)
@@ -3903,6 +3852,7 @@ class MainWindow(QMainWindow):
     def fillNewBotFullInfo(self, nbjson, nb):
         self.showMsg("filling bot data for bot-" + str(nbjson["pubProfile"]["bid"]))
         nb.loadJson(nbjson)
+
 
     def newBotFromFile(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -4025,8 +3975,7 @@ class MainWindow(QMainWindow):
                 "platoon": new_mission.getPlatoonID(),
                 "result": new_mission.getResult()
             })
-        self.sql_processor.insert_missions_batch_(api_missions)
-
+        self.mission_service.insert_missions_batch_(api_missions)
 
     def newMissionFromFile(self):
         self.showMsg("loading missions from a file...")
@@ -4078,7 +4027,6 @@ class MainWindow(QMainWindow):
                 xls = openpyxl.load_workbook(filename, data_only=True)
 
                 # Initialize an empty list to store JSON data
-                botsJson = []
                 # Iterate over each sheet in the Excel file
                 title_cells = []
                 for idx, sheet in enumerate(xls.sheetnames):
@@ -4212,7 +4160,7 @@ class MainWindow(QMainWindow):
                     self.missionModel.appendRow(new_buy)
 
     def fillNewSkill(self, nskjson, nsk):
-        self.showMsg("filling mission data")
+        self.showMsg("filling skill data")
         nsk.setNetRespJsonData(nskjson)
 
     def showSkillManager(self):
@@ -4295,7 +4243,7 @@ class MainWindow(QMainWindow):
                                     "price": new_skill.getPrice(),
                                     "privacy": new_skill.getPrivacy(),
                                 })
-                                self.sql_processor.insert_skill(api_skills[i])
+                                self.skill_service.insert_skill(api_skills[i])
                     else:
                         self.warn(QApplication.translate("QMainWindow", "Warning: NO skills in the file."))
             except Exception as e:
@@ -4476,7 +4424,7 @@ class MainWindow(QMainWindow):
                 #
                 # self.dbCursor.execute(sql, data_tuple)
                 # self.dbcon.commit()
-                self.sql_processor.find_all_products()
+                self.product_service.find_all_products()
 
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: NO products found in file."))
@@ -4485,15 +4433,14 @@ class MainWindow(QMainWindow):
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
-    def loadLocalBots(self, db_data):
-
-        self.showMsg("get local bots from DB::" + json.dumps(db_data))
+    def loadLocalBots(self, db_data: [BotModel]):
+        dict_results = [result.to_dict() for result in db_data]
+        self.showMsg("get local bots from DB::" + json.dumps(dict_results))
         if len(db_data) != 0:
-            self.showMsg("bot fetchall" + json.dumps(db_data))
             self.bots = []
             self.botModel.clear()
             for row in db_data:
-                self.showMsg("loading a bot: "+json.dumps(row))
+                self.showMsg("loading a bot: "+json.dumps(row.to_dict()))
                 new_bot = EBBOT(self)
                 new_bot.loadDBData(row)
                 new_bot.updateDisplay()
@@ -4508,14 +4455,14 @@ class MainWindow(QMainWindow):
 
 
     # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
-    def loadLocalMissions(self, db_data):
-        self.showMsg("get local missions from db::" + json.dumps(db_data))
+    def loadLocalMissions(self, db_data: [MissionModel]):
+        dict_results = [result.to_dict() for result in db_data]
+        self.showMsg("get local missions from db::" + json.dumps(dict_results))
         if len(db_data) != 0:
-            self.showMsg("mission fetchall"+json.dumps(db_data))
             self.missions = []
             self.missionModel.clear()
             for row in db_data:
-                self.showMsg("loading a mission: "+json.dumps(row))
+                self.showMsg("loading a mission: "+json.dumps(row.to_dict()))
                 new_mission = EBMISSION(self)
                 new_mission.loadDBData(row)
                 new_mission.setData(row)
@@ -5211,7 +5158,7 @@ class MainWindow(QMainWindow):
                 self.todays_work = {"tbd": [
                     {"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start",
                      "current widx": 0, "completed": [], "aborted": []}]}
-                self.sql_processor.update_bots_batch(self.missions)
+                self.bot_service.update_bots_batch(self.missions)
 
             self.todays_completed = []
             self.todaysReports = []                     # per vehicle/host
@@ -5256,13 +5203,13 @@ class MainWindow(QMainWindow):
 
 
     def closeEvent(self, event):
-        #Your desired functionality here
-        self.showMsg('Program quitting....')
-
-        if self.sql_processor.dbcon:
-            self.sql_processor.dbcon.close()
-
-        sys.exit(0)
+        self.showMsg('Main window close....')
+        for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task):
+            if not task.done():
+                task.cancel()
+        if self.loginout_gui:
+            self.loginout_gui.show()
+        event.accept()
 
     def createTrialRunMission(self):
         trMission = EBMISSION(self)
@@ -5296,12 +5243,12 @@ class MainWindow(QMainWindow):
 
     def searchLocalMissions(self):
         self.showMsg("Searching local missions based on createdon date range and field parameters....")
-        data = self.sql_processor.find_missions_by_search(self.mission_from_date_edit.text(), self.mission_to_date_edit.text(),self.mission_search_edit.text())
+        data = self.mission_service.find_missions_by_search(self.mission_from_date_edit.text(), self.mission_to_date_edit.text(),self.mission_search_edit.text())
         self.loadLocalMissions(data)
 
     def searchLocalBots(self):
         self.showMsg("Searching local bots based on createdon date range and field parameters....")
-        data = self.sql_processor.find_bots_by_search(self.bot_from_date_edit.text(),
+        data = self.bot_service.find_bots_by_search(self.bot_from_date_edit.text(),
                                                           self.bot_to_date_edit.text(),
                                                           self.bot_search_edit.text())
         self.loadLocalBots(data)

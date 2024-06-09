@@ -1,29 +1,53 @@
 import base64
+import json
 import re
 import uuid
 from datetime import datetime
 from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QPushButton, QTextBrowser, QListWidget,
                                QListWidgetItem, QLineEdit, QDialog, QFrame, QMenu, QFileDialog,
-                               QMessageBox, QApplication)
+                               QMessageBox)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor, QAction, QTextBlockFormat, QImage, QPixmap
+from PySide6.QtGui import QTextCursor, QAction, QTextBlockFormat, QImage, QPixmap, QIcon
+
+from Cloud import send_query_chat_request_to_cloud
 
 
 class ChatDialog(QDialog):
-    def __init__(self, parent):
+    def __init__(self, parent, select_bot_id):
         super().__init__()
         self.parent = parent
         self.contact_messages = {}  # 用于存储每个联系人的消息记录
         self.init_ui()
-        self.init_contact()
+        self.init_contact(select_bot_id)
+        self.goals_json = {
+            "pass_method": "all mandatory",
+            "total_score": 0,
+            "passed": False,
+            "goals": [
+                {
+                    "name": "test",
+                    "type": "echo",
+                    "mandatory": True,
+                    "score": 0,
+                    "standards": [],
+                    "weight": 1,
+                    "passed": False
+                }
+            ]
+        }
 
-    def init_contact(self):
+    def init_contact(self, select_bot_id):
         bots = self.parent.bots
-        for bot in bots:
+        select_index = 0
+        for index, bot in enumerate(bots):
+            if bot.getBid() == select_bot_id:
+                select_index = index
             self.contact_messages[bot.getBid()] = []
             item = QListWidgetItem(bot.text())
             item.setData(Qt.UserRole, bot.getBid())
+            item.setIcon(QIcon(bot.icon))
             self.contacts_list.addItem(item)
+        self.contacts_list.setCurrentRow(select_index)
 
     def init_ui(self):
         self.setWindowTitle("聊天对话框")
@@ -43,7 +67,12 @@ class ChatDialog(QDialog):
         main_layout.addWidget(left_frame)
 
         self.contacts_list = QListWidget()
-
+        self.contacts_list.setStyleSheet("""
+            QListWidget::item:selected {
+                background-color: blue;
+                color: white;
+            }
+        """)
         self.contacts_list.currentItemChanged.connect(self.contact_selected)
         contacts_layout.addWidget(self.contacts_list)
 
@@ -63,6 +92,7 @@ class ChatDialog(QDialog):
             border-radius: 10px;
             padding: 10px;
         """)
+        self.message_history.anchorClicked.connect(self.show_image_preview)
         messages_layout.addWidget(self.message_history)
 
         # 输入与发送区域布局
@@ -79,27 +109,27 @@ class ChatDialog(QDialog):
         """)
         input_layout.addWidget(self.input_field)
 
-        send_button = QPushButton("发送")
-        send_button.setStyleSheet("""
+        self.send_button = QPushButton("发送")
+        self.send_button.setStyleSheet("""
             min-width: 80px;
             height: 35px;
             border-radius: 5px;
             background-color: #007bff;
             color: white;
         """)
-        send_button.clicked.connect(self.send_message)
-        input_layout.addWidget(send_button)
+        self.send_button.clicked.connect(self.send_message)
+        input_layout.addWidget(self.send_button)
 
-        attach_button = QPushButton("添加图片")
-        attach_button.setStyleSheet("""
+        self.attach_button = QPushButton("添加图片")
+        self.attach_button.setStyleSheet("""
             min-width: 80px;
             height: 35px;
             border-radius: 5px;
             background-color: #4CAF50;
             color: white;
         """)
-        attach_button.clicked.connect(self.attach_image)
-        input_layout.addWidget(attach_button)
+        self.attach_button.clicked.connect(self.attach_image)
+        input_layout.addWidget(self.attach_button)
 
         self.contacts_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.contacts_list.customContextMenuRequested.connect(self.show_contact_menu)
@@ -108,7 +138,6 @@ class ChatDialog(QDialog):
             QWidget {
                 font-size: 14px;
             }
-            /* 根据需要进一步美化 */
         """)
 
     # 添加图片发送功能
@@ -138,11 +167,20 @@ class ChatDialog(QDialog):
         if item:
             del item
 
-    def contact_selected(self, current, previous):
+    def contact_selected(self, current):
         print(current)
         if current:
             contact_id = current.data(Qt.UserRole)
             self.load_chat_history(contact_id)
+
+    def select_contact(self, select_bot_id):
+        if select_bot_id:
+            for i in range(self.contacts_list.count()):
+                current = self.contacts_list.item(i)
+                if current.data(Qt.UserRole) == select_bot_id:
+                    self.contacts_list.setCurrentRow(i)
+                    break
+        self.load_chat_history(select_bot_id)
 
     def load_chat_history(self, contact_id):
         self.message_history.clear()  # 清空当前聊天记录
@@ -164,21 +202,16 @@ class ChatDialog(QDialog):
             current_item = self.contacts_list.currentItem()
             if current_item:
                 self.input_field.clear()
-                self.addHyperlinkMessage(message, datetime.now().strftime('%H:%M'))
+                self.addRightMessage(message)
                 # 实际应用中，还需将消息发送到服务器等后续逻辑
-            self.message_history.moveCursor(QTextCursor.MoveOperation.End)
-            self.message_history.ensureCursorVisible()
-            self.addLeftMessage("测试回来的消息", )
 
-    def addHyperlinkMessage(self, message, time):
+    def addHyperlinkMessage(self, message):
         """插入可能含有超链接的文本"""
         # 自动识别并转换URL为超链接
-        hyperlink_message = re.sub(
+        return re.sub(
             r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
             lambda x: f'<a href="{x.group(0)}">{x.group(0)}</a>', message
         )
-        formatted_message = f'{hyperlink_message}'
-        self.addRightMessage(formatted_message)
 
     def set_message_history(self, uuid, message, type, time, dir):
         current_item = self.contacts_list.currentItem()
@@ -203,17 +236,34 @@ class ChatDialog(QDialog):
         block_format = QTextBlockFormat()
         block_format.setAlignment(Qt.AlignLeft)
         block_format.setBottomMargin(5)
-
-        self.insertion_message(block_format, message, history, type, time, unique_id, 'left')
+        send_message = self.addHyperlinkMessage(message)
+        self.insertion_message(block_format, send_message, history, type, time, unique_id, 'left')
 
     def addRightMessage(self, message, history=False, type='text', time='', unique_id=''):
         # 设置右侧消息格式
         block_format = QTextBlockFormat()
         block_format.setAlignment(Qt.AlignRight)
         block_format.setBottomMargin(5)
-        self.insertion_message(block_format, message, history, type, time, unique_id, 'right')
+        send_message = self.addHyperlinkMessage(message)
+        message_id = self.insertion_message(block_format, send_message, history, type, time, unique_id, 'right')
+        if unique_id == '':
+            self.send_message_cloud(message_id, message)
 
-    def insertion_message(self, block_format, message, history=False, type='text', time='', unique_id='', dir='left'):
+    def send_message_cloud(self, message_id, message):
+        current_item = self.contacts_list.currentItem()
+        goals_string = json.dumps(self.goals_json).replace('"', '\\"')
+        timeStamp = datetime.now().isoformat(timespec='milliseconds') + 'Z'
+        qs = [{"msgID": message_id, "user": current_item.text(),
+               "timeStamp": timeStamp, "products": "",
+               "goals": goals_string, "background": "", "msg": message}]
+        result = send_query_chat_request_to_cloud(self.parent.session,
+                                                  self.parent.tokens['AuthenticationResult']['IdToken'], qs)
+        self.addLeftMessage(result['body'])
+        self.message_history.moveCursor(QTextCursor.MoveOperation.End)
+        self.message_history.ensureCursorVisible()
+
+    def insertion_message(self, block_format, message, history=False, type='text', time='', unique_id='',
+                          dir='left') -> str:
         # 插入消息
         cursor = self.message_history.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -227,10 +277,10 @@ class ChatDialog(QDialog):
         elif type == 'image':
             image_html = f'<a href="#image_{unique_id}"><img src="data:image/jpeg;base64,{message}" width="300"/></a>'
             cursor.insertHtml(f"{image_html}    {time}")
-            self.message_history.anchorClicked.connect(self.show_image_preview)
         self.message_history.setTextCursor(cursor)
         if not history:
             self.set_message_history(unique_id, message, type, time, dir)
+        return unique_id
 
     def show_image_preview(self, qurl):
         fragment_id = qurl.fragment()
@@ -251,3 +301,22 @@ class ChatDialog(QDialog):
                         preview.setWindowTitle("图片预览")
                         preview.setIconPixmap(scaled_pixmap)
                         preview.exec_()
+
+    def closeEvent(self, event):
+        """
+        重写关闭事件处理方法，以便在窗口关闭前执行一些清理工作。
+        """
+        self.disconnectSignals()
+
+        if QMessageBox.question(self, "Confirm Exit", "Are you sure you want to exit?",
+                                QMessageBox.Yes | QMessageBox.No) == QMessageBox.No:
+            event.ignore()  # 如果用户点击"No"，忽略关闭事件
+            return
+        # 如果一切清理工作完成，或者用户确认关闭，继续关闭窗口
+        event.accept()
+
+    def disconnectSignals(self):
+        self.contacts_list.currentItemChanged.disconnect(self.contact_selected)
+        self.send_button.clicked.disconnect(self.send_message)
+        self.attach_button.clicked.disconnect(self.attach_image)
+        self.message_history.anchorClicked.disconnect(self.show_image_preview)

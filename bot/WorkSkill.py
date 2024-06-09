@@ -417,7 +417,7 @@ class WORKSKILL(QStandardItem):
 
     def setNetRespJsonData(self, nrjd):
         # self.pubAttributes.loadNetRespJson(nrjd)
-        self.setText('mission' + str(self.getMid()))
+        self.setText('skill' + str(nrjd['skid']))
 
     def setAppearance(self, qcolor, qfont):
         if self.main == "T":
