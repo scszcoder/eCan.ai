@@ -1371,6 +1371,9 @@ class MainWindow(QMainWindow):
     def fetchSchedule(self, ts_name, settings):
         fetch_stat = "Completed:0"
         try:
+            # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
+            # self.newBuyMissionFromFiles()
+
             # next line commented out for testing purpose....
             # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
             jresp = {}
