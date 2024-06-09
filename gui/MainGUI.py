@@ -165,13 +165,13 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
+    def __init__(self, parent, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
         super(MainWindow, self).__init__()
+        self.loginout_gui = parent
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
-
         self.gui_net_msg_queue = gui_msg_queue
         self.gui_rpa_msg_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
@@ -2876,7 +2876,8 @@ class MainWindow(QMainWindow):
         #result = self.cog_client.global_sign_out(AccessToken=self.cog.access_token)
         result = self.cog.logout()
 
-        self.showMsg("logged out........"+result)
+        self.showMsg("logged out........")
+        self.close()
         # now should close the main window and bring back up the login screen?
 
 
@@ -3289,7 +3290,7 @@ class MainWindow(QMainWindow):
 
 
     def saveBotJsonFile(self):
-        if self.BOTS_FILE == None:
+        if self.file_resouce.BOTS_FILE == None:
             filename, _ = QFileDialog.getSaveFileName(
                 self,
                 'Save Json File',
@@ -4087,7 +4088,7 @@ class MainWindow(QMainWindow):
                                 botsJson.append(botJson)
 
     def fillNewSkill(self, nskjson, nsk):
-        self.showMsg("filling mission data")
+        self.showMsg("filling skill data")
         nsk.setNetRespJsonData(nskjson)
 
     def showSkillManager(self):
@@ -5130,9 +5131,13 @@ class MainWindow(QMainWindow):
 
 
     def closeEvent(self, event):
-        #Your desired functionality here
-        self.showMsg('Program quitting....')
-        sys.exit(0)
+        self.showMsg('Main window close....')
+        for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task):
+            if not task.done():
+                task.cancel()
+        if self.loginout_gui:
+            self.loginout_gui.show()
+        event.accept()
 
     def createTrialRunMission(self):
         trMission = EBMISSION(self)

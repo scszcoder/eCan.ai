@@ -443,7 +443,7 @@ class Login(QDialog):
             if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
                 # global commanderServer
 
-                self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath,
+                self.mainwin = MainWindow(self, self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath,
                                           self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
