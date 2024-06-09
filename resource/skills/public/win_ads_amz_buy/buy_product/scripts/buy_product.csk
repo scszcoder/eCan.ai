@@ -1084,5 +1084,65 @@
             }
 
 	    }
+	},
+    {
+        "my_orders": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "back_pointer",
+                        "anchor_type"  : "text",
+                        "template"     : "Back to results",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "next_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Next page",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "previous_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Previous page",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "reviewd_in",
+                        "anchor_type"  : "text",
+                        "template"     : "Reviewd in",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "all_positive_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "All positive reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "all_critical_reviews",
+                        "anchor_type"  : "text",
+                        "template"     : "All critical reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "see_all_details",
+                        "anchor_type"  : "text",
+                        "template"     : "See all details",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                ]
+            }
+
+	    }
 	}
 ]
