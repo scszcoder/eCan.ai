@@ -313,7 +313,7 @@ async def commanderFinder(topgui, thisloop, waitwin):
         print("platoon received::", data.decode("utf-8"))
 
         # if "Commander" in rxmsg[0].decode("utf-8") and commanderXport == None:
-        if "Commander" in data.decode("utf-8") and commanderXport == None:
+        if "Commander" in data.decode("utf-8") and commanderXport is None:
             # commanderIP = rxmsg[1][0]
             rxmsg_parts = data.decode("utf-8").split(":")
             commanderIP = rxmsg_parts[1]

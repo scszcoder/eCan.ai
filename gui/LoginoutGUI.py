@@ -157,7 +157,7 @@ class Login(QDialog):
                 self.lan = data["lan"]
         else:
             self.show_visibility = True  # default
-            localLan = locale.getdefaultlocale()
+            localLan = self.get_locale()
             print(localLan)
             if 'en_' in localLan[0]:
                 self.lan = "EN"
@@ -254,8 +254,20 @@ class Login(QDialog):
         else:
             return False
 
+    def get_locale(self):
+        try:
+            # 设置区域设置为系统默认设置
+            locale.setlocale(locale.LC_ALL, '')
+            current_locale = locale.getlocale()
+            if current_locale[0] is None:
+                raise ValueError("Locale not set properly")
+            return current_locale
+        except Exception as e:
+            print(f"Error getting locale: {e}")
+            return 'en_US', 'UTF-8'
+
     def __setup_language(self):
-        system_locale, _ = locale.getdefaultlocale()
+        system_locale, _ = self.get_locale()
         search_folder = os.path.dirname(__file__)
         search_folder = os.path.join(search_folder, "..", "translations")
         print(system_locale, search_folder)

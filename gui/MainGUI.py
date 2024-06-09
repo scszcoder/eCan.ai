@@ -47,7 +47,7 @@ from bot.ebbot import EBBOT
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
-from lzstring import LZString
+from bot.lzstring import LZString
 import os
 import openpyxl
 from datetime import datetime, date, timedelta
