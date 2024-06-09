@@ -3,6 +3,7 @@ import json
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
     QFileDialog
+from pynput import keyboard
 
 from pynput.mouse import Listener as MouseListener
 from pynput.keyboard import Listener as KeyboardListener
