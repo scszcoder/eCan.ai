@@ -1,22 +1,27 @@
 import json
 import os
+from datetime import datetime
 
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog, QListView, \
-    QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QCheckBox, QHBoxLayout, \
-    QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, QMenu
+    QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QRadioButton, \
+    QCheckBox, QHBoxLayout, \
+    QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, \
+    QDialogButtonBox, QMenu, QPlainTextEdit
 from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
 from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter, QTransform, QStandardItemModel, QImage, \
-    QAction
+    QAction, QTextCursor
 
 from bot.Cloud import req_train_read_screen, upload_file, send_add_skills_request_to_cloud, \
     send_update_skills_request_to_cloud
 from bot.WorkSkill import ANCHOR, USER_INFO, PROCEDURAL_STEP, WORKSKILL
 from bot.basicSkill import read_screen
 from bot.genSkills import getWorkSettings, setWorkSettingsSkill
+from envi import getECBotDataHome
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
 from bot.readSkill import cancelRun, pauseRun, prepRunSkill, runAllSteps, continueRun, steps, last_step
+from utils.logger_helper import logger_helper
 
 INSTALLED_PATH = ""
 USER_DIR = ""
@@ -35,7 +40,7 @@ PAGE_DIR = ""
 # price_model	varchar(50)	YES		NULL
 # price	int(11)	YES		NULL
 
-
+ecb_data_homepath = getECBotDataHome()
 class SkillListView(QListView):
     def __init__(self, parent):
         super(SkillListView, self).__init__()
@@ -45,7 +50,7 @@ class SkillListView(QListView):
     def mousePressEvent(self, e):
         if e.type() == QEvent.MouseButtonPress:
             if e.button() == Qt.LeftButton:
-                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
+                self.parent.showMsg("row:" + str(self.indexAt(e.pos()).row()))
                 self.selected_row = self.indexAt(e.pos()).row()
                 self.parent.updateSelectedRole(self.selected_row)
 
@@ -56,7 +61,6 @@ class AnchorListView(QListView):
 
 
 class BSQGraphicsRectItem(QGraphicsRectItem):
-
     handleTopLeft = 1
     handleTopMiddle = 2
     handleTopRight = 3
@@ -135,36 +139,36 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         """
         self.updateHandlesPos()
         orig_position = self.scenePos()
-        self.parent.showMsg("press orginal: "+json.dumps(orig_position))
-        #self.parent.showMsg("rect pressed...."+json.dumps(self.parentView.drawStartPos))
+        self.parentView.parentWin.show_msg("press orginal: " + str(orig_position))
+        # self.parent.showMsg("rect pressed...."+str(self.parentView.drawStartPos))
         # self.handleSelected = self.handleAt(self.parentView.drawStartPos)
-        self.parent.showMsg("mouseEvent.pos()"+json.dumps(mouseEvent.pos()))
+        self.parentView.parentWin.show_msg("mouseEvent.pos()" + str(mouseEvent.pos()))
         self.pressLocalPos = mouseEvent.pos()
         self.handleSelected = self.handleAt(mouseEvent.pos())
-        self.parent.showMsg("parentView.drawStartPos"+json.dumps(self.parentView.drawStartPos))
+        self.parentView.parentWin.show_msg("parentView.drawStartPos" + str(self.parentView.drawStartPos))
         self.handleSelected = self.handleAt(mouseEvent.pos())
         print("handle @ press ...", self.handleSelected)
-        self.parent.showMsg("rect @ press ..."+json.dumps(self.rect()))
+        self.parentView.parentWin.show_msg("rect @ press ..." + str(self.rect()))
         print("all handles:", self.handles)
         currentMousePos = self.parentView.drawStartPos
         currentMousePos.setX(currentMousePos.x() - orig_position.x())
         currentMousePos.setY(currentMousePos.y() - orig_position.y())
         self.handleSelected = self.handleAt(currentMousePos)
 
-        self.parent.showMsg("currentMousePos ..."+json.dumps(currentMousePos))
-        #self.handleSelected = self.handleAt(self.parentView.drawStartPos)
+        self.parentView.parentWin.show_msg("currentMousePos ..." + str(currentMousePos))
+        # self.handleSelected = self.handleAt(self.parentView.drawStartPos)
         print("handle @ press ...", self.handleSelected)
         if self.handleSelected:
-            self.parent.showMsg("rect resizing...")
+            self.parentView.parentWin.show_msg("rect resizing...")
             self.mode = "resizing"
             self.parentView.set_mode(self.mode)
-            #self.mousePressPos = mouseEvent.pos()
+            # self.mousePressPos = mouseEvent.pos()
             self.mousePressPos = self.parentView.drawStartPos
             self.mousePressRect = self.boundingRect()
-            # self.parent.showMsg("mousePressRect: ", self.mousePressRect)
+            # self.parentView.parentWin.show_msg("mousePressRect: ", self.mousePressRect)
         # super().mousePressEvent(mouseEvent)
         else:
-            self.parent.showMsg("Moving.....")
+            self.parentView.parentWin.show_msg("Moving.....")
             if self.contains(currentMousePos):
                 self.mode = "moving"
                 # self.mousePressPos = mouseEvent.pos()
@@ -174,27 +178,27 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
                 self.mode = "selecting"
 
         self.parentView.set_mode(self.mode)
-        self.parent.showMsg("rect pressed...."+json.dumps(self.mousePressPos)+" rect: "+json.dumps(self.rect()))
+        self.parentView.parentWin.show_msg("rect pressed...." + str(self.mousePressPos) + " rect: " + str(self.rect()))
 
     def mouseReleaseEvent(self, mouseEvent):
         """
         Executed when the mouse is released from the item.
         """
-        self.parent.showMsg("rect released...."+json.dumps(mouseEvent.pos()))
+        self.parentView.parentWin.show_msg("rect released...." + str(mouseEvent.pos()))
         self.releaseLocalPos = mouseEvent.pos()
-        #super().mouseReleaseEvent(mouseEvent)
+        # super().mouseReleaseEvent(mouseEvent)
 
-        #self.mouseReleasePos = mouseEvent.pos()
+        # self.mouseReleasePos = mouseEvent.pos()
         self.mouseReleasePos = self.parentView.drawEndPos
         self.mouseReleaseRect = self.boundingRect()
 
         orig_position = self.scenePos()
-        self.parent.showMsg("orig_position: "+json.dumps(orig_position)+":::"+json.dumps(self.pos()))
-        self.parent.showMsg("press_position: "+json.dumps(self.mousePressPos))
-        self.parent.showMsg("release_position: "+json.dumps(self.mouseReleasePos))
+        self.parentView.parentWin.show_msg("orig_position: " + str(orig_position) + ":::" + str(self.pos()))
+        self.parentView.parentWin.show_msg("press_position: " + str(self.mousePressPos))
+        self.parentView.parentWin.show_msg("release_position: " + str(self.mouseReleasePos))
 
         if self.mode == "moving":
-            self.parent.showMsg("move releasing...")
+            self.parentView.parentWin.show_msg("move releasing...")
             updated_cursor_x = self.releaseLocalPos.x() - self.pressLocalPos.x() + orig_position.x()
             updated_cursor_y = self.releaseLocalPos.y() - self.pressLocalPos.y() + orig_position.y()
             self.setPos(QPointF(updated_cursor_x, updated_cursor_y))
@@ -206,7 +210,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             self.updateHandlesPos()
             print("rect @ release ...", self.rect(), "pos:", self.pos())
         elif self.mode == "resizing":
-            self.parent.showMsg("resize releasing...")
+            self.parentView.parentWin.show_msg("resize releasing...")
             self.interactiveResize(self.mouseReleasePos)
 
         self.mode = "quiet"
@@ -239,14 +243,14 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         Perform shape interactive resize.
         """
         offset = self.handleSize + self.handleSpace
-        #self.parent.showMsg("offset is ", offset)
+        # self.parentView.parentWin.show_msg("offset is ", offset)
         boundingRect = self.boundingRect()
         rect = self.rect()
-        #self.parent.showMsg("bounding rect...", boundingRect, "self rect...", rect)
+        # self.parentView.parentWin.show_msg("bounding rect...", boundingRect, "self rect...", rect)
         diff = QPointF(0, 0)
 
         self.prepareGeometryChange()
-        #self.parent.showMsg("resize handle selected:", self.handleSelected)
+        # self.parentView.parentWin.show_msg("resize handle selected:", self.handleSelected)
         if self.handleSelected == self.handleTopLeft:
 
             fromX = self.mousePressRect.left()
@@ -259,7 +263,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             boundingRect.setTop(toY)
             rect.setLeft(boundingRect.left() + offset)
             rect.setTop(boundingRect.top() + offset)
-            #self.parent.showMsg("rect TL:", rect)
+            # self.parentView.parentWin.show_msg("rect TL:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleTopMiddle:
@@ -269,7 +273,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             diff.setY(toY - fromY)
             boundingRect.setTop(toY)
             rect.setTop(boundingRect.top() + offset)
-            #self.parent.showMsg("rect TM:", rect)
+            # self.parentView.parentWin.show_msg("rect TM:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleTopRight:
@@ -284,7 +288,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             boundingRect.setTop(toY)
             rect.setRight(boundingRect.right() - offset)
             rect.setTop(boundingRect.top() + offset)
-            #self.parent.showMsg("rect TR:", rect)
+            # self.parentView.parentWin.show_msg("rect TR:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleMiddleLeft:
@@ -294,7 +298,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             diff.setX(toX - fromX)
             boundingRect.setLeft(toX)
             rect.setLeft(boundingRect.left() + offset)
-            #self.parent.showMsg("rect ML:", rect)
+            # self.parentView.parentWin.show_msg("rect ML:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleMiddleRight:
@@ -303,7 +307,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             diff.setX(toX - fromX)
             boundingRect.setRight(toX)
             rect.setRight(boundingRect.right() - offset)
-            #self.parent.showMsg("rect MR:", rect)
+            # self.parentView.parentWin.show_msg("rect MR:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleBottomLeft:
@@ -318,19 +322,19 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             boundingRect.setBottom(toY)
             rect.setLeft(boundingRect.left() + offset)
             rect.setBottom(boundingRect.bottom() - offset)
-            #self.parent.showMsg("rect BL:", rect)
+            # self.parentView.parentWin.show_msg("rect BL:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleBottomMiddle:
 
             fromY = self.mousePressRect.bottom()
-            # self.parent.showMsg("fromY:", fromY, "mouse y: ", mousePos.y(), "mouse press y: ", self.mousePressPos.y(), "toY", toY)
+            # self.parentView.parentWin.show_msg("fromY:", fromY, "mouse y: ", mousePos.y(), "mouse press y: ", self.mousePressPos.y(), "toY", toY)
             toY = fromY + mousePos.y() - self.mousePressPos.y()
             diff.setY(toY - fromY)
             boundingRect.setBottom(toY)
             rect.setBottom(boundingRect.bottom() - offset)
-            # self.parent.showMsg("fromY:", fromY, "mouse y: ", mousePos.y(), "mouse press y: ", self.mousePressPos.y(), "toY", toY)
-            #self.parent.showMsg("rect BM:", rect)
+            # self.parentView.parentWin.show_msg("fromY:", fromY, "mouse y: ", mousePos.y(), "mouse press y: ", self.mousePressPos.y(), "toY", toY)
+            # self.parentView.parentWin.show_msg("rect BM:", rect)
             self.setRect(rect)
 
         elif self.handleSelected == self.handleBottomRight:
@@ -345,7 +349,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
             boundingRect.setBottom(toY)
             rect.setRight(boundingRect.right() - offset)
             rect.setBottom(boundingRect.bottom() - offset)
-            #self.parent.showMsg("rect BR:"+json.dumps(rect))
+            # self.parentView.parentWin.show_msg("rect BR:"+str(rect))
             self.setRect(rect)
 
         self.updateHandlesPos()
@@ -365,7 +369,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
         """
         Paint the node in the graphic view.
         """
-        #painter.setBrush(QBrush(QColor(255, 0, 0, 100)))
+        # painter.setBrush(QBrush(QColor(255, 0, 0, 100)))
         if self.rect_type == "udbb" and not self.isSelected():
             painter.setPen(QPen(Qt.darkRed, 1.0, Qt.SolidLine))
         elif self.rect_type == "udbb" and self.isSelected():
@@ -391,6 +395,7 @@ class BSQGraphicsRectItem(QGraphicsRectItem):
 
 class BSQGraphicsScene(QGraphicsScene):
     def __init__(self, parent):
+        self.parent = parent
         super(BSQGraphicsScene, self).__init__()
         self.setParent(parent)
         self.current_items = []
@@ -400,11 +405,10 @@ class BSQGraphicsScene(QGraphicsScene):
         self.mode = inmode
         self.parent().set_pb_mode = inmode
 
-
     def mousePressEvent(self, event):
         selected = self.selectedItems()
         if len(selected) == 0:
-            self.parent.showMsg("scene press nothing selected....")
+            self.parent.show_msg("scene press nothing selected....")
             # rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]))
             # rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
             # rect.setPen(self.parentWin.udBoxPen)
@@ -413,10 +417,10 @@ class BSQGraphicsScene(QGraphicsScene):
             # self.rects.append(rect)
         else:
             # redraw selected item with selected pen.
-            self.parent.showMsg("selected scene press")
+            self.parent.show_msg("selected scene press")
             for ri in selected:
-                self.parent.showMsg("pos:"+json.dumps(self.parent().pbview.drawStartPos))
-                #ri.mousePressEvent(event.pos())
+                # self.parent.show_msg("pos:"+str(self.parent().pbview.drawStartPos))
+                # ri.mousePressEvent(event.pos())
                 ri.mousePressEvent(event)
 
         if event.buttons() == Qt.RightButton:
@@ -426,7 +430,7 @@ class BSQGraphicsScene(QGraphicsScene):
     def mouseReleaseEvent(self, event):
         selected = self.selectedItems()
         if len(selected) == 0:
-            self.parent.showMsg("scene release nothing selected....")
+            self.parent.show_msg("scene release nothing selected....")
             # rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]))
             # rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
             # rect.setPen(self.parentWin.udBoxPen)
@@ -435,23 +439,22 @@ class BSQGraphicsScene(QGraphicsScene):
             # self.rects.append(rect)
         else:
             # redraw selected item with selected pen.
-            self.parent.showMsg("scene release")
+            self.parent.show_msg("scene release")
             for ri in selected:
                 ri.mouseReleaseEvent(event)
 
     def mouseMoveEvent(self, event):
-        # self.parent.showMsg("scene moving....")
+        # self.parentView.parentWin.show_msg("scene moving....")
         selected = self.selectedItems()
         if len(selected) > 0:
             # redraw selected item with selected pen.
             if event.buttons() == Qt.LeftButton:
                 for ri in selected:
-                    #self.parent.showMsg("resizing.....", event.scenePos(), "   ", self.parent().pbview.mapToScene(event.scenePos().toPoint()))
-                    #ri.interactiveResize(self.parent().pbview.mapToScene(event.pos().toPoint()))
-                    #ri.interactiveResize(self.parent().pbview.mapToScene(event.scenePos().toPoint()))
+                    # self.parentView.parentWin.show_msg("resizing.....", event.scenePos(), "   ", self.parent().pbview.mapToScene(event.scenePos().toPoint()))
+                    # ri.interactiveResize(self.parent().pbview.mapToScene(event.pos().toPoint()))
+                    # ri.interactiveResize(self.parent().pbview.mapToScene(event.scenePos().toPoint()))
                     ri.interactiveResize(event.scenePos().toPoint())
-        super(BSQGraphicsScene,  self).mouseMoveEvent(event)
-
+        super(BSQGraphicsScene, self).mouseMoveEvent(event)
 
     def find_rect_by_pos(self, pos):
         result = []
@@ -461,7 +464,7 @@ class BSQGraphicsScene(QGraphicsScene):
         return result
 
     def mouseDoubleClickEvent(self, event):
-        self.parent.showMsg("mouse double clicked.....")
+        self.parent.show_msg("mouse double clicked.....")
 
 
 # BS stands for Bot Skill
@@ -477,21 +480,22 @@ class BSQGraphicsView(QGraphicsView):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.parent.showMsg("rubber band: "+json.dumps(self.rubberBandRect()))
+            self.parentWin.show_msg("rubber band: " + str(self.rubberBandRect()))
             self.drawEndPos = self.mapToScene(event.pos())
-            self.parent.showMsg("mouse released at: "+json.dumps(self.drawEndPos)+"in mode: "+self.mode)
+            self.parentWin.show_msg("mouse released at: " + str(self.drawEndPos) + "in mode: " + self.mode)
             rectPos = self.parentWin.formRectPos(self.drawStartPos, self.drawEndPos)
-            self.parent.showMsg("rect area: "+json.dumps(rectPos))
+            self.parentWin.show_msg("rect area: " + str(rectPos))
             selpath = QPainterPath()
             # selpath.addRect(self.rubberBandRect())
             if self.mode == "quiet":
                 selpath.addRect(rectPos[0], rectPos[1], rectPos[2], rectPos[3])
-                self.scene().setSelectionArea(selpath, Qt.ReplaceSelection, Qt.ContainsItemShape, QTransform(1, 0, 0, 0, 1, 0, 0, 0, 1))
+                self.scene().setSelectionArea(selpath, Qt.ReplaceSelection, Qt.ContainsItemShape,
+                                              QTransform(1, 0, 0, 0, 1, 0, 0, 0, 1))
 
             selected = self.scene().selectedItems()
-            self.parent.showMsg("# selected: "+json.dumps(selected))
+            self.parentWin.show_msg("# selected: " + str(selected))
             if len(selected) == 0:
-                self.parent.showMsg("at release, nothing selected....")
+                self.parentWin.show_msg("at release, nothing selected....")
                 rect = BSQGraphicsRectItem(QRectF(rectPos[0], rectPos[1], rectPos[2], rectPos[3]), self)
                 rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
                 rect.setPen(self.parentWin.udBoxPen)
@@ -506,19 +510,21 @@ class BSQGraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.parent.showMsg("view press event"+json.dumps(event.pos())+"::"+json.dumps(event.screenPos())+":::"+json.dumps(event.scenePosition()))
+            self.parentWin.show_msg(
+                "view press event" + str(event.pos().toTuple()) + "::" + str(event.screenPos().toTuple()) + ":::" + str(
+                    event.scenePosition().toTuple()))
             self.drawStartPos = self.mapToScene(event.pos())
             self.drawStartScenePos = self.mapToScene(event.scenePosition().toPoint())
-            #self.drawStartPos = self.mapToScene(event.scenePosition().toPoint())
+            # self.drawStartPos = self.mapToScene(event.scenePosition().toPoint())
             selected = self.scene().selectedItems()
-            self.parent.showMsg("# selected: "+json.dumps(selected))
+            self.parentWin.show_msg("# selected: " + str(selected))
         elif event.button() == Qt.RightButton:
             self.rightClickPos = self.mapToScene(event.pos())
 
         selected = self.scene().selectedItems()
 
         self.scene().mousePressEvent(event)
-        #for ri in selected:
+        # for ri in selected:
         #    ri.mousePressEvent(event)
 
 
@@ -532,6 +538,11 @@ class SkillGUI(QMainWindow):
 
     def __init__(self, parent):
         super(SkillGUI, self).__init__(parent)
+        self.skconsole = QPlainTextEdit()
+        self.skconsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.skconsole.setReadOnly(True)
+        self.skconsole.verticalScrollBar().valueChanged.connect(self.onScrollBarValueChanged)
+        self.isAutoScroll = False
 
         self.newSkill = None
         self.home_path = app_info.app_home_path
@@ -587,7 +598,7 @@ class SkillGUI(QMainWindow):
         self.load_image_file(file_name)
 
         img_size = self.pic.pixmap().size()
-        self.parent.parent.showMsg("image size: " + str(img_size.width()) + ", " + str(img_size.height()))
+        self.show_msg("image size: " + str(img_size.width()) + ", " + str(img_size.height()))
 
         # self.pbscene = QGraphicsScene()
         self.pbscene = BSQGraphicsScene(self)
@@ -595,8 +606,8 @@ class SkillGUI(QMainWindow):
         self.pbscene.addItem(self.pic)
         self.pbview = BSQGraphicsView(self.pbscene, self)
         # self.pbview = QGraphicsView(self.pbscene)
-        #self.pbview.setRubberBandSelectionMode(Qt.ContainsItemBoundingRect)
-        #self.pbview.setDragMode(QGraphicsView.RubberBandDrag)
+        # self.pbview.setRubberBandSelectionMode(Qt.ContainsItemBoundingRect)
+        # self.pbview.setDragMode(QGraphicsView.RubberBandDrag)
         self.pbview.setContextMenuPolicy(Qt.DefaultContextMenu)
         self.pbview.installEventFilter(self)
 
@@ -670,8 +681,7 @@ class SkillGUI(QMainWindow):
         self.udBoxSelPen.setCapStyle(Qt.RoundCap)
         self.udBoxSelPen.setJoinStyle(Qt.RoundJoin)
 
-
-        #rect = QGraphicsRectItem(QRectF(10, 10, 25, 25))
+        # rect = QGraphicsRectItem(QRectF(10, 10, 25, 25))
         rect = BSQGraphicsRectItem(QRectF(10, 10, 25, 25), self.pbview, "txtbb")
         rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
         rect.setPen(self.txtBoxPen)
@@ -712,7 +722,6 @@ class SkillGUI(QMainWindow):
         self.pbskDomainURLEdit = QLineEdit()
         self.pbskDomainURLEdit.setPlaceholderText(QApplication.translate("QLineEdit", "type in Site URL here"))
         self.pbskDomainURLEdit.textChanged.connect(self.appDomainPage_changed)
-
 
         self.pbskPageLabel = QLabel(QApplication.translate("QLabel", "Page: "))
         self.pbskPageLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -775,7 +784,7 @@ class SkillGUI(QMainWindow):
         self.pbATSel.addItem(QApplication.translate("QComboBox", "Text"))
         self.pbATSel.addItem(QApplication.translate("QComboBox", "Image"))
 
-        self.pbDTLabel =QLabel(QApplication.translate("QLabel", "Data Type:"))
+        self.pbDTLabel = QLabel(QApplication.translate("QLabel", "Data Type:"))
         self.pbDTLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pbDTSel = QComboBox()
         self.pbDTSel.addItem(QApplication.translate("QComboBox", "Paragraph"))
@@ -986,50 +995,50 @@ class SkillGUI(QMainWindow):
 
         # end of reference widgets.
         pbinfo_widgets = [
-            (self.pbInfoNameLabel, self.pbInfoNameEdit),                # L0
-            (self.pbInfoLabel, self.pbInfoSel),                         # L1
-            (self.pbATLabel, self.pbATSel),                             # L2A
-            (self.pbRTLabel, self.pbRTSel),                             # L2
-            (self.pbNRefLabel, self.pbNRefSel),                         # L2B
-            (self.pbDTLabel, self.pbDTSel),                             # L3
-            (self.pbNLabel, self.pbNEdit),                              # L4
-            (self.pbRef1NameLabel, self.pbRef1NameEdit),                # ref1 L5
-            (self.pbRef1XOffsetDirLabel, self.pbRef1XOffsetDirSel),     # L6
-            (self.pbRef1XOffsetTypeLabel, self.pbRef1XOffsetTypeSel),   # L6A
-            (self.pbRef1XOffsetValLabel, self.pbRef1XOffsetValEdit),    # L6B
-            (self.pbRef1XOffsetUnitLabel, self.pbRef1XOffsetUnitSel),   # L6C
-            (self.pbRef1YOffsetDirLabel, self.pbRef1YOffsetDirSel),     # L7
-            (self.pbRef1YOffsetTypeLabel, self.pbRef1YOffsetTypeSel),   # L7A
-            (self.pbRef1YOffsetValLabel, self.pbRef1YOffsetValEdit),    # L7B
-            (self.pbRef1YOffsetUnitLabel, self.pbRef1YOffsetUnitSel),   # L7C
-            (self.pbRef2NameLabel, self.pbRef2NameEdit),                # ref2 L8
-            (self.pbRef2XOffsetDirLabel, self.pbRef2XOffsetDirSel),     # L9
-            (self.pbRef2XOffsetTypeLabel, self.pbRef2XOffsetTypeSel),   # L9A
-            (self.pbRef2XOffsetValLabel, self.pbRef2XOffsetValEdit),    # L9B
-            (self.pbRef2XOffsetUnitLabel, self.pbRef2XOffsetUnitSel),   # L9C
-            (self.pbRef2YOffsetDirLabel, self.pbRef2YOffsetDirSel),     # L10
-            (self.pbRef2YOffsetTypeLabel, self.pbRef2YOffsetTypeSel),   # L10A
-            (self.pbRef2YOffsetValLabel, self.pbRef2YOffsetValEdit),    # L10B
-            (self.pbRef2YOffsetUnitLabel, self.pbRef2YOffsetUnitSel),   # L10C
-            (self.pbRef3NameLabel, self.pbRef3NameEdit),                # ref3 L11
-            (self.pbRef3XOffsetDirLabel, self.pbRef3XOffsetDirSel),     # L12
-            (self.pbRef3XOffsetTypeLabel, self.pbRef3XOffsetTypeSel),   # L12A
-            (self.pbRef3XOffsetValLabel, self.pbRef3XOffsetValEdit),    # L12B
-            (self.pbRef3XOffsetUnitLabel, self.pbRef3XOffsetUnitSel),   # L12C
-            (self.pbRef3YOffsetDirLabel, self.pbRef3YOffsetDirSel),     # L13
-            (self.pbRef3YOffsetTypeLabel, self.pbRef3YOffsetTypeSel),   # L13A
-            (self.pbRef3YOffsetValLabel, self.pbRef3YOffsetValEdit),    # L13B
-            (self.pbRef3YOffsetUnitLabel, self.pbRef3YOffsetUnitSel),   # L13C
-            (self.pbRef4NameLabel, self.pbRef4NameEdit),                # ref4 L14
-            (self.pbRef4XOffsetDirLabel, self.pbRef4XOffsetDirSel),     # L15
-            (self.pbRef4XOffsetTypeLabel, self.pbRef4XOffsetTypeSel),   # L15A
-            (self.pbRef4XOffsetValLabel, self.pbRef4XOffsetValEdit),    # L15B
-            (self.pbRef4XOffsetUnitLabel, self.pbRef4XOffsetUnitSel),   # L15C
-            (self.pbRef4YOffsetDirLabel, self.pbRef4YOffsetDirSel),     # L16
-            (self.pbRef4YOffsetTypeLabel, self.pbRef4YOffsetTypeSel),   # L16A
-            (self.pbRef4YOffsetValLabel, self.pbRef4YOffsetValEdit),    # L16B
-            (self.pbRef4YOffsetUnitLabel, self.pbRef4YOffsetUnitSel)    # L16C
-            ]
+            (self.pbInfoNameLabel, self.pbInfoNameEdit),  # L0
+            (self.pbInfoLabel, self.pbInfoSel),  # L1
+            (self.pbATLabel, self.pbATSel),  # L2A
+            (self.pbRTLabel, self.pbRTSel),  # L2
+            (self.pbNRefLabel, self.pbNRefSel),  # L2B
+            (self.pbDTLabel, self.pbDTSel),  # L3
+            (self.pbNLabel, self.pbNEdit),  # L4
+            (self.pbRef1NameLabel, self.pbRef1NameEdit),  # ref1 L5
+            (self.pbRef1XOffsetDirLabel, self.pbRef1XOffsetDirSel),  # L6
+            (self.pbRef1XOffsetTypeLabel, self.pbRef1XOffsetTypeSel),  # L6A
+            (self.pbRef1XOffsetValLabel, self.pbRef1XOffsetValEdit),  # L6B
+            (self.pbRef1XOffsetUnitLabel, self.pbRef1XOffsetUnitSel),  # L6C
+            (self.pbRef1YOffsetDirLabel, self.pbRef1YOffsetDirSel),  # L7
+            (self.pbRef1YOffsetTypeLabel, self.pbRef1YOffsetTypeSel),  # L7A
+            (self.pbRef1YOffsetValLabel, self.pbRef1YOffsetValEdit),  # L7B
+            (self.pbRef1YOffsetUnitLabel, self.pbRef1YOffsetUnitSel),  # L7C
+            (self.pbRef2NameLabel, self.pbRef2NameEdit),  # ref2 L8
+            (self.pbRef2XOffsetDirLabel, self.pbRef2XOffsetDirSel),  # L9
+            (self.pbRef2XOffsetTypeLabel, self.pbRef2XOffsetTypeSel),  # L9A
+            (self.pbRef2XOffsetValLabel, self.pbRef2XOffsetValEdit),  # L9B
+            (self.pbRef2XOffsetUnitLabel, self.pbRef2XOffsetUnitSel),  # L9C
+            (self.pbRef2YOffsetDirLabel, self.pbRef2YOffsetDirSel),  # L10
+            (self.pbRef2YOffsetTypeLabel, self.pbRef2YOffsetTypeSel),  # L10A
+            (self.pbRef2YOffsetValLabel, self.pbRef2YOffsetValEdit),  # L10B
+            (self.pbRef2YOffsetUnitLabel, self.pbRef2YOffsetUnitSel),  # L10C
+            (self.pbRef3NameLabel, self.pbRef3NameEdit),  # ref3 L11
+            (self.pbRef3XOffsetDirLabel, self.pbRef3XOffsetDirSel),  # L12
+            (self.pbRef3XOffsetTypeLabel, self.pbRef3XOffsetTypeSel),  # L12A
+            (self.pbRef3XOffsetValLabel, self.pbRef3XOffsetValEdit),  # L12B
+            (self.pbRef3XOffsetUnitLabel, self.pbRef3XOffsetUnitSel),  # L12C
+            (self.pbRef3YOffsetDirLabel, self.pbRef3YOffsetDirSel),  # L13
+            (self.pbRef3YOffsetTypeLabel, self.pbRef3YOffsetTypeSel),  # L13A
+            (self.pbRef3YOffsetValLabel, self.pbRef3YOffsetValEdit),  # L13B
+            (self.pbRef3YOffsetUnitLabel, self.pbRef3YOffsetUnitSel),  # L13C
+            (self.pbRef4NameLabel, self.pbRef4NameEdit),  # ref4 L14
+            (self.pbRef4XOffsetDirLabel, self.pbRef4XOffsetDirSel),  # L15
+            (self.pbRef4XOffsetTypeLabel, self.pbRef4XOffsetTypeSel),  # L15A
+            (self.pbRef4XOffsetValLabel, self.pbRef4XOffsetValEdit),  # L15B
+            (self.pbRef4XOffsetUnitLabel, self.pbRef4XOffsetUnitSel),  # L15C
+            (self.pbRef4YOffsetDirLabel, self.pbRef4YOffsetDirSel),  # L16
+            (self.pbRef4YOffsetTypeLabel, self.pbRef4YOffsetTypeSel),  # L16A
+            (self.pbRef4YOffsetValLabel, self.pbRef4YOffsetValEdit),  # L16B
+            (self.pbRef4YOffsetUnitLabel, self.pbRef4YOffsetUnitSel)  # L16C
+        ]
         self.pbInfoLayout = QGridLayout()
         self.add_widgets_of_gridlayout(self.pbInfoLayout, pbinfo_widgets)
         self.pbInfoWidget = QWidget()
@@ -1138,25 +1147,25 @@ class SkillGUI(QMainWindow):
         self.pbWaittimeEdit.setPlaceholderText(QApplication.translate("QLineEdit", "time in seconds."))
 
         pbAction_widgets = [
-            (self.pbStepNameLabel, self.pbStepNameEdit),                    # L0
-            (self.pbStepNumberLabel, self.pbStepNumberEdit),                # L0A
-            (self.pbStepPrevNextLabel, self.pbStepPrevNextSel),             # L0B
-            (self.pbStepPrevNextNameLabel, self.pbStepPrevNextNameEdit),    # L0C
+            (self.pbStepNameLabel, self.pbStepNameEdit),  # L0
+            (self.pbStepNumberLabel, self.pbStepNumberEdit),  # L0A
+            (self.pbStepPrevNextLabel, self.pbStepPrevNextSel),  # L0B
+            (self.pbStepPrevNextNameLabel, self.pbStepPrevNextNameEdit),  # L0C
             # (self.pbActionLabel, self.pbActionSel),                         # L1
-            (self.pbAppLinkLabel, self.pbAppLinkEdit),                      # L2
-            (self.pbPageURLLabel, self.pbPageURLEdit),                      # L3
-            (self.pbDataNameLabel, self.pbDataNameEdit),                    # L4
-            (self.pbMouseActionLabel, self.pbMouseActionSel),               # L5
+            (self.pbAppLinkLabel, self.pbAppLinkEdit),  # L2
+            (self.pbPageURLLabel, self.pbPageURLEdit),  # L3
+            (self.pbDataNameLabel, self.pbDataNameEdit),  # L4
+            (self.pbMouseActionLabel, self.pbMouseActionSel),  # L5
             (self.pbMouseActionAmountLabel, self.pbMouseActionAmountEdit),  # L6
-            (self.pbKeyboardActionLabel, self.pbKeyboardActionEdit),        # L7
-            (self.pbDataFileLabel, self.pbDataFileEdit),                    # L8
-            (self.pbConditionLabel, self.pbConditionEdit),                  # L9
-            (self.pbConditionTrueLabel, self.pbConditionTrueEdit),          # L10
-            (self.pbConditionFalseLabel, self.pbConditionFalseEdit),        # L11
-            (self.pbJumpLabel, self.pbJumpEdit),                            # L12
-            (self.pbRoutineLabel, self.pbRoutineEdit),                      # L13
-            (self.pbExternLabel, self.pbExternEdit),                        # L14
-            (self.pbWaittimeLabel, self.pbWaittimeEdit)                     # L15
+            (self.pbKeyboardActionLabel, self.pbKeyboardActionEdit),  # L7
+            (self.pbDataFileLabel, self.pbDataFileEdit),  # L8
+            (self.pbConditionLabel, self.pbConditionEdit),  # L9
+            (self.pbConditionTrueLabel, self.pbConditionTrueEdit),  # L10
+            (self.pbConditionFalseLabel, self.pbConditionFalseEdit),  # L11
+            (self.pbJumpLabel, self.pbJumpEdit),  # L12
+            (self.pbRoutineLabel, self.pbRoutineEdit),  # L13
+            (self.pbExternLabel, self.pbExternEdit),  # L14
+            (self.pbWaittimeLabel, self.pbWaittimeEdit)  # L15
         ]
 
         self.pbActionLayout = QGridLayout()
@@ -1313,7 +1322,7 @@ class SkillGUI(QMainWindow):
 
         self.skconsolelabel = QLabel("Console")
         self.skconsolelabel.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.skconsole = QTextBrowser()
+
         self.consoleLayout = QVBoxLayout()
         self.consoleLayout.addWidget(self.skconsolelabel)
         self.consoleLayout.addWidget(self.skconsole)
@@ -1352,7 +1361,6 @@ class SkillGUI(QMainWindow):
         self.setCentralWidget(self.mainWidget)
         self.setWindowTitle("Skill Editor")
 
-
         self.saveSkillMessageBox = QMessageBox()
 
         # Set the title and text of the message box
@@ -1370,21 +1378,96 @@ class SkillGUI(QMainWindow):
         self.saveSkillMessageBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Ok)
         self.saveSkillMessageBox.setDefaultButton(QMessageBox.Ok)
 
-        gridLayout =self.saveSkillMessageBox.layout()
+        gridLayout = self.saveSkillMessageBox.layout()
         gidx = gridLayout.indexOf(self.saveSkMBCheckboxLocal)
-        cbrow, cbcol, cbrow_span,cbcol_span = gridLayout.getItemPosition(gidx)
+        cbrow, cbcol, cbrow_span, cbcol_span = gridLayout.getItemPosition(gidx)
 
-        gridLayout.addWidget(self.saveSkMBCheckboxCloud, cbrow, cbcol+1, cbrow_span,cbcol_span)
+        gridLayout.addWidget(self.saveSkMBCheckboxCloud, cbrow, cbcol + 1, cbrow_span, cbcol_span)
         self.saveSkMBCheckboxCloud.setVisible(True)
-
         # app = QApplication.instance()
         # screen = app.primaryScreen()
-        # #self.parent.showMsg('Screen: %s' % screen.name())
+        # #self.show_msg('Screen: %s' % screen.name())
         # size = screen.size()
-        # self.parent.showMsg('Size: %d x %d' % (size.width(), size.height()))
+        # self.show_msg('Size: %d x %d' % (size.width(), size.height()))
 
         # self.pbview.rubberBandChanged.connect(self.select_contents)
         # self.pbscene.selectionChanged.connect(self.select_contents)
+
+    def onScrollBarValueChanged(self, value):
+        """监听滚动条变化，判断是否自动滚动"""
+        scrollbar = self.skconsole.verticalScrollBar()
+        max_value = scrollbar.maximum()
+        # 如果滚动条接近底部（比如距离底部小于一个单位），则设置为自动滚动
+        if (max_value - value) <= 1:
+            self.isAutoScroll = True
+        else:
+            self.isAutoScroll = False
+    def log_text_format(self, msg, level):
+        logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        text_color = ""
+        if level == "error":
+            text_color = "color:#ff0000;"
+            logger_helper.error(msg)
+        elif level == "warn":
+            text_color = "color:#ff8000;"
+            logger_helper.warning(msg)
+        elif level == "info":
+            text_color = "color:#00ff00;"
+            logger_helper.info(msg)
+        elif level == "debug":
+            text_color = "color:#00ffff;"
+            logger_helper.debug(msg)
+
+        msg_text = """
+               <div style="display: flex; padding: 5pt;">
+                   <span  style=" font-size:12pt; font-weight:300; margin-right: 40pt;"> 
+                       %s |
+                   </span>
+                   <span style=" font-size:12pt; font-weight:300; %s">
+                       %s
+                   </span>
+                   |
+                   <span style=" font-size:12pt; font-weight:300; %s;">
+                       found %s
+                   </span>
+               </div>""" % (logTime, text_color, level, text_color, msg)
+        return msg_text
+
+    def appendDailyLogs(self, msgs, level):
+        # check if daily log file exists, if exists simply append to it, if not create and write to the file.
+        now = datetime.now()  # current date and time
+        year = now.strftime("%Y")
+        month = now.strftime("%m")
+        day = now.strftime("%d")
+        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
+        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+        time = now.strftime("%H:%M:%S - ")
+        if os.path.isfile(dailyLogFile):
+            file1 = open(dailyLogFile, "a")  # append mode
+            for msg in msgs:
+                file1.write(time + msg + "\n")
+            file1.close()
+        else:
+            if not os.path.exists(dailyLogDir):
+                os.makedirs(dailyLogDir)
+
+            file1 = open(dailyLogFile, "w")  # append mode
+            for msg in msgs:
+                file1.write(time + level + msg + "\n")
+            file1.close()
+
+    def show_msg(self, msg, level="info"):
+        msg_text = self.log_text_format(msg, level)
+        self.appendNetLogs([msg_text])
+        self.appendDailyLogs([msg], level)
+
+    def appendNetLogs(self, msgs):
+        for msg in msgs:
+            self.skconsole.appendHtml(msg)
+            if self.isAutoScroll:
+                cursor = self.skconsole.textCursor()
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+                self.skconsole.setTextCursor(cursor)
 
     def set_edit_mode(self, edmode):
         self.edit_mode = edmode
@@ -1413,11 +1496,12 @@ class SkillGUI(QMainWindow):
 
         self.pixmap = QPixmap.fromImage(self.image_qt)
         # pixmap.setDevicePixelRatio(2.5)
-        self.spixmap = self.pixmap.scaled(self.pixmap.size().width()/2.5, self.pixmap.size().height()/2.5, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        self.spixmap = self.pixmap.scaled(self.pixmap.size().width() / 2.5, self.pixmap.size().height() / 2.5,
+                                          Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         self.pic.setPixmap(self.spixmap)
 
-
         # unit in QT is 2.5x unit in pixel.
+
     def hide_app_page(self):
         self.pbAppLinkLabel.setVisible(False)
         self.pbAppLinkEdit.setVisible(False)
@@ -1513,7 +1597,6 @@ class SkillGUI(QMainWindow):
     def show_data_file(self):
         self.pbDataFileLabel.setVisible(True)
         self.pbDataFileEdit.setVisible(True)
-
 
     # UI based on action type.
     def pbActionSel_changed(self):
@@ -1667,8 +1750,6 @@ class SkillGUI(QMainWindow):
             self.pbNEdit.setVisible(True)
             self.pbRTSel.addItem("Contain Anchors")
 
-
-
     def pbRTSel_changed(self):
         if self.pbRTSel.currentText() == 'No Ref':
             self.pbNRefSel.setCurrentIndex(0)
@@ -1682,24 +1763,25 @@ class SkillGUI(QMainWindow):
         self.cog = cog
 
     def start_train(self):
-        self.parent.showMsg("start training...")
+        self.show_msg("start training...")
         file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step1.png"
         self.req_train(file_name)
 
     def train_next_step(self):
         self.step_count = self.step_count + 1
-        file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step" + str(self.step_count) + ".png"
-        self.parent.showMsg("next step... "+str(self.step_count))
+        file_name = self.home_path + "resource/songc_yahoo/win/chrome_amz_main/temp/step" + str(
+            self.step_count) + ".png"
+        self.show_msg("next step... " + str(self.step_count))
         self.req_train(file_name)
 
     def train_prev_step(self):
         self.step_count = self.step_count - 1
         file_name = self.home_path + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
-        self.parent.showMsg("prev step... "+str(self.step_count))
+        self.show_msg("prev step... " + str(self.step_count))
         self.req_train(file_name)
 
     def re_train_step(self):
-        self.parent.showMsg("refresh... "+str(self.step_count))
+        self.show_msg("refresh... " + str(self.step_count))
         file_name = self.home_path + "resource/songc_yahoo/win/amz_main/temp/step" + str(self.step_count) + ".png"
         self.req_train(file_name)
 
@@ -1714,23 +1796,23 @@ class SkillGUI(QMainWindow):
         # for remote object full path: username/os_app/site_page/task/filename.
         self.load_image_file(file_name)
         self.remove_all_rects()
-        result = read_screen(file_name, bucket="winrpa")
-        train_req = [{"skillName": "amz_main_browse", "skillFile": "amz_main_browse.csk", "imageFile": file_name }]
-        result = req_train_read_screen(self.session, train_req, self.cog.id_token)
+        # result = read_screen(file_name)
+        train_req = [{"skillName": "amz_main_browse", "skillFile": "amz_main_browse.csk", "imageFile": file_name}]
+        result = req_train_read_screen(self.session, train_req, self.cog['AuthenticationResult']['IdToken'])
         print("result:", result)
         result_json = json.loads(result)
         resp = json.loads(result_json["data"]["reqTrain"])
-        self.parent.showMsg("resp:"+json.dumps(resp["body"]))
+        self.show_msg("resp:" + str(resp["body"]))
         bdata = json.loads(resp["body"])
-        self.parent.showMsg("bdata:"+json.dumps(bdata["data"])+"##"+str(len(bdata["data"])))
+        self.show_msg("bdata:" + str(bdata["data"]) + "##" + str(len(bdata["data"])))
         self.draw_rects(bdata["data"])
 
     def draw_rects(self, screen_contents):
         for clickable in screen_contents:
-            l = float(clickable['loc'][1])/2.5
-            t = float(clickable['loc'][0])/2.5
-            w = (float(clickable['loc'][3]) - float(clickable['loc'][1]))/2.5
-            h = (float(clickable['loc'][2]) - float(clickable['loc'][0]))/2.5
+            l = float(clickable['loc'][1]) / 2.5
+            t = float(clickable['loc'][0]) / 2.5
+            w = (float(clickable['loc'][3]) - float(clickable['loc'][1])) / 2.5
+            h = (float(clickable['loc'][2]) - float(clickable['loc'][0])) / 2.5
 
             rect = QRectF(l, t, w, h)
 
@@ -1740,15 +1822,15 @@ class SkillGUI(QMainWindow):
                 self.pbscene.addRect(rect, self.udBoxPen, self.brush)
             else:
                 self.pbscene.addRect(rect, self.txtBoxPen, self.brush)
-            #self.rects.append(rect)
+            # self.rects.append(rect)
 
     def select_contents(self):
-        self.parent.showMsg("selected: "+json.dumps(self.pbview.rubberBandRect()))
+        self.show_msg("selected: " + str(self.pbview.rubberBandRect()))
 
     def eventFilter(self, source, event):
-        # self.parent.showMsg("source:", source, " event: ", event)
+        # self.show_msg("source:", source, " event: ", event)
         if event.type() == QEvent.ContextMenu and source is self.pbview:
-            self.parent.showMsg("right clicking...")
+            self.show_msg("right clicking...")
             self.popMenu = QMenu(self)
             self.setAnchorAction = self._createSetAnchorAction()
             self.setUDAction = self._createSetUDAction()
@@ -1762,11 +1844,11 @@ class SkillGUI(QMainWindow):
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
                 if selected_act == self.setAnchorAction:
-                    self.parent.showMsg("set anchor")
+                    self.show_msg("set anchor")
                 elif selected_act == self.setUDAction:
-                    self.parent.showMsg("set UD")
+                    self.show_msg("set UD")
                 elif selected_act == self.clearBBAction:
-                    self.parent.showMsg("clear BB"+str(len(self.pbscene.current_items)))
+                    self.show_msg("clear BB" + str(len(self.pbscene.current_items)))
                     if len(self.pbscene.current_items) > 0:
                         self.pbscene.removeItem(self.pbscene.current_items[0])
 
@@ -1775,7 +1857,7 @@ class SkillGUI(QMainWindow):
             return True
 
         if event.type() == QEvent.ContextMenu and source is self.pbskAnchorListView:
-            #self.parent.showMsg("bot RC menu....")
+            # self.show_msg("bot RC menu....")
             self.popMenu = QMenu(self)
             self.anchorEditAction = self._createAnchorEditAction()
             self.anchorCloneAction = self._createAnchorCloneAction()
@@ -1798,7 +1880,7 @@ class SkillGUI(QMainWindow):
                     self.deleteAnchor()
             return True
         elif event.type() == QEvent.ContextMenu and source is self.pbskDataListView:
-            #self.parent.showMsg("mission RC menu....")
+            # self.show_msg("mission RC menu....")
             self.popMenu = QMenu(self)
             self.userDataEditAction = self._createUserDataEditAction()
             self.userDataCloneAction = self._createUserDataCloneAction()
@@ -1821,7 +1903,7 @@ class SkillGUI(QMainWindow):
                     self.deleteUserData()
             return True
         elif event.type() == QEvent.ContextMenu and source is self.pbskStepListView:
-            # self.parent.showMsg("mission RC menu....")
+            # self.show_msg("mission RC menu....")
             self.popMenu = QMenu(self)
             self.stepEditAction = self._createStepEditAction()
             self.stepCloneAction = self._createStepCloneAction()
@@ -1852,14 +1934,14 @@ class SkillGUI(QMainWindow):
         return new_action
 
     def _createSetUDAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Set Useful Data"))
-       return new_action
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Set Useful Data"))
+        return new_action
 
     def _createClearBBAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Clear Bound Box"))
-       return new_action
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Clear Bound Box"))
+        return new_action
 
     def formRectPos(self, start, end):
         x = start.x()
@@ -1931,15 +2013,15 @@ class SkillGUI(QMainWindow):
         skill_name = self.app + "_" + self.domain + "_" + self.page
         if self.pbtabs.currentIndex() == 0:
             if self.pbInfoSel.currentText() == "Anchor":
-                self.parent.showMsg("add a new anchor....")
+                self.show_msg("add a new anchor....")
                 self.newAnchor = ANCHOR(self.pbInfoNameEdit.text(), self.pbATSel.currentText())
                 if self.newAnchor.get_type() == "Image":
                     skill_name = ""
                     img_path = INSTALLED_PATH + USER_DIR + OS_DIR + PAGE_DIR + "/skills/" + skill_name + "/images/" + self.newAnchor.getName() + ".png"
                     self.newAnchor.set_img(img_path)
-                    #now save image.
-                    #area = (400, 400, 800, 800)
-                    #original_img.crop(area).save(img_path, format="png")
+                    # now save image.
+                    # area = (400, 400, 800, 800)
+                    # original_img.crop(area).save(img_path, format="png")
 
                 self.newAnchor.set_ref_method(self.pbRTSel.currentText())
 
@@ -1967,10 +2049,10 @@ class SkillGUI(QMainWindow):
                     self.newAnchor.add_ref(self.pbRef3NameEdit.text(), refx, refy)
                     refx, refy = self.get_ref4xy()
                     self.newAnchor.add_ref(self.pbRef4NameEdit.text(), refx, refy)
-                    self.parent.showMsg("ready to add....")
+                    self.show_msg("ready to add....")
                 self.anchorListModel.appendRow(self.newAnchor)
             elif self.pbInfoSel.currentText() == "Useful Data":
-                self.parent.showMsg("add a new user info....")
+                self.show_msg("add a new user info....")
                 self.newUserInfo = USER_INFO(self.pbInfoNameEdit.text())
                 self.newUserInfo.set_type(self.pbDTSel.currentText())
                 self.newUserInfo.set_nlines(self.pbNEdit.text())
@@ -2003,7 +2085,7 @@ class SkillGUI(QMainWindow):
                 self.dataListModel.appendRow(self.newUserInfo)
 
         elif self.pbtabs.currentIndex() == 1:
-            self.parent.showMsg("add a new step....")
+            self.show_msg("add a new step....")
             pbActionSel_text = self.pbActionSel.currentText()
             new_step = PROCEDURAL_STEP(pbActionSel_text)
             if pbActionSel_text == 'App Page Open':
@@ -2019,7 +2101,8 @@ class SkillGUI(QMainWindow):
             elif pbActionSel_text == 'Save Data':
                 new_step.set_data_file(self.pbDataFileEdit.text())
             elif pbActionSel_text == 'Conditional Step':
-                new_step.set_condition_jump(self.pbConditionEdit.text(), self.pbConditionTrueEdit.text(), self.pbConditionFalseEdit.text())
+                new_step.set_condition_jump(self.pbConditionEdit.text(), self.pbConditionTrueEdit.text(),
+                                            self.pbConditionFalseEdit.text())
             elif pbActionSel_text == 'Jump Step':
                 new_step.set_jump(self.pbJumpEdit.text())
             elif pbActionSel_text == 'Set Wait':
@@ -2031,7 +2114,7 @@ class SkillGUI(QMainWindow):
             self.stepListModel.appendRow(new_step)
 
     def ia_save(self):
-        self.parent.showMsg("save images to files....")
+        self.show_msg("save images to files....")
         # save the json
         privacy = "public"
         if privacy == "public":
@@ -2079,14 +2162,13 @@ class SkillGUI(QMainWindow):
                 "Unable to open file: %s" % skj_path
             )
 
-
         # save image anchor to file.
         model = self.pbskAnchorListView.model()
         for index in range(model.rowCount()):
             anchor_item = model.item(index)
             aj = self.gen_anchor_json(anchor_item)
             if aj["anchor_type"] == "icon":
-                #save image to a file.
+                # save image to a file.
                 aname = anchor_item.get_name() + ".png"
 
                 # assume only 1 rect will be selected.
@@ -2098,18 +2180,16 @@ class SkillGUI(QMainWindow):
 
                 # get the 1st image on image queue.
                 imq = self.parent.trainNewSkillWin.imq
-                original_image = imq[len(imq)-1]
+                original_image = imq[len(imq) - 1]
                 # Crop the image
                 anchor_image = original_image.crop((left, top, right, bottom))
                 anchor_image.save(aname, "PNG")
-
 
         # save info and images to csk file.
         model = self.pbskDataListView.model()
         for index in range(model.rowCount()):
             info_item = model.item(index)
             ij = self.gen_info_json(info_item)
-
 
     def gen_anchor_json(self, aitem):
         ajson = {
@@ -2128,7 +2208,7 @@ class SkillGUI(QMainWindow):
         return ijson
 
     def ia_remove(self):
-        self.parent.showMsg("remove a piece of information....")
+        self.show_msg("remove a piece of information....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         if self.pbtabs.currentIndex() == 0:
             if self.pbInfoSel.currentText() == "Anchor":
@@ -2141,7 +2221,7 @@ class SkillGUI(QMainWindow):
             elif self.pbInfoSel.currentText() == "Useful Data":
                 self.newUserInfo = USER_INFO(self.pbInfoNameEdit.text())
         elif self.pbtabs.currentIndex() == 1:
-            self.parent.showMsg("hohoho")
+            self.show_msg("hohoho")
 
     def show_ref1(self, visible: bool):
         self.pbRef1NameLabel.setVisible(visible)
@@ -2279,17 +2359,18 @@ class SkillGUI(QMainWindow):
     def load_skill_file(self):
         # bring out the load file dialog
         my_skill_dir_path = app_info.app_home_path + "/resource/skills/my"
-        self.parent.showMsg(my_skill_dir_path)
+        self.show_msg(my_skill_dir_path)
         options = QFileDialog.Options()
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open File", my_skill_dir_path, "All Files (*.skd);;SKD Files (*.skd)",
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open File", my_skill_dir_path,
+                                                   "All Files (*.skd);;SKD Files (*.skd)",
                                                    options=options)
         if file_name:
-            self.parent.showMsg("Selected file:"+file_name)
+            self.show_msg("Selected file:" + file_name)
             with open(file_name, 'r') as f:
                 data = json.load(f)
 
-                self.parent.showMsg(f'JSON data loaded from {file_name}: {data}')
-                self.skFCWidget.decode_json(json.dumps(data))
+                self.show_msg(f'JSON data loaded from {file_name}: {data}')
+                self.skFCWidget.decode_json(str(data))
                 self.edit_mode = "edit"
 
     def save_skill_file(self):
@@ -2302,7 +2383,7 @@ class SkillGUI(QMainWindow):
             my_skill_img_dir = app_info.app_home_path + "/resource/skills/my/" + sk_prefix + "/" + skname + "/images/"
             if not os.path.exists(my_skill_dir_path):
                 os.makedirs(my_skill_dir_path)
-                self.parent.showMsg("Folder created:"+my_skill_dir_path)
+                self.show_msg("Folder created:" + my_skill_dir_path)
 
             skd_file_path = my_skill_dir_path + skname + ".skd"
 
@@ -2310,7 +2391,7 @@ class SkillGUI(QMainWindow):
             if skd_file_path:
                 with open(skd_file_path, 'w') as file:
                     file.write(skd_data)
-                    self.parent.showMsg(f'save skd file to {skd_file_path}')
+                    self.show_msg(f'save skd file to {skd_file_path}')
 
             worksettings = self.get_work_settings()
             psk_words = self.skFCWidget.skfc_scene.gen_psk_words(worksettings)
@@ -2318,11 +2399,11 @@ class SkillGUI(QMainWindow):
             if psk_file_path:
                 with open(psk_file_path, 'w') as file:
                     file.write(psk_words)
-                    self.parent.showMsg(f'save psk file to {psk_file_path}')
+                    self.show_msg(f'save psk file to {psk_file_path}')
 
             if self.saveSkMBCheckboxCloud.isChecked():
                 # save to cloud here.
-                self.parent.showMsg("saving this skill to cloud ")
+                self.show_msg("saving this skill to cloud ")
                 upload_file(self.session, skd_file_path, self.cog.id_token, "skill")
                 upload_file(self.session, psk_file_path, self.cog.id_token, "skill")
                 # upload_file(self.session, csk_file_path, self.cog.id_token, "skill")
@@ -2350,16 +2431,14 @@ class SkillGUI(QMainWindow):
                     if this_skill:
                         result = send_update_skills_request_to_cloud(self.session, [this_skill], self.cog.id_token)
                     else:
-                        self.parent.showMsg("WARNING: SKILL TO BE UPDATED NOT FOUND!")
-
-
+                        self.show_msg("WARNING: SKILL TO BE UPDATED NOT FOUND!")
 
     def cancel_run(self):
-        #will add later a sure? dialog
+        # will add later a sure? dialog
         cancelRun()
 
     def stop_run(self):
-        #will add later a sure? dialog
+        # will add later a sure? dialog
         pauseRun()
 
     def get_work_settings(self):
@@ -2404,7 +2483,7 @@ class SkillGUI(QMainWindow):
 
         worksettings = getWorkSettings(self.parent.parent, workTBD)
 
-        self.parent.showMsg(f"work settings {worksettings}")
+        self.show_msg(f"work settings {worksettings}")
 
         return worksettings
 
@@ -2420,7 +2499,7 @@ class SkillGUI(QMainWindow):
         if psk_file_path:
             with open(psk_file_path, 'w') as file:
                 file.write(psk_words)
-                self.parent.showMsg(f'save trial psk file to temp file: {psk_file_path}')
+                self.show_msg(f'save trial psk file to temp file: {psk_file_path}')
 
         # self.runStopped = False
         all_skill_codes = [{"ns": "B0M20231225!!", "skfile": psk_file_path}]
@@ -2480,10 +2559,10 @@ class SkillGUI(QMainWindow):
         return new_action
 
     def editAnchor(self):
-        self.parent.showMsg("edit anchor")
+        self.show_msg("edit anchor")
 
     def cloneAnchor(self):
-        self.parent.showMsg("clone anchor")
+        self.show_msg("clone anchor")
 
     def deleteAnchor(self):
         # File actions
@@ -2507,14 +2586,14 @@ class SkillGUI(QMainWindow):
                     # remove the local data and GUI.
                     self.anchorListModel.removeRow(item.row())
 
-        #self.botModel.removeRow(self.selected_bot_row)
-        #self.parent.showMsg("delete bot" + str(self.selected_bot_row))
+        # self.botModel.removeRow(self.selected_bot_row)
+        # self.show_msg("delete bot" + str(self.selected_bot_row))
 
     def editUserData(self):
-        self.parent.showMsg("edit user data")
+        self.show_msg("edit user data")
 
     def cloneUserData(self):
-        self.parent.showMsg("clone user data")
+        self.show_msg("clone user data")
 
     def deleteUserData(self):
         # File actions
@@ -2537,19 +2616,20 @@ class SkillGUI(QMainWindow):
                     # remove the local data and GUI.
                     self.dataListModel.removeRow(item.row())
 
-        #self.botModel.removeRow(self.selected_bot_row)
-        #self.parent.showMsg("delete bot" + str(self.selected_bot_row))
+        # self.botModel.removeRow(self.selected_bot_row)
+        # self.show_msg("delete bot" + str(self.selected_bot_row))
 
     def editStep(self):
-        self.parent.showMsg("edit step")
+        self.show_msg("edit step")
 
     def cloneStep(self):
-        self.parent.showMsg("clone step")
+        self.show_msg("clone step")
 
     def deleteStep(self):
         # File actions
         msgBox = QMessageBox()
-        msgBox.setText(QApplication.translate("QMessageBox", "The step will be removed and won't be able recover from it.."))
+        msgBox.setText(
+            QApplication.translate("QMessageBox", "The step will be removed and won't be able recover from it.."))
         msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this step?"))
         msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
         msgBox.setDefaultButton(QMessageBox.Yes)
@@ -2567,10 +2647,9 @@ class SkillGUI(QMainWindow):
                     # remove the local data and GUI.
                     self.stepListModel.removeRow(item.row())
 
-        #self.botModel.removeRow(self.selected_bot_row)
-        #self.parent.showMsg("delete bot" + str(self.selected_bot_row))
+        # self.botModel.removeRow(self.selected_bot_row)
+        # self.show_msg("delete bot" + str(self.selected_bot_row))
 
     def appDomainPage_changed(self):
         # when app, domain, page changed, that means, we need a different .csk file.
-        self.parent.showMsg("app, domain, page changed....")
-
+        self.show_msg("app, domain, page changed....")
