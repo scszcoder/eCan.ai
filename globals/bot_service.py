@@ -102,7 +102,7 @@ class BotService:
             local_bot.ebpw = api_bot["ebpw"]
             model.session.add(local_bot)
             model.session.commit()
-            self.parent.showMsg("Mission fetchall" + json.dumps(local_bot.to_dict()))
+            self.parent.showMsg("Bot fetchall" + json.dumps(local_bot.to_dict()))
 
     def sync_cloud_bot_data(self, session, tokens):
         jresp = send_query_bots_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
@@ -124,7 +124,7 @@ class BotService:
             result.location = bot['location']
             result.roles = bot['roles']
             result.status = bot['status']
-            result.createon = bot['birthday']
+            # result.createon = bot['birthday']
             if insert:
                 model.session.add(result)
         model.session.commit()

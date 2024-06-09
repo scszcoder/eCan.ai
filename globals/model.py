@@ -84,7 +84,7 @@ class MissionModel(Base):
     botid = Column(Integer)
     status = Column(Text)
     createon = Column(Text)
-    owner = Column(Text)
+    # owner = Column(Text)
     esd = Column(Text)
     ecd = Column(Text)
     asd = Column(Text)
@@ -112,6 +112,7 @@ class MissionModel(Base):
     brand = Column(Text)
     img = Column(Text)
     title = Column(Text)
+    variations = Column(Text)
     rating = Column(Text)
     feedbacks = Column(Text)
     price = Column(Text)
@@ -126,6 +127,7 @@ class MissionModel(Base):
             "botid": self.botid,
             "status": self.status,
             "createon": self.createon,
+            # "owner": self.owner,
             "esd": self.esd,
             "ecd": self.ecd,
             "asd": self.asd,
@@ -153,6 +155,7 @@ class MissionModel(Base):
             "brand": self.brand,
             "img": self.img,
             "title": self.title,
+            "variations": self.variations,
             "rating": self.rating,
             "feedbacks": self.feedbacks,
             "price": self.price,
@@ -185,7 +188,7 @@ class BotModel(Base):
     backemail = Column(Text)
     backemail_site = Column(Text)
     epw = Column(Text)
-    createon = Column(Text)
+    # createon = Column(Text)
 
     def to_dict(self):
         return {
@@ -210,7 +213,7 @@ class BotModel(Base):
             "backemail": self.backemail,
             "backemail_site": self.backemail_site,
             "epw": self.epw,
-            "createon": self.createon,
+            # "createon": self.createon,
         }
 
 

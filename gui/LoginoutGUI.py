@@ -457,7 +457,7 @@ class Login(QDialog):
             if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
                 # global commanderServer
 
-                self.mainwin = MainWindow(main_key, self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath,
+                self.mainwin = MainWindow(self, main_key, self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath,
                                           self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
@@ -469,7 +469,7 @@ class Login(QDialog):
                 # global commanderXport
 
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.mainwin = MainWindow(main_key, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
+                self.mainwin = MainWindow(self, main_key, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
                                           self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a platoon...", self.xport)
                 self.mainwin.setOwner(self.textName.text())
