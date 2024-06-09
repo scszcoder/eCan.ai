@@ -49,6 +49,7 @@ class M_Private_Attributes():
         self.seller = "NA"
         self.brand = ""
         self.title = "NA"
+        self.variations = ""
         self.imglink = "NA"
         self.price = 0.0
         self.rating = ""
@@ -65,6 +66,7 @@ class M_Private_Attributes():
         self.feedback_text = ""
         self.feedback_rating = ""
         self.order_id = ""
+        self.original_req_file = ""
 
 
 
@@ -117,6 +119,7 @@ class M_Private_Attributes():
                 "item_number": self.item_number,
                 "seller": self.seller,
                 "title": self.title,
+                "variations": self.variations,
                 "imglink": self.imglink,
                 "price": self.price,
                 "rank": self.rank,
@@ -798,6 +801,12 @@ class EBMISSION(QStandardItem):
     def setTitle(self, title):
         self.privateAttributes.title = title
 
+    def getVariations(self):
+        return self.privateAttributes.variations
+
+    def setVariations(self, variations):
+        self.privateAttributes.variations = variations
+
     def getRating(self):
         return self.privateAttributes.rating
 
@@ -944,6 +953,7 @@ class EBMISSION(QStandardItem):
         self.setBrand(jd["brand"])
         self.setImagePath(jd["img dir"])
         self.setTitle(jd["title"])
+        self.setVariations(jd["variations"])
         self.setRating(jd["rating"])
         self.setFeedbacks(jd["feedbacks"])
         self.setPrice(jd["price"])
@@ -956,7 +966,19 @@ class EBMISSION(QStandardItem):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
 
-
+    def loadAMZReqData(self, jd):
+        # store, brand, execution time, quantity, asin, search term, title, page number, price, variation, product image, fb type, fb title, fb contents, notes
+        self.setASIN(jd["asin"])
+        self.setStore(jd["store"])
+        self.setBrand(jd["brand"])
+        self.setSearchKW(jd["search term"])
+        self.setPrice(jd["price"])
+        self.setTitle(jd["title"])
+        self.setVariations(jd["variations"])
+        self.setImagePath(jd["img dir"])
+        self.setCusPAS("win,ads,amz")
+        self.setSkills("65")
+        self.setMtype(jd["fb type"])
 
     async def run(self):
         run_result = None

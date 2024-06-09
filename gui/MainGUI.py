@@ -59,6 +59,7 @@ from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFi
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from tests.unittests import *
+import pandas as pd
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -330,13 +331,13 @@ class MainWindow(QMainWindow):
             for column in res.description:
                 self.showMsg(column[0])
             #
-            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating REAL, feedbacks INTEGER, price REAL, customer TEXT, platoon TEXT, result TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
+            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, variations TEXT, rating REAL, feedbacks INTEGER, price REAL, customer TEXT, platoon TEXT, result TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
             self.dbCursor.execute(sql)
 
             sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, appargs TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, main TEXT, createdon TEXT, extensions TEXT, runtime INTEGER, price_model TEXT, price INTEGER, privacy TEXT)'
             self.dbCursor.execute(sql)
 
-            sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variation TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
+            sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variations TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
             self.dbCursor.execute(sql)
 
         else:
@@ -1814,6 +1815,7 @@ class MainWindow(QMainWindow):
                                     "brand": mission.getBrand(),
                                     "img": mission.getImagePath(),
                                     "title": mission.getTitle(),
+                                    "variations": mission.getVariations(),
                                     "rating": mission.getRating(),
                                     "feedbacks": mission.getFeedbacks(),
                                     "price": mission.getPrice(),
@@ -1832,6 +1834,7 @@ class MainWindow(QMainWindow):
                                 "brand": mission.getBrand(),
                                 "img": mission.getImagePath(),
                                 "title": mission.getTitle(),
+                                "variations": mission.getVariations(),
                                 "rating": mission.getRating(),
                                 "feedbacks": mission.getFeedbacks(),
                                 "price": mission.getPrice()
@@ -1842,7 +1845,7 @@ class MainWindow(QMainWindow):
         elif work["name"].split("_")[1] in ["pay", "checkShipping", "rate", "feedback", "checkFB"]:
             # in all other case, simply replace last st product of the 1st page.
             first_page = work["config"]["searches"][nth_search]["prodlist_pages"][0]
-            first_page["products"][0] = target_buy = {
+            first_page["products"][0] = {
                         "selType": "cus",  # this is key,
                         "detailLvl": 0,
                         "purchase": [
@@ -1853,6 +1856,7 @@ class MainWindow(QMainWindow):
                                 "brand": mission.getBrand(),
                                 "img": mission.getImagePath(),
                                 "title": mission.getTitle(),
+                                "variations": mission.getVariations(),
                                 "rating": mission.getRating(),
                                 "feedbacks": mission.getFeedbacks(),
                                 "price": mission.getPrice(),
@@ -1874,18 +1878,6 @@ class MainWindow(QMainWindow):
         idx = math.floor(random.random() * (len(self.PRODUCT_SEL_TYPES.length) - 1));
         return self.PRODUCT_SEL_TYPES[idx];
 
-    # obtain a feedback text from cloud feedback genertion service
-    def obtain_feedback_text(self, fb_type, prod_title):
-        fb_txt = ""
-        jresp = send_feedback_request_to_cloud(self.session, [{"fb_type": fb_type, "prod_title": prod_title}], self.tokens)
-
-        if "errorType" in jresp:
-            screen_error = True
-            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
-        else:
-            self.showMsg("jresp:"+json.dumps(jresp))
-            fb_txt = jresp["body"][0]["fb_txt"]
-        return fb_txt
 
     # given a derived buy mission, find out the original buy mission that was put in order by the users.
     # this is done thru searching ticket number. since this is likely to be a mission created 2 wks ago,
@@ -1938,6 +1930,7 @@ class MainWindow(QMainWindow):
                 # first, fill the mission with original buy's private attributes for convenience.
                 task_mission.setASIN(original_buy.getASIN())
                 task_mission.setTitle(original_buy.getTitle())
+                task_mission.setVariations(original_buy.getVariations())
                 task_mission.setStore(original_buy.getStore())
                 task_mission.setBrand(original_buy.getBrand())
                 task_mission.setImagePath(original_buy.getImagePath())
@@ -3104,6 +3097,7 @@ class MainWindow(QMainWindow):
                 "brand": new_mission.getBrand(),
                 "image": new_mission.getImagePath(),
                 "title": new_mission.getTitle(),
+                "variations": new_mission.getVariations(),
                 "rating": new_mission.getRating(),
                 "feedbacks": new_mission.getFeedbacks(),
                 "price": new_mission.getPrice(),
@@ -3129,11 +3123,11 @@ class MainWindow(QMainWindow):
                 self.missions.append(new_mission)
                 self.missionModel.appendRow(new_mission)
 
-            # mid ticket botid status createon esd ecd asd abd aad afd acd startt esttime runtime cuspas category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, title, rating, customer, platoon'
+            # mid ticket botid status createon esd ecd asd abd aad afd acd startt esttime runtime cuspas category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, title, variations, rating, customer, platoon'
             # add to local DB
             sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, actual_start_time, est_start_time, actual_runtime,
                     est_runtime, n_retries, cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
-                    title, rating, feedbacks, price, customer, platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                    title, variations, rating, feedbacks, price, customer, platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
 
             data_tuple = []
             for i, jb in enumerate(jbody):
@@ -3143,7 +3137,7 @@ class MainWindow(QMainWindow):
                           api_missions[i]["n_retries"], jbody[i]["cuspas"], jbody[i]["category"], jbody[i]["phrase"], jbody[i]["pseudoStore"], \
                           jbody[i]["pseudoBrand"], jbody[i]["pseudoASIN"], jbody[i]["type"], jbody[i]["config"], \
                           jbody[i]["skills"], jbody[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"], api_missions[i]["brand"], \
-                          api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], \
+                          api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["variations"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], \
                             api_missions[i]["customer"], api_missions[i]["platoon"], api_missions[i]["result"]))
 
             self.dbCursor.executemany(sql, data_tuple)
@@ -3208,6 +3202,7 @@ class MainWindow(QMainWindow):
                 "brand": amission.getBrand(),
                 "image": amission.getImagePath(),
                 "title": amission.getTitle(),
+                "variations": amission.getVariations(),
                 "rating": amission.getRating(),
                 "feedbacks": amission.getFeedbacks(),
                 "price": amission.getPrice(),
@@ -3229,7 +3224,7 @@ class MainWindow(QMainWindow):
                         aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
                         n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
                         pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
-                        img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ?, result = ? WHERE mid = ?; '''
+                        img = ?, title = ?, variations = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ?, result = ? WHERE mid = ?; '''
 
                 data_tuple = []
 
@@ -3241,7 +3236,7 @@ class MainWindow(QMainWindow):
                     api_missions[i]["n_retries"], api_missions[i]["cuspas"], api_missions[i]["search_cat"], api_missions[i]["search_kw"], api_missions[i]["pseudo_store"], \
                     api_missions[i]["pseudo_brand"], api_missions[i]["pseudo_asin"], api_missions[i]["type"], api_missions[i]["config"], \
                     api_missions[i]["skills"], api_missions[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"], api_missions[i]["brand"], \
-                    api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], api_missions[i]["customer"], \
+                    api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["variations"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], api_missions[i]["customer"], \
                     api_missions[i]["platoon"], api_missions[i]["result"], api_missions[i]["mid"]))
 
 
@@ -4202,6 +4197,7 @@ class MainWindow(QMainWindow):
                                 "brand": new_mission.getBrand(),
                                 "image": new_mission.getImagePath(),
                                 "title": new_mission.getTitle(),
+                                "variations": new_mission.getVariations(),
                                 "rating": new_mission.getRating(),
                                 "feedbacks": new_mission.getFeedbacks(),
                                 "price": new_mission.getPrice(),
@@ -4213,8 +4209,8 @@ class MainWindow(QMainWindow):
                             sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, 
                                         acd, actual_start_time, est_start_time, actual_runtime, est_runtime, n_retries, 
                                         cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, 
-                                        skills, delDate, asin, store, brand, img,  title, rating, feedbacks, price, customer, 
-                                        platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+                                        skills, delDate, asin, store, brand, img,  title, variations, rating, feedbacks, price, customer, 
+                                        platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
                             data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], \
                                           api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
                                           api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], \
@@ -4227,7 +4223,7 @@ class MainWindow(QMainWindow):
                                           api_missions[0]["type"], api_missions[0]["config"], \
                                           api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], \
                                           api_missions[0]["store"], api_missions[0]["brand"], \
-                                          api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], \
+                                          api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["variations"], api_missions[0]["rating"], \
                                           api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], \
                                           api_missions[0]["platoon"], api_missions[0]["result"])
 
@@ -4281,40 +4277,82 @@ class MainWindow(QMainWindow):
 
         self.addNewMissions(missions_from_file)
 
+    def process_original_xlsx_file(self, file_path):
+        # Read the Excel file, skipping the first two rows
+        df = pd.read_excel(file_path, skiprows=2)
+
+        # Drop rows where all elements are NaN
+        df.dropna(how='all', inplace=True)
+
+        # Convert each row to a JSON object and append to a list
+        json_list = df.to_dict(orient='records')
+
+        #add a reverse link back to
+        for jl in json_list:
+            jl["file_link"] = file_path
+
+        return json_list
+
+    def update_original_xlsx_file(self, file_path, mission_data):
+        # Read the Excel file, skipping the first two rows
+        dir_path = os.path.dirname(file_path)
+        df = pd.read_excel(file_path, skiprows=2)
+
+        # Drop rows where all elements are NaN
+        df.dropna(how='all', inplace=True)
+
+        # Convert each row to a JSON object and append to a list
+        json_list = df.to_dict(orient='records')
+
+        mission_ids = [mission["mission ID"] for mission in mission_data]
+        completion_dates = [mission["completion date"] for mission in mission_data]
+
+        # Add new columns with default or empty values
+        df['mission ID'] = mission_ids[:len(df)]
+        df['completion date'] = completion_dates[:len(df)]
+
+        # Get the new file name using the first row of the "mission ID" column
+        new_mission_id = df.loc[0, 'mission ID']
+        base_name = os.path.basename(file_path)
+        new_file_name = f"{os.path.splitext(base_name)[0]}_{new_mission_id}.xlsx"
+        new_file_path = os.path.join(dir_path, new_file_name)
+
+        # Save the updated DataFrame to a new file
+        df.to_excel(new_file_path, index=False)
+
+        print(f"File saved as {new_file_name}")
+
+
+    def newMissionFromNewReq(self, reqJson):
+        new_mission = EBMISSION(self)
+        new_mission.loadAMZReqData(reqJson)
+        return new_mission
 
     def newBuyMissionFromFiles(self):
-        new_orders_dir = ecb_data_homepath + "/new_orders/"
+        dtnow = datetime.now()
+        date_word = dtnow.strftime("%Y%m%d")
+
+        new_orders_dir = ecb_data_homepath + "/new_orders/ORDER" + date_word + "/"
         self.showMsg("working on new orders:" + new_orders_dir)
 
+        new_buy_missions = []
         if os.path.isdir(new_orders_dir):
             files = os.listdir(new_orders_dir)
             xlsx_files = [os.path.join(new_orders_dir, file) for file in files if os.path.isfile(os.path.join(new_orders_dir, file)) and file.endswith('.xlsx')]
 
+            #each row of each xlsx file becomes a new mission
             for xlsx_file in xlsx_files:
-                xls = openpyxl.load_workbook(xlsx_file, data_only=True)
+                # store, brand, execution time, quantity, asin, search term, title, page number, price, variation, product image, fb type, fb title, fb contents, notes
+                buy_mission_reqs = self.process_original_xlsx_file(xlsx_file)
 
-                # Initialize an empty list to store JSON data
-                botsJson = []
-                # Iterate over each sheet in the Excel file
-                title_cells = []
-                for idx, sheet in enumerate(xls.sheetnames):
-                    # Read the sheet into a DataFrame
-                    ws = xls[sheet]
+                for buy_req in buy_mission_reqs:
+                    n_buys = int(buy_req["quantity"])
+                    for n in range(n_buys):
+                        new_buy_missions.append(self.newMissionFromNewReq(buy_req))
 
-                    # Iterate over each row in the sheet
-                    for ri, row in enumerate(ws.iter_rows(values_only=True)):
-                        if idx == 0 and ri == 0:
-                            title_cells = [cell for cell in row]
-                        elif ri > 0:
-                            if len(row) == 25:
-                                botJson = {}
-                                for ci, cell in enumerate(title_cells):
-                                    if cell == "DoB":
-                                        botJson[cell] = row[ci].strftime('%Y-%m-%d')
-                                    else:
-                                        botJson[cell] = row[ci]
+        # now that we have created all the new missions,
+        # create the in the cloud and local DB.
 
-                                botsJson.append(botJson)
 
     def fillNewSkill(self, nskjson, nsk):
         self.showMsg("filling mission data")
@@ -4589,11 +4627,11 @@ class MainWindow(QMainWindow):
             if len(fileproducts) > 0:
                 #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
-                # sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variation TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
+                # sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variations TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
                 #
-                # sql = ''' INSERT INTO products (pid, name, title, asin, variation, site, sku, size_in, weight_lbs,
+                # sql = ''' INSERT INTO products (pid, name, title, asin, variations, site, sku, size_in, weight_lbs,
                 #         condition, fullfiller, price, cost, inventory_loc, inventory_qty) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                # data_tuple = (pd[0]["pid"], pd[0]["name"], pd[0]["title"], pd[0]["asin"], pd[0]["variation"], pd[0]["site"], \
+                # data_tuple = (pd[0]["pid"], pd[0]["name"], pd[0]["title"], pd[0]["asin"], pd[0]["variations"], pd[0]["site"], \
                 #               pd[0]["sku"], pd[0]["size_in"], pd[0]["weight_lbs"], pd[0]["condition"], pd[0]["fullfiller"], \
                 #               pd[0]["price"], pd[0]["cost"], pd[0]["inventory_loc"], pd[0]["inventory_qty"])
                 #
@@ -5334,7 +5372,7 @@ class MainWindow(QMainWindow):
                                 aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
                                 n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
                                 pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
-                                img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ?, result = ? WHERE mid = ?; '''
+                                img = ?, title = ?, variations = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ?, result = ? WHERE mid = ?; '''
         data_tuple = []
         for i, amission in enumerate(self.missions):
             data_tuple.append((
@@ -5346,7 +5384,7 @@ class MainWindow(QMainWindow):
                 amission[i]["pseudo_store"], amission[i]["pseudo_brand"], amission[i]["pseudo_asin"], \
                 amission[i]["type"], amission[i]["config"], amission[i]["skills"], amission[i]["delDate"], \
                 amission[i]["asin"], amission[i]["store"], amission[i]["brand"], amission[i]["image"], \
-                amission[i]["title"], amission[i]["rating"], amission[i]["feedbacks"], amission[i]["price"], \
+                amission[i]["title"], amission[i]["variations"], amission[i]["rating"], amission[i]["feedbacks"], amission[i]["price"], \
                 amission[i]["customer"], amission[i]["platoon"], amission[i]["result"], amission[i]["mid"]))
 
         self.dbCursor.executemany(sql, data_tuple)
