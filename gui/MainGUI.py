@@ -4126,6 +4126,85 @@ class MainWindow(QMainWindow):
         self.showMsg("filling mission data")
         nm.setNetRespJsonData(nmjson)
 
+
+    def addMissionsToLocalDB(self, missions):
+        api_missions = []
+        for new_mission in missions:
+            api_missions.append({
+                "mid": new_mission.getMid(),
+                "ticket": new_mission.getMid(),
+                "botid": new_mission.getBid(),
+                "owner": self.owner,
+                "status": new_mission.getStatus(),
+                "createon": new_mission.getBD(),
+                "esd": new_mission.getEsd(),
+                "ecd": new_mission.getEcd(),
+                "asd": new_mission.getAsd(),
+                "abd": new_mission.getAbd(),
+                "aad": new_mission.getAad(),
+                "afd": new_mission.getAfd(),
+                "acd": new_mission.getAcd(),
+                "actual_start_time": new_mission.getActualStartTime(),
+                "est_start_time": new_mission.getEstimatedStartTime(),
+                "actual_run_time": new_mission.getActualRunTime(),
+                "est_run_time": new_mission.getEstimatedRunTime(),
+                "cuspas": new_mission.getCusPAS(),
+                "search_cat": new_mission.getSearchCat(),
+                "search_kw": new_mission.getSearchKW(),
+                "pseudo_store": new_mission.getPseudoStore(),
+                "pseudo_brand": new_mission.getPseudoBrand(),
+                "pseudo_asin": new_mission.getPseudoASIN(),
+                "repeat": new_mission.getRetry(),
+                "mtype": new_mission.getMtype(),
+                "mconfig": new_mission.getConfig(),
+                "skills": new_mission.getSkills(),
+                "delDate": new_mission.getDelDate(),
+                "asin": new_mission.getASIN(),
+                "store": new_mission.getStore(),
+                "brand": new_mission.getBrand(),
+                "image": new_mission.getImagePath(),
+                "title": new_mission.getTitle(),
+                "variations": new_mission.getVariations(),
+                "rating": new_mission.getRating(),
+                "feedbacks": new_mission.getFeedbacks(),
+                "price": new_mission.getPrice(),
+                "customer": new_mission.getCustomerID(),
+                "platoon": new_mission.getPlatoonID(),
+                "result": new_mission.getResult()
+            })
+
+            sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, 
+                                                    acd, actual_start_time, est_start_time, actual_runtime, est_runtime, n_retries, 
+                                                    cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, 
+                                                    skills, delDate, asin, store, brand, img,  title, variations, rating, feedbacks, price, customer, 
+                                                    platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
+            data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], \
+                          api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
+                          api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], \
+                          api_missions[0]["abd"], api_missions[0]["aad"], \
+                          api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["actual_start_time"],
+                          api_missions[0]["esttime"], api_missions[0]["actual_runtime"], api_missions[0]["runtime"], \
+                          api_missions[0]["n_retries"], api_missions[0]["cuspas"], api_missions[0]["category"], \
+                          api_missions[0]["phrase"], api_missions[0]["pseudoStore"], \
+                          api_missions[0]["pseudoBrand"], api_missions[0]["pseudoASIN"], \
+                          api_missions[0]["type"], api_missions[0]["config"], \
+                          api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], \
+                          api_missions[0]["store"], api_missions[0]["brand"], \
+                          api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["variations"],
+                          api_missions[0]["rating"], \
+                          api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], \
+                          api_missions[0]["platoon"], api_missions[0]["result"])
+
+            self.dbCursor.execute(sql, data_tuple)
+
+            sql = 'SELECT * FROM missions'
+            res = self.dbCursor.execute(sql)
+            self.showMsg("fetchall" + json.dumps(res.fetchall()))
+            # important about format: returned here is a list of tuples (,,,,)
+            # for column in res.description:
+            #    self.showMsg(str(column[0]))
+
+
     def newMissionFromFile(self):
         self.showMsg("loading missions from a file...")
         api_missions = []
@@ -4154,8 +4233,8 @@ class MainWindow(QMainWindow):
                         jbody = jresp["body"]
                         # now that add is successfull, update local file as well.
 
-                        # now add bot to local DB.
-
+                        # now add missions to local DB.
+                        new_missions =[]
                         for i in range(len(jbody)):
                             self.showMsg(str(i))
                             new_mission = EBMISSION(self)
@@ -4164,79 +4243,9 @@ class MainWindow(QMainWindow):
                             self.fillNewMissionFromCloud(jbody[i], new_mission)
                             self.missions.append(new_mission)
                             self.missionModel.appendRow(new_mission)
+                            new_missions.append(new_mission)
 
-                            api_missions.append({
-                                "mid": new_mission.getMid(),
-                                "ticket": new_mission.getMid(),
-                                "botid": new_mission.getBid(),
-                                "owner": self.owner,
-                                "status": new_mission.getStatus(),
-                                "createon": new_mission.getBD(),
-                                "esd": new_mission.getEsd(),
-                                "ecd": new_mission.getEcd(),
-                                "asd": new_mission.getAsd(),
-                                "abd": new_mission.getAbd(),
-                                "aad": new_mission.getAad(),
-                                "afd": new_mission.getAfd(),
-                                "acd": new_mission.getAcd(),
-                                "actual_start_time": new_mission.getActualStartTime(),
-                                "est_start_time": new_mission.getEstimatedStartTime(),
-                                "actual_run_time": new_mission.getActualRunTime(),
-                                "est_run_time": new_mission.getEstimatedRunTime(),
-                                "cuspas": new_mission.getCusPAS(),
-                                "search_cat": new_mission.getSearchCat(),
-                                "search_kw": new_mission.getSearchKW(),
-                                "pseudo_store": new_mission.getPseudoStore(),
-                                "pseudo_brand": new_mission.getPseudoBrand(),
-                                "pseudo_asin": new_mission.getPseudoASIN(),
-                                "repeat": new_mission.getRetry(),
-                                "mtype": new_mission.getMtype(),
-                                "mconfig": new_mission.getConfig(),
-                                "skills": new_mission.getSkills(),
-                                "delDate": new_mission.getDelDate(),
-                                "asin": new_mission.getASIN(),
-                                "store": new_mission.getStore(),
-                                "brand": new_mission.getBrand(),
-                                "image": new_mission.getImagePath(),
-                                "title": new_mission.getTitle(),
-                                "variations": new_mission.getVariations(),
-                                "rating": new_mission.getRating(),
-                                "feedbacks": new_mission.getFeedbacks(),
-                                "price": new_mission.getPrice(),
-                                "customer": new_mission.getCustomerID(),
-                                "platoon": new_mission.getPlatoonID(),
-                                "result": new_mission.getResult()
-                            })
-
-                            sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, 
-                                        acd, actual_start_time, est_start_time, actual_runtime, est_runtime, n_retries, 
-                                        cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, 
-                                        skills, delDate, asin, store, brand, img,  title, variations, rating, feedbacks, price, customer, 
-                                        platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                            data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], \
-                                          api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
-                                          api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], \
-                                          api_missions[0]["abd"], api_missions[0]["aad"], \
-                                          api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["actual_start_time"],
-                                          api_missions[0]["esttime"], api_missions[0]["actual_runtime"], api_missions[0]["runtime"], \
-                                          api_missions[0]["n_retries"], api_missions[0]["cuspas"], api_missions[0]["category"], \
-                                          api_missions[0]["phrase"], api_missions[0]["pseudoStore"], \
-                                          api_missions[0]["pseudoBrand"], api_missions[0]["pseudoASIN"], \
-                                          api_missions[0]["type"], api_missions[0]["config"], \
-                                          api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], \
-                                          api_missions[0]["store"], api_missions[0]["brand"], \
-                                          api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["variations"], api_missions[0]["rating"], \
-                                          api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], \
-                                          api_missions[0]["platoon"], api_missions[0]["result"])
-
-                            self.dbCursor.execute(sql, data_tuple)
-
-                            sql = 'SELECT * FROM missions'
-                            res = self.dbCursor.execute(sql)
-                            self.showMsg("fetchall"+json.dumps(res.fetchall()))
-                            # important about format: returned here is a list of tuples (,,,,)
-                            #for column in res.description:
-                            #    self.showMsg(str(column[0]))
+                        self.addMissionsToLocalDB(new_missions)
 
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
@@ -4354,7 +4363,30 @@ class MainWindow(QMainWindow):
 
         # now that we have created all the new missions,
         # create the in the cloud and local DB.
+        # cloud side first
 
+        if len(new_buy_missions) > 0:
+            jresp = send_add_missions_request_to_cloud(self.session, new_buy_missions, self.tokens['AuthenticationResult']['IdToken'])
+
+            if "errorType" in jresp:
+                screen_error = True
+                self.showMsg( "ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(jresp["errorInfo"]))
+            else:
+                self.showMsg("jresp type: " + str(type(jresp)) + " " + str(len(jresp["body"])))
+                jbody = jresp["body"]
+                # now that add is successfull, update local file as well.
+
+                # now update mission ID
+                for i in range(len(jbody)):
+                    new_buy_missions.setMid(jbody[i]["mid"])
+
+                #now add to local DB.
+                self.addMissionsToLocalDB(new_buy_missions)
+
+                #add to local data structure
+                self.missions = self.missions + new_buy_missions
+                for new_buy in new_buy_missions:
+                    self.missionModel.appendRow(new_buy)
 
     def fillNewSkill(self, nskjson, nsk):
         self.showMsg("filling mission data")
