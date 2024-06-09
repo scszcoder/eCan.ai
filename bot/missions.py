@@ -9,6 +9,7 @@ from bot.Logger import log3
 import tzlocal
 
 from bot.readSkill import runAllSteps
+from encrypt import *
 
 TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
@@ -969,8 +970,11 @@ class EBMISSION(QStandardItem):
     def loadAMZReqData(self, jd):
         # store, brand, execution time, quantity, asin, search term, title, page number, price, variation, product image, fb type, fb title, fb contents, notes
         self.setASIN(jd["asin"])
+        self.setPseudoASIN(encrypt_message(self.getASIN(), self.parent.getEncryptionKey()))
         self.setStore(jd["store"])
+        self.setPseudoStore(encrypt_message(self.getStore(), self.parent.getEncryptionKey()))
         self.setBrand(jd["brand"])
+        self.setPseudoBrand(encrypt_message(self.getBrand(), self.parent.getEncryptionKey()))
         self.setSearchKW(jd["search term"])
         self.setPrice(jd["price"])
         self.setTitle(jd["title"])

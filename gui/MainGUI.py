@@ -60,6 +60,7 @@ from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from tests.unittests import *
 import pandas as pd
+from encrypt import *
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -167,7 +168,7 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
+    def __init__(self, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
         super(MainWindow, self).__init__()
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
@@ -218,6 +219,7 @@ class MainWindow(QMainWindow):
         self.tokens = inTokens
         self.machine_role = machine_role
         self.ip = ip
+        self.main_key = main_key
 
         self.user = user
         self.cog = None
@@ -5841,3 +5843,8 @@ class MainWindow(QMainWindow):
                 self.showMsg(f"Error: JSON empty")
             else:
                 self.showMsg(f"Error: TCP link doesn't exist")
+
+
+    def getEncryptKey(self):
+        key, salt = derive_key(self.main_key)
+        return key

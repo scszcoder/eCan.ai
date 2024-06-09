@@ -425,11 +425,11 @@ class Login(QDialog):
                 json.dump(data, jsonfile)
             self.hide()
             print("hello hello hello")
-
+            main_key = self.scramble(self.textPass.text())
             if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
                 # global commanderServer
 
-                self.mainwin = MainWindow(self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath, self.gui_net_msg_queue, self.machine_role, self.lang)
+                self.mainwin = MainWindow(main_key, self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath, self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.setCog(self.cog)
@@ -440,7 +440,7 @@ class Login(QDialog):
                 # global commanderXport
 
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.gui_net_msg_queue, self.machine_role, self.lang)
+                self.mainwin = MainWindow(main_key, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath, self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a platoon...", self.xport)
                 self.mainwin.setOwner(self.textName.text())
                 self.mainwin.setCog(self.cog)
