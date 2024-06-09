@@ -404,7 +404,7 @@ class EBMISSION(QStandardItem):
                                 "token": self.parent.tokens['AuthenticationResult']['IdToken'],
                                 "uid": self.parent.uid}
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
-        self.icon = QIcon(parent.mission_icon_path)
+        self.icon = QIcon(parent.file_resouce.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
         self.ads_xlsx_profile = ""
@@ -701,7 +701,7 @@ class EBMISSION(QStandardItem):
 
     def setResult(self, result):
         self.privateAttributes.result = result
-        if result != "" or result != "{}":
+        if result != "" and result != "{}":
             resultJson = json.loads(result)
 
             if "order_id" in resultJson:

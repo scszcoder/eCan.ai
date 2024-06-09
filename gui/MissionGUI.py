@@ -19,12 +19,12 @@ class SkillListView(QListView):
         self.parent = parent
         self.homepath = parent.homepath
 
-    def mousePressEvent(self, e):
-        if e.type() == QEvent.MouseButtonPress:
-            if e.button() == Qt.LeftButton:
-                self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
-                self.selected_row = self.indexAt(e.pos()).row()
-                # self.parent.updateSelectedSkill(self.selected_row)
+    # def mousePressEvent(self, e):
+    #     if e.type() == QEvent.MouseButtonPress:
+    #         if e.button() == Qt.LeftButton:
+    #             self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
+    #             self.selected_row = self.indexAt(e.pos()).row()
+    #             # self.parent.updateSelectedSkill(self.selected_row)
 
 
 
