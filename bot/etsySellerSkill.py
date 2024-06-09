@@ -3,6 +3,7 @@ import json
 import os
 import re
 from datetime import datetime
+from ping3 import ping
 
 import pandas as pd
 from openpyxl import Workbook
