@@ -1,12 +1,13 @@
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, or_
+from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text
 
 from Cloud import send_query_missions_request_to_cloud
 from globals import model
 from globals.model import MissionModel
-
+import traceback
+from bot.Logger import log3
 
 class MissionService:
     def __init__(self, parent):
@@ -36,7 +37,7 @@ class MissionService:
             "ticket": api_missions["ticket"],
             "botid": api_missions["botid"],
             "status": api_missions["status"],
-            "createon": api_missions["createon"],
+            # "createon": api_missions["createon"],
             "esd": api_missions["esd"],
             "ecd": api_missions["ecd"],
             "asd": api_missions["asd"],
@@ -64,6 +65,7 @@ class MissionService:
             "brand": api_missions["brand"],
             "img": api_missions["img"],
             "title": api_missions["title"],
+            "variations": api_missions["variations"],
             "rating": api_missions["rating"],
             "feedbacks": api_missions["feedbacks"],
             "price": api_missions["price"],
@@ -90,7 +92,7 @@ class MissionService:
             local_mission.ticket = jb["ticket"]
             local_mission.botid = jb["botid"]
             local_mission.status = jb["status"]
-            local_mission.createon = jb["createon"]
+            # local_mission.createon = jb["createon"]
             local_mission.esd = jb["esd"]
             local_mission.ecd = jb["ecd"]
             local_mission.asd = jb["asd"]
@@ -118,6 +120,7 @@ class MissionService:
             local_mission.brand = messions["brand"]
             local_mission.img = messions["image"]
             local_mission.title = messions["title"]
+            local_mission.variations = messions["variations"]
             local_mission.rating = messions["rating"]
             local_mission.feedbacks = messions["feedbacks"]
             local_mission.price = messions["price"]
@@ -134,7 +137,7 @@ class MissionService:
             result.ticket = amission["ticket"]
             result.botid = amission["botid"]
             result.status = amission["status"]
-            result.createon = amission["createon"]
+            # result.createon = amission["createon"]
             result.esd = amission["esd"]
             result.ecd = amission["ecd"]
             result.asd = amission["asd"]
@@ -162,6 +165,7 @@ class MissionService:
             result.brand = amission["brand"]
             result.image = amission["image"]
             result.title = amission["title"]
+            result.variations = amission["variations"]
             result.rating = amission["rating"]
             result.feedbacks = amission["feedbacks"]
             result.price = amission["price"]
@@ -247,3 +251,182 @@ class MissionService:
             if insert:
                 model.session.add(local_mission)
         model.session.commit()
+
+    def describe_table(self):
+        # Connect to the database
+        with model.engine.connect() as conn:
+            # Use the Inspector to get table information
+            inspector = inspect(model.engine)
+
+            # Specify the table name you want to describe
+            table_name = 'missions'
+
+            # Get the columns of the table
+            columns = inspector.get_columns(table_name)
+
+            # Print the column information
+            log3("missions Table column definitions:")
+            for column in columns:
+                log3(
+                    f"Column: {column['name']}, Type: {column['type']}, Nullable: {column['nullable']}, Default: {column['default']}")
+
+            return columns
+
+    # original_table = Table(
+    #     'missions', metadata,
+    #     Column('mid', Integer, primary_key=True),
+    #     Column('ticket', Integer),
+    #     Column('botid', Integer),
+    #     Column('status', Text),
+    #     Column('createon', Text),
+    #     Column('esd', Text),
+    #     Column('ecd', Text),
+    #     Column('asd', Text),
+    #     Column('abd', Text),
+    #     Column('aad', Text),
+    #     Column('afd', Text),
+    #     Column('acd', Text),
+    #     Column('actual_start_time', Text),
+    #     Column('est_start_time', Text),
+    #     Column('actual_runtime', Text),
+    #     Column('est_runtime', Text),
+    #     Column('n_retries', Integer),
+    #     Column('cuspas', Text),
+    #     Column('category', Text),
+    #     Column('phrase', Text),
+    #     Column('pseudoStore', Text),
+    #     Column('pseudoBrand', Text),
+    #     Column('pseudoASIN', Text),
+    #     Column('type', Text),
+    #     Column('config', Text),
+    #     Column('skills', Text),
+    #     Column('delDate', Text),
+    #     Column('asin', Text),
+    #     Column('brand', Text),
+    #     Column('title', Text),
+    #     Column('rating', Text),
+    #     Column('feedbacks', Text),
+    #     Column('customer', Text),
+    #     Column('platoon', Text),
+    #     Column('result', Text)
+    # )
+    def add_column(self, new_column_name, new_column_data_type, after_column_name):
+        print("missions Table adding column....")
+        # metadata = MetaData(bind=model.engine)
+        table_name = "missions"
+        try:
+            columns_info = self.describe_table()
+
+            # Create list of columns for the new table
+            new_columns = []
+            added_new_column = False
+
+            for column_info in columns_info:
+                new_columns.append(Column(column_info['name'], column_info['type']))
+                if column_info['name'] == after_column_name:
+                    new_columns.append(Column(new_column_name, new_column_data_type))
+                    added_new_column = True
+
+            if not added_new_column:
+                raise ValueError(f"Column '{after_column_name}' not found in table '{table_name}'")
+
+            # Define the new table schema
+            table_name = "missions_old"
+            new_table_name = "missions_new"
+            new_table = Table(new_table_name, model.Base.metadata, *new_columns)
+
+            # with model.engine.connect() as conn:
+            # Rename the original table
+            model.session.execute(text(f"DROP TABLE {table_name}"))
+            original_table_name = "missions"
+            model.session.execute(text(f"ALTER TABLE {original_table_name} RENAME TO {table_name}"))
+
+            # Create the new table with the desired column order
+            model.Base.metadata.create_all(model.engine, tables=[new_table])
+
+            # Copy data from the old table to the new table
+            columns_to_copy = [col.name for col in new_table.columns if col.name != new_column_name]
+            columns_to_copy_str = ', '.join(columns_to_copy)
+            model.session.execute(text(f"""
+                INSERT INTO {new_table_name} ({columns_to_copy_str})
+                SELECT {columns_to_copy_str} FROM {table_name}
+            """))
+
+            # Drop the old table
+            model.session.execute(text("DROP TABLE missions_old;"))
+
+            # Rename the new table to the original table name
+            model.session.execute(text("ALTER TABLE missions_new RENAME TO missions;"))
+
+            model.session.commit()
+
+            self.describe_table()
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorAddColumnToMissionsTable:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorAddColumnToMissionsTable: traceback information not available:" + str(e)
+            print(ex_stat)
+
+    def drop_column(self, col_name):
+        # metadata = MetaData(bind=model.engine)
+        table_name = "missions"
+        try:
+            columns_info = self.describe_table()
+
+            # Create list of columns for the new table
+            new_columns = []
+
+            for column_info in columns_info:
+                new_columns.append(Column(column_info['name'], column_info['type']))
+                if column_info['name'] != col_name:
+                    new_columns.append(Column(column_info['name'], column_info['type']))
+                    added_new_column = True
+
+            if len(new_columns) == len(columns_info):
+                raise ValueError(f"Column '{col_name}' not found in table '{table_name}'")
+
+            # Define the new table schema
+            table_name = "missions_old"
+            new_table_name = "missions_new"
+            new_table = Table(new_table_name, model.Base.metadata, *new_columns)
+
+            with model.engine.connect() as conn:
+                # Rename the original table
+                model.session.execute(text("DROP TABLE missions_old;"))
+                model.session.execute(text("ALTER TABLE missions RENAME TO missions_old;"))
+
+                # Create the new table with the desired column order
+                model.Base.metadata.create_all(model.engine, tables=[new_table])
+
+                # Copy data from the old table to the new table
+                columns_to_copy = [col.name for col in new_table.columns]
+                columns_to_copy_str = ', '.join(columns_to_copy)
+                model.session.execute(text(f"""
+                            INSERT INTO {new_table_name} ({columns_to_copy_str})
+                            SELECT {columns_to_copy_str} FROM {table_name}
+                        """))
+
+                # Drop the old table
+                model.session.execute(text("DROP TABLE missions_old;"))
+
+                # Rename the new table to the original table name
+                model.session.execute(text("ALTER TABLE missions_new RENAME TO missions;"))
+
+                model.session.commit()
+
+                self.describe_table()
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorDeleteColumnFromMissionsTable:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorDeleteColumnFromMissionsTable: traceback information not available:" + str(e)
+            print(ex_stat)

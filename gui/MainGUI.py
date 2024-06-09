@@ -57,7 +57,6 @@ from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFi
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from tool.MainGUITool import FileResource, StaticResource, init_sql_file
-from tool.MainGUITool import SqlProcessor
 from utils.logger_helper import logger_helper
 from tests.unittests import *
 import pandas as pd
@@ -1295,10 +1294,10 @@ class MainWindow(QMainWindow):
         # test_get_all_wins()
 
         # test_ads_batch(self)
-        # test_sqlite3(self)
+        test_sqlite3(self)
         # test_misc()
         # test_scrape_amz_prod_list()
-        test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
         # run_genSchedules_test_case(self, self.session, self.tokens['AuthenticationResult']['IdToken'], 1)
         # test_run_mission(self)
 
