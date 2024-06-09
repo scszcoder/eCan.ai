@@ -10,6 +10,7 @@ import traceback
 import time
 
 from bot.missions import TIME_SLOT_MINS, EBMISSION
+from tool.MainGUITool import StaticResource
 
 
 class SkillListView(QListView):
@@ -65,7 +66,7 @@ class CustomDelegate(QStyledItemDelegate):
 class MissionNewWin(QMainWindow):
     def __init__(self, parent):
         super(MissionNewWin, self).__init__(parent)
-
+        self.static_resource = StaticResource()
         self.text = QApplication.translate("QMainWindow", "new mission")
         self.parent = parent
         self.homepath = parent.homepath
@@ -112,14 +113,14 @@ class MissionNewWin(QMainWindow):
         self.missionPlatformLabel = QLabel(
             QApplication.translate("QLabel", "<b style='color:red;'>Mission Platform:</b>"), alignment=Qt.AlignLeft)
         self.mission_platform_sel = QComboBox()
-        for p in self.parent.getPLATFORMS():
+        for p in self.static_resource.PLATFORMS:
             self.mission_platform_sel.addItem(QApplication.translate("QComboBox", p))
         self.mission_platform_sel.currentTextChanged.connect(self.missionPlatformSel_changed)
 
         self.missionAppLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission App:</b>"),
                                       alignment=Qt.AlignLeft)
         self.mission_app_sel = QComboBox()
-        for app in self.parent.getAPPS():
+        for app in self.static_resource.APPS:
             self.mission_app_sel.addItem(QApplication.translate("QComboBox", app))
         self.mission_app_sel.currentTextChanged.connect(self.missionAppSel_changed)
 
@@ -137,7 +138,7 @@ class MissionNewWin(QMainWindow):
         self.missionSiteLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission Site:</b>"),
                                        alignment=Qt.AlignLeft)
         self.mission_site_sel = QComboBox()
-        for site in self.parent.getSITES():
+        for site in self.static_resource.SITES:
             self.mission_site_sel.addItem(QApplication.translate("QComboBox", site))
         self.mission_site_sel.currentTextChanged.connect(self.missionSiteSel_changed)
 
@@ -250,10 +251,10 @@ class MissionNewWin(QMainWindow):
                                                  alignment=Qt.AlignLeft)
         self.buy_sub_mission_type_sel = QComboBox()
 
-        for bt in self.parent.getBUYTYPES():
+        for bt in self.static_resource.BUY_TYPES:
             self.buy_mission_type_sel.addItem(QApplication.translate("QComboBox", bt))
 
-        for bt in self.parent.getSUBBUYTYPES():
+        for bt in self.static_resource.SUB_BUY_TYPES:
             self.buy_sub_mission_type_sel.addItem(QApplication.translate("QComboBox", bt))
 
         self.sell_mission_type_label = QLabel(
@@ -263,9 +264,9 @@ class MissionNewWin(QMainWindow):
                                                   alignment=Qt.AlignLeft)
         self.sell_sub_mission_type_sel = QComboBox()
 
-        for st in self.parent.getSELLTYPES():
+        for st in self.static_resource.SELL_TYPES:
             self.sell_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
-        for st in self.parent.getSUBSELLTYPES():
+        for st in self.static_resource.SUB_SELL_TYPES:
             self.sell_sub_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
         self.op_mission_type_label = QLabel(
@@ -276,7 +277,7 @@ class MissionNewWin(QMainWindow):
                                                     alignment=Qt.AlignLeft)
         self.op_mission_type_custome_edit = QLineEdit()
 
-        for st in self.parent.getOPTYPES():
+        for st in self.static_resource.OP_TYPES:
             self.op_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
         self.repeat_label = QLabel(QApplication.translate("QLabel", "Repeat every:"), alignment=Qt.AlignLeft)
@@ -471,7 +472,7 @@ class MissionNewWin(QMainWindow):
         self.cus_alt_sm_type_label = QLabel(QApplication.translate("QLabel", "Customer Messenging Type:"),
                                             alignment=Qt.AlignLeft)
         self.cus_alt_sm_type_sel = QComboBox()
-        for sm in self.parent.getSMPLATFORMS():
+        for sm in self.static_resource.SM_PLATFORMS:
             self.cus_alt_sm_type_sel.addItem(QApplication.translate("QComboBox", sm))
 
         self.cus_alt_sm_id_label = QLabel(QApplication.translate("QLabel", "Customer Messenger ID:"),
@@ -585,7 +586,7 @@ class MissionNewWin(QMainWindow):
         self.mission_error_edit = QLineEdit()
         self.mission_status_sel.currentTextChanged.connect(self.missionStatusSel_changed)
 
-        for st in self.parent.getSTATUSTYPES():
+        for st in self.static_resource.STATUS_TYPES:
             self.mission_status_sel.addItem(QApplication.translate("QComboBox", st))
 
         self.actItemsLine1Layout = QHBoxLayout(self)
@@ -815,12 +816,12 @@ class MissionNewWin(QMainWindow):
                 if "bid" in cfg:
                     self.bid_edit.setText(cfg["bid"])
 
-            if self.newMission.getBuyType() in self.parent.getBUYTYPES():
+            if self.newMission.getBuyType() in self.static_resource.BUY_TYPES:
                 self.buy_mission_type_sel.setCurrentText(self.newMission.getBuyType())
             else:
                 self.buy_mission_type_sel.setCurrentText("goodFB")
 
-            if self.newMission.getSellType() in self.parent.getSELLTYPES():
+            if self.newMission.getSellType() in self.static_resource.SELL_TYPES:
                 self.sell_mission_type_sel.setCurrentText(self.newMission.getSellType())
             else:
                 self.sell_mission_type_sel.setCurrentText("sellFullfill")
@@ -835,7 +836,7 @@ class MissionNewWin(QMainWindow):
             self.cus_email_edit.setText(self.newMission.getCustomerID())
             self.cus_sm_id_edit.setText(self.newMission.getCustomerSMID())
 
-            if self.newMission.getCustomerSMPlatform() in self.parent.getSMPLATFORMS():
+            if self.newMission.getCustomerSMPlatform() in self.static_resource.SM_PLATFORMS:
                 self.cus_alt_sm_type_sel.setCurrentText(self.newMission.getCustomerSMPlatform())
             else:
                 self.cus_alt_sm_type_sel.setCurrentText("Custom")
@@ -847,14 +848,14 @@ class MissionNewWin(QMainWindow):
             self.pseudo_asin_edit.setText(self.newMission.getPseudoASIN())
 
             self.mission_platform_sel.setCurrentText(self.newMission.getPlatform())
-            if self.newMission.getApp() in self.parent.getAPPS():
+            if self.newMission.getApp() in self.static_resource.APPS:
                 self.mission_app_sel.setCurrentText(self.newMission.getApp())
             else:
                 self.mission_app_sel.setCurrentText('Custom')
                 self.missionCustomAppNameEdit.setText(self.newMission.getApp())
                 self.missionCustomAppLinkEdit.setText(self.newMission.getAppExe())
 
-            if self.newMission.getSite() in self.parent.getSITES():
+            if self.newMission.getSite() in self.static_resource.SITES:
                 self.mission_site_sel.setCurrentText(self.newMission.getSite())
             else:
                 self.mission_site_sel.setCurrentText('Custom')

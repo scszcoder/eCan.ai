@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, Q
     QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QListView, QFrame, QMenu, QLabel, \
     QTableView, QMessageBox, QStyledItemDelegate
 from bot.ebbot import EBBOT
+from tool.MainGUITool import StaticResource
 
 
 class ComboBoxDelegate(QStyledItemDelegate):
@@ -169,7 +170,8 @@ class BotNewWin(QMainWindow):
         self.interest_platform_label = QLabel(QApplication.translate("QLabel", "Interests platform:"),
                                               alignment=Qt.AlignLeft)
         self.interest_platform_sel = QComboBox()
-        self.interest_platform_sel_list = self.parent.getSITES()
+        self.static_resource = StaticResource()
+        self.interest_platform_sel_list = self.static_resource.SITES
         self.interest_platform_sel_list.insert(0, "any")
         for p in self.interest_platform_sel_list:
             self.interest_platform_sel.addItem(QApplication.translate("QComboBox", p))
@@ -244,7 +246,8 @@ class BotNewWin(QMainWindow):
                                           alignment=Qt.AlignLeft)
         self.role_platform_edit = QLineEdit()
         self.role_platform_sel = QComboBox()
-        for p in self.parent.getSITES():
+
+        for p in self.static_resource.SITES:
             self.role_platform_sel.addItem(QApplication.translate("QComboBox", p))
 
         self.role_platform_sel.currentTextChanged.connect(self.rolePlatformSel_changed)
@@ -557,13 +560,13 @@ class BotNewWin(QMainWindow):
         QApplication.translate("QLabel", "App Name:")
         self.browser_label = QLabel(QApplication.translate("QLabel", "App Name:"), alignment=Qt.AlignLeft)
         self.browser_sel = QComboBox()
-        for app in self.parent.getAPPS():
+        for app in self.static_resource.APPS:
             self.browser_sel.addItem(QApplication.translate("QComboBox", app))
 
         self.os_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>OS Type:</b>"),
                                alignment=Qt.AlignLeft)
         self.os_sel = QComboBox()
-        for cos in self.parent.getPLATFORMS():
+        for cos in self.static_resource.PLATFORMS:
             self.os_sel.addItem(QApplication.translate("QComboBox", cos))
 
         self.machine_label = QLabel(QApplication.translate("QLabel", "Machine Type:"), alignment=Qt.AlignLeft)
@@ -797,7 +800,7 @@ class BotNewWin(QMainWindow):
                 for j, l in enumerate(role_parts):
                     item = QStandardItem(l)
                     self.roleTableModel.setItem(i, j, item)
-        platformSelect = ComboBoxDelegate(self.roleTableView, self.parent.SITES)
+        platformSelect = ComboBoxDelegate(self.roleTableView, self.static_resource.SITES)
         self.roleTableView.setItemDelegateForColumn(0, platformSelect)
         roleLevelSelect = ComboBoxDelegate(self.roleTableView, self.role_level_sel_list)
         self.roleTableView.setItemDelegateForColumn(1, roleLevelSelect)
