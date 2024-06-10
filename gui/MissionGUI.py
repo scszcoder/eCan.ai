@@ -5,12 +5,12 @@ from PySide6.QtGui import QStandardItemModel, QColor, QPalette, QIcon, QAction, 
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QTabWidget, QVBoxLayout, QLineEdit, \
     QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QFileDialog, QButtonGroup, QStyledItemDelegate, \
     QListView, QLabel, QFrame, QMenu
-from bot.Logger import log3
 import traceback
 import time
 
 from bot.missions import TIME_SLOT_MINS, EBMISSION
 from tool.MainGUITool import StaticResource
+from utils.logger_helper import logger_helper
 
 
 class SkillListView(QListView):
@@ -871,7 +871,7 @@ class MissionNewWin(QMainWindow):
                 ex_stat = "ErrorSetMission:" + json.dumps(traceback_info, indent=4) + " " + str(e)
             else:
                 ex_stat = "ErrorSetMission: traceback information not available:" + str(e)
-            log3(ex_stat)
+            logger_helper.debug(ex_stat)
 
     def missionPlatformSel_changed(self):
         self.missionCustomAppLinkEdit = self.mission_platform_sel.currentText()
