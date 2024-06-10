@@ -157,7 +157,7 @@ class Login(QDialog):
                 self.lan = data["lan"]
         else:
             self.show_visibility = True  # default
-            localLan = locale.getdefaultlocale()
+            localLan = self.get_locale()
             print(localLan)
             if 'en_' in localLan[0]:
                 self.lan = "EN"
@@ -254,8 +254,20 @@ class Login(QDialog):
         else:
             return False
 
+    def get_locale(self):
+        try:
+            # 设置区域设置为系统默认设置
+            locale.setlocale(locale.LC_ALL, '')
+            current_locale = locale.getlocale()
+            if current_locale[0] is None:
+                raise ValueError("Locale not set properly")
+            return current_locale
+        except Exception as e:
+            print(f"Error getting locale: {e}")
+            return 'en_US', 'UTF-8'
+
     def __setup_language(self):
-        system_locale, _ = locale.getdefaultlocale()
+        system_locale, _ = self.get_locale()
         search_folder = os.path.dirname(__file__)
         search_folder = os.path.join(search_folder, "..", "translations")
         print(system_locale, search_folder)
@@ -439,11 +451,13 @@ class Login(QDialog):
             with open(ACCT_FILE, 'w') as jsonfile:
                 json.dump(data, jsonfile)
             self.hide()
+            print("hello hello hello")
+            main_key = self.scramble(self.textPass.text())
 
             if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
                 # global commanderServer
 
-                self.mainwin = MainWindow(self, self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath,
+                self.mainwin = MainWindow(main_key, self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath,
                                           self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a commander...", commanderServer)
                 self.mainwin.setOwner(self.textName.text())
@@ -454,7 +468,7 @@ class Login(QDialog):
                 # global commanderXport
 
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
+                self.mainwin = MainWindow(main_key, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
                                           self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a platoon...", self.xport)
                 self.mainwin.setOwner(self.textName.text())

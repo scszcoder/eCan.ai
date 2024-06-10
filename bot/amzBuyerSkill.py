@@ -546,7 +546,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
     # scroll page until the 1st product's bottom is near bottom 10% of the page height.
-    this_step, step_words = genScrollDownUntil("free_delivery", 90, "product_list", "body", this_step, worksettings, "amz", theme)
+    this_step, step_words = genScrollDownUntil("free_delivery", "anchor", 90, "product_list", "body", this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
 
@@ -572,7 +572,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
     # scroll page until the next product's bottom is near bottom 10% of the page height.
-    this_step, step_words = genScrollDownUntil("free_delivery", 90, "product_list", "body", this_step, worksettings, "amz", theme)
+    this_step, step_words = genScrollDownUntil("free_delivery", "anchor", 90, "product_list", "body", this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
     #
 
@@ -665,7 +665,7 @@ def genAMZBrowseProductListToLastAttention(pl, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
     # (action, action_args, smount, stepN):
-    this_step, step_words = genScrollDownUntil("free_delivery", 80, "product_list", "body", this_step, worksettings, "amz", theme)
+    this_step, step_words = genScrollDownUntil("free_delivery", "anchor", 80, "product_list", "body", this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -846,13 +846,13 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genScrollDownUntil("asin", 80, "product_details", "body", this_step, worksettings, "amz", theme)
+    this_step, step_words = genScrollDownUntil("asin", "anchor", 80, "product_details", "body", this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "asin_info", "direct", "info text", "any", "product_asin", "found_asin", "amz", False, this_step)
     psk_words = psk_words + step_words
 
-    # this_step, step_words = genScrollDownUntil(["see_all_reviews", "no_customer_reviews"], 80, "product_details", "body", this_step, worksettings, "amz", theme)
+    # this_step, step_words = genScrollDownUntil(["see_all_reviews", "no_customer_reviews"], "anchor", 80, "product_details", "body", this_step, worksettings, "amz", theme)
     # psk_words = psk_words + step_words
 
     # browse all the way down, until seeing "No customer reviews" or "See all reviews"
@@ -1054,15 +1054,6 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
 
     return this_step,psk_words
 
-
-def genAMZPurchaseFlow(screen, purchase_flow, stepN):
-    psk_words = ""
-    log3("DEBUG", "genAMZPurchaseFlow...")
-
-    this_step, step_words = genStepWait(1, 0, 0, stepN)
-    psk_words = psk_words + step_words
-
-    return this_step,psk_words
 
 
 # extract review information from the current screen.
@@ -1534,6 +1525,16 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepLoop("nthSearch < numSearchs", "", "", "search" + str(start_step), this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("expr", "search_buy", "NA", "run_config['searches'][nthSearch]['prodlist_pages'][0]['purchase']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("len(search_buy) == 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # if no purchase, it's got to be a browse, so go thru the typical browse process. even if there is in-cart type of
+    # buy action, the purchase will never be put the 1st product to browse, the purchase in the following page will take care of itself
+    # when we finishing browsing product details, it will check purchase and if there is , we'll do put in cart action there.
+    # only non-in-cart type of buy action will be put in the 1st product on the list because there is no need for browsing....
     this_step, step_words = genStepCheckCondition("run_config['searches'][nthSearch]['entry_paths']['type'] == 'Top main menu'", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -1600,6 +1601,21 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     psk_words = psk_words + step_words
 
     # end condition for check whether entry by top main menu.
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # no purchase, so regular browse.....
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # this is the case of non addCart procedure..... this will go directly into the cart or user account and go from there....
+
+    # this_step, step_words = genStepCreateData("expr", "direct_buy", "NA", "search_buy[0]", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genDirectBuySteps("sk_work_settings", "search_buy", this_step, theme)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -1838,9 +1854,6 @@ def genWinADSAMZBuySkill(worksettings, start_step, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # 2) then do the planned buy steps.
-    this_step, step_words = genWinChromeAMZBuySteps("sk_work_settings", this_step, theme)
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/buy_product", "", this_step)
     psk_words = psk_words + step_words
@@ -1850,10 +1863,54 @@ def genWinADSAMZBuySkill(worksettings, start_step, theme):
 
     return this_step, psk_words
 
+
+# assume we're on amazon site. first - make sure we're on the top of the page, if not scroll to it.
+def genDirectBuySteps(settings_var_name, buy_var_name, stepN, theme):
+    psk_words = ""
+
+    this_step, step_words = genStepLoop("on_amz_top", "", "", "directbuy" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "amazon_home", "top", theme, this_step, None, "dyn_options")
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless", "on_amz_top", "", False, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # at this point, we should be on top of the amazon page, so that we can now click into returns&orders or Cart depends on the buy action
+    this_step, step_words = genWinChromeAMZBuySteps(settings_var_name, buy_var_name, "buy_result", "buy_step_flag", this_step, theme)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
+
 # assumption for these steps, the browser should already be in the account's amazon home page (on top)
 # or in case of a browse, the browse should already being done and we're at the top of the
 # product details page. also buyop is not empty
-def genWinChromeAMZBuySteps(settings_var_name, buyop_var_name, stepN, theme):
+def genWinChromeAMZBuySteps(settings_string, buyop_var_name, buy_result_name, buy_flag_name, stepN, theme):
     psk_words = ""
     # this creates the local private skill file.
     #f = open(homepath+"resource/junk.txt", "a")
@@ -1865,7 +1922,9 @@ def genWinChromeAMZBuySteps(settings_var_name, buyop_var_name, stepN, theme):
     this_step, step_words = genStepCreateData("int", "buy_step_cnt", "NA", 0, stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "buy_cmd", "NA", buyop_var_name+"['buy_step_cnt']", this_step)
+    # buyop_var_name = "run_config['searches'][nthSearch]['prodlist_pages'][0]['purchase']"
+
+    this_step, step_words = genStepCreateData("expr", "buy_cmd", "NA", buyop_var_name+"[0]['action']", this_step)
     psk_words = psk_words + step_words
 
     # loop to go thru each page to be explored....
@@ -1873,55 +1932,59 @@ def genWinChromeAMZBuySteps(settings_var_name, buyop_var_name, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepCheckCondition("buy_cmd['cmd'] == 'addCart'", "", "", this_step)
+    this_step, step_words = genStepCallExtern("buy_cmd == "+buyop_var_name+"[buy_step_cnt]['action']", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinChromeAMZBuyAddCartSteps("sk_work_settings", this_step, theme)
+
+    this_step, step_words = genStepCheckCondition("buy_cmd == 'addCart'", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("buy_cmd['cmd'] == 'pay'", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genWinChromeAMZBuyPaySteps(settings_string, before_buy, this_step, theme)
+    this_step, step_words = genWinChromeAMZBuyAddCartSteps(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("buy_cmd['cmd'] == 'checkShipping'", "", "", this_step)
+    this_step, step_words = genStepCheckCondition("buy_cmd == 'pay'", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinChromeAMZBuyCheckShippingSteps(settings_string, this_step, theme)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("buy_cmd['cmd'] == 'rate'", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genWinChromeAMZBuyGiveRatingSteps(settings_string, this_step, theme)
+    this_step, step_words = genWinChromeAMZBuyPaySteps(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("buy_cmd['cmd'] == 'feedback'", "", "", this_step)
+    this_step, step_words = genStepCheckCondition("buy_cmd == 'checkShipping'", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinChromeAMZBuyGiveFeedbackSteps(settings_string, this_step, theme)
+    this_step, step_words = genWinChromeAMZBuyCheckShippingSteps(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("buy_cmd['cmd'] == 'checkFB'", "", "", this_step)
+    this_step, step_words = genStepCheckCondition("buy_cmd == 'rate'", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinChromeAMZBuyCheckFeedbackSteps(settings_string, this_step, theme)
+    this_step, step_words = genWinChromeAMZBuyGiveRatingSteps(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step, theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("buy_cmd == 'feedback'", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genWinChromeAMZBuyGiveFeedbackSteps(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step, theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("buy_cmd == 'checkFB'", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genWinChromeAMZBuyCheckFeedbackSteps(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step, theme)
     psk_words = psk_words + step_words
 
     # end of check condition for checkFB
@@ -1949,7 +2012,6 @@ def genWinChromeAMZBuySteps(settings_var_name, buyop_var_name, stepN, theme):
     psk_words = psk_words + step_words
 
 
-
     this_step, step_words = genStepCallExtern("buy_step_cnt == buy_step_cnt + 1", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -1959,7 +2021,7 @@ def genWinChromeAMZBuySteps(settings_var_name, buyop_var_name, stepN, theme):
     return this_step, psk_words
 
 
-def genWinChromeAMZBuyAddCartSteps(settings_string, stepN, theme):
+def genWinChromeAMZBuyAddCartSteps(settings_string, buy_cmd_name, buy_result_name, buy_flag_name, stepN, theme):
     psk_words = ""
 
     # check whether this is
@@ -1998,45 +2060,30 @@ def genWinChromeAMZBuyAddCartSteps(settings_string, stepN, theme):
 
 
 
-def genWinChromeAMZBuyPaySteps(settings_string, entry, stepN, theme):
+def genWinChromeAMZBuyPaySteps(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN, theme):
     psk_words = ""
 
-    this_step, step_words = genStepExtractInfo("", settings_string, "screen_info", "product_details", "top", theme, stepN, None)
+    this_step, step_words = genStepCreateData("boolean", "on_page_top", "NA", True, stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "proceed_to_checkout", "direct", "anchor text", "any", "useless", "in_cart_page", "", False, this_step)
+    # target, flag, prev_result
+    this_step, step_words = genStepAMZPeekAndClick(settings_string, "cart", "cart_top", "on_page_top", this_step, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("in_cart_page", "", "", this_step)
+    this_step, step_words = genStepAMZPeekAndClick(settings_string, "proceed_to_checkout", "check_out_top", "cart_top", start_step, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepAMZPeekAndClick(settings_string, "proceed_to_checkout", "in_cart", "pac_result", start_step, theme)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepAMZPeekAndClick(settings_string, "place_your_order", "pay_page", "pac_result", this_step, theme)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("buy_cmd['cmd'] == 'checkFB'", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepAMZPeekAndClick(settings_string, "cart", "at_top_home", "pac_result", start_step, theme)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepAMZPeekAndClick(settings_string, "proceed_to_checkout", "in_cart", "pac_result", this_step, theme)
-    psk_words = psk_words + step_words
-
+    # when will we see this page?
     this_step, step_words = genStepAMZPeekAndClick(settings_string, "continue_to_checkout", "in_cart_transition", "pac_result", this_step, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # there might be a page to to ask you to beceom prime member, need to click on "no thanks" if shows up....
+    this_step, step_words = genStepAMZPeekAndClick(settings_string, "no_thanks", "sign_prime_page", "check_out_top", this_step, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    this_step, step_words = genStepAMZPeekAndClick(settings_string, "place_your_order", "pay_page", "check_out_top", this_step, theme)
     psk_words = psk_words + step_words
+
 
 
     this_step, step_words = genStepAMZPeekAndClick(settings_string, "place_your_order", "pay_page", "pac_result", this_step, theme)
@@ -2064,23 +2111,20 @@ def genWinChromeAMZBuyPaySteps(settings_string, entry, stepN, theme):
 
     return this_step, psk_words
 
-def genWinChromeAMZBuyCheckShippingSteps(settings_string, stepN, theme):
+def genWinChromeAMZBuyCheckShippingSteps(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN, theme):
     psk_words = ""
 
-    this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'" + hfname + "'+'_'+str(" + ith + ")+'.html'",
-                                              stepN)
+    this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'" + hfname + "'+'_'+str(" + ith + ")+'.html'", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "file_save_input", "NA",
-                                              "['save', sk_work_settings['log_path'], hf_name]", this_step)
+    this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', sk_work_settings['log_path'], hf_name]", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepKeyInput("", True, "ctrl,s", "", 4, this_step)
     psk_words = psk_words + step_words
 
     # save the html file.
-    this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus",
-                                            this_step)
+    this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepAmzScrapeBuyOrdersHtml(html_dir, dir_name_type, html_file, 0, outvar, statusvar, this_step)
@@ -2092,13 +2136,24 @@ def genWinChromeAMZBuyCheckShippingSteps(settings_string, stepN, theme):
 
     return this_step, psk_words
 
-def genWinChromeAMZBuyGiveRatingSteps(settings_string, stepN, theme):
+def genWinChromeAMZBuyGiveRatingSteps(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN, theme):
     psk_words = ""
 
-    # now we're in order page, search for the order placed,
+    this_step, step_words = genStepCreateData("boolean", "on_page_top", "NA", True, stepN)
+    psk_words = psk_words + step_words
+
+    # now we're in order page, search for the order placed, scroll until we see order ID.
+    this_step, step_words = genStepAMZPeekAndClick(settings_string, "orders", "order_page", "on_page_top", this_step, theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "order_id", "NA", buy_cmd_name+"['order_id']", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genScrollDownUntil("order_id", "text var", 90, "my_orders", "top", this_step, worksettings, "amz", theme)
+    psk_words = psk_words + step_words
 
     # click on the product which will lead into the product page. click on "write a product review"
-    this_step, step_words = genStepAMZPeekAndClick(settings_string, "write_review", "pay_page", "pac_result", stepN, theme)
+    this_step, step_words = genStepAMZPeekAndClick(settings_string, "write_review", "pay_page", "pac_result", this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepAMZPeekAndClick(settings_string, "all_star", "pay_page", "pac_result", this_step, theme)
@@ -2106,7 +2161,7 @@ def genWinChromeAMZBuyGiveRatingSteps(settings_string, stepN, theme):
 
     return this_step, psk_words
 
-def genWinChromeAMZBuyGiveFeedbackSteps(settings_string, stepN, theme):
+def genWinChromeAMZBuyGiveFeedbackSteps(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN, theme):
     psk_words = ""
     # now we're in order page, search for the order placed,
 
@@ -2124,7 +2179,7 @@ def genWinChromeAMZBuyGiveFeedbackSteps(settings_string, stepN, theme):
 
     return this_step, psk_words
 
-def genWinChromeAMZBuyCheckFeedbackSteps(settings_string, start_step, theme):
+def genWinChromeAMZBuyCheckFeedbackSteps(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN, theme):
     psk_words = ""
 
     # open amazon
@@ -2142,24 +2197,24 @@ def genWinChromeAMZBuyCheckFeedbackSteps(settings_string, start_step, theme):
     # click "top reviews" and switch to "most recent"
 
 
-    # go thru top 10 reviews and see if your is there, if so take a screen capture. if not, set a flag.
+    # now save html file, and scrape html file to see whether the FB appears.
 
 
     return this_step, psk_words
 
 
 
-def genStepAMZPeekAndClick(settings_string, target, flag, result, start_step, theme):
+def genStepAMZPeekAndClick(settings_string, target, flag, prev_result, start_step, theme):
     psk_words = ""
 
     # only do it if the previous result is good, otherwise, just fall out.
-    this_step, step_words = genStepCheckCondition(result, "", "", start_step)
+    this_step, step_words = genStepCheckCondition(prev_result, "", "", start_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", settings_string, "screen_info", "product_details", "top", theme, start_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchWordLine("screen_info", target, "expr", "any", "useless", flag, "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", target, "direct", "anchor text", "any", "useless", flag, "", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition(flag, "", "", this_step)
@@ -2167,17 +2222,6 @@ def genStepAMZPeekAndClick(settings_string, target, flag, result, start_step, th
 
     # click on add_to_cart button.
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", target, "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # set a flag
-    this_step, step_words = genStepCreateData("string", flag, "NA", "on target", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # set a flag
-    this_step, step_words = genStepCreateData("string", result, "NA", "no target", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -2194,7 +2238,7 @@ def genStepAMZPeekAndConfirm(settings_string, target, flag, result, start_step, 
     this_step, step_words = genStepExtractInfo("", settings_string, "screen_info", "ads_power", "top", theme, start_step, None)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchWordLine("screen_info", target, "expr", "any", "useless", flag, "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", target, "direct", "anchor text", "any", "useless", flag, "", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition(flag, "", "", this_step)
@@ -2217,7 +2261,7 @@ def genStepAMZPeekAndConfirm(settings_string, target, flag, result, start_step, 
     return this_step, psk_words
 
 # save orders page into html and scrape it.
-def genStepAMZVerifyOrder(stepN, ):
+def genStepAMZVerifyOrder(stepN, theme):
     psk_words = ""
 
     this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'"+hfname+"'+'_'+str("+ith+")+'.html'", stepN)

@@ -203,11 +203,12 @@ def genStepSearchWordLine(screen, names, name_types, logic, result, flag, site, 
 # search some target content on the page, and scroll the target to the target loction on the page.
 # at_loc is a rough location, meaning the anchor closest to this location, NOT exactly at this location.
 # at_loc is also a 2 dimensional x-y coordinates
-def genStepSearchScroll(screen, anchor, at_loc, target_loc, flag, resolution, postwait, site, stepN):
+def genStepSearchScroll(screen, target, target_type, at_loc, target_loc, flag, resolution, postwait, site, stepN):
     stepjson = {
         "type": "Search Scroll",
         "action": "Search Scroll",
-        "anchor": anchor,
+        "target": target,
+        "target_type": target_type,
         "at_loc": at_loc,
         "target_loc": target_loc,
         "screen": screen,
@@ -3196,14 +3197,14 @@ def processSearchWordLine(step, i):
 # "flag": flag
 def processSearchScroll(step, i):
 
-    log3("Searching...."+json.dumps(step["anchor"]))
+    log3("Searching...."+json.dumps(step["target"]))
     ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
-        if isinstance(step["anchor"], list):
-            anchors = step["anchor"]
+        if isinstance(step["target"], list):
+            targets = step["target"]
         else:
-            anchors = [step["anchor"]]
+            targets = [step["target"]]
         at_loc_top = int(step["at_loc"][0])/100
         at_loc_bottom = int(step["at_loc"][1]) / 100
         target_loc = int(step["target_loc"])/100
@@ -3217,11 +3218,20 @@ def processSearchScroll(step, i):
         log3(" target_loc_V: "+str(target_loc_v)+"at_loc_top_v: "+str(at_loc_top_v)+"at_loc_bottom_v: "+str(at_loc_bottom_v))
 
         # find all images matches the name and above the at_loc
-        log3("finding....:"+json.dumps(anchors))
-        anyancs = [element for index, element in enumerate(scrn) if element["name"] in anchors]
-        log3("found any anchorss: "+json.dumps(anyancs))
-        ancs = [element for index, element in enumerate(scrn) if element["name"] in anchors and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
-        log3("found anchorss in bound: "+json.dumps(ancs))
+        log3("finding....:"+json.dumps(targets))
+        if step["target_type"] == "anchor":
+            ancs = [element for index, element in enumerate(scrn) if element["name"] in targets and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
+        elif step["target_type"] == "text var":
+            exec("global target_txt\ntarget_txt = " + step["target"])
+            all_paragraphs = [element for index, element in enumerate(scrn) if element["name"] == "paragraph"]
+            all_lines = []
+            for p in all_paragraphs:
+                all_lines = all_lines + p["txt_struct"]
+            matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"] and line["box"][1] > at_loc_top_v and line["box"][3] < at_loc_bottom_v]
+            # do a format conversion due to stupid "box", "loc" format mismatch, got to fix this at some point.
+            ancs = [{"loc": [ml["box"][1], ml["box"][0], ml["box"][3], ml["box"][2]]} for ml in matched_lines]
+
+        log3("found targets in bound: "+json.dumps(ancs))
         if len(ancs) > 0:
             # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
             vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
@@ -3256,7 +3266,7 @@ def processSearchScroll(step, i):
 # for grid based layout, it's be enough to do only 1 row, for row based layout, it could be multple rows captured.
 # target_anchor: to anchor to adjust postion to
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
-def genScrollDownUntil(target_anchor, tilpos, page, section, stepN, worksettings, site, theme):
+def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
     log3("DEBUG", "gen_psk_for_scroll_down_until...")
@@ -3280,7 +3290,7 @@ def genScrollDownUntil(target_anchor, tilpos, page, section, stepN, worksettings
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", target_anchor, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
