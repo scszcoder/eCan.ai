@@ -2,7 +2,6 @@ import asyncio
 import copy
 import math
 import random
-import sys
 import traceback
 import webbrowser
 from _csv import reader
@@ -10,7 +9,7 @@ from os.path import exists
 
 from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
-from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, QTextEdit, \
+from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
     QMessageBox, QFileDialog, QPlainTextEdit
 
@@ -19,7 +18,7 @@ import importlib.util
 
 from globals.bot_service import BotService
 from globals.mission_service import MissionService
-from globals.model import BotModel, MissionModel
+from globals.model import BotModel, MissionModel, init_db, get_session
 from globals.product_service import ProductService
 from globals.skill_service import SkillService
 from tests.TestAll import Tester
@@ -40,7 +39,6 @@ from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle
 from bot.basicSkill import STEP_GAP
-from bot.ebbot import EBBOT
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
@@ -54,7 +52,7 @@ from bot.network import myname, fieldLinks
 from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
-from tool.MainGUITool import FileResource, StaticResource, init_sql_file
+from tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper
 from tests.unittests import *
 import pandas as pd
@@ -166,8 +164,9 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
+    def __init__(self, loginout_gui, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
         super(MainWindow, self).__init__()
+        self.loginout_gui = loginout_gui
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
@@ -288,11 +287,12 @@ class MainWindow(QMainWindow):
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
         if self.machine_role != "Platoon":
-            init_sql_file(self.dbfile)
-            self.bot_service = BotService(self)
-            self.mission_service = MissionService(self)
-            self.product_service = ProductService(self)
-            self.skill_service = SkillService(self)
+            engine = init_db(self.dbfile)
+            session = get_session(engine)
+            self.bot_service = BotService(self, session)
+            self.mission_service = MissionService(self, session)
+            self.product_service = ProductService(self, session)
+            self.skill_service = SkillService(self, session)
 
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
@@ -3069,7 +3069,7 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             self.showMsg("Update Cloud side result:"+json.dumps(jbody))
             if jbody['numberOfRecordsUpdated'] == len(missions):
-                self.mission_service.update_missions_by_ticket(api_missions)
+                self.mission_service.update_missions_by_id(api_missions)
                 mid_list = [mission.getMid() for mission in missions]
                 self.mission_service.find_missions_by_mids(mid_list)
             else:
@@ -3650,9 +3650,7 @@ class MainWindow(QMainWindow):
 
 
     def cloneCusMission(self):
-        # File actions
         new_mission = self.selected_cus_mission_item
-        # new_bot.setText()
         self.addNewMissions([new_mission])
         self.searchLocalMissions()
 
@@ -3901,53 +3899,52 @@ class MainWindow(QMainWindow):
         self.showMsg("filling mission data")
         nm.setNetRespJsonData(nmjson)
 
-
-    def addMissionsToLocalDB(self, missions):
-        api_missions = []
+    def addMissionsToLocalDB(self, missions: [EBMISSION]):
+        local_missions: [MissionModel] = []
         for new_mission in missions:
-            api_missions.append({
-                "mid": new_mission.getMid(),
-                "ticket": new_mission.getMid(),
-                "botid": new_mission.getBid(),
-                "owner": self.owner,
-                "status": new_mission.getStatus(),
-                "createon": new_mission.getBD(),
-                "esd": new_mission.getEsd(),
-                "ecd": new_mission.getEcd(),
-                "asd": new_mission.getAsd(),
-                "abd": new_mission.getAbd(),
-                "aad": new_mission.getAad(),
-                "afd": new_mission.getAfd(),
-                "acd": new_mission.getAcd(),
-                "actual_start_time": new_mission.getActualStartTime(),
-                "est_start_time": new_mission.getEstimatedStartTime(),
-                "actual_run_time": new_mission.getActualRunTime(),
-                "est_run_time": new_mission.getEstimatedRunTime(),
-                "cuspas": new_mission.getCusPAS(),
-                "search_cat": new_mission.getSearchCat(),
-                "search_kw": new_mission.getSearchKW(),
-                "pseudo_store": new_mission.getPseudoStore(),
-                "pseudo_brand": new_mission.getPseudoBrand(),
-                "pseudo_asin": new_mission.getPseudoASIN(),
-                "repeat": new_mission.getRetry(),
-                "mtype": new_mission.getMtype(),
-                "mconfig": new_mission.getConfig(),
-                "skills": new_mission.getSkills(),
-                "delDate": new_mission.getDelDate(),
-                "asin": new_mission.getASIN(),
-                "store": new_mission.getStore(),
-                "brand": new_mission.getBrand(),
-                "image": new_mission.getImagePath(),
-                "title": new_mission.getTitle(),
-                "variations": new_mission.getVariations(),
-                "rating": new_mission.getRating(),
-                "feedbacks": new_mission.getFeedbacks(),
-                "price": new_mission.getPrice(),
-                "customer": new_mission.getCustomerID(),
-                "platoon": new_mission.getPlatoonID(),
-                "result": new_mission.getResult()
-            })
-        self.mission_service.insert_missions_batch_(api_missions)
+            local_mission = MissionModel()
+            local_mission.mid = new_mission.getMid()
+            local_mission.ticket = new_mission.getTicket()
+            local_mission.botid = new_mission.getBid()
+            local_mission.status = new_mission.getStatus()
+            local_mission.createon = new_mission.getBD()
+            local_mission.owner = self.owner
+            local_mission.esd = new_mission.getEsd()
+            local_mission.ecd = new_mission.getEcd()
+            local_mission.asd = new_mission.getAsd()
+            local_mission.abd = new_mission.getAbd()
+            local_mission.aad = new_mission.getAad()
+            local_mission.afd = new_mission.getAfd()
+            local_mission.acd = new_mission.getAcd()
+            local_mission.actual_start_time = new_mission.getActualStartTime()
+            local_mission.est_start_time = new_mission.getEstimatedStartTime()
+            local_mission.actual_runtime = new_mission.getActualRunTime()
+            local_mission.est_runtime = new_mission.getEstimatedRunTime()
+            local_mission.n_retries = new_mission.getNRetries()
+            local_mission.cuspas = new_mission.getCusPAS()
+            local_mission.category = new_mission.getCategory()
+            local_mission.phrase = new_mission.getPhrase()
+            local_mission.pseudoStore = new_mission.getPseudoStore()
+            local_mission.pseudoBrand = new_mission.getPseudoBrand()
+            local_mission.pseudoASIN = new_mission.getPseudoASIN()
+            local_mission.type = new_mission.getType()
+            local_mission.config = new_mission.getConfig()
+            local_mission.skills = new_mission.getSkills()
+            local_mission.delDate = new_mission.getDelDate()
+            local_mission.asin = new_mission.getAsin()
+            local_mission.store = new_mission.getStore()
+            local_mission.brand = new_mission.getBrand()
+            local_mission.img = new_mission.getImg()
+            local_mission.title = new_mission.getTitle()
+            local_mission.rating = new_mission.getRating()
+            local_mission.feedbacks = new_mission.getFeedbacks()
+            local_mission.price = new_mission.getPrice()
+            local_mission.customer = new_mission.getCustomer()
+            local_mission.platoon = new_mission.getPlatoon()
+            local_mission.result = new_mission.getResult()
+            local_mission.variations = new_mission.getVariations()
+            local_missions.append(local_mission)
+        self.mission_service.insert_missions_batch_(local_missions)
 
 
     def newMissionFromFile(self):
@@ -3979,7 +3976,7 @@ class MainWindow(QMainWindow):
                         # now that add is successfull, update local file as well.
 
                         # now add missions to local DB.
-                        new_missions =[]
+                        new_missions: [EBMISSION] = []
                         for i in range(len(jbody)):
                             self.showMsg(str(i))
                             new_mission = EBMISSION(self)
@@ -5120,7 +5117,7 @@ class MainWindow(QMainWindow):
                 self.todays_work = {"tbd": [
                     {"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start",
                      "current widx": 0, "completed": [], "aborted": []}]}
-                self.bot_service.update_bots_batch(self.missions)
+                self.mission_service.update_missions_by_id(self.missions)
 
             self.todays_completed = []
             self.todaysReports = []                     # per vehicle/host

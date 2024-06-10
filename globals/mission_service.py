@@ -4,82 +4,42 @@ from datetime import datetime, timedelta
 from sqlalchemy import delete, or_
 
 from Cloud import send_query_missions_request_to_cloud
-from globals import model
 from globals.model import MissionModel
 
 
 class MissionService:
-    def __init__(self, parent):
-        self.parent = parent
+    def __init__(self, main_win, session):
+        self.main_win = main_win
+        self.session = session
 
     def find_missions_by_createon(self):
         current_time = datetime.now()
         three_days_ago = current_time - timedelta(days=3)
-        missions = model.session.query(MissionModel).filter(MissionModel.createon >= three_days_ago).all()
+        missions = self.session.query(MissionModel).filter(MissionModel.createon >= three_days_ago).all()
         return missions
 
     def find_missions_by_mids(self, mids) -> [MissionModel]:
-        results = model.session.query(MissionModel).filter(MissionModel.mid.in_(mids)).all()
+        results = self.session.query(MissionModel).filter(MissionModel.mid.in_(mids)).all()
         dict_results = [result.to_dict() for result in results]
-        self.parent.showMsg("Just Added Local DB Mission Row(s): " + json.dumps(dict_results), "debug")
+        self.main_win.showMsg("Just Added Local DB Mission Row(s): " + json.dumps(dict_results), "debug")
         return results
 
     def find_missions_by_mid(self, mid) -> MissionModel:
-        result: MissionModel = model.session.query(MissionModel).filter(MissionModel.mid == mid).first()
+        result: MissionModel = self.session.query(MissionModel).filter(MissionModel.mid == mid).first()
         if result is not None:
-            self.parent.showMsg("Just Added Local DB Mission Row(s): " + json.dumps(result.to_dict()), "debug")
+            self.main_win.showMsg("Just Added Local DB Mission Row(s): " + json.dumps(result.to_dict()), "debug")
         return result
 
-    def insert_missions_batch_(self, api_missions):
-        insert_data = {
-            "mid": api_missions["mid"],
-            "ticket": api_missions["ticket"],
-            "botid": api_missions["botid"],
-            "status": api_missions["status"],
-            "createon": api_missions["createon"],
-            "esd": api_missions["esd"],
-            "ecd": api_missions["ecd"],
-            "asd": api_missions["asd"],
-            "abd": api_missions["abd"],
-            "aad": api_missions["aad"],
-            "afd": api_missions["afd"],
-            "acd": api_missions["acd"],
-            "actual_start_time": api_missions["actual_start_time"],
-            "est_start_time": api_missions["est_start_time"],
-            "actual_runtime": api_missions["actual_runtime"],
-            "est_runtime": api_missions["est_runtime"],
-            "n_retries": api_missions["n_retries"],
-            "cuspas": api_missions["cuspas"],
-            "category": api_missions["category"],
-            "phrase": api_missions["phrase"],
-            "pseudoStore": api_missions["pseudoStore"],
-            "pseudoBrand": api_missions["pseudoBrand"],
-            "pseudoASIN": api_missions["pseudoASIN"],
-            "type": api_missions["type"],
-            "config": api_missions["config"],
-            "skills": api_missions["skills"],
-            "delDate": api_missions["delDate"],
-            "asin": api_missions["asin"],
-            "store": api_missions["store"],
-            "brand": api_missions["brand"],
-            "img": api_missions["img"],
-            "title": api_missions["title"],
-            "rating": api_missions["rating"],
-            "feedbacks": api_missions["feedbacks"],
-            "price": api_missions["price"],
-            "customer": api_missions["customer"],
-            "platoon": api_missions["platoon"],
-            "result": api_missions["result"]
-        }
-        new_mission_instance = MissionModel(**insert_data)
-        model.session.add(new_mission_instance)
-        model.session.commit()
-        self.parent.showMsg("Mission fetchall" + json.dumps(new_mission_instance.to_dict()))
+    def insert_missions_batch_(self, missions: [MissionModel]):
+        self.session.add_all(missions)
+        self.session.commit()
+        dict_results = [result.to_dict() for result in missions]
+        self.main_win.showMsg("Mission fetchall" + json.dumps(dict_results))
 
     def find_all_missions(self) -> [MissionModel]:
-        results = model.session.query(MissionModel).all()
+        results = self.session.query(MissionModel).all()
         dict_results = [result.to_dict() for result in results]
-        self.parent.showMsg("Missions fetchall" + json.dumps(dict_results))
+        self.main_win.showMsg("Missions fetchall" + json.dumps(dict_results))
         return results
 
     def insert_missions_batch(self, jbody, api_missions):
@@ -124,13 +84,13 @@ class MissionService:
             local_mission.customer = messions["customer"]
             local_mission.platoon = messions["platoon"]
             local_mission.result = messions["result"]
-            model.session.add(local_mission)
-            self.parent.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
-        model.session.commit()
+            self.session.add(local_mission)
+            self.main_win.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
+        self.session.commit()
 
-    def update_missions_by_ticket(self, api_missions):
+    def update_missions_by_id(self, api_missions):
         for i, amission in enumerate(api_missions):
-            result = model.session.query(MissionModel).filter(MissionModel.mid == amission["amission"]).first()
+            result = self.session.query(MissionModel).filter(MissionModel.mid == amission["amission"]).first()
             result.ticket = amission["ticket"]
             result.botid = amission["botid"]
             result.status = amission["status"]
@@ -168,11 +128,11 @@ class MissionService:
             result.customer = amission["customer"]
             result.platoon = amission["platoon"]
             result.result = amission["result"]
-            model.session.commit()
-            self.parent.showMsg("update row: " + json.dumps(result.to_dict()))
+            self.session.commit()
+            self.main_win.showMsg("update row: " + json.dumps(result.to_dict()))
 
     def find_missions_by_search(self, start_time, end_time, search) -> [MissionModel]:
-        query = model.session.query(MissionModel)
+        query = self.session.query(MissionModel)
         if len(start_time) > 0 and len(end_time) > 0:
             query = query.filter(MissionModel.createon.between(start_time, end_time))
         if len(search) > 0:
@@ -188,24 +148,24 @@ class MissionService:
             query = query.filter(or_(conditions))
         results = query.all()
         dict_results = [result.to_dict() for result in results]
-        self.parent.showMsg("Missions fetchall" + json.dumps(dict_results))
+        self.main_win.showMsg("Missions fetchall" + json.dumps(dict_results))
         return results
 
     def delete_missions_by_mid(self, mid):
         delete_stmt = delete(MissionModel).where(MissionModel.mid == mid)
         # 执行删除
-        result = model.session.execute(delete_stmt)
-        model.session.commit()
-        if result.rowcount > 0:
+        result = self.session.execute(delete_stmt)
+        self.session.commit()
+        if result.rowcount() > 0:
             print(f"Mission with mid {mid} deleted successfully.")
         else:
             print(f"No Mission found with mid {mid} to delete.")
 
     def delete_missions_by_ticket(self, ticket):
-        mission_instance = model.session.query(MissionModel).filter(MissionModel.ticket == ticket).one()
+        mission_instance = self.session.query(MissionModel).filter(MissionModel.ticket == ticket).one()
         if mission_instance is not None:
-            model.session.delete(mission_instance)
-            model.session.commit()
+            self.session.delete(mission_instance)
+            self.session.commit()
         return mission_instance
 
     def sync_cloud_mission_data(self, session, tokens):
@@ -245,5 +205,5 @@ class MissionService:
             local_mission.skills = mission['skills']
             local_mission.delDate = mission['delDate']
             if insert:
-                model.session.add(local_mission)
-        model.session.commit()
+                self.session.add(local_mission)
+        self.session.commit()

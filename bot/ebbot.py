@@ -480,8 +480,9 @@ class EBBOT_AGENT(QStandardItem):
 
 
 class EBBOT(QStandardItem):
-    def __init__(self, parent):
+    def __init__(self, main_win):
         super().__init__()
+        self.main_win = main_win
         self.pubProfile = BOT_PUB_PROFILE()
         self.privateProfile = BOT_PRIVATE_PROFILE()
         self.settings = BOT_SETTINGS()
@@ -495,8 +496,8 @@ class EBBOT(QStandardItem):
             self.icon_text = 'bot' + str(
                 self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
             self.setText(self.icon_text)
-        self.setFont(parent.std_item_font)
-        self.setBotIcon(parent.file_resouce.bot_icon_path)
+        self.setFont(self.main_win.std_item_font)
+        self.setBotIcon(self.main_win.file_resouce.bot_icon_path)
         self.seller_inventories = []
         self.msg_queue = asyncio.Queue()  # this is the messaging queue for the bot.
 

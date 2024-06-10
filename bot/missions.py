@@ -394,20 +394,20 @@ class M_Pub_Attributes():
 
 
 class EBMISSION(QStandardItem):
-    def __init__(self, parent):
+    def __init__(self, main_win):
         super().__init__()
-        self.parent = parent
+        self.main_win = main_win
         self.pubAttributes = M_Pub_Attributes()
         self.privateAttributes = M_Private_Attributes()
         self.tasks = M_Action_Items()
-        self.parent_settings = {"mission_id": self.pubAttributes.missionId,
-                                "session": self.parent.session,
-                                "token": self.parent.tokens['AuthenticationResult']['IdToken'],
-                                "uid": self.parent.uid}
+        self.main_win_settings = {"mission_id": self.pubAttributes.missionId,
+                                "session": self.main_win.session,
+                                "token": self.main_win.tokens['AuthenticationResult']['IdToken'],
+                                "uid": self.main_win.uid}
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
-        self.icon = QIcon(parent.file_resouce.mission_icon_path)
+        self.icon = QIcon(main_win.file_resouce.mission_icon_path)
         self.setIcon(self.icon)
-        self.setFont(parent.std_item_font)
+        self.setFont(main_win.std_item_font)
         self.ads_xlsx_profile = ""
 
     def setADSXlsxProfile(self, axpf):
@@ -424,10 +424,10 @@ class EBMISSION(QStandardItem):
         return self.pubAttributes.missionId
 
     def getParentSettings(self):
-        return self.parent_settings
+        return self.main_win_settings
 
-    def getParent(self):
-        return self.parent
+    def get_main_win(self):
+        return self.main_win
     def setMid(self, mid):
         self.pubAttributes.missionId = mid
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
@@ -726,9 +726,9 @@ class EBMISSION(QStandardItem):
         log3("mission skill ids: "+json.dumps(skill_ids))
         sk_names = []
         for s in skill_ids:
-            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            skidx = next((i for i, sk in enumerate(self.main_win.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
-                sk_names.append(self.parent.skills[skidx].getName())
+                sk_names.append(self.main_win.skills[skidx].getName())
         log3("skill names:"+json.dumps(sk_names))
         return sk_names
 
@@ -741,9 +741,9 @@ class EBMISSION(QStandardItem):
         log3("mission skill ids: "+json.dumps(skill_ids))
         psk_names = []
         for s in skill_ids:
-            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            skidx = next((i for i, sk in enumerate(self.main_win.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
-                psk_names.append(self.parent.skills[skidx].getPskFileName())
+                psk_names.append(self.main_win.skills[skidx].getPskFileName())
 
         log3("procedural skill names:"+json.dumps(psk_names))
         return psk_names
@@ -756,9 +756,9 @@ class EBMISSION(QStandardItem):
         log3("mission skill ids: "+json.dumps(skill_ids))
         csk_names = []
         for s in skill_ids:
-            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            skidx = next((i for i, sk in enumerate(self.main_win.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
-                csk_names.append(self.parent.skills[skidx].getCskFileName())
+                csk_names.append(self.main_win.skills[skidx].getCskFileName())
 
         log3("Content skill names:"+json.dumps(csk_names))
         return csk_names
@@ -887,7 +887,7 @@ class EBMISSION(QStandardItem):
         self.privateAttributes.loadJson(jd["privateAttributes"])
         self.ads_xlsx_profile = jd["ads_xlsx_profile"]
         # self.tasks = jd["tasks"]
-        # self.parent_settings["uid"] = jd["parent_settings"]["uid"]
+        # self.main_win_settings["uid"] = jd["main_win_settings"]["uid"]
 
     # load data from a row in sqlite DB.
     def loadDBData(self, dbd: MissionModel):
@@ -968,22 +968,7 @@ class EBMISSION(QStandardItem):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
 
-    def loadAMZReqData(self, jd):
-        # store, brand, execution time, quantity, asin, search term, title, page number, price, variation, product image, fb type, fb title, fb contents, notes
-        self.setASIN(jd["asin"])
-        self.setPseudoASIN(encrypt_message(self.getASIN(), self.parent.getEncryptionKey()))
-        self.setStore(jd["store"])
-        self.setPseudoStore(encrypt_message(self.getStore(), self.parent.getEncryptionKey()))
-        self.setBrand(jd["brand"])
-        self.setPseudoBrand(encrypt_message(self.getBrand(), self.parent.getEncryptionKey()))
-        self.setSearchKW(jd["search term"])
-        self.setPrice(jd["price"])
-        self.setTitle(jd["title"])
-        self.setVariations(jd["variations"])
-        self.setImagePath(jd["img dir"])
-        self.setCusPAS("win,ads,amz")
-        self.setSkills("65")
-        self.setMtype(jd["fb type"])
+
 
     async def run(self):
         run_result = None
@@ -993,7 +978,7 @@ class EBMISSION(QStandardItem):
             log3("skill:"+json.dumps(self.pubAttributes.skills[si]))
             self.pubAttributes.skills[si].loadSkill()
             log3("run all steps ....."+json.dumps(self.pubAttributes.skills[si].get_all_steps()))
-            log3("settings:"+json.dumps(self.parent_settings))
-            await runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.parent_settings)
+            log3("settings:"+json.dumps(self.main_win_settings))
+            await runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.main_win_settings)
 
         return run_result

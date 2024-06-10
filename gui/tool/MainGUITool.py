@@ -48,15 +48,3 @@ class StaticResource:
                                  'FBConfirmed']
         self.PRODUCT_SEL_TYPES = ["ac", "op", "bs", "mr", "mhr", "cp", "cus"]
 
-
-def init_sql_file(dbfile):
-    if not os.path.isfile(dbfile):
-        # 获取文件所在目录
-        dir_name = os.path.dirname(dbfile)
-        # 确保目录存在
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name)
-        with open(dbfile, 'w') as f:
-            pass  # 创建一个空文件
-    model.init_sqlalchemy(dbfile)
-    return sqlite3.connect(dbfile)
