@@ -1294,7 +1294,8 @@ class MainWindow(QMainWindow):
         # test_get_all_wins()
 
         # test_ads_batch(self)
-        test_sqlite3(self)
+        # test_sqlite3(self)
+        test_read_buy_req_files(self)
         # test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
@@ -1353,7 +1354,7 @@ class MainWindow(QMainWindow):
         fetch_stat = "Completed:0"
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
-            # self.newBuyMissionFromFiles()
+            self.newBuyMissionFromFiles()
 
             # next line commented out for testing purpose....
             # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
@@ -1376,7 +1377,8 @@ class MainWindow(QMainWindow):
                 if uncompressed != "":
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
                     # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
-                    file = 'C:/software/scheduleResultTest7.json'
+                    # file = 'C:/software/scheduleResultTest7.json'
+                    file = 'C:/temp/scheduleResultTest5.json'
                     if exists(file):
                         with open(file) as test_schedule_file:
                             bodyobj = json.load(test_schedule_file)
@@ -2401,15 +2403,15 @@ class MainWindow(QMainWindow):
         next_run_index = len(mids)
         for j, mid in enumerate(mids):
             midx = next((i for i, m in enumerate(self.missions) if m.getMid() == mid), -1)
-            if midx != -1:
-                this_stat = self.missions[midx].getStatus()
-                n_2b_retried = self.missions[midx].getRetry()
-                retry_count = self.missions[midx].getNRetries()
-                self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
-                if "Complete" not in this_stat and retry_count < n_2b_retried:
-                    self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
-                    next_run_index = j
-                    break
+            # if midx != -1:
+            this_stat = self.missions[midx].getStatus()
+            n_2b_retried = self.missions[midx].getRetry()
+            retry_count = self.missions[midx].getNRetries()
+            self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
+            if "Complete" not in this_stat and retry_count < n_2b_retried:
+                self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
+                next_run_index = j
+                break
         return next_run_index
 
     def updateRunStatus(self, worksTBD, midx):
@@ -4076,6 +4078,7 @@ class MainWindow(QMainWindow):
         for jl in json_list:
             jl["file_link"] = file_path
 
+        print("READ XLSX::", json_list)
         return json_list
 
     def update_original_xlsx_file(self, file_path, mission_data):
@@ -4133,7 +4136,8 @@ class MainWindow(QMainWindow):
                 for buy_req in buy_mission_reqs:
                     n_buys = int(buy_req["quantity"])
                     for n in range(n_buys):
-                        new_buy_missions.append(self.newMissionFromNewReq(buy_req))
+                        print("creating new buy mission:", n)
+                        # new_buy_missions.append(self.newMissionFromNewReq(buy_req))
 
         # now that we have created all the new missions,
         # create the in the cloud and local DB.

@@ -629,6 +629,9 @@ def test_sqlite3(mw):
     # db_data = mw.dbCursor.fetchall()
     # print("DB Data:", db_data)
 
+def test_read_buy_req_files(mw):
+    mw.newBuyMissionFromFiles()
+
 
 # tests passed SC - 02/20/2024
 def test_ads_batch(parent):
