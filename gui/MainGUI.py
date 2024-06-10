@@ -25,15 +25,12 @@ from globals.skill_service import SkillService
 from tests.TestAll import Tester
 
 
-from ChatGUIV2 import ChatDialog
 from gui.BotGUI import BotNewWin
-from gui.ChatGui import ChatWin
-from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
+from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud, send_query_missions_request_to_cloud, send_query_bots_request_to_cloud
+    send_get_bots_request_to_cloud
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
-from bot.Logger import log3
 from gui.LoggerGUI import CommanderLogWin
 from gui.MissionGUI import MissionNewWin
 from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
@@ -1428,12 +1425,10 @@ class MainWindow(QMainWindow):
         warnText = self.log_text_format(msg, level)
         self.netLogWin.appendLogs([warnText])
         self.appendNetLogs([warnText])
-        self.appendDailyLogs([msg], level)
 
     def showMsg(self, msg, level="info"):
         msg_text = self.log_text_format(msg, level)
         self.appendNetLogs([msg_text])
-        self.appendDailyLogs([msg], level)
 
     def log_text_format(self, msg, level):
         logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1465,30 +1460,6 @@ class MainWindow(QMainWindow):
                 </span>
             </div>""" % (logTime, text_color, level, text_color, msg)
         return msg_text
-
-    def appendDailyLogs(self, msgs, level):
-        # check if daily log file exists, if exists simply append to it, if not create and write to the file.
-        now = datetime.now()  # current date and time
-        year = now.strftime("%Y")
-        month = now.strftime("%m")
-        day = now.strftime("%d")
-        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
-        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
-        time = now.strftime("%H:%M:%S - ")
-        if os.path.isfile(dailyLogFile):
-            file1 = open(dailyLogFile, "a")  # append mode
-            for msg in msgs:
-                file1.write(time+msg+"\n")
-            file1.close()
-        else:
-            if not os.path.exists(dailyLogDir):
-                os.makedirs(dailyLogDir)
-
-            file1 = open(dailyLogFile, "w")  # append mode
-            for msg in msgs:
-                file1.write(time+msg + "\n")
-            file1.close()
-
 
     def logDailySchedule(self, netSched):
         now = datetime.now()  # current date and time
@@ -1863,7 +1834,7 @@ class MainWindow(QMainWindow):
                         ]
                     }
 
-        log3("Modified Buy Work:"+json.dumps(work))
+        logger_helper.debug("Modified Buy Work:"+json.dumps(work))
 
 
     def gen_prod_sel(self):
@@ -4256,8 +4227,8 @@ class MainWindow(QMainWindow):
                     ex_stat = "ErrorLoadSkillFile:" + traceback.format_exc() + " " + str(e)
                 else:
                     ex_stat = "ErrorLoadSkillFile: traceback information not available:" + str(e)
-                log3(ex_stat)
-                log3(QApplication.translate("QMainWindow", "Warning: load skill file error."))
+                logger_helper.debug(ex_stat)
+                logger_helper.debug(QApplication.translate("QMainWindow", "Warning: load skill file error."))
 
     def find_dependencies(self, main_file, visited, dependencies):
         if main_file in visited:
@@ -4424,11 +4395,10 @@ class MainWindow(QMainWindow):
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
-    def loadLocalBots(self, db_data):
-
-        self.showMsg("get local bots from DB::" + json.dumps(db_data))
+    def loadLocalBots(self, db_data: [BotModel]):
+        dict_results = [result.to_dict() for result in db_data]
+        self.showMsg("get local bots from DB::" + json.dumps(dict_results))
         if len(db_data) != 0:
-            self.showMsg("bot fetchall" + json.dumps(db_data))
             self.bots = []
             self.botModel.clear()
             for row in db_data:
@@ -4447,8 +4417,9 @@ class MainWindow(QMainWindow):
 
 
     # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
-    def loadLocalMissions(self, db_data):
-        self.showMsg("get local missions from db::" + json.dumps(db_data))
+    def loadLocalMissions(self, db_data: [MissionModel]):
+        dict_results = [result.to_dict() for result in db_data]
+        self.showMsg("get local missions from db::" + json.dumps(dict_results))
         if len(db_data) != 0:
             self.missions = []
             self.missionModel.clear()

@@ -9,13 +9,10 @@ from boto3.s3.transfer import TransferConfig
 import logging
 import aiohttp
 
-from config.constants import APP_NAME
 from envi import getECBotDataHome
-from utils.logger_helper import LoggerHelper
+from utils.logger_helper import logger_helper
 
-logger_helper = LoggerHelper()
 ecb_data_homepath = getECBotDataHome()
-logger_helper.setup(APP_NAME, ecb_data_homepath + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
 # Constants Copied from AppSync API 'Settings'
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
 
@@ -254,7 +251,7 @@ def gen_screen_read_request_string(query):
 
 
 def gen_obtain_review_request_string(query):
-    log3("in query:" + json.dumps(query))
+    logger_helper.debug("in query:" + json.dumps(query))
     query_string = """
             query MyQuery {
           getFB (fb_reqs:[
@@ -280,7 +277,7 @@ def gen_obtain_review_request_string(query):
         ]) 
         }"""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -992,7 +989,7 @@ def req_cloud_obtain_review(session, request, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.debug("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["getFB"])
@@ -1348,7 +1345,7 @@ def send_file_op_request_to_cloud(session, fops, token):
 
     jresp = appsync_http_request(queryInfo, session, token)
 
-    # log3("file op response:"+json.dumps(jresp))
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
         screen_error = True
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
@@ -1365,7 +1362,7 @@ def send_account_info_request_to_cloud(session, acct_ops, token):
 
     jresp = appsync_http_request(queryInfo, session, token)
 
-    # log3("file op response:"+json.dumps(jresp))
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
         screen_error = True
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
@@ -1383,7 +1380,7 @@ def send_feedback_request_to_cloud(session, fb_reqs, token):
 
     jresp = appsync_http_request(queryInfo, session, token)
 
-    # log3("file op response:"+json.dumps(jresp))
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
         screen_error = True
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
@@ -1424,7 +1421,7 @@ def upload_file(session, f2ul, token, ftype):
     # now perform the upload of the presigned URL
     logger_helper.debug("f2ul:"+json.dumps(f2ul))
     resp = send_file_with_presigned_url(f2ul, resd['body'][0])
-    # log3("upload result: "+json.dumps(resp))
+    #  logger_helper.debug("upload result: "+json.dumps(resp))
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
@@ -1542,7 +1539,7 @@ async def send_file_op_request_to_cloud8(session, fops, token):
 
     jresp = await appsync_http_request8(queryInfo, session, token)
 
-    # log3("file op response:"+json.dumps(jresp))
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
         screen_error = True
         logger_helper.debug("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
@@ -1588,5 +1585,5 @@ async def upload_file8(session, f2ul, token, ftype):
     # now perform the upload of the presigned URL
     logger_helper.debug("f2ul:"+json.dumps(f2ul))
     resp = await send_file_with_presigned_url8(session, f2ul, resd['body'][0])
-    # log3("upload result: "+json.dumps(resp))
+    #  logger_helper.debug("upload result: "+json.dumps(resp))
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
