@@ -1117,7 +1117,7 @@ def processExtractInfo(step, i, mission, skill):
     log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-    mainwin = mission.getParent()
+    mainwin = mission.get_main_win()
 
     global screen_error
 
@@ -1211,7 +1211,7 @@ async def processExtractInfo8(step, i, mission, skill):
     log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-    mainwin = mission.getParent()
+    mainwin = mission.get_main_win()
 
     global screen_error
 

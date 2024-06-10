@@ -1,8 +1,8 @@
-from sqlalchemy import Column, Integer, String, Text, MetaData, create_engine, Text, Float, BigInteger
-from sqlalchemy.orm import Session, declarative_base
+import os
 
-global engine
-global session
+from sqlalchemy import Column, Integer, MetaData, create_engine, Text, Float
+from sqlalchemy.orm import declarative_base, sessionmaker
+
 metadata = MetaData()
 Base = declarative_base()
 
@@ -21,6 +21,7 @@ class SkillModel(Base):
     price_model = Column(Text)
     price = Column(Integer)
     privacy = Column(Text)
+    createon = Column(Text)
 
     def to_dict(self):
         return {
@@ -36,6 +37,7 @@ class SkillModel(Base):
             'price_model': self.price_model,
             'price': self.price,
             'privacy': self.privacy,
+            'createon': self.createon,
         }
 
 
@@ -56,6 +58,7 @@ class ProductsModel(Base):
     cost = Column(Integer)
     inventory_loc = Column(Text)
     inventory_qty = Column(Text)
+    createon = Column(Text)
 
     def to_dict(self):
         return {
@@ -74,6 +77,7 @@ class ProductsModel(Base):
             'cost': self.cost,
             'inventory_loc': self.inventory_loc,
             'inventory_qty': self.inventory_qty,
+            'createon': self.createon,
         }
 
 
@@ -118,6 +122,7 @@ class MissionModel(Base):
     customer = Column(Text)
     platoon = Column(Text)
     result = Column(Text)
+    variations = Column(Text)
 
     def to_dict(self):
         return {
@@ -159,6 +164,7 @@ class MissionModel(Base):
             "customer": self.customer,
             "platoon": self.platoon,
             "result": self.result,
+            "variations": self.variations,
         }
 
 
@@ -214,9 +220,21 @@ class BotModel(Base):
         }
 
 
-def init_sqlalchemy(dbfile):
-    global engine
-    global session
+def init_db(dbfile):
+    if not os.path.isfile(dbfile):
+        # 获取文件所在目录
+        dir_name = os.path.dirname(dbfile)
+        # 确保目录存在
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+        with open(dbfile, 'w') as f:
+            pass  # 创建一个空文件
     engine = create_engine("sqlite:///" + dbfile, echo=True)
     Base.metadata.create_all(engine)
-    session = Session(engine)
+    return engine
+
+
+def get_session(engine):
+    """获取数据库会话"""
+    Session = sessionmaker(bind=engine)
+    return Session()
