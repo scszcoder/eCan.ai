@@ -10,3 +10,6 @@ Created on 2020/9/12
 @description: 
 """
 
+from utils.time_util import TimeUtil
+
+print(TimeUtil.formatted_now_with_ms() + " Initializing package gui.skcode.ui...")
