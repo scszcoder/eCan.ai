@@ -1029,7 +1029,7 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
 
 
     # if action is add-to-cart, then click on add-to-cart
-    this_step, step_words = genWinChromeAMZBuySteps("sk_work_settings", "buy_ops", this_step, theme)
+    this_step, step_words = genWinChromeAMZBuySteps("sk_work_settings", "buy_ops", "buy_result", "buy_step_flag",this_step, theme)
     psk_words = psk_words + step_words
 
     # close on check purchase + "[0] == 'add cart'"
@@ -1236,7 +1236,7 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     # ("", lieutenant.homepath, "screen_info", "amazon_home", "top", this_step, None)
     dtnow = datetime.now()
     dt_string = str(int(dtnow.timestamp()))
-    hfname = dt_string
+    hfname = "pl"+dt_string
 
 
     this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'"+hfname+"'+'_'+str("+ith+")+'.html'", stepN)
@@ -1868,7 +1868,7 @@ def genWinADSAMZBuySkill(worksettings, start_step, theme):
 def genDirectBuySteps(settings_var_name, buy_var_name, stepN, theme):
     psk_words = ""
 
-    this_step, step_words = genStepLoop("on_amz_top", "", "", "directbuy" + str(stepN), this_step)
+    this_step, step_words = genStepLoop("on_amz_top", "", "", "directbuy" + str(stepN), stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 100, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
@@ -2028,7 +2028,7 @@ def genWinChromeAMZBuyAddCartSteps(settings_string, buy_cmd_name, buy_result_nam
     this_step, step_words = genStepAMZPeekAndClick(settings_string, "one_time_purchase", "buy_box_available", "pac_result", stepN, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepAMZPeekAndClick(settings_string, "buy_now", "buy_box_available", "pac_result", start_step, theme)
+    this_step, step_words = genStepAMZPeekAndClick(settings_string, "buy_now", "buy_box_available", "pac_result", this_step, theme)
     psk_words = psk_words + step_words
 
 
@@ -2070,7 +2070,7 @@ def genWinChromeAMZBuyPaySteps(settings_string,  buy_cmd_name, buy_result_name, 
     this_step, step_words = genStepAMZPeekAndClick(settings_string, "cart", "cart_top", "on_page_top", this_step, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepAMZPeekAndClick(settings_string, "proceed_to_checkout", "check_out_top", "cart_top", start_step, theme)
+    this_step, step_words = genStepAMZPeekAndClick(settings_string, "proceed_to_checkout", "check_out_top", "cart_top", this_step, theme)
     psk_words = psk_words + step_words
 
     # when will we see this page?
@@ -2114,7 +2114,11 @@ def genWinChromeAMZBuyPaySteps(settings_string,  buy_cmd_name, buy_result_name, 
 def genWinChromeAMZBuyCheckShippingSteps(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN, theme):
     psk_words = ""
 
-    this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'" + hfname + "'+'_'+str(" + ith + ")+'.html'", stepN)
+    dtnow = datetime.now()
+    dt_string = str(int(dtnow.timestamp()))
+    hfname = "check_shipping"+dt_string
+
+    this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'" + hfname + "'+'_'+'" + str(stepN) + "'+'.html'", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', sk_work_settings['log_path'], hf_name]", this_step)
@@ -2127,12 +2131,12 @@ def genWinChromeAMZBuyCheckShippingSteps(settings_string,  buy_cmd_name, buy_res
     this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepAmzScrapeBuyOrdersHtml(html_dir, dir_name_type, html_file, 0, outvar, statusvar, this_step)
-    psk_words = psk_words + step_words
-
-    # search the list against recalled order ID, once found, check deliver status. should make a step
-    this_step, step_words = genStepAmzBuyCheckShipping(orderTBC, orderList, arrived_flag, status, this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepAmzScrapeBuyOrdersHtml(html_dir, dir_name_type, html_file, 0, outvar, statusvar, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # search the list against recalled order ID, once found, check deliver status. should make a step
+    # this_step, step_words = genStepAmzBuyCheckShipping(orderTBC, orderList, arrived_flag, status, this_step)
+    # psk_words = psk_words + step_words
 
     return this_step, psk_words
 
@@ -2149,7 +2153,7 @@ def genWinChromeAMZBuyGiveRatingSteps(settings_string,  buy_cmd_name, buy_result
     this_step, step_words = genStepCreateData("expr", "order_id", "NA", buy_cmd_name+"['order_id']", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genScrollDownUntil("order_id", "text var", 90, "my_orders", "top", this_step, worksettings, "amz", theme)
+    this_step, step_words = genScrollDownUntil("order_id", "text var", 90, "my_orders", "top", this_step, settings_string, "amz", theme)
     psk_words = psk_words + step_words
 
     # click on the product which will lead into the product page. click on "write a product review"
@@ -2169,8 +2173,8 @@ def genWinChromeAMZBuyGiveFeedbackSteps(settings_string,  buy_cmd_name, buy_resu
     psk_words = psk_words + step_words
 
     #product, instructions, review, result_var, stepN
-    this_step, step_words = genStepObtainReviews("product", "instructions", "review", "review_obtained", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepObtainReviews("product", "instructions", "review", "review_obtained", this_step)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepTextInput("var", False, "review", "direct", 0.05, "enter", 1, this_step)
     psk_words = psk_words + step_words
@@ -2185,7 +2189,7 @@ def genWinChromeAMZBuyCheckFeedbackSteps(settings_string,  buy_cmd_name, buy_res
     # open amazon
 
     # assume already logged in, click on "& Orders"
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "my_orders", "anchor text", "Search Amazon", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "my_orders", "anchor text", "Search Amazon", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], stepN)
     psk_words = psk_words + step_words
 
     # now we're in order page, search for the order placed,
@@ -2211,7 +2215,7 @@ def genStepAMZPeekAndClick(settings_string, target, flag, prev_result, start_ste
     this_step, step_words = genStepCheckCondition(prev_result, "", "", start_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", settings_string, "screen_info", "product_details", "top", theme, start_step, None)
+    this_step, step_words = genStepExtractInfo("", settings_string, "screen_info", "product_details", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", target, "direct", "anchor text", "any", "useless", flag, "", False, this_step)
@@ -2264,7 +2268,11 @@ def genStepAMZPeekAndConfirm(settings_string, target, flag, result, start_step, 
 def genStepAMZVerifyOrder(stepN, theme):
     psk_words = ""
 
-    this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'"+hfname+"'+'_'+str("+ith+")+'.html'", stepN)
+    dtnow = datetime.now()
+    dt_string = str(int(dtnow.timestamp()))
+    hfname = "verify_order"+dt_string
+
+    this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'"+hfname+"'+'_'+'"+str(stepN)+"'+'.html'", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "file_save_input", "NA", "['save', sk_work_settings['log_path'], hf_name]", this_step)
@@ -2277,8 +2285,8 @@ def genStepAMZVerifyOrder(stepN, theme):
     this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepAmzScrapeBuyOrdersHtml(html_dir, dir_name_type, html_file, 0, outvar, statusvar, this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepAmzScrapeBuyOrdersHtml(html_dir, dir_name_type, html_file, 0, outvar, statusvar, this_step)
+    # psk_words = psk_words + step_words
 
     # obtain the 1st order on the list, make sure product title match, then save order ID.
 

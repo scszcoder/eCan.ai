@@ -808,7 +808,7 @@ class MainWindow(QMainWindow):
         return self.SM_PLATFORMS
 
     def getBUYTYPES(self):
-        return self.BUY_TYPES
+        return self.static_resource.BUY_TYPES
 
     def getSUBBUYTYPES(self):
         return self.static_resource.SUB_BUY_TYPES
@@ -1356,6 +1356,8 @@ class MainWindow(QMainWindow):
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
             self.newBuyMissionFromFiles()
 
+            self.showMsg("Done handling today's new Buy orders...")
+
             # next line commented out for testing purpose....
             # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
             jresp = {}
@@ -1377,11 +1379,17 @@ class MainWindow(QMainWindow):
                 if uncompressed != "":
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
                     # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
-                    # file = 'C:/software/scheduleResultTest7.json'
-                    file = 'C:/temp/scheduleResultTest5.json'
+                    file = 'C:/software/scheduleResultTest7.json'
+                    # file = 'C:/temp/scheduleResultTest5.json'
                     if exists(file):
                         with open(file) as test_schedule_file:
                             bodyobj = json.load(test_schedule_file)
+                            for nm in bodyobj["added_missions"]:
+                                today = datetime.today()
+                                formatted_today = today.strftime('%Y-%m-%d')
+                                bd_parts = nm["createon"].split()
+                                nm["createon"] = formatted_today + " " + bd_parts[1]
+
                         self.showMsg("bodyobj: " + json.dumps(bodyobj))
                         if len(bodyobj) > 0:
                             self.addNewlyAddedMissions(bodyobj)
@@ -1731,6 +1739,7 @@ class MainWindow(QMainWindow):
         }
         self.showMsg("N vehicles win " + str(len(result["win"]))+" " + str(len(result["mac"]))+" " + str(len(result["linux"])))
         if self.hostrole == "Commander" and not self.rpa_work_assigned_for_today:
+            print("checking commander", self.todays_work["tbd"])
             if len([wk for wk in self.todays_work["tbd"] if wk["name"] == "automation"]) == 0:
                 self.showMsg("myself unassigned "+self.getIP())
                 # put in a dummy V
@@ -1908,9 +1917,9 @@ class MainWindow(QMainWindow):
 
         #1st find all 1st stage buy missions.
         self.showMsg("task name:" + json.dumps([tsk["name"]  for tsk in p_task_groups]))
-        buys = [tsk for tsk in p_task_groups if (tsk["name"].split("_")[0] in self.BUY_TYPES)]
-        initial_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] in ['addCart', 'pay', 'addCartPay']))]
-        later_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] not in ['addCart', 'pay', 'addCartPay']))]
+        buys = [tsk for tsk in p_task_groups if (tsk["name"].split("_")[0] in self.static_resource.BUY_TYPES)]
+        initial_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.static_resource.BUY_TYPES) and (tsk["name"].split("_")[1] in ['addCart', 'pay', 'addCartPay']))]
+        later_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.static_resource.BUY_TYPES) and (tsk["name"].split("_")[1] not in ['addCart', 'pay', 'addCartPay']))]
         print(len(buys), len(initial_buys), len(later_buys))
         for buytask in buys:
             # make sure we do search before buy
@@ -4590,10 +4599,12 @@ class MainWindow(QMainWindow):
             print("looping runbotworks.....")
             botTodos = None
             if self.workingState == "Idle":
+                print("idle checking.....")
                 if self.getNumUnassignedWork() > 0:
                     self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                     self.assignWork()
 
+                print("check next to run")
                 botTodos = self.checkNextToRun()
                 if not botTodos == None:
                     self.showMsg("working on..... "+botTodos["name"])

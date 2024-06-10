@@ -8,7 +8,7 @@ from bot.Logger import log3
 from bot.ordersData import ORDER, OrderPerson, Shipping, OrderedProduct
 
 global symTab
-global STEP_GAP
+from basicSkill import STEP_GAP
 
 # html: html file name, pidx: page index,
 def genStepEtsyScrapeOrders(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
