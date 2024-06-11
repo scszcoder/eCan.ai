@@ -36,7 +36,9 @@ qtpy~=2.4.1
 jedi~=0.19.1
 setproctitle~=1.3.3
 aiohttp~=3.9.5
+pyscreeze==0.1.30
+sqlalchemy==2.0.30
+cryptography==42.0.7
+typing-extensions==4.12.1
 pyobjc~=10.3
 pyobjc-framework-Quartz~=10.3
-sqlalchemy~=2.0.30
-typing-extensions~=4.12.1

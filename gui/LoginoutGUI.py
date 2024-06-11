@@ -28,7 +28,7 @@ from utils.fernet import encrypt_password, decrypt_password
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 
-#ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
+# ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
 # ecbhomepath = getECBotHome()
 ecbhomepath = app_info.app_home_path
 ecb_data_homepath = getECBotDataHome()
@@ -164,7 +164,7 @@ class Login(QDialog):
                 self.lan = data["lan"]
         else:
             logger_helper.info(f"acct file {ACCT_FILE} is not existed!")
-            self.show_visibility = True             #default
+            self.show_visibility = True  # default
             localLan = self.get_locale()
             print(localLan)
             if 'en_' in localLan[0]:
