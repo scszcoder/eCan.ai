@@ -34,9 +34,9 @@ ROLE_FILE = ecb_data_homepath + "/role.json"
 class Login(QDialog):
     def __init__(self, parent=None):
         self.cog = None
-        self.mainwin = None
         self.xport = None
         self.ip = commanderIP
+        self.main_win = None
         self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
         self.lang = "en"
         self.gui_net_msg_queue = asyncio.Queue()
@@ -93,7 +93,8 @@ class Login(QDialog):
         self.confirm_pw_label = QLabel(QApplication.translate("QLabel", "Confirm Password:"))
         self.confirm_pw_label.setFont(QFont('Arial', 10))
 
-        self.confirm_code_label = QLabel(QApplication.translate("QLabel", "Input Confirmation Code Retrieved From Your Email:"))
+        self.confirm_code_label = QLabel(
+            QApplication.translate("QLabel", "Input Confirmation Code Retrieved From Your Email:"))
         self.confirm_code_label.setFont(QFont('Arial', 6))
 
         self.textName = QLineEdit(self)
@@ -219,12 +220,9 @@ class Login(QDialog):
             self.show_visibility = True
         else:
             self.show_visibility = False
-    def get_mainwin(self):
-        return self.mainwin
 
     def get_gui_msg_queue(self):
         return self.gui_net_msg_queue
-
 
     def set_xport(self, xport):
         self.xport = xport
@@ -234,7 +232,7 @@ class Login(QDialog):
 
     def read_role(self):
         self.machine_role = "Platoon"
-        print("ROLE FILE: "+ROLE_FILE)
+        print("ROLE FILE: " + ROLE_FILE)
         if exists(ROLE_FILE):
             with open(ROLE_FILE, 'r') as file:
                 mr_data = json.load(file)
@@ -347,7 +345,6 @@ class Login(QDialog):
         self.user_label.resize(200, 100);
         self.user_label.setAlignment(Qt.AlignTop)
 
-
         self.buttonLogin.clicked.disconnect(self.handleLogin)
         self.buttonLogin.clicked.connect(self.handleForgotPassword)
 
@@ -398,7 +395,8 @@ class Login(QDialog):
                 if not variable_updated:
                     file.write(f'\n{env_var_command}\n')
 
-            print(f"Environment variable {var_name} {'updated' if variable_updated else 'set'} successfully in {config_file}.")
+            print(
+                f"Environment variable {var_name} {'updated' if variable_updated else 'set'} successfully in {config_file}.")
         except IOError as e:
             print(f"Error: Unable to open or write to {config_file} - {e}")
 
@@ -457,25 +455,25 @@ class Login(QDialog):
             if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
                 # global commanderServer
 
-                self.mainwin = MainWindow(self, main_key, self.tokens, commanderServer, self.ip, self.textName.text(), ecbhomepath,
-                                          self.gui_net_msg_queue, self.machine_role, self.lang)
+                self.main_win = MainWindow(self, main_key, self.tokens, commanderServer, self.ip,
+                                           self.textName.text(), ecbhomepath,
+                                           self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a commander...", commanderServer)
-                self.mainwin.setOwner(self.textName.text())
-                self.mainwin.setCog(self.cog)
-                self.mainwin.setCogClient(self.aws_client)
-                self.mainwin.show()
-
+                self.main_win.setOwner(self.textName.text())
+                self.main_win.setCog(self.cog)
+                self.main_win.setCogClient(self.aws_client)
+                self.main_win.show()
             else:
                 # global commanderXport
-
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.mainwin = MainWindow(self, main_key, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
-                                          self.gui_net_msg_queue, self.machine_role, self.lang)
+                self.main_win = MainWindow(self, main_key, self.tokens, self.xport, self.ip, self.textName.text(),
+                                           ecbhomepath,
+                                           self.gui_net_msg_queue, self.machine_role, self.lang)
                 print("Running as a platoon...", self.xport)
-                self.mainwin.setOwner(self.textName.text())
-                self.mainwin.setCog(self.cog)
-                self.mainwin.setCogClient(self.aws_client)
-                self.mainwin.show()
+                self.main_win.setOwner(self.textName.text())
+                self.main_win.setCog(self.cog)
+                self.main_win.setCogClient(self.aws_client)
+                self.main_win.show()
 
         except botocore.errorfactory.ClientError as e:
             # except ClientError as e:
@@ -517,11 +515,14 @@ class Login(QDialog):
 
         print(self.tokens)
 
-        self.mainwin = MainWindow(self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
-                                  self.machine_role, self.lang)
+        self.main_win = MainWindow(self, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
+                                   self.machine_role, self.lang)
         print("faker...")
-        self.mainwin.setOwner("Nobody")
-        self.mainwin.show()
+        self.main_win.setOwner("Nobody")
+        self.main_win.show()
+
+    def get_mainwin(self):
+        return self.main_win
 
     def handleSignUp(self):
         print("Signing up...." + self.textName.text() + "...." + self.textPass.text())

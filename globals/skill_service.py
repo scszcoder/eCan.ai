@@ -1,13 +1,13 @@
 import json
 
-from globals import model
 from globals.model import SkillModel
 
 
 class SkillService:
 
-    def __init__(self, parent):
-        self.parent = parent
+    def __init__(self, main_win, session):
+        self.main_win = main_win
+        self.session = session
 
     def insert_skill(self, api_skills):
         local_skill = SkillModel()
@@ -28,6 +28,6 @@ class SkillService:
         local_skill.price_model = api_skills["price_model"]
         local_skill.price = api_skills["price"]
         local_skill.privacy = api_skills["privacy"]
-        model.session.add(local_skill)
-        model.session.commit()
-        self.parent.showMsg("Skill fetchall" + json.dumps(local_skill.to_dict()))
+        self.session.add(local_skill)
+        self.session.commit()
+        self.main_win.showMsg("Skill fetchall" + json.dumps(local_skill.to_dict()))

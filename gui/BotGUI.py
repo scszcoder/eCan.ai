@@ -35,17 +35,16 @@ class ComboBoxDelegate(QStyledItemDelegate):
 #       levelStart is in the format of: "site:birthday:role,site:birthday:role....."
 #       role is in the format: site:role, site:role      role can be "buyer"/"seller"/
 class BotNewWin(QMainWindow):
-    def __init__(self, parent):
-        super(BotNewWin, self).__init__(parent)
-
-        self.newBot = EBBOT(parent)
+    def __init__(self, main_win):
+        super(BotNewWin, self).__init__(main_win)
+        self.main_win = main_win
+        self.newBot = EBBOT(main_win)
 
         # def __init__(self):
         #     super().__init__()
         self.mainWidget = QWidget()
 
-        self.parent = parent
-        self.homepath = parent.homepath
+        self.homepath = self.main_win.homepath
 
         self.text = QApplication.translate("QWidget", "new bot")
         self.pubpflWidget = QWidget()
@@ -841,10 +840,10 @@ class BotNewWin(QMainWindow):
         self.newBot.setOwner(owner)
 
     def saveBot(self):
-        self.parent.showMsg("saving bot....")
+        self.main_win.showMsg("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         # if self.mode == "new":
-        #    self.newBot = EBBOT(self)
+        #    self.newBot = EBBOT()
         self.newBot.pubProfile.setPseudoName(self.pnn_edit.text())
         self.newBot.pubProfile.setLoc(self.loccity_edit.text() + "," + self.locstate_edit.text())
         if self.m_rb.isChecked():
@@ -877,11 +876,11 @@ class BotNewWin(QMainWindow):
         self.fillInterests()
 
         if self.mode == "new":
-            self.parent.showMsg("adding new bot....")
-            self.parent.addNewBots([self.newBot])
+            self.main_win.showMsg("adding new bot....")
+            self.main_win.addNewBots([self.newBot])
         elif self.mode == "update":
-            self.parent.showMsg("update a bot....")
-            self.parent.updateBots([self.newBot])
+            self.main_win.showMsg("update a bot....")
+            self.main_win.updateBots([self.newBot])
 
         self.close()
 
@@ -901,7 +900,7 @@ class BotNewWin(QMainWindow):
             else:
                 self.newBot.setRoles(self.newBot.getRoles() + "," + role_words)
                 self.newBot.setLevels(self.newBot.getLevels() + "," + level_words)
-        self.parent.showMsg("roles>>>>>" + json.dumps(self.newBot.getRoles()))
+        self.main_win.showMsg("roles>>>>>" + json.dumps(self.newBot.getRoles()))
 
     def fillInterests(self):
         self.newBot.setInterests("")
@@ -917,12 +916,12 @@ class BotNewWin(QMainWindow):
                 self.newBot.setInterests(int_words)
             else:
                 self.newBot.setInterests(self.newBot.getInterests() + "," + int_words)
-        self.parent.showMsg("interests>>>>>" + json.dumps(self.newBot.getInterests()))
+        self.main_win.showMsg("interests>>>>>" + json.dumps(self.newBot.getInterests()))
 
     def selFile(self):
         # File actions
         fdir = self.fsel.getExistingDirectory()
-        self.parent.showMsg(fdir)
+        self.main_win.showMsg(fdir)
         return fdir
 
     def setMode(self, mode):
