@@ -1,3 +1,6 @@
+from utils.time_util import TimeUtil
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
 import base64
 import copy
@@ -23,7 +26,6 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 import importlib
 import importlib.util
 
-from tests.TestAll import Tester
 from gui.BotGUI import BotNewWin
 from gui.ChatGui import ChatWin
 from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
@@ -58,6 +60,8 @@ from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFi
     runAllSteps
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 
@@ -289,7 +293,6 @@ class MainWindow(QMainWindow):
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
-        self.tester = Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
 
