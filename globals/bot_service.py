@@ -3,27 +3,27 @@ import json
 from sqlalchemy import or_, delete
 
 from Cloud import send_query_bots_request_to_cloud
-from globals import model
 from globals.model import BotModel
 
 
 class BotService:
-    def __init__(self, parent):
-        self.parent = parent
+    def __init__(self, main_win, session):
+        self.main_win = main_win
+        self.session = session
 
     def delete_bots_by_botid(self, botid):
         # 构建删除表达式
         delete_stmt = delete(BotModel).where(BotModel.botid == botid)
         # 执行删除
-        result = model.session.execute(delete_stmt)
-        model.session.commit()
-        if result.rowcount > 0:
+        result = self.session.execute(delete_stmt)
+        self.session.commit()
+        if result.rowcount() > 0:
             print(f"Bot with botid {botid} deleted successfully.")
         else:
             print(f"No bot found with botid {botid} to delete.")
 
     def find_bots_by_search(self, start_time, end_time, search) -> [BotModel]:
-        query = model.session.query(BotModel)
+        query = self.session.query(BotModel)
         if len(start_time) > 0 and len(end_time) > 0:
             query = query.filter(BotModel.createon.between(start_time, end_time))
         if len(search) > 0:
@@ -39,18 +39,18 @@ class BotService:
             query = query.filter(or_(*conditions))
         results = query.all()
         dict_results = [result.to_dict() for result in results]
-        self.parent.showMsg("BOTS fetchall" + json.dumps(dict_results))
+        self.main_win.showMsg("BOTS fetchall" + json.dumps(dict_results))
         return results
 
     def find_all_bots(self) -> [BotModel]:
-        results = model.session.query(BotModel).all()
+        results = self.session.query(BotModel).all()
         dict_results = [result.to_dict() for result in results]
-        self.parent.showMsg("BOTS fetchall" + json.dumps(dict_results))
+        self.main_win.showMsg("BOTS fetchall" + json.dumps(dict_results))
         return results
 
     def update_bots_batch(self, api_bots):
         for i, api_bot in enumerate(api_bots):
-            result = model.session.query(BotModel).filter(BotModel.botid == api_bot["bid"]).first()
+            result = self.session.query(BotModel).filter(BotModel.botid == api_bot["bid"]).first()
             if result is not None:
                 result.owner = api_bot["owner"]
                 result.levels = api_bot["levels"]
@@ -72,8 +72,8 @@ class BotService:
                 result.backemail = api_bot["backemail"]
                 result.backemail_site = api_bot["backemail_site"]
                 result.epw = api_bot["epw"]
-                model.session.commit()
-                self.parent.showMsg("update_bots_batch: " + json.dumps(result.to_dict()))
+                self.session.commit()
+                self.main_win.showMsg("update_bots_batch: " + json.dumps(result.to_dict()))
 
     def inset_bots_batch(self, bots, api_bots):
         for i, api_bot in enumerate(api_bots):
@@ -100,9 +100,9 @@ class BotService:
             local_bot.backemail = api_bot["backemail"]
             local_bot.backemail_site = api_bot["backemail_site"]
             local_bot.ebpw = api_bot["ebpw"]
-            model.session.add(local_bot)
-            model.session.commit()
-            self.parent.showMsg("Bot fetchall" + json.dumps(local_bot.to_dict()))
+            self.session.add(local_bot)
+            self.session.commit()
+            self.main_win.showMsg("Mission fetchall" + json.dumps(local_bot.to_dict()))
 
     def sync_cloud_bot_data(self, session, tokens):
         jresp = send_query_bots_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
@@ -110,7 +110,7 @@ class BotService:
         all_bots = json.loads(jresp['body'])
         for bot in all_bots:
             bid = bot['bid']
-            result: BotModel = model.session.query(BotModel).filter(BotModel.botid == bid).first()
+            result: BotModel = self.session.query(BotModel).filter(BotModel.botid == bid).first()
             insert = False
             if result is None:
                 result = BotModel()
@@ -126,5 +126,5 @@ class BotService:
             result.status = bot['status']
             # result.createon = bot['birthday']
             if insert:
-                model.session.add(result)
-        model.session.commit()
+                self.session.add(result)
+        self.session.commit()

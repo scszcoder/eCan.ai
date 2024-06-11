@@ -689,7 +689,7 @@ def test_ads_batch(parent):
     all_profiles_csv = "C:/AmazonSeller/SelfSwipe/test_all.xls"
 
     for i in range(42):
-        new_bot = EBBOT(parent)
+        new_bot = EBBOT()
         new_bot.setBid(i)
         new_bot.setEmail(all_emails[i])
         allbots.append(new_bot)

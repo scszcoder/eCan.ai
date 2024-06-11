@@ -3,7 +3,6 @@ import base64
 import copy
 import math
 import random
-import sys
 import traceback
 import webbrowser
 from _csv import reader
@@ -11,7 +10,7 @@ from os.path import exists
 
 from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
-from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, QTextEdit, \
+from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
     QMessageBox, QFileDialog, QPlainTextEdit
 
@@ -20,19 +19,18 @@ import importlib.util
 
 from globals.bot_service import BotService
 from globals.mission_service import MissionService
-from globals.model import BotModel, MissionModel
+from globals.model import BotModel, MissionModel, init_db, get_session
 from globals.product_service import ProductService
 from globals.skill_service import SkillService
 from tests.TestAll import Tester
 
+
 from gui.BotGUI import BotNewWin
-from gui.ChatGui import ChatWin
-from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
+from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
     send_get_bots_request_to_cloud
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
-from bot.Logger import log3
 from gui.LoggerGUI import CommanderLogWin
 from gui.MissionGUI import MissionNewWin
 from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
@@ -45,8 +43,7 @@ from bot.basicSkill import STEP_GAP
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
-from bot.lzstring import LZString
-import os
+from lzstring import LZString
 import openpyxl
 from datetime import timedelta
 import platform
@@ -56,7 +53,7 @@ from bot.network import myname, fieldLinks
 from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
-from tool.MainGUITool import FileResource, StaticResource, init_sql_file
+from tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper
 from tests.unittests import *
 import pandas as pd
@@ -69,7 +66,6 @@ Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
 rpaConfig = None
 
 ecb_data_homepath = getECBotDataHome()
-
 
 # adopted from web: https://stackoverflow.com/questions/32476006/how-to-make-an-expandable-collapsable-section-widget-in-qt
 class Expander(QWidget):
@@ -169,13 +165,14 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, parent, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
+    def __init__(self, loginout_gui, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
         super(MainWindow, self).__init__()
-        self.loginout_gui = parent
+        self.loginout_gui = loginout_gui
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
+
         self.gui_net_msg_queue = gui_msg_queue
         self.gui_rpa_msg_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
@@ -291,11 +288,12 @@ class MainWindow(QMainWindow):
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
         if self.machine_role != "Platoon":
-            init_sql_file(self.dbfile)
-            self.bot_service = BotService(self)
-            self.mission_service = MissionService(self)
-            self.product_service = ProductService(self)
-            self.skill_service = SkillService(self)
+            engine = init_db(self.dbfile)
+            session = get_session(engine)
+            self.bot_service = BotService(self, session)
+            self.mission_service = MissionService(self, session)
+            self.product_service = ProductService(self, session)
+            self.skill_service = SkillService(self, session)
 
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
@@ -1438,12 +1436,10 @@ class MainWindow(QMainWindow):
         warnText = self.log_text_format(msg, level)
         self.netLogWin.appendLogs([warnText])
         self.appendNetLogs([warnText])
-        self.appendDailyLogs([msg], level)
 
     def showMsg(self, msg, level="info"):
         msg_text = self.log_text_format(msg, level)
         self.appendNetLogs([msg_text])
-        self.appendDailyLogs([msg], level)
 
     def log_text_format(self, msg, level):
         logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1475,30 +1471,6 @@ class MainWindow(QMainWindow):
                 </span>
             </div>""" % (logTime, text_color, level, text_color, msg)
         return msg_text
-
-    def appendDailyLogs(self, msgs, level):
-        # check if daily log file exists, if exists simply append to it, if not create and write to the file.
-        now = datetime.now()  # current date and time
-        year = now.strftime("%Y")
-        month = now.strftime("%m")
-        day = now.strftime("%d")
-        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
-        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
-        time = now.strftime("%H:%M:%S - ")
-        if os.path.isfile(dailyLogFile):
-            file1 = open(dailyLogFile, "a")  # append mode
-            for msg in msgs:
-                file1.write(time+msg+"\n")
-            file1.close()
-        else:
-            if not os.path.exists(dailyLogDir):
-                os.makedirs(dailyLogDir)
-
-            file1 = open(dailyLogFile, "w")  # append mode
-            for msg in msgs:
-                file1.write(time+msg + "\n")
-            file1.close()
-
 
     def logDailySchedule(self, netSched):
         now = datetime.now()  # current date and time
@@ -1874,13 +1846,12 @@ class MainWindow(QMainWindow):
                         ]
                     }
 
-        log3("Modified Buy Work:"+json.dumps(work))
+        logger_helper.debug("Modified Buy Work:"+json.dumps(work))
 
 
     def gen_prod_sel(self):
         idx = math.floor(random.random() * (len(self.static_resource.PRODUCT_SEL_TYPES.length) - 1));
         return self.static_resource.PRODUCT_SEL_TYPES[idx];
-
 
 
     # given a derived buy mission, find out the original buy mission that was put in order by the users.
@@ -3943,53 +3914,53 @@ class MainWindow(QMainWindow):
         self.showMsg("filling mission data")
         nm.setNetRespJsonData(nmjson)
 
-
-    def addMissionsToLocalDB(self, missions):
-        api_missions = []
+    def addMissionsToLocalDB(self, missions: [EBMISSION]):
+        local_missions: [MissionModel] = []
         for new_mission in missions:
-            api_missions.append({
-                "mid": new_mission.getMid(),
-                "ticket": new_mission.getMid(),
-                "botid": new_mission.getBid(),
-                "owner": self.owner,
-                "status": new_mission.getStatus(),
-                "createon": new_mission.getBD(),
-                "esd": new_mission.getEsd(),
-                "ecd": new_mission.getEcd(),
-                "asd": new_mission.getAsd(),
-                "abd": new_mission.getAbd(),
-                "aad": new_mission.getAad(),
-                "afd": new_mission.getAfd(),
-                "acd": new_mission.getAcd(),
-                "actual_start_time": new_mission.getActualStartTime(),
-                "est_start_time": new_mission.getEstimatedStartTime(),
-                "actual_run_time": new_mission.getActualRunTime(),
-                "est_run_time": new_mission.getEstimatedRunTime(),
-                "cuspas": new_mission.getCusPAS(),
-                "search_cat": new_mission.getSearchCat(),
-                "search_kw": new_mission.getSearchKW(),
-                "pseudo_store": new_mission.getPseudoStore(),
-                "pseudo_brand": new_mission.getPseudoBrand(),
-                "pseudo_asin": new_mission.getPseudoASIN(),
-                "repeat": new_mission.getRetry(),
-                "mtype": new_mission.getMtype(),
-                "mconfig": new_mission.getConfig(),
-                "skills": new_mission.getSkills(),
-                "delDate": new_mission.getDelDate(),
-                "asin": new_mission.getASIN(),
-                "store": new_mission.getStore(),
-                "brand": new_mission.getBrand(),
-                "image": new_mission.getImagePath(),
-                "title": new_mission.getTitle(),
-                "variations": new_mission.getVariations(),
-                "rating": new_mission.getRating(),
-                "feedbacks": new_mission.getFeedbacks(),
-                "price": new_mission.getPrice(),
-                "customer": new_mission.getCustomerID(),
-                "platoon": new_mission.getPlatoonID(),
-                "result": new_mission.getResult()
-            })
-        self.mission_service.insert_missions_batch_(api_missions)
+            local_mission = MissionModel()
+            local_mission.mid = new_mission.getMid()
+            local_mission.ticket = new_mission.getTicket()
+            local_mission.botid = new_mission.getBid()
+            local_mission.status = new_mission.getStatus()
+            local_mission.createon = new_mission.getBD()
+            local_mission.owner = self.owner
+            local_mission.esd = new_mission.getEsd()
+            local_mission.ecd = new_mission.getEcd()
+            local_mission.asd = new_mission.getAsd()
+            local_mission.abd = new_mission.getAbd()
+            local_mission.aad = new_mission.getAad()
+            local_mission.afd = new_mission.getAfd()
+            local_mission.acd = new_mission.getAcd()
+            local_mission.actual_start_time = new_mission.getActualStartTime()
+            local_mission.est_start_time = new_mission.getEstimatedStartTime()
+            local_mission.actual_runtime = new_mission.getActualRunTime()
+            local_mission.est_runtime = new_mission.getEstimatedRunTime()
+            local_mission.n_retries = new_mission.getNRetries()
+            local_mission.cuspas = new_mission.getCusPAS()
+            local_mission.category = new_mission.getCategory()
+            local_mission.phrase = new_mission.getPhrase()
+            local_mission.pseudoStore = new_mission.getPseudoStore()
+            local_mission.pseudoBrand = new_mission.getPseudoBrand()
+            local_mission.pseudoASIN = new_mission.getPseudoASIN()
+            local_mission.type = new_mission.getType()
+            local_mission.config = new_mission.getConfig()
+            local_mission.skills = new_mission.getSkills()
+            local_mission.delDate = new_mission.getDelDate()
+            local_mission.asin = new_mission.getAsin()
+            local_mission.store = new_mission.getStore()
+            local_mission.brand = new_mission.getBrand()
+            local_mission.img = new_mission.getImg()
+            local_mission.title = new_mission.getTitle()
+            local_mission.rating = new_mission.getRating()
+            local_mission.feedbacks = new_mission.getFeedbacks()
+            local_mission.price = new_mission.getPrice()
+            local_mission.customer = new_mission.getCustomer()
+            local_mission.platoon = new_mission.getPlatoon()
+            local_mission.result = new_mission.getResult()
+            local_mission.variations = new_mission.getVariations()
+            local_missions.append(local_mission)
+        self.mission_service.insert_missions_batch_(local_missions)
+
 
     def newMissionFromFile(self):
         self.showMsg("loading missions from a file...")
@@ -4020,7 +3991,7 @@ class MainWindow(QMainWindow):
                         # now that add is successfull, update local file as well.
 
                         # now add missions to local DB.
-                        new_missions =[]
+                        new_missions: [EBMISSION] = []
                         for i in range(len(jbody)):
                             self.showMsg(str(i))
                             new_mission = EBMISSION(self)
@@ -4041,6 +4012,7 @@ class MainWindow(QMainWindow):
                 xls = openpyxl.load_workbook(filename, data_only=True)
 
                 # Initialize an empty list to store JSON data
+                botsJson = []
                 # Iterate over each sheet in the Excel file
                 title_cells = []
                 for idx, sheet in enumerate(xls.sheetnames):
@@ -4269,8 +4241,8 @@ class MainWindow(QMainWindow):
                     ex_stat = "ErrorLoadSkillFile:" + traceback.format_exc() + " " + str(e)
                 else:
                     ex_stat = "ErrorLoadSkillFile: traceback information not available:" + str(e)
-                log3(ex_stat)
-                log3(QApplication.translate("QMainWindow", "Warning: load skill file error."))
+                logger_helper.debug(ex_stat)
+                logger_helper.debug(QApplication.translate("QMainWindow", "Warning: load skill file error."))
 
     def find_dependencies(self, main_file, visited, dependencies):
         if main_file in visited:
@@ -4428,24 +4400,12 @@ class MainWindow(QMainWindow):
             # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
             fileproducts = json.load(uncompressed)
             if len(fileproducts) > 0:
-                #add bots to the relavant data structure and add these bots to the cloud and local DB.
-
-                # sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variations TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
-                #
-                # sql = ''' INSERT INTO products (pid, name, title, asin, variations, site, sku, size_in, weight_lbs,
-                #         condition, fullfiller, price, cost, inventory_loc, inventory_qty) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                # data_tuple = (pd[0]["pid"], pd[0]["name"], pd[0]["title"], pd[0]["asin"], pd[0]["variations"], pd[0]["site"], \
-                #               pd[0]["sku"], pd[0]["size_in"], pd[0]["weight_lbs"], pd[0]["condition"], pd[0]["fullfiller"], \
-                #               pd[0]["price"], pd[0]["cost"], pd[0]["inventory_loc"], pd[0]["inventory_qty"])
-                #
-                # self.dbCursor.execute(sql, data_tuple)
-                # self.dbcon.commit()
                 self.product_service.find_all_products()
 
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: NO products found in file."))
         else:
-            self.warn(QApplication.translate("QMainWindow", "Warning: No test products file"))
+            self.warn(QApplication.translate("QMainWindow", "Warning: No tests products file"))
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
@@ -5176,7 +5136,7 @@ class MainWindow(QMainWindow):
                 self.todays_work = {"tbd": [
                     {"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start",
                      "current widx": 0, "completed": [], "aborted": []}]}
-                self.bot_service.update_bots_batch(self.missions)
+                self.mission_service.update_missions_by_id(self.missions)
 
             self.todays_completed = []
             self.todaysReports = []                     # per vehicle/host
