@@ -123,7 +123,6 @@ class MissionModel(Base):
     customer = Column(Text)
     platoon = Column(Text)
     result = Column(Text)
-    variations = Column(Text)
 
     def to_dict(self):
         return {
@@ -167,7 +166,6 @@ class MissionModel(Base):
             "customer": self.customer,
             "platoon": self.platoon,
             "result": self.result,
-            "variations": self.variations,
         }
 
 
