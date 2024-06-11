@@ -160,6 +160,7 @@ RAIS = {
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
+    "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
@@ -206,6 +207,7 @@ ARAIS = {
     "Create Dir": lambda x, y: processCreateDir(x, y),
     "Read File": lambda x, y: processReadFile(x, y),
     "Write File": lambda x, y: processWriteFile(x, y),
+    "Delete File": lambda x, y: processDeleteFile(x, y),
     "print Label": lambda x,y: processPrintLabel(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
@@ -240,6 +242,7 @@ ARAIS = {
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
+    "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
@@ -397,6 +400,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
 
         # check whether there is any msging handling need.
+        # log3("listening to message queue......")
         if not in_msg_queue.empty():
             message = await in_msg_queue.get()
             log3(f"Rx RunAllSteps message: {message}")
@@ -516,7 +520,7 @@ async def run1step8(steps, si, mission, skill, stack):
             else:
                 si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Obtain Reviews" or step["type"] == "Ask LLM":
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)
             else:

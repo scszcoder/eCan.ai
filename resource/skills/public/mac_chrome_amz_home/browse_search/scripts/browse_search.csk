@@ -32,66 +32,16 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "serial",
-                        "anchor_type"  : "text",
-                        "template"     : "Serial No",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "ok",
-                        "anchor_type"  : "text",
-                        "template"     : "OK",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "export_icon",
-                        "anchor_type"  : "icon",
-                        "template"     : "export0.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "export_selected",
-                        "anchor_type"  : "text",
-                        "template"     : "Export",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "all_groups",
-                        "anchor_type"  : "text",
-                        "template"     : "All groups",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
                         "anchor_name"  : "checkbox",
                         "anchor_type"  : "icon",
-                        "template"     : "checkbox0.png",
+                        "template"     : "ads_cb.png",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "checked",
+                        "anchor_name"  : "close_pop",
                         "anchor_type"  : "icon",
-                        "template"     : "checked0.png",
-                        "ref_method"   : "1",
-                        "ref_location" : [
-                            {
-                                "ref": "all_groups",
-                                "side": "bottom",
-                                "dir": ">",
-                                "offset": "1",
-                                "offset_unit": "box"
-                            }
-                        ]
-                    },
-                    {
-                        "anchor_name"  : "trash0",
-                        "anchor_type"  : "icon",
-                        "template"     : "trash0.png",
+                        "template"     : "close_pop.png",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -131,16 +81,9 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "no_data",
-                        "anchor_type"  : "text",
-                        "template"     : "No Data",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
                         "anchor_name"  : "batch_import",
                         "anchor_type"  : "text",
-                        "template"     : "Batch",
+                        "template"     : "Batch Import",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -196,7 +139,7 @@
                     {
                         "anchor_name"  : "amazon_site",
                         "anchor_type"  : "text",
-                        "template"     : "mazon.com",
+                        "template"     : "amazon.com",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -264,69 +207,6 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "tags",
-                        "anchor_type"  : "text",
-                        "template"     : "Tags",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "url_open",
-                        "anchor_type"  : "text",
-                        "template"     : "URL to open",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "txt_extension",
-                        "anchor_type"  : "text",
-                        "template"     : ".txt",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "profile_info",
-                        "anchor_type"  : "text",
-                        "template"     : "Profile information",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "proxy",
-                        "anchor_type"  : "text",
-                        "template"     : "Proxy",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "region",
-                        "anchor_type"  : "text",
-                        "template"     : "Region",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "city",
-                        "anchor_type"  : "text",
-                        "template"     : "City",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "fingerprints",
-                        "anchor_type"  : "text",
-                        "template"     : "fingerprints",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "screen_resolution",
-                        "anchor_type"  : "text",
-                        "template"     : "Screen_Resolution",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
                         "anchor_name"  : "other",
                         "anchor_type"  : "text",
                         "template"     : "other",
@@ -341,182 +221,9 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "usa",
-                        "anchor_type"  : "text",
-                        "template"     : "USA",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "proxy_failure",
-                        "anchor_type"  : "text",
-                        "template"     : "Proxy failure",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    }
-                ], 
-                "info": [
-                ]
-            },
-            "file_dialog" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "refresh",
-                        "anchor_type"  : "icon",
-                        "template"     : "refresh0.png, file_refresh10.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-
-                    {
-                        "anchor_name"  : "file_name",
-                        "anchor_type"  : "text",
-                        "template"     : "File name:",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "file_open",
-                        "anchor_type"  : "text",
-                        "template"     : "Open",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "ok",
-                        "anchor_type"  : "text",
-                        "template"     : "OK",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "close",
-                        "anchor_type"  : "text",
-                        "template"     : "Close",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "select_folder",
-                        "anchor_type"  : "text",
-                        "template"     : "Select Folder",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    }
-                ], 
-                "info": [
-                ]
-            },
-            "export_text" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "folder_icon",
-                        "anchor_type"  : "icon",
-                        "template"     : "folder0.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "ok_button",
-                        "anchor_type"  : "icon",
-                        "template"     : "ads_ok.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "tags",
-                        "anchor_type"  : "text",
-                        "template"     : "Tags",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "url_open",
-                        "anchor_type"  : "text",
-                        "template"     : "URL to open",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "proxy",
-                        "anchor_type"  : "text",
-                        "template"     : "Proxy",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "fingerprints",
-                        "anchor_type"  : "text",
-                        "template"     : "fingerprints",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "screen_resolution",
-                        "anchor_type"  : "text",
-                        "template"     : "Screen Resolution",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "region",
-                        "anchor_type"  : "text",
-                        "template"     : "Region",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "city",
-                        "anchor_type"  : "text",
-                        "template"     : "City",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "text_file",
-                        "anchor_type"  : "text",
-                        "template"     : "Text file",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    }
-                ], 
-                "info": [
-                ]
-            },
-            "popup" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "close",
-                        "anchor_type"  : "text",
-                        "template"     : "Close",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "wait",
-                        "anchor_type"  : "text",
-                        "template"     : "Wait",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "close_button",
-                        "anchor_type"  : "icon",
-                        "template"     : "ads_close.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "ok_button",
-                        "anchor_type"  : "icon",
-                        "template"     : "ads_ok.png",
                         "ref_method"   : "0",
                         "ref_location" : []
                     }
@@ -538,51 +245,9 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "amazon_title",
-                        "anchor_type"  : "text",
-                        "template"     : "mazon.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "hello",
+                        "anchor_name"  : "main_bottom",
                         "anchor_type"  : "text",
                         "template"     : "Back to top",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "sign_in",
-                        "anchor_type"  : "text",
-                        "template"     : "sign in",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "email",
-                        "anchor_type"  : "text",
-                        "template"     : "Email",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "continue",
-                        "anchor_type"  : "text",
-                        "template"     : "Continue",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "password",
-                        "anchor_type"  : "text",
-                        "template"     : "Password",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "sign_in_button",
-                        "anchor_type"  : "text",
-                        "template"     : "Sign in",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -590,13 +255,6 @@
                         "anchor_name"  : "main_search",
                         "anchor_type"  : "text",
                         "template"     : "Search",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "top_search",
-                        "anchor_type"  : "icon",
-                        "template"     : "main_search.png",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -625,6 +283,58 @@
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                ]
+            }
+	    }
+	},
+    {
+        "file_save_dialog": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "file_name1",
+                        "anchor_type"  : "text",
+                        "template"     : "name:",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "file_name2",
+                        "anchor_type"  : "text",
+                        "template"     : "name",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "save_as_type",
+                        "anchor_type"  : "text",
+                        "template"     : "Save as type",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "save",
+                        "anchor_type"  : "text",
+                        "template"     : "Save",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "cancel",
+                        "anchor_type"  : "text",
+                        "template"     : "Cancel",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "refresh",
+                        "anchor_type"  : "icon",
+                        "template"     : "refresh0.png, file_refresh10.png",
                         "ref_method"   : "0",
                         "ref_location" : []
                     }
@@ -858,13 +568,6 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "asin",
-                        "anchor_type"  : "text",
-                        "template"     : "ASIN",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
                         "anchor_name"  : "start_reviews",
                         "anchor_type"  : "text",
                         "template"     : "Top reviews from the United States",
@@ -1006,20 +709,6 @@
                     }
                 ], 
                 "info": [
-                    {
-                        "info_name"  : "asin_info",
-                        "info_type"  : "closest 1 lines",
-                        "template"     : "",
-                        "ref_method"   : "2",
-                        "refs" : [
-                            {
-                                "dir": "right",
-                                "ref": "asin",
-                                "offset": 8,
-                                "offset_unit": "box"
-                            }
-                        ]
-                    }
                 ]
             }
 
@@ -1027,66 +716,6 @@
 	}, 
     {
         "all_reviews": {
-            "top" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "back_pointer",
-                        "anchor_type"  : "text",
-                        "template"     : "Back to results",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "next_page",
-                        "anchor_type"  : "text",
-                        "template"     : "Next page",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "previous_page",
-                        "anchor_type"  : "text",
-                        "template"     : "Previous page",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "reviewd_in",
-                        "anchor_type"  : "text",
-                        "template"     : "Reviewd in",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "all_positive_reviews",
-                        "anchor_type"  : "text",
-                        "template"     : "All positive reviews",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "all_critical_reviews",
-                        "anchor_type"  : "text",
-                        "template"     : "All critical reviews",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "see_all_details",
-                        "anchor_type"  : "text",
-                        "template"     : "See all details",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    }
-                ], 
-                "info": [
-                ]
-            }
-
-	    }
-	},
-    {
-        "my_orders": {
             "top" : {
                 "anchors": [
                     {

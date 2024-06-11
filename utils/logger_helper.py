@@ -31,7 +31,7 @@ class LoggerHelper:
         self.logger.addHandler(console_handler)
 
         file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler = RotatingFileHandler(log_file, maxBytes=1024*1024*10, backupCount=5)
+        file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024 * 10, backupCount=5)
         file_handler.setFormatter(file_formatter)
         self.logger.addHandler(file_handler)
 
