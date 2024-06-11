@@ -28,6 +28,7 @@ if sys.platform == 'win32':
     import win32con
     import win32api
     import win32process
+    # import pyscreeze
 elif sys.platform == 'darwin':
     from AppKit import NSWorkspace
     from Quartz import (
@@ -36,13 +37,13 @@ elif sys.platform == 'darwin':
         kCGNullWindowID
     )
 
-    # fix bug of macos TypeError: '<' not supported between instances of 'str' and 'int' in _screenshot_osx
-    # https://github.com/asweigart/pyautogui/issues/790
-    import pyscreeze
-    import PIL
+# fix bug of macos TypeError: '<' not supported between instances of 'str' and 'int' in _screenshot_osx
+# https://github.com/asweigart/pyautogui/issues/790
+import pyscreeze
+import PIL
 
-    __PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
-    pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
+__PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
+pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
 
 symTab = globals()
 from pynput.mouse import Controller
