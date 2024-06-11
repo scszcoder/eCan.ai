@@ -13,6 +13,7 @@ from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, g
     genAMZBrowseAllReviewsPage, genScroll1StarReviewsPage, genStepAMZScrapePLHtml, genAMZBrowseProductLists, \
     genWinChromeAMZWalkSteps, genStepAMZScrapeDetailsHtml, genStepAMZScrapeReviewsHtml, genStepAMZSearchProducts, \
     genWinADSAMZBuySkill
+from bot.amzBuyerSkillMac import genMacChromeAMZWalkSkill, genMacChromeAMZWalkSteps
 from bot.amzSellerSkill import genWinChromeAMZFullfillOrdersSkill, genWinChromeAMZCollectOrdersSkill, \
     genWinChromeAMZUpdateShipmentTrackingSkill, genWinChromeAMZHandleMessagesSkill
 from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genStepExtractInfo, genStepFillRecipients, \
@@ -105,6 +106,8 @@ PUBLIC = {
     'genAMZBrowseProductListToLastAttention': genAMZBrowseProductListToLastAttention,
     'genAMZBrowseDetails': genAMZBrowseDetails,
     'genAMZBrowseAllReviewsPage': genAMZBrowseAllReviewsPage,
+    'genMacChromeAMZWalkSkill': genMacChromeAMZWalkSkill,
+    'genMacChromeAMZWalkSteps': genMacChromeAMZWalkSteps,
     'genScroll1StarReviewsPage': genScroll1StarReviewsPage,
     'genStepAMZScrapePLHtml': genStepAMZScrapePLHtml,
     'genAMZBrowseProductLists': genAMZBrowseProductLists,
@@ -120,6 +123,7 @@ PUBLIC = {
 
 SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
+    "mac_chrome_amz_home_browse_search": lambda x, y, z: genMacChromeAMZWalkSkill(x, y, z),
     "win_chrome_amz_orders_fullfill_orders": lambda x,y,z: genWinChromeAMZFullfillOrdersSkill(x, y, z),
     "win_chrome_amz_orders_collect_orders": lambda x,y,z: genWinChromeAMZCollectOrdersSkill(x, y, z),
     "win_chrome_amz_orders_update_tracking": lambda x,y,z: genWinChromeAMZUpdateShipmentTrackingSkill(x, y, z),
