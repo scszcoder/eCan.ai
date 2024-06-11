@@ -1,0 +1,243 @@
+{
+    "task_groups": [
+        {
+            "eastern": [],
+            "central": [
+                {
+                    "bid": 85,
+                    "cuspas": "mac,chrome,amz",
+                    "tz": "central",
+                    "bw_works": [
+                        {
+                            "name": "browse_routine",
+                            "mid": 702,
+                            "cuspas": "mac,chrome,amz",
+                            "config": {
+                                "estRunTime": 3,
+                                "searches": [
+                                    {
+                                        "type": "browse",
+                                        "site": "amz",
+                                        "os": "win",
+                                        "app": "ads",
+                                        "entry_paths": {
+                                            "type": "Search",
+                                            "words": [
+                                                "robot vacuum cleaner"
+                                            ]
+                                        },
+                                        "top_menu_item": "Amazon Home",
+                                        "prodlist_pages": [
+                                            {
+                                                "flow_type": "down up down",
+                                                "products": [
+                                                    {
+                                                        "selType": "mr",
+                                                        "detailLvl": 2,
+                                                        "purchase": []
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        "buy_cfg": null
+                                    },
+                                    {
+                                        "type": "browse",
+                                        "site": "amz",
+                                        "os": "win",
+                                        "app": "ads",
+                                        "entry_paths": {
+                                            "type": "Search",
+                                            "words": [
+                                                "musical toy"
+                                            ]
+                                        },
+                                        "top_menu_item": "New Releases",
+                                        "prodlist_pages": [
+                                            {
+                                                "flow_type": "down up down",
+                                                "products": [
+                                                    {
+                                                        "selType": "bs",
+                                                        "detailLvl": 0,
+                                                        "purchase": []
+                                                    },
+                                                    {
+                                                        "selType": "bs",
+                                                        "detailLvl": 1,
+                                                        "purchase": []
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        "buy_cfg": null
+                                    },
+                                    {
+                                        "type": "browse",
+                                        "site": "amz",
+                                        "os": "win",
+                                        "app": "ads",
+                                        "entry_paths": {
+                                            "type": "Search",
+                                            "words": [
+                                                "led headlamp"
+                                            ]
+                                        },
+                                        "top_menu_item": "Baby",
+                                        "prodlist_pages": [
+                                            {
+                                                "flow_type": "down up down",
+                                                "products": [
+                                                    {
+                                                        "selType": "cp",
+                                                        "detailLvl": 2,
+                                                        "purchase": []
+                                                    },
+                                                    {
+                                                        "selType": "cp",
+                                                        "detailLvl": 1,
+                                                        "purchase": []
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        "buy_cfg": null
+                                    }
+                                ]
+                            },
+                            "start_time": 16
+                        }
+                    ],
+                    "other_works": []
+                }
+            ],
+            "mountain": [],
+            "pacific": [
+            ],
+            "alaska": [],
+            "hawaii": []
+        }
+    ],
+    "added_missions": [
+        {
+            "mid": 702,
+            "ticket": 0,
+            "owner": "songc@yahoo.com",
+            "botid": 85,
+            "status": "ASSIGNED",
+            "createon": "2024-03-31 05:44:15",
+            "esd": "2024-03-16 05:44:15",
+            "ecd": "2024-03-16 05:44:15",
+            "asd": "2124-03-16 05:44:15",
+            "abd": "2124-03-16 05:44:15",
+            "aad": "2124-03-16 05:44:15",
+            "afd": "2124-03-16 05:44:15",
+            "acd": "2124-03-16 05:44:15",
+            "esttime": 36,
+            "runtime": 1,
+            "trepeat": 3,
+            "cuspas": "mac,chrome,amz",
+            "category": "",
+            "phrase": "",
+            "pseudoStore": "",
+            "pseudoBrand": "",
+            "pseudoASIN": "",
+            "type": "browse",
+            "config": {
+                "estRunTime": 3,
+                "searches": [
+                    {
+                        "type": "browse",
+                        "site": "amz",
+                        "os": "mac",
+                        "app": "chrome",
+                        "entry_paths": {
+                            "type": "Search",
+                            "words": [
+                                "robot vacuum cleaner"
+                            ]
+                        },
+                        "top_menu_item": "Amazon Home",
+                        "prodlist_pages": [
+                            {
+                                "flow_type": "down up down",
+                                "products": [
+                                    {
+                                        "selType": "ac",
+                                        "detailLvl": 2,
+                                        "purchase": []
+                                    }
+                                ]
+                            }
+                        ],
+                        "buy_cfg": null
+                    },
+                    {
+                        "type": "browse",
+                        "site": "amz",
+                        "os": "mac",
+                        "app": "chrome",
+                        "entry_paths": {
+                            "type": "Search",
+                            "words": [
+                                "musical toy"
+                            ]
+                        },
+                        "top_menu_item": "New Releases",
+                        "prodlist_pages": [
+                            {
+                                "flow_type": "down up down",
+                                "products": [
+                                    {
+                                        "selType": "bs",
+                                        "detailLvl": 0,
+                                        "purchase": []
+                                    },
+                                    {
+                                        "selType": "bs",
+                                        "detailLvl": 1,
+                                        "purchase": []
+                                    }
+                                ]
+                            }
+                        ],
+                        "buy_cfg": null
+                    },
+                    {
+                        "type": "browse",
+                        "site": "amz",
+                        "os": "mac",
+                        "app": "chrome",
+                        "entry_paths": {
+                            "type": "Search",
+                            "words": [
+                                "led headlamp"
+                            ]
+                        },
+                        "top_menu_item": "Baby",
+                        "prodlist_pages": [
+                            {
+                                "flow_type": "down up down",
+                                "products": [
+                                    {
+                                        "selType": "cp",
+                                        "detailLvl": 2,
+                                        "purchase": []
+                                    },
+                                    {
+                                        "selType": "cp",
+                                        "detailLvl": 1,
+                                        "purchase": []
+                                    }
+                                ]
+                            }
+                        ],
+                        "buy_cfg": null
+                    }
+                ]
+            },
+            "skills": "15",
+            "delDate": "2124-03-16 05:44:15"
+        }
+    ]
+}

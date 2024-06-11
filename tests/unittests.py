@@ -375,7 +375,25 @@ def test_api(parent, session, token):
     # send_completion_status_to_cloud(session, allTodoReports, token)
 
 
-    qs = [{"msgID": "1", "user": "john", "timeStamp": "2024-04-09T12:00:00.000Z", "product": "resistance band", "goals": "customer service", "background": "", "msg_thread": "hi, do you sell fabric type?"}]
+    # // { "pass_method": "", "total_score": 0, "passing_score": 0, goals":[{"name": "xxx", "type": "xxx", "mandatory": true/false, "score": "", "standards": number/set of string, "weight": 1, passed": true/false}....]
+    goals_json = {
+        "pass_method": "all mandatory",
+        "total_score": 0,
+        "passed": False,
+        "goals": [
+            {
+                "name": "test",
+                "type": "echo",
+                "mandatory": True,
+                "score": 0,
+                "standards": [],
+                "weight": 1,
+                "passed": False
+            }
+        ]
+    }
+    goals_string = json.dumps(goals_json).replace('"', '\\"')
+    qs = [{"msgID": "1", "user": "john", "timeStamp": "2024-04-09T12:00:00.000Z", "products": "", "goals": goals_string, "background": "", "msg": "hi, do you sell fabric type?"}]
     result = send_query_chat_request_to_cloud(session, token, qs)
     print("send_query_chat_request_to_cloud RESULT:", result)
 
@@ -528,6 +546,9 @@ def test_api(parent, session, token):
     # print("send_account_info_request_to_cloud RESULT:", result)
 
 def test_sqlite3(mw):
+    from sqlalchemy import Text
+    # mw.mission_service.add_column("variations", Text, "title")
+    mw.mission_service.describe_table()
     # sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
     #               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
     # data_tuple = (21, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Male', '1992-01-01', \
@@ -578,18 +599,18 @@ def test_sqlite3(mw):
     # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
 
-    # new_rrt = 'result'
+    # new_rrt = 'variations'
     # rrt_type = 'TEXT'  # Change this to the desired data type
-    # est_col = 'platoon'
+    # est_col = 'title'
     # sql = f"ALTER TABLE missions ADD COLUMN {new_rrt} {rrt_type} AFTER {est_col};"
-    # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
+    # # sql = "ALTER TABLE missions DROP COLUMN COLUMNNAME"
     # mw.dbCursor.execute(sql)
-
-    # sql ="UPDATE bots SET email = 'kaiya34@gmail.com' WHERE botid = 15"
-    # mw.dbCursor.execute(sql)
-    # print("update bots")
-    mw.dbcon.commit()
-
+    #
+    # # sql ="UPDATE bots SET email = 'kaiya34@gmail.com' WHERE botid = 15"
+    # # mw.dbCursor.execute(sql)
+    # # print("update bots")
+    # mw.dbcon.commit()
+    #
     # table_name = 'missions'
     # db_data = mw.dbCursor.fetchall()
     # print("DB Data:", db_data)
@@ -607,6 +628,9 @@ def test_sqlite3(mw):
 
     # db_data = mw.dbCursor.fetchall()
     # print("DB Data:", db_data)
+
+def test_read_buy_req_files(mw):
+    mw.newBuyMissionFromFiles()
 
 
 # tests passed SC - 02/20/2024
@@ -665,7 +689,7 @@ def test_ads_batch(parent):
     all_profiles_csv = "C:/AmazonSeller/SelfSwipe/test_all.xls"
 
     for i in range(42):
-        new_bot = EBBOT(parent)
+        new_bot = EBBOT()
         new_bot.setBid(i)
         new_bot.setEmail(all_emails[i])
         allbots.append(new_bot)

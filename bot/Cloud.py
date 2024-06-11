@@ -7,9 +7,12 @@ import boto3
 from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 import logging
-from bot.Logger import log3
 import aiohttp
 
+from envi import getECBotDataHome
+from utils.logger_helper import logger_helper
+
+ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
 
@@ -50,8 +53,8 @@ def direct_send_screen(file_name, bucket="winrpa"):
 
     object_name = subdirname0 + "/" + subdirname1 + "/" + subdirname2 + "/" + subdirname3 + "/" + subdirname4 + "/" + subdirname5 + "/" + object_name
 
-    log3(file_name)
-    log3(object_name)
+    logger_helper.debug(file_name)
+    logger_helper.debug(object_name)
     # Upload the file
     s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
     try:
@@ -73,10 +76,10 @@ def list_s3_file():
     #s3 = boto3.resource('s3')
     #my_bucket = s3.Bucket('winrpa')
 
-    #log3("s3 bucket: "+json.dumps(my_bucket.objects))
+    #logger_helper.debug("s3 bucket: "+json.dumps(my_bucket.objects))
 
     #for object_summary in my_bucket.objects.filter(Prefix="cognito/"):
-    #   log3(object_summary.key)
+    #   logger_helper.debug(object_summary.key)
     # ==== end , conclusion, failed getting "NoCredentialsError"=========
 
     # from same link, but later comments:
@@ -85,9 +88,9 @@ def list_s3_file():
     s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
     """List files in specific S3 URL"""
     response = s3_client.list_objects(Bucket=_BUCKET_NAME, Prefix=_PREFIX)
-    log3("list s3 results:"+json.dumps(response.get('Contents', [])))
+    logger_helper.debug("list s3 results:"+json.dumps(response.get('Contents', [])))
     for x in response.get('Contents', []):
-        log3("content::"+json.dumps(x["Key"]))
+        logger_helper.debug("content::"+json.dumps(x["Key"]))
 
 def get_presigned_url(target):
     s3_client = boto3.client('s3', region_name='us-east-1', aws_access_key_id="AWS_KEY_ID", aws_secret_access_key="AWS_SECRET")
@@ -104,7 +107,7 @@ def send_file_with_presigned_url(src_file, resp):
     files = { 'file': open(src_file, 'rb')}
     r = requests.post(resp['url'], data=resp['fields'], files=files)
     #r = requests.post(resp['body'][0], files=files)
-    log3(str(r.status_code))
+    logger_helper.debug(str(r.status_code))
 
 #resp is the response from requesting the presigned_url
 def get_file_with_presigned_url(dest_file, url):
@@ -122,7 +125,7 @@ def get_file_with_presigned_url(dest_file, url):
 
 
 def gen_query_chat_request_string(query):
-    log3("in query:"+json.dumps(query))
+    logger_helper.debug("in query:"+json.dumps(query))
     query_string = """
         query MyQuery {
       queryChats (msgs:[
@@ -145,12 +148,12 @@ def gen_query_chat_request_string(query):
     ]) 
     }"""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
 def gen_file_op_request_string(query):
-    log3("in query:"+json.dumps(query))
+    logger_helper.debug("in query:"+json.dumps(query))
     query_string = """
         query MyQuery {
       reqFileOp (fo:[
@@ -168,13 +171,13 @@ def gen_file_op_request_string(query):
     ]) 
     }"""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
 
 def gen_account_info_request_string(query):
-    log3("in query:"+json.dumps(query))
+    logger_helper.debug("in query:"+json.dumps(query))
     query_string = """
         query MyQuery {
       reqAccountInfo (ops:[
@@ -192,7 +195,7 @@ def gen_account_info_request_string(query):
     ]) 
     }"""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -212,7 +215,7 @@ def gen_account_info_request_string(query):
 #	imageFile: String
 # }
 def gen_screen_read_request_string(query):
-    log3("in query:"+json.dumps(query))
+    logger_helper.debug("in query:"+json.dumps(query))
     query_string = """
         query MyQuery {
       reqScreenTxtRead (inScrn:[
@@ -243,8 +246,40 @@ def gen_screen_read_request_string(query):
     ]) 
     }"""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
+
+
+def gen_obtain_review_request_string(query):
+    logger_helper.debug("in query:" + json.dumps(query))
+    query_string = """
+            query MyQuery {
+          getFB (fb_reqs:[
+        """
+    rec_string = ""
+    for i in range(len(query)):
+        # rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ number: 1, "
+        rec_string = rec_string + "product: " + str(int(query[i]["product"])) + ", "
+        rec_string = rec_string + "orderID: \"\", "
+        rec_string = rec_string + "payType: \"\", "
+        rec_string = rec_string + "total: \"\", "
+        rec_string = rec_string + "transactionID: \"\", "
+        rec_string = rec_string + "customerMail: \"\", "
+        rec_string = rec_string + "customerPhone: \"\", "
+        rec_string = rec_string + "instructions: \"" + query[i]["instructions"] + "\", "
+        rec_string = rec_string + "origin:  \"" + str(query[i]["origin"]) + "\"" + " }"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+        ]) 
+        }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
 
 # reqTrain(input: [Skill]!): AWSJSON!
 def gen_train_request_string(query):
@@ -254,7 +289,7 @@ def gen_train_request_string(query):
     """
     rec_string = ""
     for i in range(len(query)):
-        log3("query: "+json.dumps(query[i]))
+        logger_helper.debug("query: "+json.dumps(query[i]))
         rec_string = rec_string + "{ skillName: \"" + query[i]["skillName"] + "\", "
         rec_string = rec_string + "skillFile: \"" + query[i]["skillFile"] + "\", "
         rec_string = rec_string + "imageFile: \"" + query[i]["imageFile"] + "\" }"
@@ -263,7 +298,7 @@ def gen_train_request_string(query):
 
     tail_string = "])  }"
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -289,7 +324,7 @@ def gen_screen_read_icon_request_string(query):
         ]) {id}
         }"""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -302,7 +337,7 @@ def gen_query_skills_string(q_setting):
     rec_string = ""
     tail_string = ""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 def gen_query_bots_string(q_setting):
@@ -314,7 +349,7 @@ def gen_query_bots_string(q_setting):
     rec_string = ""
     tail_string = ""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -344,7 +379,7 @@ def gen_query_missions_string(q_setting):
     rec_string = ""
     tail_string = ""
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -362,7 +397,7 @@ def gen_schedule_request_string(test_name, schedule_settings):
         }
         ''' % serialized_settings.replace('"', '\\"')  # Escaping quotes
 
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 def gen_open_acct_string(acct):
@@ -390,7 +425,7 @@ def gen_open_acct_string(acct):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -421,7 +456,7 @@ def gen_make_order_string(orders):
 
     tail_string = ") } "
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -459,7 +494,7 @@ def gen_add_bots_string(bots):
 
     tail_string = ") } "
     query_string = query_string + rec_string + tail_string
-    log3("query string:"+query_string)
+    logger_helper.debug("query string:"+query_string)
     return query_string
 
 
@@ -500,7 +535,7 @@ def gen_update_bots_string(bots):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -526,7 +561,7 @@ def gen_remove_bots_string(removeOrders):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -586,7 +621,7 @@ def gen_add_missions_string(missions, test_settings={}):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -639,7 +674,7 @@ def gen_update_missions_string(missions):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 def gen_daily_update_string(missionsStats):
@@ -671,7 +706,7 @@ def gen_daily_update_string(missionsStats):
         ) 
         } """
     query_string = query_string + rec_string + tail_string
-    log3("DAILY REPORT QUERY STRING:"+query_string)
+    logger_helper.debug("DAILY REPORT QUERY STRING:"+query_string)
     return query_string
 
 def gen_remove_missions_string(removeOrders):
@@ -694,7 +729,7 @@ def gen_remove_missions_string(removeOrders):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -744,7 +779,7 @@ def gen_add_skills_string(skills):
 
     tail_string = ") } "
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -797,7 +832,7 @@ def gen_update_skills_string(skills):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -823,7 +858,7 @@ def gen_remove_skills_string(removeOrders):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -849,7 +884,7 @@ def gen_train_request_string(mStats):
         ) 
         } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -875,13 +910,11 @@ def gen_feedback_request_string(fbReq):
         ) 
         } """
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 def set_up_cloud():
-    REGION = 'us-east-1'
     this_session = requests.Session()
-
     return this_session
 
 
@@ -896,7 +929,7 @@ async def set_up_cloud8():
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings, logfile='C:/CrawlerData/scrape_log.txt'):
+def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings):
 
     mutation = gen_schedule_request_string(ts_name, schedule_settings)
 
@@ -904,12 +937,12 @@ def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings, l
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["genSchedules"])
 
-        log3("reponse:"+json.dumps(jresponse))
+        logger_helper.debug("reponse:"+json.dumps(jresponse))
 
     return jresponse
 
@@ -924,7 +957,7 @@ def req_cloud_read_screen(session, request, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqScreenTxtRead"])
@@ -940,10 +973,26 @@ async def req_cloud_read_screen8(session, request, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqScreenTxtRead"])
+
+    return jresponse
+
+
+def req_cloud_obtain_review(session, request, token):
+
+    query = gen_obtain_review_request_string(request)
+
+    jresp = appsync_http_request(query, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.debug("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["getFB"])
 
     return jresponse
 
@@ -958,7 +1007,7 @@ def req_train_read_screen(session, request, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqTrain"])
@@ -976,12 +1025,12 @@ def send_completion_status_to_cloud(session, missionStats, token):
 
         if "errors" in jresp:
             screen_error = True
-            log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
             jresponse = jresp["errors"][0]
+            logger_helper.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
         else:
             jresponse = json.loads(jresp["data"]["reportStatus"])
     else:
-        log3("ERROR Type: EMPTY DAILY REPORTS")
+        logger_helper.error("ERROR Type: EMPTY DAILY REPORTS")
         jresponse = "ERROR: EMPTY REPORTS"
     return jresponse
 
@@ -996,7 +1045,7 @@ def send_add_bots_request_to_cloud(session, bots, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
 
         jresponse = jresp["errors"][0]
     else:
@@ -1015,7 +1064,7 @@ def send_update_bots_request_to_cloud(session, bots, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateBots"])
@@ -1034,7 +1083,7 @@ def send_remove_bots_request_to_cloud(session, removes, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeBots"])
@@ -1054,7 +1103,7 @@ def send_add_missions_request_to_cloud(session, missions, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
+        logger_helper.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addMissions"])
@@ -1072,7 +1121,7 @@ def send_update_missions_request_to_cloud(session, missions, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateMissions"])
@@ -1091,7 +1140,7 @@ def send_remove_missions_request_to_cloud(session, removes, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["errorInfo"]) )
+        logger_helper.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeMissions"])
@@ -1109,7 +1158,7 @@ def send_add_skills_request_to_cloud(session, skills, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addSkills"])
@@ -1127,7 +1176,7 @@ def send_update_skills_request_to_cloud(session, bots, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateSkills"])
@@ -1146,7 +1195,7 @@ def send_remove_skills_request_to_cloud(session, removes, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeSkills"])
@@ -1165,7 +1214,7 @@ def send_open_acct_request_to_cloud(session, accts, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addBots"])
@@ -1183,7 +1232,7 @@ def send_make_order_request_to_cloud(session, orders, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addBots"])
@@ -1197,7 +1246,7 @@ def gen_get_bot_string():
 
     tail_string = "') }"
     query_string = query_string + rec_string + tail_string
-    log3(query_string)
+    logger_helper.debug(query_string)
     return query_string
 
 
@@ -1212,7 +1261,7 @@ def send_get_bots_request_to_cloud(session, token):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["getBots"])
@@ -1228,7 +1277,7 @@ def send_query_skills_request_to_cloud(session, token, q_settings):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["querySkills"])
@@ -1244,7 +1293,7 @@ def send_query_bots_request_to_cloud(session, token, q_settings):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryBots"])
@@ -1260,7 +1309,7 @@ def send_query_missions_request_to_cloud(session, token, q_settings):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryMissions"])
@@ -1278,7 +1327,7 @@ def send_query_chat_request_to_cloud(session, token, chat_request):
 
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryChats"])
@@ -1296,10 +1345,10 @@ def send_file_op_request_to_cloud(session, fops, token):
 
     jresp = appsync_http_request(queryInfo, session, token)
 
-    # log3("file op response:"+json.dumps(jresp))
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqFileOp"])
@@ -1313,10 +1362,10 @@ def send_account_info_request_to_cloud(session, acct_ops, token):
 
     jresp = appsync_http_request(queryInfo, session, token)
 
-    # log3("file op response:"+json.dumps(jresp))
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqAccountInfo"])
@@ -1331,10 +1380,10 @@ def send_feedback_request_to_cloud(session, fb_reqs, token):
 
     jresp = appsync_http_request(queryInfo, session, token)
 
-    # log3("file op response:"+json.dumps(jresp))
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqAccountInfo"])
@@ -1352,7 +1401,7 @@ def findIdx(list, element):
 
 
 def upload_file(session, f2ul, token, ftype):
-    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     fname = os.path.basename(f2ul)
     fwords = f2ul.split("/")
@@ -1360,20 +1409,20 @@ def upload_file(session, f2ul, token, ftype):
     prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
 
     fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
-    log3("fopreqs:"+json.dumps(fopreqs))
+    logger_helper.debug("fopreqs:"+json.dumps(fopreqs))
 
     res = send_file_op_request_to_cloud(session, fopreqs, token)
-    log3("cloud response: "+json.dumps(res['body']['urls']['result']))
-    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     resd = json.loads(res['body']['urls']['result'])
-    log3("resd: "+json.dumps(resd))
+    logger_helper.debug("resd: "+json.dumps(resd))
 
     # now perform the upload of the presigned URL
-    log3("f2ul:"+json.dumps(f2ul))
+    logger_helper.debug("f2ul:"+json.dumps(f2ul))
     resp = send_file_with_presigned_url(f2ul, resd['body'][0])
-    # log3("upload result: "+json.dumps(resp))
-    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    #  logger_helper.debug("upload result: "+json.dumps(resp))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
 
@@ -1386,20 +1435,20 @@ def download_file(session, f2dl, token, ftype):
     fopreqs = [{"op": "download", "names": fname, "options": prefix}]
 
     res = send_file_op_request_to_cloud(session, fopreqs, token)
-    # log3("cloud response: "+json.dumps(res['body']['urls']['result']))
+    # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
 
     resd = json.loads(res['body']['urls']['result'])
-    # log3("cloud response data: "+json.dumps(resd))
+    # logger_helper.debug("cloud response data: "+json.dumps(resd))
     resp = get_file_with_presigned_url(f2dl, resd['body'][0])
     #
-    # log3("resp:"+json.dumps(resp))
+    # logger_helper.debug("resp:"+json.dumps(resp))
 
 # list dir on my cloud storage
 def cloud_ls(session, token):
     flist = []
     fopreqs = [{"op" : "list", "names": "", "options": ""}]
     res = send_file_op_request_to_cloud(session, fopreqs, token)
-    # log3("cloud response: "+json.dumps(res['body']['urls']['result']))
+    # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
 
     for k in res['body']["urls"][0]['Contents']:
         flist.append(k['Key'])
@@ -1410,7 +1459,7 @@ def cloud_ls(session, token):
 def cloud_rm(session, f2rm, token):
     fopreqs = [{"op": "delete", "names": f2rm, "options": ""}]
     res = send_file_op_request_to_cloud(session, fopreqs, token)
-    log3("cloud response: "+json.dumps(res['body']))
+    logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
 def appsync_http_request(query_string, session, token):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
@@ -1490,10 +1539,10 @@ async def send_file_op_request_to_cloud8(session, fops, token):
 
     jresp = await appsync_http_request8(queryInfo, session, token)
 
-    # log3("file op response:"+json.dumps(jresp))
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
         screen_error = True
-        log3("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        logger_helper.debug("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqFileOp"])
@@ -1510,12 +1559,12 @@ async def send_file_with_presigned_url8(session, src_file, resp):
             form.add_field('file', f, filename=src_file)
 
             async with session.post(resp['url'], data=form) as r:
-                log3(str(r.status))
+                logger_helper.debug(str(r.status))
                 return r.status
 
 
 async def upload_file8(session, f2ul, token, ftype):
-    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     fname = os.path.basename(f2ul)
     fwords = f2ul.split("/")
@@ -1523,18 +1572,18 @@ async def upload_file8(session, f2ul, token, ftype):
     prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
 
     fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
-    log3("fopreqs:"+json.dumps(fopreqs))
+    logger_helper.debug("fopreqs:"+json.dumps(fopreqs))
 
     # get presigned URL
     res = await send_file_op_request_to_cloud8(session, fopreqs, token)
-    log3("cloud response: "+json.dumps(res['body']['urls']['result']))
-    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     resd = json.loads(res['body']['urls']['result'])
-    log3("resd: "+json.dumps(resd))
+    logger_helper.debug("resd: "+json.dumps(resd))
 
     # now perform the upload of the presigned URL
-    log3("f2ul:"+json.dumps(f2ul))
+    logger_helper.debug("f2ul:"+json.dumps(f2ul))
     resp = await send_file_with_presigned_url8(session, f2ul, resd['body'][0])
-    # log3("upload result: "+json.dumps(resp))
-    log3(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    #  logger_helper.debug("upload result: "+json.dumps(resp))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))

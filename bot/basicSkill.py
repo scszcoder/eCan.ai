@@ -28,6 +28,7 @@ if sys.platform == 'win32':
     import win32con
     import win32api
     import win32process
+    # import pyscreeze
 elif sys.platform == 'darwin':
     from AppKit import NSWorkspace
     from Quartz import (
@@ -36,13 +37,13 @@ elif sys.platform == 'darwin':
         kCGNullWindowID
     )
 
-    # fix bug of macos TypeError: '<' not supported between instances of 'str' and 'int' in _screenshot_osx
-    # https://github.com/asweigart/pyautogui/issues/790
-    import pyscreeze
-    import PIL
+# fix bug of macos TypeError: '<' not supported between instances of 'str' and 'int' in _screenshot_osx
+# https://github.com/asweigart/pyautogui/issues/790
+import pyscreeze
+import PIL
 
-    __PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
-    pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
+__PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
+pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
 
 symTab = globals()
 from pynput.mouse import Controller
@@ -203,11 +204,12 @@ def genStepSearchWordLine(screen, names, name_types, logic, result, flag, site, 
 # search some target content on the page, and scroll the target to the target loction on the page.
 # at_loc is a rough location, meaning the anchor closest to this location, NOT exactly at this location.
 # at_loc is also a 2 dimensional x-y coordinates
-def genStepSearchScroll(screen, anchor, at_loc, target_loc, flag, resolution, postwait, site, stepN):
+def genStepSearchScroll(screen, target, target_type, at_loc, target_loc, flag, resolution, postwait, site, stepN):
     stepjson = {
         "type": "Search Scroll",
         "action": "Search Scroll",
-        "anchor": anchor,
+        "target": target,
+        "target_type": target_type,
         "at_loc": at_loc,
         "target_loc": target_loc,
         "screen": screen,
@@ -443,6 +445,27 @@ def genStepWriteFile(filename, nametype, filetype, datasource, mode, result_var,
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+
+def genStepDeleteFile(filename, nametype, result_var, stepN):
+    stepjson = {
+        "type": "Delete File",
+        "filename": filename,
+        "name_type": nametype,
+        "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+def genStepObtainReviews(product, instructions, review, result_var, stepN):
+    stepjson = {
+        "type": "Obtain Reviews",
+        "product": product,
+        "instructions": instructions,
+        "review": review,
+        "result": result_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 def genStep7z(action, var_type, exe_var, in_var, out_path, out_var, result, stepN):
@@ -806,7 +829,7 @@ def list_windows():
 
 
 def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
-    settings = mission.parent_settings
+    settings = mission.main_win_settings
     global screen_loc
 
     window_name, window_rect = get_top_visible_window()
@@ -916,7 +939,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
 
 
 async def read_screen8(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
-    settings = mission.parent_settings
+    settings = mission.main_win_settings
     global screen_loc
 
     window_name, window_rect = get_top_visible_window()
@@ -1095,7 +1118,7 @@ def processExtractInfo(step, i, mission, skill):
     log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-    mainwin = mission.getParent()
+    mainwin = mission.get_main_win()
 
     global screen_error
 
@@ -1118,7 +1141,7 @@ def processExtractInfo(step, i, mission, skill):
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
         else:
-            ppword = mission.parent_settings["uid"]
+            ppword = mission.main_win_settings["uid"]
 
         date_word = dtnow.strftime("%Y%m%d")
         dt_string = str(int(dtnow.timestamp()))
@@ -1129,7 +1152,7 @@ def processExtractInfo(step, i, mission, skill):
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
         else:
-            ppword = mission.parent_settings["uid"]
+            ppword = mission.main_win_settings["uid"]
 
         log3("mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS()+"step settings:"+json.dumps(step["settings"]))
 
@@ -1155,7 +1178,7 @@ def processExtractInfo(step, i, mission, skill):
         # fdir = fdir + ppword + "/"
         fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
         fdir = fdir + step_settings["skname"] + "/images/"
-        sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
+        sfile = fdir + "scrn" + mission.main_win_settings["uid"] + "_" + dt_string + ".png"
         log3("sfile: "+sfile)
         found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
         sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
@@ -1189,7 +1212,7 @@ async def processExtractInfo8(step, i, mission, skill):
     log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-    mainwin = mission.getParent()
+    mainwin = mission.get_main_win()
 
     global screen_error
 
@@ -1212,7 +1235,7 @@ async def processExtractInfo8(step, i, mission, skill):
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
         else:
-            ppword = mission.parent_settings["uid"]
+            ppword = mission.main_win_settings["uid"]
 
         date_word = dtnow.strftime("%Y%m%d")
         dt_string = str(int(dtnow.timestamp()))
@@ -1223,7 +1246,7 @@ async def processExtractInfo8(step, i, mission, skill):
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
         else:
-            ppword = mission.parent_settings["uid"]
+            ppword = mission.main_win_settings["uid"]
 
         log3("mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS()+"step settings:"+json.dumps(step["settings"]))
 
@@ -1249,7 +1272,7 @@ async def processExtractInfo8(step, i, mission, skill):
         # fdir = fdir + ppword + "/"
         fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
         fdir = fdir + step_settings["skname"] + "/images/"
-        sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
+        sfile = fdir + "scrn" + mission.main_win_settings["uid"] + "_" + dt_string + ".png"
         log3("sfile: "+sfile)
         found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
         sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
@@ -1679,11 +1702,12 @@ def processMouseClick(step, i):
             else:
                 log3("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]"+step["target_name"])
                 exec("global click_target\nclick_target = " + step["target_name"])
-                log3("box: "+json.dumps(symTab["target_name"]))
-                box = [symTab["target_name"][1], symTab["target_name"][0], symTab["target_name"][3], symTab["target_name"][2]]
+                log3("box: "+step["target_name"]+" "+json.dumps(click_target))
+                # box = [symTab["target_name"][1], symTab["target_name"][0], symTab["target_name"][3], symTab["target_name"][2]]
+                box = [click_target[1], click_target[0], click_target[3], click_target[2]]
                 loc = box_center(box)
-                post_offset_y = (symTab["target_name"][2] - symTab["target_name"][0]) * step["post_move"][0]
-                post_offset_x = (symTab["target_name"][3] - symTab["target_name"][1]) * step["post_move"][1]
+                post_offset_y = (click_target[2] - click_target[0]) * step["post_move"][1]
+                post_offset_x = (click_target[3] - click_target[1]) * step["post_move"][0]
                 post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
 
             log3("direct calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset_x)+","+str(post_offset_y)+")"+"post_loc:"+json.dumps(post_loc))
@@ -2831,6 +2855,57 @@ def processWriteFile(step, i):
 
     return (i + 1), ex_stat
 
+
+def processDeleteFile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["result"]] = True
+    try:
+        if step["name_type"] == "direct":
+            file_full_path = step["filename"]
+        else:
+            exec("file_full_path = " + step["filename"])
+
+        log3("Delete a file:" + file_full_path)
+        if os.path.exists(file_full_path):
+            # create only if the dir doesn't exist
+            os.remove(file_full_path)
+        else:
+            log3("WARNING: File not exists")
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorDeleteFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorDeleteFile: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processObtainReviews(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+
+    review_request = [{"product": symTab[step["product"]], "instructions": symTab[step["instructions"]]}]
+    try:
+        settings = mission.main_win_settings
+        resp = req_cloud_obtain_review(settings["session"], review_request, settings["token"])
+        symTab[step["review"]]
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorObtainReview:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorObtainReview: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
 # run 7z for the zip and unzip.
 def process7z(step, i):
     ex_stat = DEFAULT_RUN_STATUS
@@ -3123,11 +3198,14 @@ def processSearchWordLine(step, i):
 # "flag": flag
 def processSearchScroll(step, i):
 
-    log3("Searching...."+json.dumps(step["anchor"]))
+    log3("Searching...."+json.dumps(step["target"]))
     ex_stat = DEFAULT_RUN_STATUS
     try:
         scrn = symTab[step["screen"]]
-        anchor = step["anchor"]
+        if isinstance(step["target"], list):
+            targets = step["target"]
+        else:
+            targets = [step["target"]]
         at_loc_top = int(step["at_loc"][0])/100
         at_loc_bottom = int(step["at_loc"][1]) / 100
         target_loc = int(step["target_loc"])/100
@@ -3141,11 +3219,20 @@ def processSearchScroll(step, i):
         log3(" target_loc_V: "+str(target_loc_v)+"at_loc_top_v: "+str(at_loc_top_v)+"at_loc_bottom_v: "+str(at_loc_bottom_v))
 
         # find all images matches the name and above the at_loc
-        log3("finding....:"+json.dumps(anchor))
-        anyancs = [element for index, element in enumerate(scrn) if element["name"] == anchor]
-        log3("found any anchorss: "+json.dumps(anyancs))
-        ancs = [element for index, element in enumerate(scrn) if element["name"] == anchor and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
-        log3("found anchorss in bound: "+json.dumps(ancs))
+        log3("finding....:"+json.dumps(targets))
+        if step["target_type"] == "anchor":
+            ancs = [element for index, element in enumerate(scrn) if element["name"] in targets and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
+        elif step["target_type"] == "text var":
+            exec("global target_txt\ntarget_txt = " + step["target"])
+            all_paragraphs = [element for index, element in enumerate(scrn) if element["name"] == "paragraph"]
+            all_lines = []
+            for p in all_paragraphs:
+                all_lines = all_lines + p["txt_struct"]
+            matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"] and line["box"][1] > at_loc_top_v and line["box"][3] < at_loc_bottom_v]
+            # do a format conversion due to stupid "box", "loc" format mismatch, got to fix this at some point.
+            ancs = [{"loc": [ml["box"][1], ml["box"][0], ml["box"][3], ml["box"][2]]} for ml in matched_lines]
+
+        log3("found targets in bound: "+json.dumps(ancs))
         if len(ancs) > 0:
             # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
             vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
@@ -3180,7 +3267,7 @@ def processSearchScroll(step, i):
 # for grid based layout, it's be enough to do only 1 row, for row based layout, it could be multple rows captured.
 # target_anchor: to anchor to adjust postion to
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
-def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
+def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
     log3("DEBUG", "gen_psk_for_scroll_down_until...")
@@ -3195,7 +3282,7 @@ def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
     # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "product_list", "body", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", page, section, theme, this_step, None)
     psk_words = psk_words + step_words
 
 
@@ -3204,7 +3291,7 @@ def genScrollDownUntil(target_anchor, tilpos, stepN, worksettings, site, theme):
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", target_anchor, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -3497,7 +3584,7 @@ def processThink(step, i, mission):
         # {"orderID": "", "thread": [{"time stamp": yyyy-mm-dd hh:mm:ss, "from": "", "msg txt": "", "attachments": ["",...], }....]}
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "products": symTab[step["products"]],
                "goals": step["setup"], "background": "", "msg": symTab[step["query"]]}]
-        settings = mission.parent_settings
+        settings = mission.main_win_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
 
 
@@ -3527,7 +3614,7 @@ def processGenRespMsg(step, i, mission):
 
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
                "goals": step["setup"], "background": "", "msg_thread": symTab[step["query"]]}]
-        settings = mission.parent_settings
+        settings = mission.main_win_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
 
 

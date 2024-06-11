@@ -3,9 +3,10 @@ import json
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
     QFileDialog
-
-from pynput import mouse
 from pynput import keyboard
+
+from pynput.mouse import Listener as MouseListener
+from pynput.keyboard import Listener as KeyboardListener
 
 import pyautogui
 
@@ -13,15 +14,6 @@ from gui.SkillGUI import SkillGUI
 
 counter = 0
 record_over = False
-
-class STEP:
-    def __init__(self, parent):
-        super(ReminderWin, self).__init__(parent)
-        self.temp_dir = parent.homepath + "/resource/skills/temp/"
-        self.order = 0
-        self.img = None
-        self.location = (0, 0, 0, 0)
-        self.action = ""
 
 
 class TrainDialogWin(QMainWindow):
@@ -56,9 +48,13 @@ class ReminderWin(QMainWindow):
 class TrainNewWin(QMainWindow):
     def __init__(self, parent):
         super(TrainNewWin, self).__init__(parent)
+        self.mouse_listener = None
+        self.keyboard_listener = None
 
-    # def __init__(self):
-    #     super().__init__()
+        self.record_over = False
+        self.oldPos = None
+        self.temp_dir = None
+
         self.newSkill = None
         self.parent = parent
         self.mainWidget = QWidget()
@@ -81,7 +77,7 @@ class TrainNewWin(QMainWindow):
         self.bLayout.addWidget(self.cancel_button)
 
         self.start_tutor_button.clicked.connect(self.skill_tutorial)
-        self.start_demo_button.clicked.connect(self.start_recording)
+        self.start_demo_button.clicked.connect(self.start_listening)
         self.start_skill_button.clicked.connect(self.start_skill)
         self.cancel_button.clicked.connect(self.cancel_recording)
 
@@ -98,14 +94,13 @@ class TrainNewWin(QMainWindow):
     def mousePressEvent(self, event):
         self.oldPos = event.globalPos()
 
-
     def mouseMoveEvent(self, event):
         delta = QPoint(event.globalPos() - self.oldPos)
-        #self.move(self.x() + delta.x(), self.y() + delta.y())
-        #self.oldPos = event.globalPos()
+        # self.move(self.x() + delta.x(), self.y() + delta.y())
+        # self.oldPos = event.globalPos()
         # Update the origin for next time.
-        #self.last_x = event.x()
-        #self.last_y = event.y()
+        # self.last_x = event.x()
+        # self.last_y = event.y()
 
     def mouseReleaseEvent(self, e):
         delta = QPoint(e.globalPos() - self.oldPos)
@@ -124,11 +119,9 @@ class TrainNewWin(QMainWindow):
         if event.key() == Qt.Key_Escape:
             self.showMinimized()
 
-
-    def on_move(self, x, y):
-        global record_over
-        if record_over == True:
-            record_over = False
+    def on_move(self, x, y, button, pressed):
+        if self.record_over:
+            self.record_over = False
             return False
         else:
             print('Pointer moved to {0}'.format((x, y)))
@@ -137,18 +130,16 @@ class TrainNewWin(QMainWindow):
             if len(self.imq) > 5:
                 self.imq.pop(0)
 
-
     def on_click(self, x, y, button, pressed):
-        global record_over
         print('{0} at {1}'.format('Pressed' if pressed else 'Released', (x, y)))
-        if record_over:
+        if self.record_over:
             return False
         else:
 
             self.steps = self.steps + 1
             fname = self.temp_dir + "step" + str(self.steps) + ".png"
             im = pyautogui.screenshot(fname)
-            #self.record.append(im)
+            # self.record.append(im)
             self.steps = self.steps + 1
 
             self.record.append(self.imq.pop(0))
@@ -159,8 +150,7 @@ class TrainNewWin(QMainWindow):
             #     return False
 
     def on_scroll(self, x, y, dx, dy):
-        global record_over
-        if record_over:
+        if self.record_over:
             return False
         else:
             print('Scrolled {0} at {1}'.format(
@@ -168,7 +158,7 @@ class TrainNewWin(QMainWindow):
                 (x, y)))
             fname = self.temp_dir + "step" + str(self.steps) + ".png"
             im = pyautogui.screenshot(fname)
-            #self.record.append(im)
+            # self.record.append(im)
             self.steps = self.steps + 1
 
     def on_press(self, key):
@@ -181,49 +171,34 @@ class TrainNewWin(QMainWindow):
         print('{0} released'.format(key))
         if key == keyboard.Key.esc:
             # Stop listener
-            global record_over
-            record_over = True
+            self.record_over = True
             self.parent.reminderWin.hide()
-
             msgBox = QMessageBox()
-            msgBox.setText(QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
+            msgBox.setText(
+                QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
             # msgBox.setInformativeText("Do you want to save your changes?")
             msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             # msgBox.setDefaultButton(QMessageBox.Save)
             ret = msgBox.exec()
-
             if ret == QMessageBox.Yes:
                 print("done with demo...")
                 self.saveRecordFile()
 
             return False
 
-    def start_recording(self):
-        # Collect events until released
-        global record_over
-        record_over = False
-        self.hide()
-        #reminder = ReminderWin(self)
-        #self.move(800, 0)
-        #reminder.setGeometry(800, 0, 100, 50)
-        #self.setCentralWidget(self.reminder)
+    def start_listening(self):
+        print("Starting input event listeners...")
+        self.keyboard_listener = KeyboardListener(on_press=self.on_press, on_release=self.on_release)
+        self.mouse_listener = MouseListener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll)
+        self.keyboard_listener.start()
+        self.mouse_listener.start()
+        self.record_over = False
         self.parent.reminderWin.show()
         self.parent.reminderWin.setGeometry(800, 0, 100, 50)
-        #time.sleep(1)
-        self.mouse_listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll)
-        #time.sleep(1)
-        self.mouse_listener.start()
-        #
-        self.kb_listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
-        self.kb_listener.start()
-        #time.sleep(1)
-        #self.mouse_listener.join()
-        #self.kb_listener.join()
 
     def cancel_recording(self):
-        global record_over
-        record_over = True
-        #self.showMinimized()
+        self.record_over = True
+        # self.showMinimized()
         self.hide()
 
     def saveRecordFile(self):

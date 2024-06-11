@@ -12,7 +12,7 @@ class VEHICLE(QStandardItem):
         self.ip = ""
         self.id = ""
         self.setText('vehicle' + str(self.getVid()))
-        self.icon = QIcon(parent.vehicle_icon_path)
+        self.icon = QIcon(parent.file_resouce.vehicle_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
         self.status = "Idle";

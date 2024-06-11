@@ -9,6 +9,8 @@ from bot.Logger import log3
 import tzlocal
 
 from bot.readSkill import runAllSteps
+from globals.model import MissionModel
+from encrypt import *
 
 TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
@@ -49,6 +51,7 @@ class M_Private_Attributes():
         self.seller = "NA"
         self.brand = ""
         self.title = "NA"
+        self.variations = ""
         self.imglink = "NA"
         self.price = 0.0
         self.rating = ""
@@ -60,8 +63,12 @@ class M_Private_Attributes():
         self.result = ""
         self.feedback_img_link = ""
         self.feedback_video_link = ""
+        self.feedback_instructions = ""
+        self.feedback_title = ""
         self.feedback_text = ""
+        self.feedback_rating = ""
         self.order_id = ""
+        self.original_req_file = ""
 
 
 
@@ -101,16 +108,31 @@ class M_Private_Attributes():
         self.feedbacks = dj["feedbacks"]
         self.result = dj["result"]
 
+        self.feedback_img_link = dj["feedback_img_link"]
+        self.feedback_video_link = dj["feedback_video_link"]
+        self.feedback_instructions = dj["feedback_instructions"]
+        self.feedback_title = dj["feedback_title"]
+        self.feedback_text = dj["feedback_text"]
+        self.feedback_rating = dj["feedback_rating"]
+        self.order_id = dj["order_id"]
+
     def genJson(self):
         jd = {
                 "item_number": self.item_number,
                 "seller": self.seller,
                 "title": self.title,
+                "variations": self.variations,
                 "imglink": self.imglink,
                 "price": self.price,
                 "rank": self.rank,
                 "feedbacks": self.feedbacks,
-                "result": self.result
+                "result": self.result,
+                "feedback_img_link": self.feedback_img_link,
+                "feedback_video_link": self.feedback_video_link,
+                "feedback_instructions": self.feedback_instructions,
+                "feedback_text": self.feedback_text,
+                "feedback_rating": self.feedback_rating,
+                "order_id": self.order_id
             }
         return jd
 
@@ -372,20 +394,20 @@ class M_Pub_Attributes():
 
 
 class EBMISSION(QStandardItem):
-    def __init__(self, parent):
+    def __init__(self, main_win):
         super().__init__()
-        self.parent = parent
+        self.main_win = main_win
         self.pubAttributes = M_Pub_Attributes()
         self.privateAttributes = M_Private_Attributes()
         self.tasks = M_Action_Items()
-        self.parent_settings = {"mission_id": self.pubAttributes.missionId,
-                                "session": self.parent.session,
-                                "token": self.parent.tokens['AuthenticationResult']['IdToken'],
-                                "uid": self.parent.uid}
+        self.main_win_settings = {"mission_id": self.pubAttributes.missionId,
+                                "session": self.main_win.session,
+                                "token": self.main_win.tokens['AuthenticationResult']['IdToken'],
+                                "uid": self.main_win.uid}
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
-        self.icon = QIcon(parent.mission_icon_path)
+        self.icon = QIcon(main_win.file_resouce.mission_icon_path)
         self.setIcon(self.icon)
-        self.setFont(parent.std_item_font)
+        self.setFont(main_win.std_item_font)
         self.ads_xlsx_profile = ""
 
     def setADSXlsxProfile(self, axpf):
@@ -402,10 +424,10 @@ class EBMISSION(QStandardItem):
         return self.pubAttributes.missionId
 
     def getParentSettings(self):
-        return self.parent_settings
+        return self.main_win_settings
 
-    def getParent(self):
-        return self.parent
+    def get_main_win(self):
+        return self.main_win
     def setMid(self, mid):
         self.pubAttributes.missionId = mid
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
@@ -669,9 +691,18 @@ class EBMISSION(QStandardItem):
     def getFeedbackText(self):
         return self.privateAttributes.feedback_text
 
+    def getFeedbackTitle(self):
+        return self.privateAttributes.feedback_title
+
+    def getFeedbackRating(self):
+        return self.privateAttributes.feedback_rating
+
+    def getFeedbackInstructions(self):
+        return self.privateAttributes.feedback_instructions
+
     def setResult(self, result):
         self.privateAttributes.result = result
-        if result != "" or result != "{}":
+        if result is not None and result != "" and result != "{}":
             resultJson = json.loads(result)
 
             if "order_id" in resultJson:
@@ -695,9 +726,9 @@ class EBMISSION(QStandardItem):
         log3("mission skill ids: "+json.dumps(skill_ids))
         sk_names = []
         for s in skill_ids:
-            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            skidx = next((i for i, sk in enumerate(self.main_win.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
-                sk_names.append(self.parent.skills[skidx].getName())
+                sk_names.append(self.main_win.skills[skidx].getName())
         log3("skill names:"+json.dumps(sk_names))
         return sk_names
 
@@ -710,9 +741,9 @@ class EBMISSION(QStandardItem):
         log3("mission skill ids: "+json.dumps(skill_ids))
         psk_names = []
         for s in skill_ids:
-            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            skidx = next((i for i, sk in enumerate(self.main_win.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
-                psk_names.append(self.parent.skills[skidx].getPskFileName())
+                psk_names.append(self.main_win.skills[skidx].getPskFileName())
 
         log3("procedural skill names:"+json.dumps(psk_names))
         return psk_names
@@ -725,9 +756,9 @@ class EBMISSION(QStandardItem):
         log3("mission skill ids: "+json.dumps(skill_ids))
         csk_names = []
         for s in skill_ids:
-            skidx = next((i for i, sk in enumerate(self.parent.skills) if sk.getSkid() == s), -1)
+            skidx = next((i for i, sk in enumerate(self.main_win.skills) if sk.getSkid() == s), -1)
             if skidx >= 0:
-                csk_names.append(self.parent.skills[skidx].getCskFileName())
+                csk_names.append(self.main_win.skills[skidx].getCskFileName())
 
         log3("Content skill names:"+json.dumps(csk_names))
         return csk_names
@@ -771,6 +802,12 @@ class EBMISSION(QStandardItem):
 
     def setTitle(self, title):
         self.privateAttributes.title = title
+
+    def getVariations(self):
+        return self.privateAttributes.variations
+
+    def setVariations(self, variations):
+        self.privateAttributes.variations = variations
 
     def getRating(self):
         return self.privateAttributes.rating
@@ -850,49 +887,50 @@ class EBMISSION(QStandardItem):
         self.privateAttributes.loadJson(jd["privateAttributes"])
         self.ads_xlsx_profile = jd["ads_xlsx_profile"]
         # self.tasks = jd["tasks"]
-        # self.parent_settings["uid"] = jd["parent_settings"]["uid"]
+        # self.main_win_settings["uid"] = jd["main_win_settings"]["uid"]
 
     # load data from a row in sqlite DB.
-    def loadDBData(self, dbd):
-        self.setMid(dbd[0])
-        self.setTicket(dbd[1])
-        self.setBid(dbd[2])
-        self.setOwner(dbd[3])
-        self.setStatus(dbd[4])
-        self.setBD(dbd[5])
-        self.setEsd(dbd[6])
-        self.setEcd(dbd[7])
-        self.setAsd(dbd[8])
-        self.setAbd(dbd[9])
-        self.setAad(dbd[10])
-        self.setAfd(dbd[11])
-        self.setAcd(dbd[12])
-        self.setActualStartTime(dbd[13])
-        self.setEstimatedStartTime(dbd[14])
-        self.setActualRunTime(dbd[15])
-        self.setEstimatedRunTime(dbd[16])
-        self.setNRetries((dbd[16]))
-        self.setCusPAS(dbd[17])
-        self.setSearchCat(dbd[18])
-        self.setSearchKW(dbd[19])
-        self.setPseudoStore(dbd[20])
-        self.setPseudoBrand(dbd[21])
-        self.setPseudoASIN(dbd[22])
-        self.setMtype(dbd[23])
-        self.setConfig(dbd[24])
-        self.setSkills(dbd[25])
-        self.setDelDate(dbd[26])
-        self.setASIN(dbd[27])
-        self.setStore(dbd[28])
-        self.setBrand(dbd[29])
-        self.setImagePath(dbd[30])
-        self.setTitle(dbd[31])
-        self.setRating(dbd[32])
-        self.setFeedbacks(dbd[33])
-        self.setPrice(dbd[34])
-        self.setCustomerID(dbd[35])
-        self.setPlatoon(dbd[36])
-        self.setResult(dbd[37])
+    def loadDBData(self, dbd: MissionModel):
+        self.setMid(dbd.mid)
+        self.setTicket(dbd.ticket)
+        self.setBid(dbd.botid)
+        self.setOwner(dbd.owner)
+        self.setStatus(dbd.status)
+        self.setBD(dbd.createon)
+        self.setEsd(dbd.esd)
+        self.setEcd(dbd.ecd)
+        self.setAsd(dbd.asd)
+        self.setAbd(dbd.abd)
+        self.setAad(dbd.aad)
+        self.setAfd(dbd.afd)
+        self.setAcd(dbd.acd)
+        self.setActualStartTime(dbd.actual_start_time)
+        self.setEstimatedStartTime(dbd.est_start_time)
+        self.setActualRunTime(dbd.actual_runtime)
+        self.setEstimatedRunTime(dbd.est_runtime)
+        self.setNRetries(dbd.n_retries)
+        self.setCusPAS(dbd.cuspas)
+        self.setSearchCat(dbd.category)
+        self.setSearchKW(dbd.phrase)
+        self.setPseudoStore(dbd.pseudoStore)
+        self.setPseudoBrand(dbd.pseudoBrand)
+        self.setPseudoASIN(dbd.pseudoASIN)
+        self.setMtype(dbd.type)
+        self.setConfig(dbd.config)
+        self.setSkills(dbd.skills)
+        self.setDelDate(dbd.delDate)
+        self.setASIN(dbd.asin)
+        self.setStore(dbd.store)
+        self.setBrand(dbd.brand)
+        self.setImagePath(dbd.img)
+        self.setTitle(dbd.title)
+        self.setVariations(dbd.variations)
+        self.setRating(dbd.rating)
+        self.setFeedbacks(dbd.feedbacks)
+        self.setPrice(dbd.price)
+        self.setCustomerID(dbd.customer)
+        self.setPlatoon(dbd.platoon)
+        self.setResult(dbd.result)
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadXlsxData(self, jd):
@@ -918,6 +956,7 @@ class EBMISSION(QStandardItem):
         self.setBrand(jd["brand"])
         self.setImagePath(jd["img dir"])
         self.setTitle(jd["title"])
+        self.setVariations(jd["variations"])
         self.setRating(jd["rating"])
         self.setFeedbacks(jd["feedbacks"])
         self.setPrice(jd["price"])
@@ -940,7 +979,7 @@ class EBMISSION(QStandardItem):
             log3("skill:"+json.dumps(self.pubAttributes.skills[si]))
             self.pubAttributes.skills[si].loadSkill()
             log3("run all steps ....."+json.dumps(self.pubAttributes.skills[si].get_all_steps()))
-            log3("settings:"+json.dumps(self.parent_settings))
-            await runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.parent_settings)
+            log3("settings:"+json.dumps(self.main_win_settings))
+            await runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.main_win_settings)
 
         return run_result

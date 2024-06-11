@@ -17,6 +17,7 @@ from utils.logger_helper import logger_helper
 
 
 # from tests.unittests import *
+from tests.unittests import *
 
 
 # Press Shift+F10 to execute it or replace it with your code.

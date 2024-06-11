@@ -4,36 +4,37 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
 import base64
 import copy
-import json
 import math
 import random
-import re
-import sqlite3
-import subprocess
-import sys
-import time
 import traceback
 import webbrowser
 from _csv import reader
 from os.path import exists
 
 from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent
-from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel
-from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, QTextEdit, \
+from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
+from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
-    QMessageBox, QFileDialog
+    QMessageBox, QFileDialog, QPlainTextEdit
 
 import importlib
 import importlib.util
 
+
+from globals.bot_service import BotService
+from globals.mission_service import MissionService
+from globals.model import BotModel, MissionModel, init_db, get_session
+from globals.product_service import ProductService
+from globals.skill_service import SkillService
+from tests.TestAll import Tester
+
+
 from gui.BotGUI import BotNewWin
-from gui.ChatGui import ChatWin
-from bot.Cloud import set_up_cloud, send_feedback_request_to_cloud, upload_file, send_add_missions_request_to_cloud, \
+from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
     send_get_bots_request_to_cloud
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
-from bot.Logger import log3
 from gui.LoggerGUI import CommanderLogWin
 from gui.MissionGUI import MissionNewWin
 from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
@@ -43,23 +44,24 @@ from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle
 from bot.basicSkill import STEP_GAP
-from bot.ebbot import EBBOT
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
-from bot.lzstring import LZString
-import os
+from lzstring import LZString
 import openpyxl
-from datetime import datetime, date, timedelta
+from datetime import timedelta
 import platform
 from pynput.mouse import Controller
 
-from bot.missions import EBMISSION
 from bot.network import myname, fieldLinks
-from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, prepRunSkill, \
-    runAllSteps
+from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
+from tool.MainGUITool import FileResource, StaticResource
+from utils.logger_helper import logger_helper
+from tests.unittests import *
+import pandas as pd
+from encrypt import *
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -169,8 +171,9 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
+    def __init__(self, loginout_gui, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
         super(MainWindow, self).__init__()
+        self.loginout_gui = loginout_gui
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
@@ -181,45 +184,17 @@ class MainWindow(QMainWindow):
         self.gui_monitor_msg_queue = asyncio.Queue()
         self.lang = lang
         self.tz = self.obtainTZ()
-        self.bot_icon_path = self.homepath+'/resource/images/icons/c_robot64_1.png'
-        self.sell_icon_path = self.homepath + '/resource/images/icons/c_robot64_0.png'
-        self.buy_bot_icon_path = self.homepath + '/resource/images/icons/c_robot64_1.png'
-        self.mission_icon_path = self.homepath + '/resource/images/icons/c_mission96_1.png'
-        self.mission_success_icon_path = self.homepath + '/resource/images/icons/successful_launch0_48.png'
-        self.mission_failed_icon_path = self.homepath + '/resource/images/icons/failed_launch0_48.png'
-        self.skill_icon_path = self.homepath + '/resource/images/icons/skills_78.png'
-        self.product_icon_path = self.homepath + '/resource/images/icons/product80_0.png'
-        self.vehicle_icon_path = self.homepath + '/resource/images/icons/vehicle_128.png'
-        self.commander_icon_path = self.homepath + '/resource/images/icons/general1_4.png'
-        self.BOTS_FILE = self.homepath+"/resource/bots.json"
-        self.MISSIONS_FILE = self.homepath+"/resource/missions.json"
-        self.SELLER_INVENTORY_FILE = ecb_data_homepath+"/resource/inventory.json"
+        self.file_resouce = FileResource(self.homepath)
+        self.SELLER_INVENTORY_FILE = ecb_data_homepath + "/resource/inventory.json"
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
-
-        self.PLATFORMS = ['windows', 'mac', 'linux']
-        self.APPS = ['chrome', 'edge','firefox','ads','multilogin','safari','Custom']
-        self.SITES = ['Amazon','Etsy','Ebay','Temu','Shein','Walmart','Wayfair','Tiktok','Facebook','Google', 'AliExpress','Custom']
-        self.SITES_SH_DICT = {'Amazon': "amz",'Etsy': "etsy",'Ebay': "ebay",'Temu': "temu",'Shein': "shein",'Walmart': "walmart",'Wayfair': "wf",'Tiktok': "tiktok",'Facebook': "fb",'Google': "google", 'AliExpress': 'ali'}
-        self.SH_SITES_DICT = {'amz': "Amazon",'etsy': "Etsy",'ebay': "Ebay",'temu': "Temu",'shein': "Shein",'walmart': "Walmart",'wf': "Wayfair",'tiktok': "Tiktok",'fb': "Facebook",'google': "Google", 'ali': 'AliExpress'}
-        self.PLATFORMS_SH_DICT = {'windows': "win",'mac': "mac",'linux': "linux"}
-        self.SH_PLATFORMS_DICT = {'win': "windows",'mac': "mac",'linux': "linux" }
-
-        self.SM_PLATFORMS = ['WhatsApp','Messenger','Facebook','Instagram', 'Snap', 'Telegraph','Google','Line','Wechat','Tiktok','QQ', 'Custom']
-        self.BUY_TYPES = ['buy', 'goodFB', 'badFB', 'goodRating', 'badRating']
-        self.SUB_BUY_TYPES = ['addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"]
-        self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
-        self.SUB_SELL_TYPES = []
-        self.OP_TYPES = ['opProcure', 'opPromote', 'opAccount', 'opCustom']
-        self.SUB_OP_TYPES = []
-        self.STATUS_TYPES = ['Unassigned', 'Assigned', 'Incomplete', 'Completed']
-        self.BUY_STATUS_TYPES = ['Searched', 'InCart', 'Paid', 'Arrived', 'RatingDone', 'FBDone', 'RatingConfirmed', 'FBConfirmed']
-        self.PRODUCT_SEL_TYPES = ["ac", "op", "bs", "mr", "mhr", "cp", "cus"]
+        self.static_resource = StaticResource()
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.machine_role = machine_role
         self.ip = ip
+        self.main_key = main_key
 
         self.user = user
         self.cog = None
@@ -266,12 +241,13 @@ class MainWindow(QMainWindow):
         self.platoonWin = None
 
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
-        self.logConsole = QTextEdit()
-        self.logConsole.setLineWrapMode(QTextEdit.FixedPixelWidth)
-        self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
+        self.logConsole = QPlainTextEdit()
+        self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.logConsole.setReadOnly(True)
+        # self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
         self.logConsoleLayout = QVBoxLayout()
-
-
+        self.logConsole.verticalScrollBar().valueChanged.connect(self.onScrollBarValueChanged)
+        self.isAutoScroll = False  # 初始化时默认不自动滚动
         # self.toggle_button = QToolButton(
         #     text="log console", checkable=True, checked=False
         # )
@@ -314,40 +290,18 @@ class MainWindow(QMainWindow):
 
             ads_settings_f.close()
 
-        self.showMsg("HOME PATH is::" + self.homepath)
+        self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
-        if (self.machine_role != "Platoon"):
-            self.dbcon = sqlite3.connect(self.dbfile)
-
-            # make sure designated tables exists in DB, if not create those tables.
-            self.dbCursor = self.dbcon.cursor()
-
-            # create tables.
-            sql = 'CREATE TABLE IF NOT EXISTS bots (botid INTEGER PRIMARY KEY, owner TEXT, levels TEXT, gender TEXT, birthday TEXT, interests TEXT, location TEXT, roles TEXT, status TEXT, delDate TEXT, name TEXT, pseudoname TEXT, nickname TEXT, addr TEXT, shipaddr TEXT, phone TEXT, email TEXT, epw TEXT, backemail TEXT, ebpw TEXT, backemail_site TEXT)'
-            #sql = '''ALTER TABLE bots RENAME TO junkbots0'''
-            self.dbCursor.execute(sql)
-            sql = 'SELECT * FROM bots'
-            res = self.dbCursor.execute(sql)
-            self.showMsg("BOTS fetchall"+json.dumps(res.fetchall()))
-            for column in res.description:
-                self.showMsg(column[0])
-            #
-            sql = 'CREATE TABLE IF NOT EXISTS  missions (mid INTEGER PRIMARY KEY, ticket INTEGER, botid INTEGER, status TEXT, createon TEXT, esd TEXT, ecd TEXT, asd TEXT, abd TEXT, aad TEXT, afd TEXT, acd TEXT, actual_start_time TEXT, est_start_time TEXT, actual_runtime TEXT, est_runtime TEXT, n_retries INTEGER, cuspas TEXT, category TEXT, phrase TEXT, pseudoStore TEXT, pseudoBrand TEXT, pseudoASIN TEXT, type TEXT, config TEXT, skills TEXT, delDate TEXT, asin TEXT, store TEXT, brand TEXT, img TEXT, title TEXT, rating REAL, feedbacks INTEGER, price REAL, customer TEXT, platoon TEXT, result TEXT, FOREIGN KEY(botid) REFERENCES bots(botid))'
-            self.dbCursor.execute(sql)
-
-            sql = 'CREATE TABLE IF NOT EXISTS  skills (skid INTEGER PRIMARY KEY, owner TEXT, platform TEXT, app TEXT, applink TEXT, appargs TEXT, site TEXT, sitelink TEXT, name TEXT, path TEXT, main TEXT, createdon TEXT, extensions TEXT, runtime INTEGER, price_model TEXT, price INTEGER, privacy TEXT)'
-            self.dbCursor.execute(sql)
-
-            sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variation TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
-            self.dbCursor.execute(sql)
-
-        else:
-            self.dbcon = None
-            self.dbCursor = None
-
+        if self.machine_role != "Platoon":
+            engine = init_db(self.dbfile)
+            session = get_session(engine)
+            self.bot_service = BotService(self, session)
+            self.mission_service = MissionService(self, session)
+            self.product_service = ProductService(self, session)
+            self.skill_service = SkillService(self, session)
 
         self.owner = "NA"
-        self.botRank = "soldier"              # this should be read from a file which is written during installation phase, user will select this during installation phase
+        self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
         self.rpa_work_assigned_for_today = False
 
         self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
@@ -700,8 +654,12 @@ class MainWindow(QMainWindow):
         self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
             # load skills into memory.
-            self.loadLocalBots()
-            self.loadLocalMissions()
+            self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
+            bots_data = self.bot_service.find_all_bots()
+            self.loadLocalBots(bots_data)
+            self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
+            missions_data = self.mission_service.find_missions_by_createon()
+            self.loadLocalMissions(missions_data)
             self.dailySkillsetUpdate()
 
         # Done with all UI stuff, now do the instruction set extension work.
@@ -812,6 +770,15 @@ class MainWindow(QMainWindow):
             # when a skill is selected, its dependencies will added to mission's skills list.
             self.regenSkillPSKs()
 
+    def onScrollBarValueChanged(self, value):
+        """监听滚动条变化，判断是否自动滚动"""
+        scrollbar = self.logConsole.verticalScrollBar()
+        max_value = scrollbar.maximum()
+        # 如果滚动条接近底部（比如距离底部小于一个单位），则设置为自动滚动
+        if (max_value - value) <= 1:
+            self.isAutoScroll = True
+        else:
+            self.isAutoScroll = False
 
     def addSkillRowsToSkillManager(self):
         self.skillManagerWin.addSkillRows(self.skills)
@@ -832,62 +799,62 @@ class MainWindow(QMainWindow):
         return self.homepath
 
     def getPLATFORMS(self):
-        return self.PLATFORMS
+        return self.static_resource.PLATFORMS
 
     def getAPPS(self):
-        return self.APPS
+        return self.static_resource.APPS
 
     def getSITES(self):
-        return self.SITES
+        return self.static_resource.SITES
 
     def getSMPLATFORMS(self):
         return self.SM_PLATFORMS
 
     def getBUYTYPES(self):
-        return self.BUY_TYPES
+        return self.static_resource.BUY_TYPES
 
     def getSUBBUYTYPES(self):
-        return self.SUB_BUY_TYPES
+        return self.static_resource.SUB_BUY_TYPES
 
     def getSELLTYPES(self):
-        return self.SELL_TYPES
+        return self.static_resource.SELL_TYPES
 
     def getSUBSELLTYPES(self):
-        return self.SUB_SELL_TYPES
+        return self.static_resource.SUB_SELL_TYPES
 
     def getOPTYPES(self):
-        return self.OP_TYPES
+        return self.static_resource.OP_TYPES
 
     def getSUBOPTYPES(self):
-        return self.SUB_OP_TYPES
+        return self.static_resource.SUB_OP_TYPES
 
     def getSTATUSTYPES(self):
-        return self.STATUS_TYPES
+        return self.static_resource.STATUS_TYPES
 
     def getBUYSTATUSTYPES(self):
-        return self.BUY_STATUS_TYPES
+        return self.static_resource.BUY_STATUS_TYPES
 
     def translateSiteName(self, site_text):
-        if site_text in self.SITES_SH_DICT.keys():
-            return self.SITES_SH_DICT[site_text]
+        if site_text in self.static_resource.SITES_SH_DICT.keys():
+            return self.static_resource.SITES_SH_DICT[site_text]
         else:
             return site_text
 
     def translatePlatform(self, site_text):
-        if site_text in self.PLATFORMS_SH_DICT.keys():
-            return self.PLATFORMS_SH_DICT[site_text]
+        if site_text in self.static_resource.PLATFORMS_SH_DICT.keys():
+            return self.static_resource.PLATFORMS_SH_DICT[site_text]
         else:
             return site_text
 
     def translateShortSiteName(self, site_text):
-        if site_text in self.SH_SITES_DICT.keys():
-            return self.SH_SITES_DICT[site_text]
+        if site_text in self.static_resource.SH_SITES_DICT.keys():
+            return self.static_resource.SH_SITES_DICT[site_text]
         else:
             return site_text
 
     def translateShortPlatform(self, site_text):
-        if site_text in self.SH_PLATFORMS_DICT.keys():
-            return self.SH_PLATFORMS_DICT[site_text]
+        if site_text in self.static_resource.SH_PLATFORMS_DICT.keys():
+            return self.static_resource.SH_PLATFORMS_DICT[site_text]
         else:
             return site_text
 
@@ -919,9 +886,12 @@ class MainWindow(QMainWindow):
         return self.hostrole
 
     def appendNetLogs(self, msgs):
-        # self.netLogWin.show()
         for msg in msgs:
-            self.logConsole.append(msg)
+            self.logConsole.appendHtml(msg)
+            if self.isAutoScroll:
+                cursor = self.logConsole.textCursor()
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+                self.logConsole.setTextCursor(cursor)
 
     def setTokens(self, intoken):
         self.tokens = intoken
@@ -1054,9 +1024,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Load All Local Bots"))
-        new_action.triggered.connect(self.getAllBotsFromLocalDB)
-        # ew_action.connect(QAction.)
-
+        new_action.triggered.connect(self.findAllBot)
         return new_action
 
     def _createSaveAllAction(self):
@@ -1330,6 +1298,7 @@ class MainWindow(QMainWindow):
 
         # test_ads_batch(self)
         # test_sqlite3(self)
+        test_read_buy_req_files(self)
         # test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
@@ -1387,6 +1356,11 @@ class MainWindow(QMainWindow):
     def fetchSchedule(self, ts_name, settings):
         fetch_stat = "Completed:0"
         try:
+            # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
+            self.newBuyMissionFromFiles()
+
+            self.showMsg("Done handling today's new Buy orders...")
+
             # next line commented out for testing purpose....
             # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
             jresp = {}
@@ -1407,24 +1381,30 @@ class MainWindow(QMainWindow):
                 self.showMsg("decomppressed response:"+uncompressed+"!")
                 if uncompressed != "":
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
-                    # bodyobj = json.loads(uncompressed)                  # for tests purpose, comment out, put it back when tests is done....
+                    # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
+                    # file = 'C:/software/scheduleResultTest7.json'
+                    file = 'C:/temp/scheduleResultTest7.json'
+                    if exists(file):
+                        with open(file) as test_schedule_file:
+                            bodyobj = json.load(test_schedule_file)
+                            for nm in bodyobj["added_missions"]:
+                                today = datetime.today()
+                                formatted_today = today.strftime('%Y-%m-%d')
+                                bd_parts = nm["createon"].split()
+                                nm["createon"] = formatted_today + " " + bd_parts[1]
 
-                    with open('C:/software/scheduleResultTest7.json') as test_schedule_file:
-                        bodyobj = json.load(test_schedule_file)
-
-                    self.showMsg("bodyobj: "+json.dumps(bodyobj))
-                    # bodyobj =[]
-                    if len(bodyobj) > 0:
-                        self.addNewlyAddedMissions(bodyobj)
-                        # now that todays' newly added missions are in place, generate the cookie site list for the run.
-                        self.build_cookie_site_lists()
-                        self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
-                        self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
-                        self.unassigned_task_groups = self.todays_scheduled_task_groups
-                        self.assignWork()
-                        self.logDailySchedule(uncompressed)
-                    else:
-                        self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
+                        self.showMsg("bodyobj: " + json.dumps(bodyobj))
+                        if len(bodyobj) > 0:
+                            self.addNewlyAddedMissions(bodyobj)
+                            # now that todays' newly added missions are in place, generate the cookie site list for the run.
+                            self.build_cookie_site_lists()
+                            self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
+                            self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+                            self.unassigned_task_groups = self.todays_scheduled_task_groups
+                            self.assignWork()
+                            self.logDailySchedule(uncompressed)
+                        else:
+                            self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
@@ -1457,47 +1437,45 @@ class MainWindow(QMainWindow):
         else:
             self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
-    def warn(self, msg):
-        warnText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\" >"
-        warnText += msg
-        warnText += "</span>"
-        # self.netLogWin.appendLogs([warnText])
+    def warn(self, msg, level="info"):
+        warnText = self.log_text_format(msg, level)
+        self.netLogWin.appendLogs([warnText])
         self.appendNetLogs([warnText])
-        self.appendDailyLogs([msg])
 
+    def showMsg(self, msg, level="info"):
+        msg_text = self.log_text_format(msg, level)
+        self.appendNetLogs([msg_text])
 
-    def showMsg(self, msg):
-        MsgText = "<span style=\" font-size:12pt; font-weight:300; color:#ff0000;\">"
-        MsgText += msg
-        MsgText += "</span>"
-        # self.netLogWin.appendLogs([MsgText])
-        print(msg)
-        self.appendNetLogs([MsgText])
-        self.appendDailyLogs([msg])
+    def log_text_format(self, msg, level):
+        logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        text_color = ""
+        if level == "error":
+            text_color = "color:#ff0000;"
+            logger_helper.error(msg)
+        elif level == "warn":
+            text_color = "color:#ff8000;"
+            logger_helper.warning(msg)
+        elif level == "info":
+            text_color = "color:#00ff00;"
+            logger_helper.info(msg)
+        elif level == "debug":
+            text_color = "color:#00ffff;"
+            logger_helper.debug(msg)
 
-    def appendDailyLogs(self, msgs):
-        #check if daily log file exists, if exists simply append to it, if not create and write to the file.
-        now = datetime.now()  # current date and time
-        year = now.strftime("%Y")
-        month = now.strftime("%m")
-        day = now.strftime("%d")
-        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
-        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
-        time = now.strftime("%H:%M:%S - ")
-        if os.path.isfile(dailyLogFile):
-            file1 = open(dailyLogFile, "a")  # append mode
-            for msg in msgs:
-                file1.write(time+msg+"\n")
-            file1.close()
-        else:
-            if not os.path.exists(dailyLogDir):
-                os.makedirs(dailyLogDir)
-
-            file1 = open(dailyLogFile, "w")  # append mode
-            for msg in msgs:
-                file1.write(time+msg + "\n")
-            file1.close()
-
+        msg_text = """
+            <div style="display: flex; padding: 5pt;">
+                <span  style=" font-size:12pt; font-weight:300; margin-right: 40pt;"> 
+                    %s |
+                </span>
+                <span style=" font-size:12pt; font-weight:300; %s">
+                    %s
+                </span>
+                |
+                <span style=" font-size:12pt; font-weight:300; %s;">
+                    found %s
+                </span>
+            </div>""" % (logTime, text_color, level, text_color, msg)
+        return msg_text
 
     def logDailySchedule(self, netSched):
         now = datetime.now()  # current date and time
@@ -1738,6 +1716,7 @@ class MainWindow(QMainWindow):
         }
         self.showMsg("N vehicles win " + str(len(result["win"]))+" " + str(len(result["mac"]))+" " + str(len(result["linux"])))
         if self.hostrole == "Commander" and not self.rpa_work_assigned_for_today:
+            print("checking commander", self.todays_work["tbd"])
             if len([wk for wk in self.todays_work["tbd"] if wk["name"] == "automation"]) == 0:
                 self.showMsg("myself unassigned "+self.getIP())
                 # put in a dummy V
@@ -1787,77 +1766,105 @@ class MainWindow(QMainWindow):
 
 
     # generate a buy associated browse-search configuration
-    def gen_new_buy_search(self, mission):
-        new_search = {
-			            "type": "browse",
-			            "site": mission.getSite(),
-	 		            "os": mission.getPlatform(),
-			            "app": mission.getApp(),
-			            "entry_paths": { "type": "Search", "words": [mission.getSearchKW()] },
-			            "top_menu_item": "",
-			            "prodlist_pages": [
-				            {
-					            "flow_type": "down,up,down",
-					            "products": [
-						            { "selType": "bs", "detailLvl": 2, "purchase": [] },
-						            { "selType": "cus", "detailLvl": 2, "purchase": [] }
-					            ]
-				            },
+    def gen_new_buy_search(self, work, mission):
+        # simply modify mission's search configuration to fit our need.
+        # we'll randomely pick one of the searches and modify its parameter.
+        nth_search = random.randrange(0, len(work["config"]["searches"]))
+        n_pages = len(work["config"]["searches"][nth_search]["prodlist_pages"])
+
+        work["config"]["searches"][nth_search]["entry_paths"]["type"] = "Search"
+        work["config"]["searches"][nth_search]["entry_paths"]["words"] = [mission.getSearchKW()]
+
+        # simply duplate the last prodlist_pages enough times to satisfy up to 5 pages requreiment
+        if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
+            last_page = work["config"]["searches"][nth_search]["prodlist_pages"][n_pages-1]
+            if n_pages < 5:  # we will browse up to 5 pages for a product purchase.
+                for i in range(5-n_pages):
+                    work["config"]["searches"][nth_search]["prodlist_pages"].append(copy.deepcopy(last_page))
+
+            # on each pages, add the target buy product onto the list.
+            for page in work["config"]["searches"][nth_search]["prodlist_pages"]:
+                if work["name"].split("_")[1] in ["addCart", "pay"]:
+                    target_buy = {
+                        "selType": "cus",   # this is key,
+                        "detailLvl": 3,
+                        "purchase": [{
+                                    "action": work["name"].split("_")[1],
+                                    "asin": mission.getASIN(),
+                                    "seller": mission.getStore(),
+                                    "brand": mission.getBrand(),
+                                    "img": mission.getImagePath(),
+                                    "title": mission.getTitle(),
+                                    "variations": mission.getVariations(),
+                                    "rating": mission.getRating(),
+                                    "feedbacks": mission.getFeedbacks(),
+                                    "price": mission.getPrice(),
+                                }]
+                    }
+
+                elif work["name"].split("_")[1] in ["addCartPay"]:
+                    target_buy = {
+                        "selType": "cus",  # this is key,
+                        "detailLvl": 3,
+                        "purchase": [
                             {
-                                "flow_type": "down,up,down",
-                                "products": [
-                                    { "selType": "mhr", "detailLvl": 2, "purchase": [] },
-                                    { "selType": "cus", "detailLvl": 2, "purchase": [] }
-                                ]
-                            },
-                            {
-                                "flow_type": "down,up,down",
-                                "products": [
-                                    { "selType": "mr", "detailLvl": 2, "purchase": [] },
-                                    { "selType": "cus", "detailLvl": 2, "purchase": [] }
-                                ]
+                                "action": "addCart",
+                                "asin": mission.getASIN(),
+                                "seller": mission.getStore(),
+                                "brand": mission.getBrand(),
+                                "img": mission.getImagePath(),
+                                "title": mission.getTitle(),
+                                "variations": mission.getVariations(),
+                                "rating": mission.getRating(),
+                                "feedbacks": mission.getFeedbacks(),
+                                "price": mission.getPrice()
                             }
-			            ],
-			            "buy_cfg": {
-                            "asin": mission.getASIN(),
-                            "seller": mission.getStore(),
-                            "brand": mission.getBrand(),
-                            "img": mission.getImagePath(),
-                            "title": mission.getTitle(),
-                            "rating": mission.getRating(),
-                            "feedbacks": mission.getFeedbacks(),
-                            "price": mission.getPrice(),
-                        }
-		            }
-        return new_search
+                        ]
+                    }
+                page["products"].append(target_buy)
+        elif work["name"].split("_")[1] in ["pay", "checkShipping", "rate", "feedback", "checkFB"]:
+            # in all other case, simply replace last st product of the 1st page.
+            first_page = work["config"]["searches"][nth_search]["prodlist_pages"][0]
+            first_page["products"][0] = {
+                        "selType": "cus",  # this is key,
+                        "detailLvl": 0,
+                        "purchase": [
+                            {
+                                "action": work["name"].split("_")[1],
+                                "asin": mission.getASIN(),
+                                "seller": mission.getStore(),
+                                "brand": mission.getBrand(),
+                                "img": mission.getImagePath(),
+                                "title": mission.getTitle(),
+                                "variations": mission.getVariations(),
+                                "rating": mission.getRating(),
+                                "feedbacks": mission.getFeedbacks(),
+                                "price": mission.getPrice(),
+                                "order_id": mission.getOrderID(),
+                                "feedback_rating": mission.getFeedbackRating(),
+                                "feedback_title": mission.getFeedbackTitle(),
+                                "feedback_text": mission.getFeedbackText(),
+                                "feedback_image": mission.getFeedbackImgLink(),
+                                "feedback_video": mission.getFeedbackVideoLink(),
+                                "feedback_instructions": mission.getFeedbackInstructions()
+                            }
+                        ]
+                    }
+
+        logger_helper.debug("Modified Buy Work:"+json.dumps(work))
+
 
     def gen_prod_sel(self):
-        idx = math.floor(random.random() * (len(self.PRODUCT_SEL_TYPES.length) - 1));
-        return self.PRODUCT_SEL_TYPES[idx];
+        idx = math.floor(random.random() * (len(self.static_resource.PRODUCT_SEL_TYPES.length) - 1));
+        return self.static_resource.PRODUCT_SEL_TYPES[idx];
 
-    # obtain a feedback text from cloud feedback genertion service
-    def obtain_feedback_text(self, fb_type, prod_title):
-        fb_txt = ""
-        jresp = send_feedback_request_to_cloud(self.session, [{"fb_type": fb_type, "prod_title": prod_title}], self.tokens)
-
-        if "errorType" in jresp:
-            screen_error = True
-            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
-        else:
-            self.showMsg("jresp:"+json.dumps(jresp))
-            fb_txt = jresp["body"][0]["fb_txt"]
-        return fb_txt
 
     # given a derived buy mission, find out the original buy mission that was put in order by the users.
     # this is done thru searching ticket number. since this is likely to be a mission created 2 wks ago,
     # might not be loaded from memory, so directly search DB.
     def find_original_buy(self, buy_mission):
         # Construct the SQL query with a parameterized IN clause
-        sql = "DELETE FROM missions WHERE ticket = " + str(buy_mission.getTicket()) +";"
-        self.showMsg("find_original_buy sql:" + sql)
-
-        res = self.dbCursor.execute(sql)
-        db_data = self.dbCursor.fetchall()
+        db_data = self.mission_service.delete_missions_by_ticket(buy_mission.getTicket())
         self.showMsg("same ticket missions: " + json.dumps(db_data))
         if len(db_data) != 0:
             original_buy_mission = EBMISSION(self)
@@ -1880,24 +1887,26 @@ class MainWindow(QMainWindow):
     # task name will be mainType_subType for example buy_addCart or goodFB_pay
     # main types will be: "buy", "goodFB", "badFB", "goodRating", "badRating"
     # sub types will be: 'addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"
+    # 06-07-2024 actually not add, but again replace the configuration, otherwise, time will be wasted...
     def add_buy_searchs(self, p_task_groups):
         print("add buy to taskgroup:", p_task_groups)
 
         #1st find all 1st stage buy missions.
         self.showMsg("task name:" + json.dumps([tsk["name"]  for tsk in p_task_groups]))
-        buys = [tsk for tsk in p_task_groups if (tsk["name"].split("_")[0] in self.BUY_TYPES)]
-        initial_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] in ['addCart', 'pay']))]
-        later_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.BUY_TYPES) and (tsk["name"].split("_")[1] not in ['addCart', 'pay']))]
+        buys = [tsk for tsk in p_task_groups if (tsk["name"].split("_")[0] in self.static_resource.BUY_TYPES)]
+        initial_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.static_resource.BUY_TYPES) and (tsk["name"].split("_")[1] in ['addCart', 'pay', 'addCartPay']))]
+        later_buys = [tsk for tsk in buys if ((tsk["name"].split("_")[0] in self.static_resource.BUY_TYPES) and (tsk["name"].split("_")[1] not in ['addCart', 'pay', 'addCartPay']))]
         print(len(buys), len(initial_buys), len(later_buys))
-        for buytask in initial_buys:
+        for buytask in buys:
             # make sure we do search before buy
             midx = next( (i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
             if midx >= 0:
                 task_mission = self.missions[midx]
                 original_buy = self.find_original_buy(task_mission)
-
+                # first, fill the mission with original buy's private attributes for convenience.
                 task_mission.setASIN(original_buy.getASIN())
                 task_mission.setTitle(original_buy.getTitle())
+                task_mission.setVariations(original_buy.getVariations())
                 task_mission.setStore(original_buy.getStore())
                 task_mission.setBrand(original_buy.getBrand())
                 task_mission.setImagePath(original_buy.getImagePath())
@@ -1906,43 +1915,8 @@ class MainWindow(QMainWindow):
                 task_mission.setPrice(original_buy.getPrice())
                 task_mission.setResult(original_buy.getResult())
 
-                new_search = self.gen_new_buy_search(original_buy)
-            else:
-                new_search = {}
-            buytask["config"]["searches"].append(new_search)
+                self.gen_new_buy_search(buytask, task_mission)
 
-        for buytask in later_buys:
-            midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
-            if midx >= 0:
-                task_mission = self.missions[midx]
-                original_buy = self.find_original_buy(task_mission)
-
-                task_mission.setASIN(original_buy.getASIN())
-                task_mission.setTitle(original_buy.getTitle())
-                task_mission.setStore(original_buy.getStore())
-                task_mission.setBrand(original_buy.getBrand())
-                task_mission.setImagePath(original_buy.getImagePath())
-                task_mission.setRating(original_buy.getRating())
-                task_mission.setFeedbacks(original_buy.getFeedbacks())
-                task_mission.setPrice(original_buy.getPrice())
-                task_mission.setResult(original_buy.getResult())
-
-                mission_result = json.loads(original_buy.getResult())
-                # make sure we provided necessary info for completing the taskl
-                if buytask["name"].split("_")[1] in ["checkShipping", "rate", "checkFB"]:
-                    buytask["config"]["order_id"] = mission_result["order_id"]
-                elif buytask["name"].split("_")[1] == "feedback":
-                    buytask["config"]["order_id"] = mission_result["order_id"]
-                    buytask["config"]["feedback_img_file"] = mission_result["feedback_img_file"]
-                    buytask["config"]["feedback_video_file"] = mission_result["feedback_video_file"]
-                    buytask["config"]["feedback_text"] = mission_result["feedback_text"]
-                    if buytask["config"]["feedback_text"] == "":
-                        if "bad" in buytask["name"].split("_")[0]:
-                            buytask["config"]["feedback_text"] = self.obtain_feedback_text("bad", original_buy.getTitle())
-                        else:
-                            buytask["config"]["feedback_text"] = self.obtain_feedback_text("good", original_buy.getTitle())
-            else:
-                buytask["config"]["order_id"] = ""
 
 
     # assign per vehicle task group work, if this commander runs, assign works for commander,
@@ -2401,7 +2375,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("updatin 1 work run status:"+this_stat+" "+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])))
 
-        if worksTBD["current widx"] >= len( worksTBD["works"]):
+        if worksTBD["current widx"] >= len(worksTBD["works"]):
             worksTBD["current widx"] = self.checkTaskGroupCompleteness(worksTBD)
             self.showMsg("current widx pointer after checking retries:"+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])))
             if worksTBD["current widx"] >= len(worksTBD["works"]):
@@ -2414,6 +2388,7 @@ class MainWindow(QMainWindow):
         next_run_index = len(mids)
         for j, mid in enumerate(mids):
             midx = next((i for i, m in enumerate(self.missions) if m.getMid() == mid), -1)
+            # if midx != -1:
             this_stat = self.missions[midx].getStatus()
             n_2b_retried = self.missions[midx].getRetry()
             retry_count = self.missions[midx].getNRetries()
@@ -2856,8 +2831,8 @@ class MainWindow(QMainWindow):
         #self.centralWidget.setText("<b>File > New</b> clicked")
         if self.BotNewWin == None:
             self.BotNewWin = BotNewWin(self)
-        else:
-            self.BotNewWin.setMode("new")
+        self.BotNewWin.setMode("new")
+        self.BotNewWin.setBot(EBBOT(self))
         self.BotNewWin.show()
 
 
@@ -2880,6 +2855,8 @@ class MainWindow(QMainWindow):
         self.wirteSkillJsonFiles()
         self.saveRunReports()
 
+    def findAllBot(self):
+        self.bot_service.find_all_bots()
 
     def logOut(self):
         self.showMsg("logging out........")
@@ -2887,7 +2864,8 @@ class MainWindow(QMainWindow):
         #result = self.cog_client.global_sign_out(AccessToken=self.cog.access_token)
         result = self.cog.logout()
 
-        self.showMsg("logged out........"+result)
+        self.showMsg("logged out........")
+        self.close()
         # now should close the main window and bring back up the login screen?
 
 
@@ -2897,7 +2875,7 @@ class MainWindow(QMainWindow):
         self.showMsg("adding new bots....")
         for new_bot in new_bots:
             api_bots.append({
-                "bid": new_bot.getBid(),
+                # "bid": new_bot.getBid(),
                 "owner": self.owner,
                 "roles": new_bot.getRoles(),
                 "pubbirthday": new_bot.getPubBirthday(),
@@ -2930,63 +2908,19 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             #now that add is successfull, update local file as well.
             # first, update bot ID both in data structure and in GUI display.
-            idx = 0
             for i, resp_rec in enumerate(jresp["body"]):
                 new_bots[i].setBid(resp_rec["bid"])
                 new_bots[i].setInterests(resp_rec["interests"])
                 self.bots.append(new_bots[i])
                 self.botModel.appendRow(new_bots[i])
-
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
-            j = 0
-            data_tuple = []
-            sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw, backemail_site)
-                                          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-            for newbot in jbody:
-                sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw, backemail_site)
-                              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                data_tuple.append((newbot["bid"], newbot["owner"], newbot["levels"], newbot["gender"], newbot["birthday"], \
-                              newbot["interests"], newbot["location"], newbot["roles"], newbot["status"], newbot["delDate"], \
-                              api_bots[j]["name"], api_bots[j]["pseudoname"], api_bots[j]["nickname"], api_bots[j]["addr"], api_bots[j]["shipaddr"], \
-                              api_bots[j]["phone"], api_bots[j]["email"], api_bots[j]["epw"], api_bots[j]["backemail"], api_bots[j]["ebpw"], api_bots[j]["backemail_site"]))
-                j = j + 1
-            self.showMsg("bot insert SQL:["+sql+"] DATA TUPLE:("+", ".join(str(x) for x in data_tuple)+")")
-            self.dbCursor.executemany(sql, data_tuple)
-
-            # Check if the INSERT query was successful
-            if self.dbCursor.rowcount == len(new_bots):
-                self.showMsg("New Bot SQLite DB Insertion successful.")
-                self.dbcon.commit()
-            else:
-                self.showMsg("Insertion failed.")
-
-            #update self data structure and save in json file for easy access (1 line of python code)
-            # self.saveBotJsonFile(jbody)
-
-            #now read back just added bots and echo it back onto display...
-            bid_list = [bot.getBid() for bot in new_bots]
-
-            if len(bid_list) == 1:
-                # If idlist has only one element, construct SQL query without IN clause
-                sql = f"SELECT * FROM bots WHERE botid = {bid_list[0]}"
-            else:
-                # Construct the SQL query with a parameterized IN clause
-                bid_tuple = tuple(bid_list)
-                sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
-                self.showMsg("bid_tuple:("+", ".join(str(x) for x in bid_tuple)+")")
-
-            self.showMsg("sql:"+sql)
-
-            res = self.dbCursor.execute(sql)
-            db_data = self.dbCursor.fetchall()
-            self.showMsg("Just Added Local DB Bot Row(s): "+json.dumps(db_data))
+            self.bot_service.inset_bots_batch(jbody, api_bots)
 
     def updateBots(self, bots):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
         # otherwise, only update locally.
-        jresp = {"body": []}
         api_bots = []
         for abot in bots:
             api_bots.append({
@@ -3022,43 +2956,9 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
 
             if jbody['numberOfRecordsUpdated'] == len(bots):
-
-                sql = ''' UPDATE bots SET owner = ?, levels = ?, gender = ?, birthday = ?, interests = ?, location = ?, roles = ?,
-                        status = ?, delDate = ?, name = ?, pseudoname = ?, nickname = ?, addr = ?, shipaddr = ?, phone = ?, 
-                        email = ?,  epw = ?, backemail = ?, ebpw = ? , backemail_site = ?WHERE botid = ?; '''
-
-                data_tuple = []
-                for i, api_bot in enumerate(api_bots):
-                    data_tuple.append((api_bots[i]["owner"], api_bots[i]["levels"], api_bots[i]["gender"], api_bots[i]["birthday"], \
-                                  api_bots[i]["interests"], api_bots[i]["location"], api_bots[i]["roles"], api_bots[i]["status"], api_bots[i]["delDate"], \
-                                  api_bots[i]["name"], api_bots[i]["pseudoname"], api_bots[i]["nickname"], api_bots[i]["addr"], api_bots[i]["shipaddr"], \
-                                  api_bots[i]["phone"], api_bots[i]["email"], api_bots[i]["epw"], api_bots[i]["backemail"], api_bots[i]["ebpw"], api_bots[i]["backemail_site"], api_bots[i]["bid"]))
-
-                self.dbCursor.executemany(sql, data_tuple)
-                # Check if the UPDATE query was successful
-                if self.dbCursor.rowcount > 0:
-                    self.showMsg(f"{self.dbCursor.rowcount} row(s) updated successfully.")
-                    self.dbcon.commit()
-                else:
-                    self.showMsg("No rows were updated.")
+                self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
-
-            #now read back just added bots and echo it back onto display...
-            #now read back just added bots and echo it back onto display...
-            bid_list = [bot.getBid() for bot in bots]
-
-            if len(bid_list) == 1:
-                # If idlist has only one element, construct SQL query without IN clause
-                sql = f"SELECT * FROM bots WHERE botid = {bid_list[0]}"
-            else:
-                # Construct the SQL query with a parameterized IN clause
-                bid_tuple = tuple(bid_list)
-                sql = f"SELECT * FROM bots WHERE botid IN {bid_tuple}"
-
-            res = self.dbCursor.execute(sql)
-            db_data = self.dbCursor.fetchall()
-            self.showMsg("Just Updated Local DB Bot Row:"+json.dumps(db_data))
 
     def addNewMissions(self, new_missions):
         # Logic for creating a new mission:
@@ -3066,7 +2966,7 @@ class MainWindow(QMainWindow):
         api_missions = []
         for new_mission in new_missions:
             api_missions.append({
-                "mid": new_mission.getMid(),
+                # "mid": new_mission.getMid(),
                 "ticket": new_mission.getMid(),
                 "botid": new_mission.getBid(),
                 "status": new_mission.getStatus(),
@@ -3099,6 +2999,7 @@ class MainWindow(QMainWindow):
                 "brand": new_mission.getBrand(),
                 "image": new_mission.getImagePath(),
                 "title": new_mission.getTitle(),
+                "variations": new_mission.getVariations(),
                 "rating": new_mission.getRating(),
                 "feedbacks": new_mission.getFeedbacks(),
                 "price": new_mission.getPrice(),
@@ -3106,7 +3007,8 @@ class MainWindow(QMainWindow):
                 "platoon": new_mission.getPlatoonID(),
                 "result": ""
             })
-        jresp = send_add_missions_request_to_cloud(self.session, new_missions, self.tokens['AuthenticationResult']['IdToken'])
+        jresp = send_add_missions_request_to_cloud(self.session, new_missions,
+                                                   self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
             self.showMsg("Delete Bots ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
@@ -3123,46 +3025,10 @@ class MainWindow(QMainWindow):
                 new_mission.setEsd(jbody[i]["esd"])
                 self.missions.append(new_mission)
                 self.missionModel.appendRow(new_mission)
-
-            # mid ticket botid status createon esd ecd asd abd aad afd acd startt esttime runtime cuspas category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, title, rating, customer, platoon'
-            # add to local DB
-            sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, acd, actual_start_time, est_start_time, actual_runtime,
-                    est_runtime, n_retries, cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, skills, delDate, asin, store, brand, img, 
-                    title, rating, feedbacks, price, customer, platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-
-            data_tuple = []
-            for i, jb in enumerate(jbody):
-                data_tuple.append((jbody[i]["mid"], jbody[i]["ticket"], jbody[i]["botid"], jbody[i]["status"], jbody[i]["createon"], \
-                          jbody[i]["esd"], jbody[i]["ecd"], jbody[i]["asd"], jbody[i]["abd"], jbody[i]["aad"], \
-                          jbody[i]["afd"], jbody[i]["acd"], api_missions[i]["actual_start_time"], jbody[i]["esttime"], api_missions[i]["actual_run_time"], jbody[i]["runtime"], \
-                          api_missions[i]["n_retries"], jbody[i]["cuspas"], jbody[i]["category"], jbody[i]["phrase"], jbody[i]["pseudoStore"], \
-                          jbody[i]["pseudoBrand"], jbody[i]["pseudoASIN"], jbody[i]["type"], jbody[i]["config"], \
-                          jbody[i]["skills"], jbody[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"], api_missions[i]["brand"], \
-                          api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], \
-                            api_missions[i]["customer"], api_missions[i]["platoon"], api_missions[i]["result"]))
-
-            self.dbCursor.executemany(sql, data_tuple)
-            # Check if the INSERT query was successful
-            if self.dbCursor.rowcount == len(jbody):
-                self.showMsg("New Mission SQLite DB Insertion successful.")
-                self.dbcon.commit()
-            else:
-                self.showMsg("Insertion failed.")
+            self.mission_service.insert_missions_batch(jbody, api_missions)
 
             mid_list = [mission.getMid() for mission in new_missions]
-            self.showMsg("mid_list:"+json.dumps(mid_list))
-            if len(mid_list) == 1:
-                sql = f"SELECT * FROM missions WHERE mid = {mid_list[0]}"
-            else:
-                mid_tuple = tuple(mid_list)
-                # Construct the SQL query with a parameterized IN clause
-                sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
-
-            self.showMsg("sql read back sql:"+sql)
-            res = self.dbCursor.execute(sql)
-            db_data = self.dbCursor.fetchall()
-            self.showMsg("Just Added Local DB Mission Row:"+db_data)
-
+            self.mission_service.find_missions_by_mids(mid_list)
 
     def updateMissions(self, missions):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
@@ -3203,6 +3069,7 @@ class MainWindow(QMainWindow):
                 "brand": amission.getBrand(),
                 "image": amission.getImagePath(),
                 "title": amission.getTitle(),
+                "variations": amission.getVariations(),
                 "rating": amission.getRating(),
                 "feedbacks": amission.getFeedbacks(),
                 "price": amission.getPrice(),
@@ -3219,54 +3086,11 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             self.showMsg("Update Cloud side result:"+json.dumps(jbody))
             if jbody['numberOfRecordsUpdated'] == len(missions):
-                #update local DB
-                sql = ''' UPDATE missions SET ticket = ?, botid = ?, status = ?, createon = ?, esd = ?, ecd = ?, asd = ?, abd = ?, 
-                        aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
-                        n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
-                        pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
-                        img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ?, result = ? WHERE mid = ?; '''
-
-                data_tuple = []
-
-                for i, amission in enumerate(jbody):
-                    data_tuple.append((
-                    api_missions[i]["ticket"], api_missions[i]["botid"], api_missions[i]["status"], api_missions[i]["createon"], \
-                    api_missions[i]["esd"], api_missions[i]["ecd"], api_missions[i]["asd"], api_missions[i]["abd"], api_missions[i]["aad"], \
-                    api_missions[i]["afd"], api_missions[i]["acd"], api_missions[i]["actual_start_time"], api_missions[i]["est_start_time"], api_missions[i]["actual_run_time"], api_missions[i]["est_run_time"], \
-                    api_missions[i]["n_retries"], api_missions[i]["cuspas"], api_missions[i]["search_cat"], api_missions[i]["search_kw"], api_missions[i]["pseudo_store"], \
-                    api_missions[i]["pseudo_brand"], api_missions[i]["pseudo_asin"], api_missions[i]["type"], api_missions[i]["config"], \
-                    api_missions[i]["skills"], api_missions[i]["delDate"], api_missions[i]["asin"], api_missions[i]["store"], api_missions[i]["brand"], \
-                    api_missions[i]["image"], api_missions[i]["title"], api_missions[i]["rating"], api_missions[i]["feedbacks"], api_missions[i]["price"], api_missions[i]["customer"], \
-                    api_missions[i]["platoon"], api_missions[i]["result"], api_missions[i]["mid"]))
-
-
-                self.dbCursor.executemany(sql, data_tuple)
-                # Check if the UPDATE query was successful
-                self.showMsg("data_tuple:"+", ".join(str(x) for x in data_tuple)+")")
-                self.showMsg("update row count: "+str(self.dbCursor.rowcount))
-                if self.dbCursor.rowcount > 0:
-                    self.showMsg(f"{self.dbCursor.rowcount} row(s) updated successfully.")
-                    self.dbcon.commit()
-                else:
-                    self.showMsg("No rows were updated.")
-                # now that add is successfull, update local file as well.
-                # self.writeMissionJsonFile()
-
-                mid_list = [mission.getMid() for mission in new_missions]
-
-                if len(mid_list) == 1:
-                    sql = f"SELECT * FROM missions WHERE mid = {mid_list[0]}"
-                else:
-                    mid_tuple = tuple(mid_list)
-                    # Construct the SQL query with a parameterized IN clause
-                    sql = f"SELECT * FROM missions WHERE mid IN {mid_tuple}"
-
-                res = self.dbCursor.execute(sql)
-                db_data = self.dbCursor.fetchall()
-                self.showMsg("Just Updated Local DB Mission Row:"+json.dumps(db_data))
-
+                self.mission_service.update_missions_by_ticket(api_missions)
+                mid_list = [mission.getMid() for mission in missions]
+                self.mission_service.find_missions_by_mids(mid_list)
             else:
-                self.showMsg("WARNIN: cloud NOT updated.")
+                self.showMsg("WARNIN: cloud NOT updated.", "warn")
 
     def addBotsMissionsSkillsFromCommander(self, botsJson, missionsJson, skillsJson):
 
@@ -3447,8 +3271,8 @@ class MainWindow(QMainWindow):
 
 
     def readBotJsonFile(self):
-        if exists(self.BOTS_FILE):
-            with open(self.BOTS_FILE, 'r') as file:
+        if exists(self.file_resouce.BOTS_FILE):
+            with open(self.file_resouce.BOTS_FILE, 'r') as file:
                 self.botJsonData = json.load(file)
                 self.translateBotsJson(self.botJsonData)
 
@@ -3456,20 +3280,20 @@ class MainWindow(QMainWindow):
 
 
     def saveBotJsonFile(self):
-        if self.BOTS_FILE == None:
+        if self.file_resouce.BOTS_FILE == None:
             filename, _ = QFileDialog.getSaveFileName(
                 self,
                 'Save Json File',
                 '',
                 "Json Files (*.json)"
             )
-            self.BOTS_FILE = filename
+            self.file_resouce.BOTS_FILE = filename
 
-        if self.BOTS_FILE:
+        if self.file_resouce.BOTS_FILE:
             try:
                 botsdata = self.genBotsJson()
-                self.showMsg("BOTS_FILE: "+self.BOTS_FILE)
-                with open(self.BOTS_FILE, 'w') as jsonfile:
+                self.showMsg("BOTS_FILE: " + self.file_resouce.BOTS_FILE)
+                with open(self.file_resouce.BOTS_FILE, 'w') as jsonfile:
                     json.dump(botsdata, jsonfile)
 
                 jsonfile.close()
@@ -3531,27 +3355,27 @@ class MainWindow(QMainWindow):
 
 
     def readMissionJsonFile(self):
-        if exists(self.MISSIONS_FILE):
-            with open(self.MISSIONS_FILE, 'r') as file:
+        if exists(self.file_resouce.MISSIONS_FILE):
+            with open(self.file_resouce.MISSIONS_FILE, 'r') as file:
                 self.missionJsonData = json.load(file)
                 self.translateMissionsJson(self.missionJsonData)
 
 
     def writeMissionJsonFile(self):
-        if self.MISSIONS_FILE == None:
+        if self.file_resouce.MISSIONS_FILE == None:
             filename, _ = QFileDialog.getSaveFileName(
                 self,
                 'Save Json File',
                 '',
                 "Json Files (*.json)"
             )
-            self.MISSIONS_FILE = filename
+            self.file_resouce.MISSIONS_FILE = filename
 
-        if self.MISSIONS_FILE and exists(self.MISSIONS_FILE):
+        if self.file_resouce.MISSIONS_FILE and exists(self.file_resouce.MISSIONS_FILE):
             try:
                 missionsdata = self.genMissionsJson()
-                self.showMsg("MISSIONS_FILE:"+self.MISSIONS_FILE)
-                with open(self.MISSIONS_FILE, 'w') as jsonfile:
+                self.showMsg("MISSIONS_FILE:" + self.file_resouce.MISSIONS_FILE)
+                with open(self.file_resouce.MISSIONS_FILE, 'w') as jsonfile:
                     json.dump(missionsdata, jsonfile)
 
                 jsonfile.close()
@@ -3781,16 +3605,15 @@ class MainWindow(QMainWindow):
     def chatBot(self):
         # bring up the chat windows with this bot.
         # File actions
-        if self.chatWin:
+        if self.chatWin and self.chatWin.isVisible():
             self.showMsg("populating Chat GUI............")
-            self.chatWin.loadChat(self.selected_bot_item)
+            self.chatWin.select_contact(self.selected_bot_item.getBid())
+            self.chatWin.load_chat_history(self.selected_bot_item.getBid())
         else:
             self.showMsg("populating a newly created Chat GUI............")
-            self.chatWin = ChatWin(self)
+            from ChatGUIV2 import ChatDialog
+            self.chatWin = ChatDialog(self, self.selected_bot_item.getBid())
             self.showMsg("done create win............"+str(self.selected_bot_item.getBid()))
-            self.chatWin.setBot(self.selected_bot_item)
-
-        # self.chatWin.setMode("update")
         self.chatWin.show()
 
     def _createCusMissionViewAction(self):
@@ -3845,9 +3668,10 @@ class MainWindow(QMainWindow):
 
     def cloneCusMission(self):
         # File actions
-        new_mission = copy.deepcopy(self.selected_cus_mission_item)
+        new_mission = self.selected_cus_mission_item
         # new_bot.setText()
         self.addNewMissions([new_mission])
+        self.searchLocalMissions()
 
     def deleteCusMission(self):
         # File actions
@@ -3885,7 +3709,7 @@ class MainWindow(QMainWindow):
 
                     for m in api_removes:
                         # missionTBDId = next((x for x in self.missions if x.getMid() == m["id"]), None)
-                        self.delete_mission_from_localDB(m["id"])
+                        self.mission_service.delete_missions_by_mid(m["id"])
 
                     for m in api_removes:
                         midx = next((i for i, x in enumerate(self.missions) if x.getMid() == m["id"]), -1)
@@ -3898,17 +3722,6 @@ class MainWindow(QMainWindow):
 
         #self.botModel.removeRow(self.selected_bot_row)
         #self.showMsg("delete bot" + str(self.selected_bot_row))
-
-    def delete_mission_from_localDB(self, mid):
-        sql = "DELETE FROM missions WHERE mid = " + str(mid) +";"
-        self.dbCursor.execute(sql)
-        # Check if the DELETE query was successful
-        if self.dbCursor.rowcount > 0:
-            self.showMsg(f"{self.dbCursor.rowcount} mission row(s) deleted successfully.")
-            self.dbcon.commit()
-        else:
-            self.showMsg("No mission rows were deleted.")
-
 
     def updateCusMissionStatus(self, amission):
         # send this mission's status to Cloud
@@ -3960,16 +3773,9 @@ class MainWindow(QMainWindow):
         return new_action
 
     def editBot(self):
-        # File actions
-        if self.BotNewWin:
-            self.showMsg("populating bot GUI............")
-            self.BotNewWin.setBot(self.selected_bot_item)
-        else:
-            self.showMsg("creating bot GUI .......")
+        if self.BotNewWin == None:
             self.BotNewWin = BotNewWin(self)
-            self.showMsg("Done creating bot GUI .......")
-            self.BotNewWin.setBot(self.selected_bot_item)
-            self.showMsg("Done updating bot GUI .......")
+        self.BotNewWin.setBot(self.selected_bot_item)
 
         self.BotNewWin.setMode("update")
         self.BotNewWin.show()
@@ -3977,9 +3783,10 @@ class MainWindow(QMainWindow):
 
     def cloneBot(self):
         # File actions
-        new_bot = copy.deepcopy(self.selected_bot_item)
+        new_bot = self.selected_bot_item
         # new_bot.setText()
         self.addNewBots([new_bot])
+        self.searchLocalBots()
 
     def deleteBot(self):
         # File actions
@@ -4017,7 +3824,7 @@ class MainWindow(QMainWindow):
 
                     for b in api_removes:
                         botTBDId = next((x for x in self.bots if x.getBid() == b["id"]), None)
-                        self.delete_bot_from_localDB(b["id"])
+                        self.bot_service.delete_bots_by_botid(b["id"])
 
                     for b in api_removes:
                         bidx = next((i for i, x in enumerate(self.bots) if x.getBid() == b["id"]), -1)
@@ -4027,25 +3834,13 @@ class MainWindow(QMainWindow):
                             self.bots.pop(bidx)
 
                     # self.saveBotJsonFile()
-
-    def delete_bot_from_localDB(self, botTBDid):
-        sql = "DELETE FROM bots WHERE botid = " + str(botTBDid) +";"
-        self.dbCursor.execute(sql)
-        # Check if the DELETE query was successful
-        if self.dbCursor.rowcount > 0:
-            self.showMsg(f"{self.dbCursor.rowcount} row(s) deleted successfully.")
-            self.dbcon.commit()
-        else:
-            self.showMsg("No rows were deleted.")
-
-
-    #data format conversion. nb is in EBBOT data structure format., nbdata is json
+    # data format conversion. nb is in EBBOT data structure format., nbdata is json
     def fillNewBotPubInfo(self, nbjson, nb):
-        self.showMsg("filling bot public data for bot-"+str(nbjson["pubProfile"]["bid"]))
+        self.showMsg("filling bot public data for bot-" + str(nbjson["pubProfile"]["bid"]))
         nb.setNetRespJsonData(nbjson)
 
     def fillNewBotFullInfo(self, nbjson, nb):
-        self.showMsg("filling bot data for bot-"+str(nbjson["pubProfile"]["bid"]))
+        self.showMsg("filling bot data for bot-" + str(nbjson["pubProfile"]["bid"]))
         nb.loadJson(nbjson)
 
 
@@ -4124,6 +3919,54 @@ class MainWindow(QMainWindow):
         self.showMsg("filling mission data")
         nm.setNetRespJsonData(nmjson)
 
+    def addMissionsToLocalDB(self, missions: [EBMISSION]):
+        local_missions: [MissionModel] = []
+        for new_mission in missions:
+            local_mission = MissionModel()
+            local_mission.mid = new_mission.getMid()
+            local_mission.ticket = new_mission.getTicket()
+            local_mission.botid = new_mission.getBid()
+            local_mission.status = new_mission.getStatus()
+            local_mission.createon = new_mission.getBD()
+            local_mission.owner = self.owner
+            local_mission.esd = new_mission.getEsd()
+            local_mission.ecd = new_mission.getEcd()
+            local_mission.asd = new_mission.getAsd()
+            local_mission.abd = new_mission.getAbd()
+            local_mission.aad = new_mission.getAad()
+            local_mission.afd = new_mission.getAfd()
+            local_mission.acd = new_mission.getAcd()
+            local_mission.actual_start_time = new_mission.getActualStartTime()
+            local_mission.est_start_time = new_mission.getEstimatedStartTime()
+            local_mission.actual_runtime = new_mission.getActualRunTime()
+            local_mission.est_runtime = new_mission.getEstimatedRunTime()
+            local_mission.n_retries = new_mission.getNRetries()
+            local_mission.cuspas = new_mission.getCusPAS()
+            local_mission.category = new_mission.getCategory()
+            local_mission.phrase = new_mission.getPhrase()
+            local_mission.pseudoStore = new_mission.getPseudoStore()
+            local_mission.pseudoBrand = new_mission.getPseudoBrand()
+            local_mission.pseudoASIN = new_mission.getPseudoASIN()
+            local_mission.type = new_mission.getType()
+            local_mission.config = new_mission.getConfig()
+            local_mission.skills = new_mission.getSkills()
+            local_mission.delDate = new_mission.getDelDate()
+            local_mission.asin = new_mission.getAsin()
+            local_mission.store = new_mission.getStore()
+            local_mission.brand = new_mission.getBrand()
+            local_mission.img = new_mission.getImg()
+            local_mission.title = new_mission.getTitle()
+            local_mission.rating = new_mission.getRating()
+            local_mission.feedbacks = new_mission.getFeedbacks()
+            local_mission.price = new_mission.getPrice()
+            local_mission.customer = new_mission.getCustomer()
+            local_mission.platoon = new_mission.getPlatoon()
+            local_mission.result = new_mission.getResult()
+            local_mission.variations = new_mission.getVariations()
+            local_missions.append(local_mission)
+        self.mission_service.insert_missions_batch_(local_missions)
+
+
     def newMissionFromFile(self):
         self.showMsg("loading missions from a file...")
         api_missions = []
@@ -4152,8 +3995,8 @@ class MainWindow(QMainWindow):
                         jbody = jresp["body"]
                         # now that add is successfull, update local file as well.
 
-                        # now add bot to local DB.
-
+                        # now add missions to local DB.
+                        new_missions: [EBMISSION] = []
                         for i in range(len(jbody)):
                             self.showMsg(str(i))
                             new_mission = EBMISSION(self)
@@ -4162,78 +4005,9 @@ class MainWindow(QMainWindow):
                             self.fillNewMissionFromCloud(jbody[i], new_mission)
                             self.missions.append(new_mission)
                             self.missionModel.appendRow(new_mission)
+                            new_missions.append(new_mission)
 
-                            api_missions.append({
-                                "mid": new_mission.getMid(),
-                                "ticket": new_mission.getMid(),
-                                "botid": new_mission.getBid(),
-                                "owner": self.owner,
-                                "status": new_mission.getStatus(),
-                                "createon": new_mission.getBD(),
-                                "esd": new_mission.getEsd(),
-                                "ecd": new_mission.getEcd(),
-                                "asd": new_mission.getAsd(),
-                                "abd": new_mission.getAbd(),
-                                "aad": new_mission.getAad(),
-                                "afd": new_mission.getAfd(),
-                                "acd": new_mission.getAcd(),
-                                "actual_start_time": new_mission.getActualStartTime(),
-                                "est_start_time": new_mission.getEstimatedStartTime(),
-                                "actual_run_time": new_mission.getActualRunTime(),
-                                "est_run_time": new_mission.getEstimatedRunTime(),
-                                "cuspas": new_mission.getCusPAS(),
-                                "search_cat": new_mission.getSearchCat(),
-                                "search_kw": new_mission.getSearchKW(),
-                                "pseudo_store": new_mission.getPseudoStore(),
-                                "pseudo_brand": new_mission.getPseudoBrand(),
-                                "pseudo_asin": new_mission.getPseudoASIN(),
-                                "repeat": new_mission.getRetry(),
-                                "mtype": new_mission.getMtype(),
-                                "mconfig": new_mission.getConfig(),
-                                "skills": new_mission.getSkills(),
-                                "delDate": new_mission.getDelDate(),
-                                "asin": new_mission.getASIN(),
-                                "store": new_mission.getStore(),
-                                "brand": new_mission.getBrand(),
-                                "image": new_mission.getImagePath(),
-                                "title": new_mission.getTitle(),
-                                "rating": new_mission.getRating(),
-                                "feedbacks": new_mission.getFeedbacks(),
-                                "price": new_mission.getPrice(),
-                                "customer": new_mission.getCustomerID(),
-                                "platoon": new_mission.getPlatoonID(),
-                                "result": new_mission.getResult()
-                            })
-
-                            sql = ''' INSERT INTO missions (mid, ticket, botid, status, createon, esd, ecd, asd, abd, aad, afd, 
-                                        acd, actual_start_time, est_start_time, actual_runtime, est_runtime, n_retries, 
-                                        cuspas, category, phrase, pseudoStore, pseudoBrand, pseudoASIN, type, config, 
-                                        skills, delDate, asin, store, brand, img,  title, rating, feedbacks, price, customer, 
-                                        platoon, result) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                            data_tuple = (api_missions[0]["mid"], api_missions[0]["ticket"], api_missions[0]["owner"], \
-                                          api_missions[0]["botid"], api_missions[0]["status"], api_missions[0]["createon"], \
-                                          api_missions[0]["esd"], api_missions[0]["ecd"], api_missions[0]["asd"], \
-                                          api_missions[0]["abd"], api_missions[0]["aad"], \
-                                          api_missions[0]["afd"], api_missions[0]["acd"], api_missions[0]["actual_start_time"],
-                                          api_missions[0]["esttime"], api_missions[0]["actual_runtime"], api_missions[0]["runtime"], \
-                                          api_missions[0]["n_retries"], api_missions[0]["cuspas"], api_missions[0]["category"], \
-                                          api_missions[0]["phrase"], api_missions[0]["pseudoStore"], \
-                                          api_missions[0]["pseudoBrand"], api_missions[0]["pseudoASIN"], \
-                                          api_missions[0]["type"], api_missions[0]["config"], \
-                                          api_missions[0]["skills"], api_missions[0]["delDate"], api_missions[0]["asin"], \
-                                          api_missions[0]["store"], api_missions[0]["brand"], \
-                                          api_missions[0]["image"], api_missions[0]["title"], api_missions[0]["rating"], \
-                                          api_missions[0]["feedbacks"], api_missions[0]["price"], api_missions[0]["customer"], \
-                                          api_missions[0]["platoon"], api_missions[0]["result"])
-
-                            self.dbCursor.execute(sql, data_tuple)
-
-                            sql = 'SELECT * FROM missions'
-                            res = self.dbCursor.execute(sql)
-                            self.showMsg("fetchall"+json.dumps(res.fetchall()))
-                            # important about format: returned here is a list of tuples (,,,,)
-                            #for column in res.description:
-                            #    self.showMsg(str(column[0]))
+                        self.addMissionsToLocalDB(new_missions)
 
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
@@ -4276,9 +4050,110 @@ class MainWindow(QMainWindow):
 
         self.addNewMissions(missions_from_file)
 
+    def process_original_xlsx_file(self, file_path):
+        # Read the Excel file, skipping the first two rows
+        df = pd.read_excel(file_path, skiprows=2)
+
+        # Drop rows where all elements are NaN
+        df.dropna(how='all', inplace=True)
+
+        # Convert each row to a JSON object and append to a list
+        json_list = df.to_dict(orient='records')
+
+        #add a reverse link back to
+        for jl in json_list:
+            jl["file_link"] = file_path
+
+        print("READ XLSX::", json_list)
+        return json_list
+
+    def update_original_xlsx_file(self, file_path, mission_data):
+        # Read the Excel file, skipping the first two rows
+        dir_path = os.path.dirname(file_path)
+        df = pd.read_excel(file_path, skiprows=2)
+
+        # Drop rows where all elements are NaN
+        df.dropna(how='all', inplace=True)
+
+        # Convert each row to a JSON object and append to a list
+        json_list = df.to_dict(orient='records')
+
+        mission_ids = [mission["mission ID"] for mission in mission_data]
+        completion_dates = [mission["completion date"] for mission in mission_data]
+
+        # Add new columns with default or empty values
+        df['mission ID'] = mission_ids[:len(df)]
+        df['completion date'] = completion_dates[:len(df)]
+
+        # Get the new file name using the first row of the "mission ID" column
+        new_mission_id = df.loc[0, 'mission ID']
+        base_name = os.path.basename(file_path)
+        new_file_name = f"{os.path.splitext(base_name)[0]}_{new_mission_id}.xlsx"
+        new_file_path = os.path.join(dir_path, new_file_name)
+
+        # Save the updated DataFrame to a new file
+        df.to_excel(new_file_path, index=False)
+
+        print(f"File saved as {new_file_name}")
+
+
+    def newMissionFromNewReq(self, reqJson):
+        new_mission = EBMISSION(self)
+        new_mission.loadAMZReqData(reqJson)
+        return new_mission
+
+    def newBuyMissionFromFiles(self):
+        dtnow = datetime.now()
+        date_word = dtnow.strftime("%Y%m%d")
+
+        new_orders_dir = ecb_data_homepath + "/new_orders/ORDER" + date_word + "/"
+        self.showMsg("working on new orders:" + new_orders_dir)
+
+        new_buy_missions = []
+        if os.path.isdir(new_orders_dir):
+            files = os.listdir(new_orders_dir)
+            xlsx_files = [os.path.join(new_orders_dir, file) for file in files if os.path.isfile(os.path.join(new_orders_dir, file)) and file.endswith('.xlsx')]
+
+            #each row of each xlsx file becomes a new mission
+            for xlsx_file in xlsx_files:
+                # store, brand, execution time, quantity, asin, search term, title, page number, price, variation, product image, fb type, fb title, fb contents, notes
+                buy_mission_reqs = self.process_original_xlsx_file(xlsx_file)
+
+                for buy_req in buy_mission_reqs:
+                    n_buys = int(buy_req["quantity"])
+                    for n in range(n_buys):
+                        print("creating new buy mission:", n)
+                        # new_buy_missions.append(self.newMissionFromNewReq(buy_req))
+
+        # now that we have created all the new missions,
+        # create the in the cloud and local DB.
+        # cloud side first
+
+        if len(new_buy_missions) > 0:
+            jresp = send_add_missions_request_to_cloud(self.session, new_buy_missions, self.tokens['AuthenticationResult']['IdToken'])
+
+            if "errorType" in jresp:
+                screen_error = True
+                self.showMsg( "ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(jresp["errorInfo"]))
+            else:
+                self.showMsg("jresp type: " + str(type(jresp)) + " " + str(len(jresp["body"])))
+                jbody = jresp["body"]
+                # now that add is successfull, update local file as well.
+
+                # now update mission ID
+                for i in range(len(jbody)):
+                    new_buy_missions.setMid(jbody[i]["mid"])
+
+                #now add to local DB.
+                self.addMissionsToLocalDB(new_buy_missions)
+
+                #add to local data structure
+                self.missions = self.missions + new_buy_missions
+                for new_buy in new_buy_missions:
+                    self.missionModel.appendRow(new_buy)
 
     def fillNewSkill(self, nskjson, nsk):
-        self.showMsg("filling mission data")
+        self.showMsg("filling skill data")
         nsk.setNetRespJsonData(nskjson)
 
     def showSkillManager(self):
@@ -4361,25 +4236,7 @@ class MainWindow(QMainWindow):
                                     "price": new_skill.getPrice(),
                                     "privacy": new_skill.getPrivacy(),
                                 })
-
-                                sql = ''' INSERT INTO skills (skid, owner, platform, app, applink, appargs, site, sitelink, name, path, main, createdon, extensions, runtime, price_model, price, privacy)
-                                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                                data_tuple = (
-                                api_skills[i]["skid"], api_skills[i]["owner"], api_skills[i]["platform"], \
-                                api_skills[i]["app"], api_skills[i]["applink"], api_skills[i]["appargs"], api_skills[i]["site"], \
-                                api_skills[i]["sitelink"], api_skills[i]["name"], api_skills[i]["path"], api_skills[i]["main"],\
-                                api_skills[i]["createdon"], api_skills[i]["extensions"], api_skills[i]["runtime"], \
-                                api_skills[i]["price_model"], api_skills[i]["price"], api_skills[i]["privacy"])
-
-                                self.dbCursor.execute(sql, data_tuple)
-
-                                sql = 'SELECT * FROM skills'
-                                res = self.dbCursor.execute(sql)
-                                self.showMsg("fetchall"+json.dumps(res.fetchall()))
-                                # important about format: returned here is a list of tuples (,,,,)
-                                #for column in res.description:
-                                #    self.showMsg(str(column[0]))
-
+                                self.skill_service.insert_skill(api_skills[i])
                     else:
                         self.warn(QApplication.translate("QMainWindow", "Warning: NO skills in the file."))
             except Exception as e:
@@ -4389,8 +4246,8 @@ class MainWindow(QMainWindow):
                     ex_stat = "ErrorLoadSkillFile:" + traceback.format_exc() + " " + str(e)
                 else:
                     ex_stat = "ErrorLoadSkillFile: traceback information not available:" + str(e)
-                log3(ex_stat)
-                log3(QApplication.translate("QMainWindow", "Warning: load skill file error."))
+                logger_helper.debug(ex_stat)
+                logger_helper.debug(QApplication.translate("QMainWindow", "Warning: load skill file error."))
 
     def find_dependencies(self, main_file, visited, dependencies):
         if main_file in visited:
@@ -4548,25 +4405,7 @@ class MainWindow(QMainWindow):
             # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
             fileproducts = json.load(uncompressed)
             if len(fileproducts) > 0:
-                #add bots to the relavant data structure and add these bots to the cloud and local DB.
-
-                # sql = 'CREATE TABLE IF NOT EXISTS  products (pid INTEGER PRIMARY KEY, name TEXT, title TEXT, asin TEXT, variation TEXT, site TEXT, sku TEXT, size_in TEXT, weight_lbs REAL, condition TEXT, fullfiller TEXT, price INTEGER, cost INTEGER, inventory_loc TEXT, inventory_qty TEXT)'
-                #
-                # sql = ''' INSERT INTO products (pid, name, title, asin, variation, site, sku, size_in, weight_lbs,
-                #         condition, fullfiller, price, cost, inventory_loc, inventory_qty) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
-                # data_tuple = (pd[0]["pid"], pd[0]["name"], pd[0]["title"], pd[0]["asin"], pd[0]["variation"], pd[0]["site"], \
-                #               pd[0]["sku"], pd[0]["size_in"], pd[0]["weight_lbs"], pd[0]["condition"], pd[0]["fullfiller"], \
-                #               pd[0]["price"], pd[0]["cost"], pd[0]["inventory_loc"], pd[0]["inventory_qty"])
-                #
-                # self.dbCursor.execute(sql, data_tuple)
-                # self.dbcon.commit()
-
-                sql = 'SELECT * FROM products'
-                res = self.dbCursor.execute(sql)
-                self.showMsg("fetchall"+json.dumps(res.fetchall()))
-                # important about format: returned here is a list of tuples (,,,,)
-                #for column in res.description:
-                #    self.showMsg(str(column[0]))
+                self.product_service.find_all_products()
 
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: NO products found in file."))
@@ -4575,30 +4414,14 @@ class MainWindow(QMainWindow):
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
-    def loadLocalBots(self, sql='SELECT * FROM bots', tuple=()):
-        skill_def_files = []
-        # sql = 'SELECT * FROM bots'
-
-        # column_name = 'your_column_name'
-        # column_value = 'your_column_value'
-        #
-        # # Construct the SQL query with placeholders
-        # query = f"SELECT * FROM your_table_name WHERE {column_name} = ?"
-        #
-        # # Execute the query and fetch the results
-        # cursor.execute(query, (column_value,))
-
-        res = self.dbCursor.execute(sql, tuple)
-
-        db_data = self.dbCursor.fetchall()
-
-        self.showMsg("get local bots from DB::"+json.dumps(db_data))
+    def loadLocalBots(self, db_data: [BotModel]):
+        dict_results = [result.to_dict() for result in db_data]
+        self.showMsg("get local bots from DB::" + json.dumps(dict_results))
         if len(db_data) != 0:
-            self.showMsg("bot fetchall"+json.dumps(db_data))
             self.bots = []
             self.botModel.clear()
             for row in db_data:
-                self.showMsg("loading a bot: "+json.dumps(row))
+                self.showMsg("loading a bot: "+json.dumps(row.to_dict()))
                 new_bot = EBBOT(self)
                 new_bot.loadDBData(row)
                 new_bot.updateDisplay()
@@ -4613,29 +4436,17 @@ class MainWindow(QMainWindow):
 
 
     # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
-    def loadLocalMissions(self, sql='SELECT * FROM missions', tuple=()):
-        skill_def_files = []
-        if sql == 'SELECT * FROM missions':
-            # three_days_ago = datetime.now() - timedelta(days=3)
-            # three_days_ago_str = three_days_ago.strftime('%Y-%m-%d')
-            sql = """
-            SELECT * FROM missions
-            WHERE createon >= date('now', '-3 days')
-            """
-
-        res = self.dbCursor.execute(sql, tuple)
-
-        db_data = res.fetchall()
-
-        self.showMsg("get local missions from db::"+json.dumps(db_data))
+    def loadLocalMissions(self, db_data: [MissionModel]):
+        dict_results = [result.to_dict() for result in db_data]
+        self.showMsg("get local missions from db::" + json.dumps(dict_results))
         if len(db_data) != 0:
-            self.showMsg("mission fetchall"+json.dumps(db_data))
             self.missions = []
             self.missionModel.clear()
             for row in db_data:
-                self.showMsg("loading a mission: "+json.dumps(row))
+                self.showMsg("loading a mission: "+json.dumps(row.to_dict()))
                 new_mission = EBMISSION(self)
                 new_mission.loadDBData(row)
+                new_mission.setData(row)
                 self.cuspas_to_diaplayable(new_mission)
                 new_mission.updateDisplay()
                 self.missions.append(new_mission)
@@ -4665,15 +4476,6 @@ class MainWindow(QMainWindow):
             self.showMsg("resp body"+json.dumps(jresp["body"]))
             #jbody = json.loads(jresp["body"])
             # now that fetch all bots from the cloud side is successfull, need to compare with local data and merge:
-
-    def getAllBotsFromLocalDB(self):
-        sqlite_select_query = """SELECT * from bots;"""
-        self.dbCursor.execute(sqlite_select_query)
-        # Fetch all the rows (each row represents a column)
-        db_data = self.dbCursor.fetchall()
-        self.showMsg("DB Data:"+json.dumps(db_data))
-        # now populate UI with these bots.
-
 
     def setOwner(self, owner):
         self.owner = owner
@@ -4762,10 +4564,12 @@ class MainWindow(QMainWindow):
             print("looping runbotworks.....")
             botTodos = None
             if self.workingState == "Idle":
+                print("idle checking.....")
                 if self.getNumUnassignedWork() > 0:
                     self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                     self.assignWork()
 
+                print("check next to run")
                 botTodos = self.checkNextToRun()
                 if not botTodos == None:
                     self.showMsg("working on..... "+botTodos["name"])
@@ -5061,9 +4865,9 @@ class MainWindow(QMainWindow):
             found_mission = self.missions[midx]
             self.showMsg("just finished mission ["+str(found_mission.getMid())+"] status:"+found_mission.getStatus())
             if "Completed" in found_mission.getStatus():
-                found_mission.setMissionIcon(QIcon(self.mission_success_icon_path))
+                found_mission.setMissionIcon(QIcon(self.file_resouce.mission_success_icon_path))
             else:
-                found_mission.setMissionIcon(QIcon(self.mission_failed_icon_path))
+                found_mission.setMissionIcon(QIcon(self.file_resouce.mission_failed_icon_path))
 
             for item in self.missionModel.findItems('mission' + str(found_mission.getMid()) + ":Bot" + str(
                 found_mission.getBid()) + ":" + found_mission.pubAttributes.ms_type + ":" + found_mission.pubAttributes.site):
@@ -5289,33 +5093,6 @@ class MainWindow(QMainWindow):
                 found.setActualStartTime(rpt["starttime"])
                 found.setActualEndTime(rpt["endtime"])
 
-    def updateMissionsStatsToLocalDB(self):
-        # Prepare the SQL UPDATE statement
-        sql = ''' UPDATE missions SET ticket = ?, botid = ?, status = ?, createon = ?, esd = ?, ecd = ?, asd = ?, abd = ?, 
-                                aad = ?, afd = ?, acd = ?, actual_start_time = ?, est_start_time = ?, actual_runtime = ?, est_runtime = ?, 
-                                n_retries = ?, cuspas = ?, category = ?, phrase = ?, pseudoStore = ?, pseudoBrand = ?, 
-                                pseudoASIN = ?, type = ?, config = ?, skills = ?, delDate = ?, asin = ?, store = ?, brand = ?, 
-                                img = ?, title = ?, rating = ?, feedbacks = ?, price = ?, customer = ?, platoon = ?, result = ? WHERE mid = ?; '''
-        data_tuple = []
-        for i, amission in enumerate(self.missions):
-            data_tuple.append((
-                amission[i]["ticket"], amission[i]["botid"], amission[i]["status"], amission[i]["createon"], \
-                amission[i]["esd"], amission[i]["ecd"], amission[i]["asd"], amission[i]["abd"], amission[i]["aad"], \
-                amission[i]["afd"], amission[i]["acd"], amission[i]["actual_start_time"], \
-                amission[i]["est_start_time"],  amission[i]["actual_run_time"], amission[i]["est_run_time"], \
-                amission[i]["n_retries"], amission[i]["cuspas"], amission[i]["search_cat"], amission[i]["search_kw"], \
-                amission[i]["pseudo_store"], amission[i]["pseudo_brand"], amission[i]["pseudo_asin"], \
-                amission[i]["type"], amission[i]["config"], amission[i]["skills"], amission[i]["delDate"], \
-                amission[i]["asin"], amission[i]["store"], amission[i]["brand"], amission[i]["image"], \
-                amission[i]["title"], amission[i]["rating"], amission[i]["feedbacks"], amission[i]["price"], \
-                amission[i]["customer"], amission[i]["platoon"], amission[i]["result"], amission[i]["mid"]))
-
-        self.dbCursor.executemany(sql, data_tuple)
-
-        # Commit the transaction
-        self.dbcon.commit()
-
-
     # all work done today, now
     # 1) send report to the network,
     # 2) save report to local logs,
@@ -5361,8 +5138,10 @@ class MainWindow(QMainWindow):
 
             # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
             if not self.hostrole == "Platoon":
-                self.todays_work = {"tbd": [{"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []}]}
-                self.updateMissionsStatsToLocalDB()
+                self.todays_work = {"tbd": [
+                    {"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start",
+                     "current widx": 0, "completed": [], "aborted": []}]}
+                self.mission_service.update_missions_by_id(self.missions)
 
             self.todays_completed = []
             self.todaysReports = []                     # per vehicle/host
@@ -5407,13 +5186,13 @@ class MainWindow(QMainWindow):
 
 
     def closeEvent(self, event):
-        #Your desired functionality here
-        self.showMsg('Program quitting....')
-
-        if self.dbcon:
-            self.dbcon.close()
-
-        sys.exit(0)
+        self.showMsg('Main window close....')
+        for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task):
+            if not task.done():
+                task.cancel()
+        if self.loginout_gui:
+            self.loginout_gui.show()
+        event.accept()
 
     def createTrialRunMission(self):
         trMission = EBMISSION(self)
@@ -5446,93 +5225,16 @@ class MainWindow(QMainWindow):
             return None
 
     def searchLocalMissions(self):
-        mcols = ['botid', 'status', 'acd', 'n_retries', 'cuspas', 'category', 'phrase', 'pseudoStore', 'pseudoBrand', 'pseudoASIN', 'asin', 'store', 'customer', 'type', 'config', 'delDate', 'platoon', 'result']
         self.showMsg("Searching local missions based on createdon date range and field parameters....")
-        date_valid = False
-        pattern = r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD pattern
-
-        search_cols = []
-        sql = "SELECT * FROM missions WHERE "
-        vals = []
-        fromDateString = self.mission_from_date_edit.text()
-        toDateString = self.mission_to_date_edit.text()
-        from_matches = re.findall(pattern, fromDateString)
-        to_matches = re.findall(pattern, toDateString)
-        if len(from_matches) > 0 and len(to_matches) > 0:
-            sql = sql + "createon BETWEEN ? AND ?"
-            vals.append(fromDateString.strip())
-            vals.append(toDateString.strip())
-            date_valid = True
-
-        if self.mission_search_edit.text() != "":
-            search_words = self.mission_search_edit.text().split(",")
-            i = 0
-            for sw in search_words:
-                self.showMsg("search word:"+sw)
-                sw_words = sw.split(":")
-                col_name = sw_words[0].strip()
-                col_txt = sw_words[1].strip()
-                if col_name in mcols:
-                    if i == 0 and not date_valid:
-                        sql = sql + col_name + " = ?"
-                    else:
-                        sql = sql + " AND " + col_name + " = ?"
-
-                    if col_name == "botid" or col_name == "n_retries":
-                        col_val = int(col_txt)
-                    else:
-                        col_val = col_txt
-
-                    vals.append(col_val)
-
-                i = i + 1
-        vals_tuple = tuple(vals)
-        self.showMsg("MISSION QUERY SQL<"+sql+">TUPLE:("+", ".join(str(x) for x in vals_tuple)+")")
-        # self.loadLocalMissions(sql, vals_tuple)
-
+        data = self.mission_service.find_missions_by_search(self.mission_from_date_edit.text(), self.mission_to_date_edit.text(),self.mission_search_edit.text())
+        self.loadLocalMissions(data)
 
     def searchLocalBots(self):
-        bcols = ['birthday', 'levels', 'roles', 'status', 'location', 'interests', 'gender']
         self.showMsg("Searching local bots based on createdon date range and field parameters....")
-        date_valid = False
-        pattern = r'\d{4}-\d{2}-\d{2}'  # YYYY-MM-DD pattern
-
-        search_cols = []
-        sql = "SELECT * FROM bots WHERE "
-        vals = []
-        fromDateString = self.bot_from_date_edit.text()
-        toDateString = self.bot_to_date_edit.text()
-        from_matches = re.findall(pattern, fromDateString)
-        to_matches = re.findall(pattern, toDateString)
-        if len(from_matches) > 0 and len(to_matches) > 0:
-            sql = sql + "birthday BETWEEN ? AND ?"
-            vals.append(fromDateString.strip())
-            vals.append(toDateString.strip())
-            date_valid = True
-
-        if self.bot_search_edit.text() != "":
-            search_words = self.bot_search_edit.text().split(",")
-            i = 0
-            for sw in search_words:
-                self.showMsg("search word:"+sw)
-                sw_words = sw.split(":")
-                col_name = sw_words[0].strip()
-                col_txt = sw_words[1].strip()
-                if col_name in bcols:
-                    if i == 0 and not date_valid:
-                        sql = sql + col_name + " = ?"
-                    else:
-                        sql = sql + " AND " + col_name + " = ?"
-
-                    col_val = col_txt
-
-                    vals.append(col_val)
-
-                i = i + 1
-
-        vals_tuple = tuple(vals)
-        self.showMsg("MISSION QUERY SQL<"+sql+"> TUPLE:("+", ".join(str(x) for x in vals_tuple)+")")
-        # self.loadLocalBots(sql, vals_tuple)
+        data = self.bot_service.find_bots_by_search(self.bot_from_date_edit.text(),
+                                                          self.bot_to_date_edit.text(),
+                                                          self.bot_search_edit.text())
+        self.loadLocalBots(data)
 
 
     # build up a dictionary of bot - to be visited site list required by today's mission.
@@ -5764,3 +5466,8 @@ class MainWindow(QMainWindow):
                 self.showMsg(f"Error: JSON empty")
             else:
                 self.showMsg(f"Error: TCP link doesn't exist")
+
+
+    def getEncryptKey(self):
+        key, salt = derive_key(self.main_key)
+        return key
