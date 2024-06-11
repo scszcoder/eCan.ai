@@ -12,6 +12,8 @@ runlogs_dir = ecb_data_homepath + "/runlogs"
 if not os.path.isdir(runlogs_dir):
     os.mkdir(runlogs_dir)
     print("create runlogs directory ", runlogs_dir)
+else:
+    print(f"runlogs {runlogs_dir} directory is existed")
 
 def copy_skills_file():
     """

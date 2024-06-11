@@ -1,3 +1,7 @@
+from utils.logger_helper import logger_helper
+from utils.time_util import TimeUtil
+
+print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
 import asyncio
 import json
 import os
@@ -20,6 +24,8 @@ from bot.signio import CLIENT_ID, USER_POOL_ID
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP, commanderServer, commanderXport
+
+print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 
 #ACCT_FILE =  os.environ.get('ECBOT_HOME') + "/resource/settings/uli.json"
 # ecbhomepath = getECBotHome()
@@ -151,6 +157,7 @@ class Login(QDialog):
                 self.lan = data["lan"]
                 self.show_visibility = data["mem_cb"]
         else:
+            logger_helper.info(f"acct file {ACCT_FILE} is not existed!")
             self.show_visibility = True             #default
             localLan = self.get_locale()
             print(localLan)
@@ -227,6 +234,8 @@ class Login(QDialog):
             with open(ROLE_FILE, 'r') as file:
                 mr_data = json.load(file)
                 self.machine_role = mr_data["machine_role"]
+        else:
+            logger_helper.info(f"role file {ROLE_FILE} is not existed!")
 
     def get_role(self):
         # is function is for testing purpose only
