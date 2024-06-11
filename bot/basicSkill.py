@@ -829,7 +829,7 @@ def list_windows():
 
 
 def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
-    settings = mission.parent_settings
+    settings = mission.main_win_settings
     global screen_loc
 
     window_name, window_rect = get_top_visible_window()
@@ -939,7 +939,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
 
 
 async def read_screen8(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
-    settings = mission.parent_settings
+    settings = mission.main_win_settings
     global screen_loc
 
     window_name, window_rect = get_top_visible_window()
@@ -1141,7 +1141,7 @@ def processExtractInfo(step, i, mission, skill):
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
         else:
-            ppword = mission.parent_settings["uid"]
+            ppword = mission.main_win_settings["uid"]
 
         date_word = dtnow.strftime("%Y%m%d")
         dt_string = str(int(dtnow.timestamp()))
@@ -1152,7 +1152,7 @@ def processExtractInfo(step, i, mission, skill):
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
         else:
-            ppword = mission.parent_settings["uid"]
+            ppword = mission.main_win_settings["uid"]
 
         log3("mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS()+"step settings:"+json.dumps(step["settings"]))
 
@@ -1178,7 +1178,7 @@ def processExtractInfo(step, i, mission, skill):
         # fdir = fdir + ppword + "/"
         fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
         fdir = fdir + step_settings["skname"] + "/images/"
-        sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
+        sfile = fdir + "scrn" + mission.main_win_settings["uid"] + "_" + dt_string + ".png"
         log3("sfile: "+sfile)
         found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
         sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
@@ -1235,7 +1235,7 @@ async def processExtractInfo8(step, i, mission, skill):
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
         else:
-            ppword = mission.parent_settings["uid"]
+            ppword = mission.main_win_settings["uid"]
 
         date_word = dtnow.strftime("%Y%m%d")
         dt_string = str(int(dtnow.timestamp()))
@@ -1246,7 +1246,7 @@ async def processExtractInfo8(step, i, mission, skill):
         if skill.getPrivacy() == "public":
             ppword = skill.getPrivacy()
         else:
-            ppword = mission.parent_settings["uid"]
+            ppword = mission.main_win_settings["uid"]
 
         log3("mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS()+"step settings:"+json.dumps(step["settings"]))
 
@@ -1272,7 +1272,7 @@ async def processExtractInfo8(step, i, mission, skill):
         # fdir = fdir + ppword + "/"
         fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
         fdir = fdir + step_settings["skname"] + "/images/"
-        sfile = fdir + "scrn" + mission.parent_settings["uid"] + "_" + dt_string + ".png"
+        sfile = fdir + "scrn" + mission.main_win_settings["uid"] + "_" + dt_string + ".png"
         log3("sfile: "+sfile)
         found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
         sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
@@ -2890,7 +2890,7 @@ def processObtainReviews(step, i, mission):
 
     review_request = [{"product": symTab[step["product"]], "instructions": symTab[step["instructions"]]}]
     try:
-        settings = mission.parent_settings
+        settings = mission.main_win_settings
         resp = req_cloud_obtain_review(settings["session"], review_request, settings["token"])
         symTab[step["review"]]
 
@@ -3584,7 +3584,7 @@ def processThink(step, i, mission):
         # {"orderID": "", "thread": [{"time stamp": yyyy-mm-dd hh:mm:ss, "from": "", "msg txt": "", "attachments": ["",...], }....]}
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "products": symTab[step["products"]],
                "goals": step["setup"], "background": "", "msg": symTab[step["query"]]}]
-        settings = mission.parent_settings
+        settings = mission.main_win_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
 
 
@@ -3614,7 +3614,7 @@ def processGenRespMsg(step, i, mission):
 
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
                "goals": step["setup"], "background": "", "msg_thread": symTab[step["query"]]}]
-        settings = mission.parent_settings
+        settings = mission.main_win_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
 
 
