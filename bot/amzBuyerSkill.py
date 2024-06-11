@@ -700,8 +700,8 @@ def genAMZBrowseProductListToLastAttention(pl, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
     # create a loop here to click into the interested product list. Note: loop is inside genAMZBrowseDetail
-    this_step, step_words = genAMZBrowseDetails(pl, "pl_need_attention", "att_count", this_step, worksettings, theme)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genAMZBrowseDetails(pl, "pl_need_attention", "att_count", this_step, worksettings, theme)
+    # psk_words = psk_words + step_words
 
     # update li counter
     this_step, step_words = genStepCallExtern("global att_count\natt_count = att_count - 1", "", "in_line", "", this_step)
@@ -1037,8 +1037,8 @@ def genAMZBrowseDetails(pl, atpl, tbb_index, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
     # close on len(buy_ops) >  0
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
 
     # back to produc list page...
     # now go back to the previous browser page. by press alt-left
@@ -1318,7 +1318,13 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genStepCheckCondition(flows+"[nthFlow] == 'down'", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCheckCondition("nthFlow >= numFlows - 2", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     # is this the last product list page?
@@ -1340,6 +1346,9 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genAMZBrowseProductListToBottom(pageCfgsName, "plSearchResult", this_step, worksettings, theme)
     psk_words = psk_words + step_words
 
@@ -1359,8 +1368,11 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("int", "down_cnt", "NA", 20, this_step)
+    psk_words = psk_words + step_words
+
     # back up is always a quick scroll, will never browse along the way.
-    this_step, step_words = genAMZScrollProductListToTop(down_count_var, this_step, worksettings)
+    this_step, step_words = genAMZScrollProductListToTop("down_cnt", this_step, worksettings)
     psk_words = psk_words + step_words
 
     # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
@@ -1531,6 +1543,9 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepCheckCondition("len(search_buy) == 0", "", "", this_step)
     psk_words = psk_words + step_words
 
+    # this_step, step_words = genStepWait(1, 0, 0, this_step)
+    # psk_words = psk_words + step_words
+
     # if no purchase, it's got to be a browse, so go thru the typical browse process. even if there is in-cart type of
     # buy action, the purchase will never be put the 1st product to browse, the purchase in the following page will take care of itself
     # when we finishing browsing product details, it will check purchase and if there is , we'll do put in cart action there.
@@ -1612,9 +1627,11 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
 
     # this_step, step_words = genStepCreateData("expr", "direct_buy", "NA", "search_buy[0]", this_step)
     # psk_words = psk_words + step_words
-
-    this_step, step_words = genDirectBuySteps("sk_work_settings", "search_buy", this_step, theme)
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
+
+    # this_step, step_words = genDirectBuySteps("sk_work_settings", "search_buy", this_step, theme)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
@@ -2106,8 +2123,8 @@ def genWinChromeAMZBuyPaySteps(settings_string,  buy_cmd_name, buy_result_name, 
     # this_step, step_words = genStepCreateData("string", "buy_status", "NA", "noBuyBox", this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
 
     return this_step, psk_words
 
@@ -2150,7 +2167,7 @@ def genWinChromeAMZBuyGiveRatingSteps(settings_string,  buy_cmd_name, buy_result
     this_step, step_words = genStepAMZPeekAndClick(settings_string, "orders", "order_page", "on_page_top", this_step, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "order_id", "NA", buy_cmd_name+"['order_id']", stepN)
+    this_step, step_words = genStepCreateData("expr", "order_id", "NA", buy_cmd_name+"['order_id']", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genScrollDownUntil("order_id", "text var", 90, "my_orders", "top", this_step, settings_string, "amz", theme)
