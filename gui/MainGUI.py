@@ -20,13 +20,11 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 import importlib
 import importlib.util
 
-
 from globals.bot_service import BotService
 from globals.mission_service import MissionService
 from globals.model import BotModel, MissionModel, init_db, get_session
 from globals.product_service import ProductService
 from globals.skill_service import SkillService
-from tests.TestAll import Tester
 
 
 from gui.BotGUI import BotNewWin
