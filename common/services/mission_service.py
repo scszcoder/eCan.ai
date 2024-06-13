@@ -4,9 +4,10 @@ from datetime import datetime, timedelta
 from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text
 
 from Cloud import send_query_missions_request_to_cloud
-from globals.model import MissionModel
 import traceback
 from bot.Logger import log3
+from common.models.mission import MissionModel
+
 
 class MissionService:
     def __init__(self, main_win, session):

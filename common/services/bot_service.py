@@ -3,7 +3,7 @@ import json
 from sqlalchemy import or_, delete
 
 from Cloud import send_query_bots_request_to_cloud
-from globals.model import BotModel
+from common.models.bot import BotModel
 
 
 class BotService:
