@@ -17,11 +17,14 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 import importlib
 import importlib.util
 
-from globals.bot_service import BotService
-from globals.mission_service import MissionService
-from globals.model import BotModel, MissionModel, init_db, get_session
-from globals.product_service import ProductService
-from globals.skill_service import SkillService
+from common.models.bot import BotModel
+from common.models.mission import MissionModel
+from common.db_init import init_db, get_session
+from common.services.mission_service import MissionService
+from common.services.product_service import ProductService
+from common.services.skill_service import SkillService
+
+from common.services.bot_service import BotService
 from tests.TestAll import Tester
 
 
