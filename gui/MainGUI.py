@@ -293,8 +293,8 @@ class MainWindow(QMainWindow):
         if self.machine_role != "Platoon":
             engine = init_db(self.dbfile)
             session = get_session(engine)
-            self.bot_service = BotService(self, session)
-            self.mission_service = MissionService(self, session)
+            self.bot_service = BotService(self, session, engine)
+            self.mission_service = MissionService(self, session, engine)
             self.product_service = ProductService(self, session)
             self.skill_service = SkillService(self, session)
 
@@ -1864,8 +1864,9 @@ class MainWindow(QMainWindow):
     # might not be loaded from memory, so directly search DB.
     def find_original_buy(self, buy_mission):
         # Construct the SQL query with a parameterized IN clause
-        db_data = self.mission_service.delete_missions_by_ticket(buy_mission.getTicket())
-        self.showMsg("same ticket missions: " + json.dumps(db_data))
+        db_data = self.mission_service.find_missions_by_ticket(buy_mission.getTicket())
+        print("buy mission ticket:", buy_mission.getTicket())
+        self.showMsg("same ticket missions: " + json.dumps(db_data.to_dict()))
         if len(db_data) != 0:
             original_buy_mission = EBMISSION(self)
             original_buy_mission.loadDBData(db_data[0])
