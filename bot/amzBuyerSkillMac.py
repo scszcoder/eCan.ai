@@ -135,6 +135,9 @@ def genMacChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepCreateData("expr", "run_config", "NA", "sk_work_settings['run_config']", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global run_config\nprint('run_config', run_config)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("expr", "numSearchs", "NA", "len(run_config['searches'])", this_step)
     psk_words = psk_words + step_words
 
@@ -144,7 +147,7 @@ def genMacChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepLoop("nthSearch < numSearchs", "", "", "search" + str(start_step), this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "search_buy", "NA", "run_config['searches'][nthSearch]['prodlist_pages'][0]['purchase']", this_step)
+    this_step, step_words = genStepCreateData("expr", "search_buy", "NA", "run_config['searches'][nthSearch]['prodlist_pages'][0]['products'][0]['purchase']", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("len(search_buy) == 0", "", "", this_step)
