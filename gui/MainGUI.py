@@ -1867,6 +1867,7 @@ class MainWindow(QMainWindow):
         if buy_mission.getTicket() == 0:
             # this is test mode special ticket, so provide some test vector.
             original_buy_mission = EBMISSION(self)
+            original_buy_mission.setMid(0)
             original_buy_mission.setASIN("B0CYLVMLHP")
             original_buy_mission.setStore("Lefant")
             original_buy_mission.setBrand("Lefant")

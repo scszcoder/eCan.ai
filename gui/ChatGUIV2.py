@@ -158,7 +158,9 @@ class ChatDialog(QDialog):
             return
         menu = QMenu(self)
         delete_action = QAction("删除", self)
+        all_activities_action = QAction("Show All Activities", self)
         delete_action.triggered.connect(lambda: self.delete_contact(index.row()))
+        all_activities_action.triggered.connect(lambda: self.show_all_activities(index.row()))
         menu.addAction(delete_action)
         menu.exec_(self.contacts_list.mapToGlobal(pos))
 
@@ -166,6 +168,11 @@ class ChatDialog(QDialog):
         item = self.contacts_list.takeItem(row)
         if item:
             del item
+
+    def show_all_activities(self, row):
+        print("open a new window or tab or frame (or swap the current bot list) to show a list of conversations this bot has with other bot/bot groups")
+        print("before open, should check permission and authorization first. only open when permission allows.")
+        print("if openable, a supervisor could chime into the communication, or whisper into an agent?")
 
     def contact_selected(self, current):
         print(current)
