@@ -547,8 +547,9 @@ def test_api(parent, session, token):
 
 def test_sqlite3(mw):
     from sqlalchemy import Text
+    mw.bot_service.describe_table()
     # mw.mission_service.add_column("variations", Text, "title")
-    mw.mission_service.describe_table()
+    #mw.mission_service.describe_table()
     # sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
     #               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
     # data_tuple = (21, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Male', '1992-01-01', \
