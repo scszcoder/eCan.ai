@@ -23,25 +23,31 @@ class MissionService:
     def find_missions_by_mids(self, mids) -> [MissionModel]:
         results = self.session.query(MissionModel).filter(MissionModel.mid.in_(mids)).all()
         dict_results = [result.to_dict() for result in results]
-        self.main_win.showMsg("Just Added Local DB Mission Row(s): " + json.dumps(dict_results), "debug")
+        self.main_win.showMsg("Found Local DB Mission Row(s) by mids: " + json.dumps(dict_results), "debug")
         return results
 
     def find_missions_by_mid(self, mid) -> MissionModel:
         result: MissionModel = self.session.query(MissionModel).filter(MissionModel.mid == mid).first()
         if result is not None:
-            self.main_win.showMsg("Just Added Local DB Mission Row(s): " + json.dumps(result.to_dict()), "debug")
+            self.main_win.showMsg("Found Local DB Mission Row(s) by mid: " + json.dumps(result.to_dict()), "debug")
+        return result
+
+    def find_missions_by_ticket(self, ticket) -> MissionModel:
+        result: MissionModel = self.session.query(MissionModel).filter(MissionModel.ticket == ticket).first()
+        if result is not None:
+            self.main_win.showMsg("Found Local DB Mission Row(s) by ticket: " + json.dumps(result.to_dict()), "debug")
         return result
 
     def insert_missions_batch_(self, missions: [MissionModel]):
         self.session.add_all(missions)
         self.session.commit()
         dict_results = [result.to_dict() for result in missions]
-        self.main_win.showMsg("Mission fetchall" + json.dumps(dict_results))
+        self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results))
 
     def find_all_missions(self) -> [MissionModel]:
         results = self.session.query(MissionModel).all()
         dict_results = [result.to_dict() for result in results]
-        self.main_win.showMsg("Missions fetchall" + json.dumps(dict_results))
+        self.main_win.showMsg("Missions fetchall after find all" + json.dumps(dict_results))
         return results
 
     def insert_missions_batch(self, jbody, api_missions):
