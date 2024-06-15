@@ -1378,7 +1378,10 @@ class MainWindow(QMainWindow):
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
                     # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
                     # file = 'C:/software/scheduleResultTest7.json'
-                    file = 'C:/temp/scheduleResultTest7.json'
+                    # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
+                    # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
+                    # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
+                    file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                     if exists(file):
                         with open(file) as test_schedule_file:
                             bodyobj = json.load(test_schedule_file)
@@ -1761,6 +1764,18 @@ class MainWindow(QMainWindow):
 
 
     # generate a buy associated browse-search configuration
+    # on the cloud side, a search config should have been attached to the buy_*** mission,
+    # in case we just started execute a buy mission (i.e. the first steps are addcart or
+    # addcart and pay, then:
+    # 0) randomly select a search to swap the actual buy-related search.
+    # 1) expand search result pages to 5 pages (we'll search up to 5 pages for the designated product.
+    # 2) on each result pages of this selected search, make a to-be-opened product,(sel_type "cus" and add purchase)
+    #    to the to-be-opened products list.
+    # in case we are onto the later stage of buy (such as check shipping status, feedback etc.)
+    # we would simply
+    #  0) add "purchase" to first product on the first porduct list page of the selected search.
+    # this would trigger the skill to go directly to the account's orders list and perform the buy
+    # step.
     def gen_new_buy_search(self, work, mission):
         # simply modify mission's search configuration to fit our need.
         # we'll randomely pick one of the searches and modify its parameter.
@@ -1779,9 +1794,9 @@ class MainWindow(QMainWindow):
 
             # on each pages, add the target buy product onto the list.
             for page in work["config"]["searches"][nth_search]["prodlist_pages"]:
-                if work["name"].split("_")[1] in ["addCart", "pay"]:
+                if work["name"].split("_")[1] in ["addCart", "pay", "addCartPay"]:
                     target_buy = {
-                        "selType": "cus",   # this is key,
+                        "selType": "cus",   # this is key, the skill itself will do the swapping of search terms once it see "cus" here.
                         "detailLvl": 3,
                         "purchase": [{
                                     "action": work["name"].split("_")[1],
@@ -1796,27 +1811,8 @@ class MainWindow(QMainWindow):
                                     "price": mission.getPrice(),
                                 }]
                     }
-
-                elif work["name"].split("_")[1] in ["addCartPay"]:
-                    target_buy = {
-                        "selType": "cus",  # this is key,
-                        "detailLvl": 3,
-                        "purchase": [
-                            {
-                                "action": "addCart",
-                                "asin": mission.getASIN(),
-                                "seller": mission.getStore(),
-                                "brand": mission.getBrand(),
-                                "img": mission.getImagePath(),
-                                "title": mission.getTitle(),
-                                "variations": mission.getVariations(),
-                                "rating": mission.getRating(),
-                                "feedbacks": mission.getFeedbacks(),
-                                "price": mission.getPrice()
-                            }
-                        ]
-                    }
                 page["products"].append(target_buy)
+
         elif work["name"].split("_")[1] in ["pay", "checkShipping", "rate", "feedback", "checkFB"]:
             # in all other case, simply replace last st product of the 1st page.
             first_page = work["config"]["searches"][nth_search]["prodlist_pages"][0]
