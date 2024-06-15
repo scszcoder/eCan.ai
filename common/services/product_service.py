@@ -1,6 +1,6 @@
 import json
 
-from globals.model import ProductsModel
+from common.models.product import ProductsModel
 
 
 class ProductService:

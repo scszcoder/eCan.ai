@@ -9,7 +9,7 @@ from bot.Logger import log3
 import tzlocal
 
 from bot.readSkill import runAllSteps
-from globals.model import MissionModel
+from common.models.mission import MissionModel
 from encrypt import *
 
 TIME_SLOT_MINS = 20

@@ -5,7 +5,7 @@ from datetime import datetime, date
 from bot.Logger import log3
 from PySide6.QtGui import QStandardItem, QIcon
 
-from globals.model import BotModel
+from common.models.bot import BotModel
 
 
 # Every bot has a run schedule which is specified in the following parameters
