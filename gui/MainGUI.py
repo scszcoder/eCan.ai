@@ -1864,16 +1864,30 @@ class MainWindow(QMainWindow):
     # might not be loaded from memory, so directly search DB.
     def find_original_buy(self, buy_mission):
         # Construct the SQL query with a parameterized IN clause
-        db_data = self.mission_service.find_missions_by_ticket(buy_mission.getTicket())
-        print("buy mission ticket:", buy_mission.getTicket())
-        self.showMsg("same ticket missions: " + json.dumps(db_data.to_dict()))
-        if len(db_data) != 0:
+        if buy_mission.getTicket() == 0:
+            # this is test mode special ticket, so provide some test vector.
             original_buy_mission = EBMISSION(self)
-            original_buy_mission.loadDBData(db_data[0])
-            self.missions.append(original_buy_mission)
-            self.missionModel.appendRow(original_buy_mission)
+            original_buy_mission.setASIN("B0CYLVMLHP")
+            original_buy_mission.setStore("Lefant")
+            original_buy_mission.setBrand("Lefant")
+            original_buy_mission.setImagePath("")
+            original_buy_mission.setTitle("Lefant Robot Vacuum Cleaner, 6 Cleaning Modes, Schedule Time, WiFi/APP/Alexa, 2200Pa Suction, 120 Min Runtime, Self-Charging Robotic Vacuum, Slim, Quiet, Ideal for Pet Hair, Hard Floors(M210 Pro)")
+            original_buy_mission.setVariations("")
+            original_buy_mission.setRating("4.4")
+            original_buy_mission.setFeedbacks("182")
+            original_buy_mission.setPrice("209.99")
+            original_buy_mission.setCustomerID("")
         else:
-            original_buy_mission = None
+            db_data = self.mission_service.find_missions_by_ticket(buy_mission.getTicket())
+            print("buy mission ticket:", buy_mission.getTicket())
+            self.showMsg("same ticket missions: " + json.dumps(db_data.to_dict()))
+            if len(db_data) != 0:
+                original_buy_mission = EBMISSION(self)
+                original_buy_mission.loadDBData(db_data)
+                self.missions.append(original_buy_mission)
+                self.missionModel.appendRow(original_buy_mission)
+            else:
+                original_buy_mission = None
 
         return original_buy_mission
 
@@ -1905,20 +1919,21 @@ class MainWindow(QMainWindow):
                 task_mission = self.missions[midx]
                 original_buy = self.find_original_buy(task_mission)
                 # first, fill the mission with original buy's private attributes for convenience.
-                task_mission.setASIN(original_buy.getASIN())
-                task_mission.setTitle(original_buy.getTitle())
-                task_mission.setVariations(original_buy.getVariations())
-                task_mission.setStore(original_buy.getStore())
-                task_mission.setBrand(original_buy.getBrand())
-                task_mission.setImagePath(original_buy.getImagePath())
-                task_mission.setRating(original_buy.getRating())
-                task_mission.setFeedbacks(original_buy.getFeedbacks())
-                task_mission.setPrice(original_buy.getPrice())
-                task_mission.setResult(original_buy.getResult())
+                if original_buy:
+                    task_mission.setASIN(original_buy.getASIN())
+                    task_mission.setTitle(original_buy.getTitle())
+                    task_mission.setVariations(original_buy.getVariations())
+                    task_mission.setStore(original_buy.getStore())
+                    task_mission.setBrand(original_buy.getBrand())
+                    task_mission.setImagePath(original_buy.getImagePath())
+                    task_mission.setRating(original_buy.getRating())
+                    task_mission.setFeedbacks(original_buy.getFeedbacks())
+                    task_mission.setPrice(original_buy.getPrice())
+                    task_mission.setResult(original_buy.getResult())
 
-                self.gen_new_buy_search(buytask, task_mission)
-
-
+                    self.gen_new_buy_search(buytask, task_mission)
+                else:
+                    self.showMsg("ERROR: could NOT find original buy mission!")
 
     # assign per vehicle task group work, if this commander runs, assign works for commander,
     # otherwise, send works to platoons to execute.
