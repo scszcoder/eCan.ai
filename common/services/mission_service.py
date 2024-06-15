@@ -39,7 +39,7 @@ class MissionService:
         result: MissionModel = self.session.query(MissionModel).filter(MissionModel.ticket == ticket).first()
         if result is not None:
             self.main_win.showMsg("Found Local DB Mission Row(s) by ticket: " + json.dumps(result.to_dict()), "debug")
-        return result
+        return result.to_dict()
 
     def insert_missions_batch_(self, missions: [MissionModel]):
         self.session.add_all(missions)
