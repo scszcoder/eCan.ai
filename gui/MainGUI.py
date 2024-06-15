@@ -1417,9 +1417,15 @@ class MainWindow(QMainWindow):
                 self.showMsg("WARNING!!!! no work TBD after fetching schedule...")
 
         # ni is already incremented by processExtract(), so simply return it.
-        except:
-            self.showMsg("ERROR EXCEPTION:")
-            fetch_stat = "ErrorFetchSchedule:" + jresp["errorType"]
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorFetchSchedule: traceback information not available:" + str(e)
+            self.showMsg(ex_stat)
 
         self.showMsg("done with fetch schedule:"+ fetch_stat)
         return fetch_stat
