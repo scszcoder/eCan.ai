@@ -10,7 +10,7 @@ class MissionModel(Base):
     botid = Column(Integer)
     status = Column(Text)
     createon = Column(Text)
-    # owner = Column(Text)
+    owner = Column(Text)
     esd = Column(Text)
     ecd = Column(Text)
     asd = Column(Text)

@@ -1,5 +1,6 @@
 import json
 
+from common.db_init import sync_table_columns
 from common.models.product import ProductsModel
 
 
@@ -7,6 +8,8 @@ class ProductService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
+        sync_table_columns(ProductsModel)
+
 
     def find_all_products(self):
         results = self.session.query(ProductsModel)

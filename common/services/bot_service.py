@@ -3,6 +3,7 @@ import json
 from sqlalchemy import or_, delete
 
 from Cloud import send_query_bots_request_to_cloud
+from common.db_init import sync_table_columns
 from common.models.bot import BotModel
 
 
@@ -10,6 +11,7 @@ class BotService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
+        sync_table_columns(BotModel)
 
     def delete_bots_by_botid(self, botid):
         # 构建删除表达式

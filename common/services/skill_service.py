@@ -1,5 +1,6 @@
 import json
 
+from common.db_init import sync_table_columns
 from common.models.skill import SkillModel
 
 
@@ -8,6 +9,7 @@ class SkillService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
+        sync_table_columns(SkillModel)
 
     def insert_skill(self, api_skills):
         local_skill = SkillModel()
