@@ -6,6 +6,7 @@ from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, 
 from Cloud import send_query_missions_request_to_cloud
 import traceback
 from bot.Logger import log3
+from common.db_init import sync_table_columns
 from common.models.mission import MissionModel
 
 
@@ -13,6 +14,7 @@ class MissionService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
+        sync_table_columns(MissionModel)
 
     def find_missions_by_createon(self):
         current_time = datetime.now()
