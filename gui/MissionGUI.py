@@ -988,7 +988,7 @@ class MissionNewWin(QMainWindow):
             filter(lambda sk: sk.getIsMain() and sk.getSkid() != self.selected_skill_item.getSkid(),
                    all_mission_skills))
 
-        if self.selected_skill_item.getIsMain():
+        if self.selected_skill_item is not None and self.selected_skill_item.getIsMain():
             # first go thru its dependencies and check whether a skill is
             deps = self.selected_skill_item.getDependencies()
             for dep in deps:
