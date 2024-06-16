@@ -1032,7 +1032,7 @@ class BotNewWin(QMainWindow):
         return super().eventFilter(obj, event)
 
     def deleteSelectedRow(self, tableView, model):
-        reply = QMessageBox.question(self, '删除确认', '确定要删除这条记录吗？', QMessageBox.Yes | QMessageBox.No,
+        reply = QMessageBox.question(self, 'Delet comfirmation', 'Are you sure you want to delete this record？', QMessageBox.Yes | QMessageBox.No,
                                      QMessageBox.No)
         if reply == QMessageBox.Yes:
             indexes = tableView.selectionModel().selectedIndexes()

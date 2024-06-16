@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QPushButton, QTextBrowser, QListWidget,
                                QListWidgetItem, QLineEdit, QDialog, QFrame, QMenu, QFileDialog,
-                               QMessageBox)
+                               QMessageBox, QApplication)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor, QAction, QTextBlockFormat, QImage, QPixmap, QIcon
 
@@ -50,7 +50,7 @@ class ChatDialog(QDialog):
         self.contacts_list.setCurrentRow(select_index)
 
     def init_ui(self):
-        self.setWindowTitle("聊天对话框")
+        self.setWindowTitle("Chat Dialog Box")
         self.setGeometry(100, 100, 800, 600)
 
         main_layout = QHBoxLayout(self)
@@ -109,7 +109,7 @@ class ChatDialog(QDialog):
         """)
         input_layout.addWidget(self.input_field)
 
-        self.send_button = QPushButton("发送")
+        self.send_button = QPushButton(QApplication.translate("QPushButton", "Send"))
         self.send_button.setStyleSheet("""
             min-width: 80px;
             height: 35px;
@@ -120,7 +120,7 @@ class ChatDialog(QDialog):
         self.send_button.clicked.connect(self.send_message)
         input_layout.addWidget(self.send_button)
 
-        self.attach_button = QPushButton("添加图片")
+        self.attach_button = QPushButton(QApplication.translate("QPushButton", "Add Image"))
         self.attach_button.setStyleSheet("""
             min-width: 80px;
             height: 35px;
@@ -150,14 +150,14 @@ class ChatDialog(QDialog):
                     image_base64 = base64.b64encode(image_data).decode('utf-8')
                     self.addRightMessage(image_base64, type="image")
             except Exception as e:
-                QMessageBox.warning(self, "错误", f"加载图片时出错: {e}")
+                QMessageBox.warning(self, "Error", f"Error loading images: {e}")
 
     def show_contact_menu(self, pos):
         index = self.contacts_list.indexAt(pos)
         if not index.isValid():
             return
         menu = QMenu(self)
-        delete_action = QAction("删除", self)
+        delete_action = QAction(QApplication.translate("QAction", "Delete"), self)
         delete_action.triggered.connect(lambda: self.delete_contact(index.row()))
         menu.addAction(delete_action)
         menu.exec_(self.contacts_list.mapToGlobal(pos))
@@ -298,7 +298,7 @@ class ChatDialog(QDialog):
                         scaled_pixmap = pixmap.scaledToWidth(500, Qt.TransformationMode.SmoothTransformation)
                         # 使用QMessageBox展示图片预览
                         preview = QMessageBox()
-                        preview.setWindowTitle("图片预览")
+                        preview.setWindowTitle("Picture Preview")
                         preview.setIconPixmap(scaled_pixmap)
                         preview.exec_()
 
