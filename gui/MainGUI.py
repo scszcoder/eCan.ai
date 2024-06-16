@@ -1360,7 +1360,7 @@ class MainWindow(QMainWindow):
                     # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
                     # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
                     # file = 'C:/software/scheduleResultTest7.json'
-                    file = 'C:/temp/scheduleResultTest7.json'
+                    file = '/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/public/mac_chrome_amz_home/browse_search.json'
                     if exists(file):
                         with open(file) as test_schedule_file:
                             bodyobj = json.load(test_schedule_file)
