@@ -1,7 +1,7 @@
 import json
 
 from PySide6.QtCore import QEvent, QStringListModel, Qt
-from PySide6.QtGui import QStandardItemModel, QColor, QPalette, QIcon, QAction, QStandardItem
+from PySide6.QtGui import QStandardItemModel, QColor, QPalette, QIcon, QAction, QStandardItem, QScreen
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QTabWidget, QVBoxLayout, QLineEdit, \
     QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QFileDialog, QButtonGroup, QStyledItemDelegate, \
     QListView, QLabel, QFrame, QMenu

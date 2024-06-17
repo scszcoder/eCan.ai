@@ -141,7 +141,7 @@
     "save_rb": false,
     "text": "fopen_f_path",
     "text_type": "var",
-    "speed": 0.05,
+    "speed": 0.0,
     "key_after": "enter",
     "wait_after": 1
 },
@@ -219,7 +219,7 @@
     "save_rb": false,
     "text": "fopen_f_name",
     "text_type": "var",
-    "speed": 0.01,
+    "speed": 0.0,
     "key_after": "",
     "wait_after": 1
 },

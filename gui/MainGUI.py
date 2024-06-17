@@ -287,8 +287,8 @@ class MainWindow(QMainWindow):
         if self.machine_role != "Platoon":
             engine = init_db(self.dbfile)
             session = get_session(engine)
-            self.bot_service = BotService(self, session, engine)
-            self.mission_service = MissionService(self, session, engine)
+            self.bot_service = BotService(self, session)
+            self.mission_service = MissionService(self, session)
             self.product_service = ProductService(self, session)
             self.skill_service = SkillService(self, session)
 
