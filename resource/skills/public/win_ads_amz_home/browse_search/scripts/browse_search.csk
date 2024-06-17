@@ -1058,6 +1058,20 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "from_us",
+                        "anchor_type"  : "text",
+                        "template"     : "From the United States",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "sort_by",
+                        "anchor_type"  : "text",
+                        "template"     : "SORT BY",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "all_positive_reviews",
                         "anchor_type"  : "text",
                         "template"     : "All positive reviews",
@@ -1068,6 +1082,33 @@
                         "anchor_name"  : "all_critical_reviews",
                         "anchor_type"  : "text",
                         "template"     : "All critical reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "one_star",
+                        "anchor_type"  : "text",
+                        "template"     : "star",
+                        "ref_method"   : "1",
+                        "ref_location" : [                            {
+                                "ref": "two_star",
+                                "side": "bottom",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }]
+                    },
+                    {
+                        "anchor_name"  : "five_star",
+                        "anchor_type"  : "text",
+                        "template"     : "5 star",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "two_star",
+                        "anchor_type"  : "text",
+                        "template"     : "2 star",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },

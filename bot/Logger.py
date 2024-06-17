@@ -39,7 +39,7 @@ def log3(msg, category='None', mask='all',gui_main=None):
         dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
         time = now.strftime("%H:%M:%S - ")
         if os.path.isfile(dailyLogFile):
-            file1 = open(dailyLogFile, "a")  # append mode
+            file1 = open(dailyLogFile, "a", encoding='utf-8')  # append mode
 
             file1.write(time + msg + "\n")
             file1.close()
@@ -47,7 +47,7 @@ def log3(msg, category='None', mask='all',gui_main=None):
             if not os.path.exists(dailyLogDir):
                 os.makedirs(dailyLogDir)
 
-            file1 = open(dailyLogFile, "w")  # append mode
+            file1 = open(dailyLogFile, "w", encoding='utf-8')  # append mode
 
             file1.write(time + msg + "\n")
             file1.close()
