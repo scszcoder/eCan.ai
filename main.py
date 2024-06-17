@@ -71,10 +71,12 @@ if __name__ == '__main__':
     # print("all unit tests done...")
     # test_scrape_amz_buy_orders()
     # list_windows()
-    try:
-        main()
-    except Exception as e:
-        error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
-        logger_helper.error(error_info)
+    test_scrape_amz_product_details()
+
+    # try:
+    #     main()
+    # except Exception as e:
+    #     error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
+    #     logger_helper.error(error_info)
 
     # qasync.run(main())

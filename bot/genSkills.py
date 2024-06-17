@@ -11,7 +11,7 @@ from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, g
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
     genAMZBrowseAllReviewsPage, genScroll1StarReviewsPage, genStepAMZScrapePLHtml, genAMZBrowseProductLists, \
-    genWinChromeAMZWalkSteps, genStepAMZScrapeDetailsHtml, genStepAMZScrapeReviewsHtml, genStepAMZSearchProducts, \
+    genWinChromeAMZWalkSteps, genStepAMZScrapeProductDetailsHtml, genStepAMZScrapeReviewsHtml, genStepAMZSearchProducts, \
     genWinADSAMZBuySkill
 from bot.amzBuyerSkillMac import genMacChromeAMZWalkSkill, genMacChromeAMZWalkSteps
 from bot.amzSellerSkill import genWinChromeAMZFullfillOrdersSkill, genWinChromeAMZCollectOrdersSkill, \
@@ -112,7 +112,7 @@ PUBLIC = {
     'genStepAMZScrapePLHtml': genStepAMZScrapePLHtml,
     'genAMZBrowseProductLists': genAMZBrowseProductLists,
     'genWinChromeAMZWalkSteps': genWinChromeAMZWalkSteps,
-    'genStepAMZScrapeDetailsHtml': genStepAMZScrapeDetailsHtml,
+    'genStepAMZScrapeProductDetailsHtml': genStepAMZScrapeProductDetailsHtml,
     'genStepAMZScrapeReviewsHtml': genStepAMZScrapeReviewsHtml,
     'genStepAMZSearchProducts': genStepAMZSearchProducts,
     'genStepReportToBoss': genStepReportToBoss,
