@@ -1788,7 +1788,8 @@ class MainWindow(QMainWindow):
     def gen_new_buy_search(self, work, mission):
         # simply modify mission's search configuration to fit our need.
         # we'll randomely pick one of the searches and modify its parameter.
-        nth_search = random.randrange(0, len(work["config"]["searches"]))
+        # nth_search = random.randrange(0, len(work["config"]["searches"]))
+        nth_search = 0                  # quick hack for speeding up unit test. should be removed in release code.
         n_pages = len(work["config"]["searches"][nth_search]["prodlist_pages"])
 
         work["config"]["searches"][nth_search]["entry_paths"]["type"] = "Search"
@@ -1803,7 +1804,7 @@ class MainWindow(QMainWindow):
 
             # on each pages, add the target buy product onto the list.
             for page in work["config"]["searches"][nth_search]["prodlist_pages"]:
-                if work["name"].split("_")[1] in ["addCart", "pay", "addCartPay"]:
+                if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
                     target_buy = {
                         "selType": "cus",   # this is key, the skill itself will do the swapping of search terms once it see "cus" here.
                         "detailLvl": 3,
@@ -1868,15 +1869,16 @@ class MainWindow(QMainWindow):
             # this is test mode special ticket, so provide some test vector.
             original_buy_mission = EBMISSION(self)
             original_buy_mission.setMid(0)
-            original_buy_mission.setASIN("B0CYLVMLHP")
-            original_buy_mission.setStore("Lefant")
-            original_buy_mission.setBrand("Lefant")
+            original_buy_mission.setASIN("B0D1BY5VTM")
+            original_buy_mission.setStore("Tikom")
+            original_buy_mission.setBrand("Tikom")
             original_buy_mission.setImagePath("")
-            original_buy_mission.setTitle("Lefant Robot Vacuum Cleaner, 6 Cleaning Modes, Schedule Time, WiFi/APP/Alexa, 2200Pa Suction, 120 Min Runtime, Self-Charging Robotic Vacuum, Slim, Quiet, Ideal for Pet Hair, Hard Floors(M210 Pro)")
+            original_buy_mission.setSearchKW("robot vacuum cleaner")
+            original_buy_mission.setTitle("Tikom Robot Vacuum and Mop Combo with LiDAR Navigation, L9000 Robotic Vacuum Cleaner with 4000Pa Suction,150Min Max, 14 No-Go Zones, Smart Mapping, Good for Pet Hair, Carpet, Hard Floor")
             original_buy_mission.setVariations("")
-            original_buy_mission.setRating("4.4")
-            original_buy_mission.setFeedbacks("182")
-            original_buy_mission.setPrice("209.99")
+            original_buy_mission.setRating("5.0")
+            original_buy_mission.setFeedbacks("23")
+            original_buy_mission.setPrice("229.99")
             original_buy_mission.setCustomerID("")
         else:
             db_data = self.mission_service.find_missions_by_ticket(buy_mission.getTicket())
@@ -1931,6 +1933,7 @@ class MainWindow(QMainWindow):
                     task_mission.setFeedbacks(original_buy.getFeedbacks())
                     task_mission.setPrice(original_buy.getPrice())
                     task_mission.setResult(original_buy.getResult())
+                    task_mission.setSearchKW(original_buy.getSearchKW())
 
                     self.gen_new_buy_search(buytask, task_mission)
                 else:

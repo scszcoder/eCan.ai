@@ -19,7 +19,7 @@ from bot.genSkills import genWinTestSkill, genWinTestSkill1, genWinTestSkill2
 from bot.missions import EBMISSION
 from bot.ordersData import ORDER, OrderPerson, OrderedProduct, Shipping
 from bot.readSkill import prepRun1Skill, runAllSteps, prepRunSkill
-from bot.scraperAmz import processAmzScrapeSoldOrdersHtml
+from bot.scraperAmz import processAmzScrapeSoldOrdersHtml, amz_buyer_scrape_product_details
 from bot.scraperEbay import ebay_seller_get_system_msg_thread
 from bot.scraperEtsy import processEtsyScrapeOrders
 
@@ -1151,3 +1151,10 @@ def test_scrape_amz_buy_orders():
     }
 
     next_step = processAmzScrapeSoldOrdersHtml(step, 10)
+
+
+def test_scrape_amz_product_details():
+    html_file = "C:/temp/testAmzPd1.html"
+    # html_file = "C:/temp/testAmzPd5.html"
+    # html_file = "C:/temp/testAmzPd.html"
+    pds = amz_buyer_scrape_product_details(html_file)
