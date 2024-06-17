@@ -4314,7 +4314,7 @@ class MainWindow(QMainWindow):
         csk_files = []
         json_files = []
 
-        skdir = ecb_data_homepath + "/my_skills/"
+        skdir = ecb_data_homepath + "/resource/my_skills/"
         # Iterate over all files in the directory
         # Walk through the directory tree recursively
         for root, dirs, files in os.walk(skdir):
