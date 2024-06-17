@@ -227,4 +227,4 @@ class MissionService:
         for column in columns:
             logger_helper.debug(
                 f"Column: {column['name']}, Type: {column['type']}, Nullable: {column['nullable']}, Default: {column['default']}")
-        return columns;
+        return columns
