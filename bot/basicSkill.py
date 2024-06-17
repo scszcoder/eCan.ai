@@ -3220,7 +3220,7 @@ def processSearchScroll(step, i):
 
         # find all images matches the name and above the at_loc
         log3("finding....:"+json.dumps(targets))
-        if step["target_type"] == "anchor":
+        if "anchor" in step["target_type"]:
             ancs = [element for index, element in enumerate(scrn) if element["name"] in targets and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
         elif step["target_type"] == "text var":
             exec("global target_txt\ntarget_txt = " + step["target"])

@@ -1,17 +1,20 @@
 import json
 
-from sqlalchemy import or_, delete
+from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text
 
 from Cloud import send_query_bots_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.bot import BotModel
-
+import traceback
+from common.db_init import Base
+from bot.Logger import log3
 
 class BotService:
-    def __init__(self, main_win, session):
+    def __init__(self, main_win, session, engine):
         self.main_win = main_win
         self.session = session
         sync_table_columns(BotModel)
+        self.engine = engine
 
     def delete_bots_by_botid(self, botid):
         # 构建删除表达式
@@ -126,7 +129,203 @@ class BotService:
             result.location = bot['location']
             result.roles = bot['roles']
             result.status = bot['status']
-            # result.createon = bot['birthday']
+            # result.createon = bot['createon']
             if insert:
                 self.session.add(result)
         self.session.commit()
+
+    def describe_table(self):
+        # Connect to the database
+        with self.engine.connect() as conn:
+            # Use the Inspector to get table information
+            inspector = inspect(self.engine)
+
+            # Specify the table name you want to describe
+            table_name = 'bots'
+
+            # Get the columns of the table
+            columns = inspector.get_columns(table_name)
+
+            # Print the column information
+            log3("bots Table column definitions:")
+            for column in columns:
+                log3(
+                    f"Column: {column['name']}, Type: {column['type']}, Nullable: {column['nullable']}, Default: {column['default']}")
+
+            return columns
+
+    # original_table = Table(
+    #     'missions', metadata,
+    #     Column('mid', Integer, primary_key=True),
+    #     Column('ticket', Integer),
+    #     Column('botid', Integer),
+    #     Column('status', Text),
+    #     Column('createon', Text),
+    #     Column('esd', Text),
+    #     Column('ecd', Text),
+    #     Column('asd', Text),
+    #     Column('abd', Text),
+    #     Column('aad', Text),
+    #     Column('afd', Text),
+    #     Column('acd', Text),
+    #     Column('actual_start_time', Text),
+    #     Column('est_start_time', Text),
+    #     Column('actual_runtime', Text),
+    #     Column('est_runtime', Text),
+    #     Column('n_retries', Integer),
+    #     Column('cuspas', Text),
+    #     Column('category', Text),
+    #     Column('phrase', Text),
+    #     Column('pseudoStore', Text),
+    #     Column('pseudoBrand', Text),
+    #     Column('pseudoASIN', Text),
+    #     Column('type', Text),
+    #     Column('config', Text),
+    #     Column('skills', Text),
+    #     Column('delDate', Text),
+    #     Column('asin', Text),
+    #     Column('brand', Text),
+    #     Column('title', Text),
+    #     Column('rating', Text),
+    #     Column('feedbacks', Text),
+    #     Column('customer', Text),
+    #     Column('platoon', Text),
+    #     Column('result', Text)
+    # )
+    def add_column(self, new_column_name, new_column_data_type, after_column_name):
+        print("bots Table adding column....")
+        # metadata = MetaData(bind=model.engine)
+        table_name = "bots"
+        try:
+            columns_info = self.describe_table()
+
+            # Create list of columns for the new table
+            new_columns = []
+            added_new_column = False
+
+            for column_info in columns_info:
+                new_columns.append(Column(column_info['name'], column_info['type']))
+                if column_info['name'] == after_column_name:
+                    new_columns.append(Column(new_column_name, new_column_data_type))
+                    added_new_column = True
+
+            if not added_new_column:
+                raise ValueError(f"Column '{after_column_name}' not found in table '{table_name}'")
+
+            # Define the new table schema
+            table_name = "bots_old"
+            new_table_name = "bots_new"
+            new_table = Table(new_table_name, Base.metadata, *new_columns)
+
+            # with model.engine.connect() as conn:
+            # Rename the original table
+            # self.session.execute(text(f"DROP TABLE {table_name}"))
+            original_table_name = "bots"
+            self.session.execute(text(f"ALTER TABLE {original_table_name} RENAME TO {table_name}"))
+
+            # Create the new table with the desired column order
+            Base.metadata.create_all(self.engine, tables=[new_table])
+
+            # Copy data from the old table to the new table
+            columns_to_copy = [col.name for col in new_table.columns if col.name != new_column_name]
+            columns_to_copy_str = ', '.join(columns_to_copy)
+            self.session.execute(text(f"""
+                INSERT INTO {new_table_name} ({columns_to_copy_str})
+                SELECT {columns_to_copy_str} FROM {table_name}
+            """))
+
+            # Drop the old table
+            self.session.execute(text("DROP TABLE bots_old;"))
+
+            # Rename the new table to the original table name
+            self.session.execute(text("ALTER TABLE bots_new RENAME TO bots;"))
+
+            self.session.commit()
+
+            self.describe_table()
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorAddColumnToBotsTable:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorAddColumnToBotsTable: traceback information not available:" + str(e)
+            print(ex_stat)
+
+    def add_last_column(self, new_column_name, new_column_data_type):
+        # Construct the SQL command to add a column
+        try:
+            sql_command = text(f"ALTER TABLE bots ADD COLUMN {new_column_name} {new_column_data_type}")
+            self.session.execute(sql_command)
+            self.session.commit()
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorAddLastColumnToBotsTable:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorAddLastColumnToBotsTable: traceback information not available:" + str(e)
+            print(ex_stat)
+
+
+    def drop_column(self, col_name):
+        # metadata = MetaData(bind=model.engine)
+        table_name = "bots"
+        try:
+            columns_info = self.describe_table()
+
+            # Create list of columns for the new table
+            new_columns = []
+
+            for column_info in columns_info:
+                new_columns.append(Column(column_info['name'], column_info['type']))
+                if column_info['name'] != col_name:
+                    new_columns.append(Column(column_info['name'], column_info['type']))
+                    added_new_column = True
+
+            if len(new_columns) == len(columns_info):
+                raise ValueError(f"Column '{col_name}' not found in table '{table_name}'")
+
+            # Define the new table schema
+            table_name = "bots_old"
+            new_table_name = "bots_new"
+            new_table = Table(new_table_name, Base.metadata, *new_columns)
+
+            with self.engine.connect() as conn:
+                # Rename the original table
+                self.session.execute(text("DROP TABLE bots_old;"))
+                self.session.execute(text("ALTER TABLE bots RENAME TO bots_old;"))
+
+                # Create the new table with the desired column order
+                Base.metadata.create_all(self.engine, tables=[new_table])
+
+                # Copy data from the old table to the new table
+                columns_to_copy = [col.name for col in new_table.columns]
+                columns_to_copy_str = ', '.join(columns_to_copy)
+                self.session.execute(text(f"""
+                            INSERT INTO {new_table_name} ({columns_to_copy_str})
+                            SELECT {columns_to_copy_str} FROM {table_name}
+                        """))
+
+                # Drop the old table
+                self.session.execute(text("DROP TABLE bots_old;"))
+
+                # Rename the new table to the original table name
+                self.session.execute(text("ALTER TABLE bots_new RENAME TO bots;"))
+
+                self.session.commit()
+
+                self.describe_table()
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorDeleteColumnFromBotsTable:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorDeleteColumnFromBotsTable: traceback information not available:" + str(e)
+            print(ex_stat)
