@@ -2,6 +2,7 @@ import datetime
 import json
 import re
 
+
 from bs4 import BeautifulSoup
 from bot.Logger import log3
 from bot.basicSkill import symTab, STEP_GAP, DEFAULT_RUN_STATUS
@@ -123,46 +124,159 @@ def amz_buyer_scrape_product_list(html_file, idx):
     if len(products) < 54:
         pagefull_of_pl["layout"] = "list"
     pagefull_of_pl["pl"] = products
-    log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    log3("+++++++++++++++++++++"+str(len(pagefull_of_pl["pl"]))+"+++++++++++++++++++++++++++++")
     log3(json.dumps(pagefull_of_pl))
     log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
     return pagefull_of_pl
 
 
-def amz_buyer_scrape_product_details(html_file,  product):
+def amz_buyer_scrape_product_details(html_file):
+    product_details = {
+        "title": "",
+        "store": "",
+        "variations": None,
+        "varPrices": None,
+        "default_price": "",
+        "score": "",
+        "rating": ""
+    }
     with open(html_file, 'rb') as fp:
         soup = BeautifulSoup(fp, 'html.parser')
 
-        # <div id="titleSection" ...> contains the store information,
-
-        # < div id = "featurebullets_feature_div" ..> about this item, start of the 7 bullets.
-        # <li><span class="a-list-item"> Dou....> 7 bullets
-
-        # < h2 > Product Description < / h2 > A+
-        # look for h3, h4, h5 for sub section title and <p class="a-spacing-base"> for contents....
-
-        # <h2> Product information </h2>
-        # <table id="productDetails_detailBullets_sections1" class="a-keyvalue prodDetTable" role="presentation">
-
-        # <h2 class="a-spacing-base a-color-base askWidgetTitle"> Customer questions &amp; answers </h2>
-
-        # <h3 data-hook="lighthut-title" class="a-spacing-base">Read reviews that mention</h3>
-
-        #<h3 data-hook="dp-local-reviews-header" class="a-spacing-medium a-spacing-top-large"> Top reviews from the United States </h3>
-
-        #<a id="customer-reviews-content" aria-label="Top reviews" class="a-link-normal celwidget"
-        #<a class="a-link-normal" title="5.0 out of 5 stars"
-        # <a data-hook="review-title"
-        # <span data-hook="review-date" class="a-size-base a-color-secondary review-date">
-        # <span data-hook="review-body" class="a-size-base review-text"><div d
-
-        #    <h3 data-hook="dp-global-reviews-header" class="a-spacing-base"> Top reviews from other countries </h3>
-
-        # <div id="RBI0846G9G7XH-review-card" class="a-row a-spacing-none"><div id="customer_review_foreign-RBI0846G9G7XH"
-        # <span class="cr-original-review-content">
+        titleTag = soup.find("div", attrs={"id": "titleSection"})
+        if titleTag:
+            titleHeaderTag = titleTag.find("h1", attrs={"id": "title"})
+            if titleHeaderTag:
+                product_details["title"] = titleHeaderTag.text.strip()
 
 
-    return product
+        storeTag = soup.find("a", attrs={"id": "bylineInfo"})
+        if storeTag:
+            pattern = r"Visit the (.*) Store"
+
+            # Use re.search to find the match
+            match = re.search(pattern, storeTag.text)
+
+            if match:
+                # Extract the store name from the match object
+                product_details["store"] = match.group(1)
+                # print(f"Store name: {product_details['store']}")
+            # else:
+                # print("No store match found.")
+
+        ratingTag = soup.find("a", attrs={"id": "acrCustomerReviewLink"})
+        if ratingTag:
+            product_details["rating"] = ratingTag.text.strip()
+
+        scoreSecTag = soup.find("div", attrs={"id": "averageCustomerReviews"})
+        if scoreSecTag:
+            scoreTag = scoreSecTag.find("span", attrs={"class": "a-size-base a-color-base"})
+            if scoreTag:
+                product_details["score"] = scoreTag.text.strip()
+
+
+        priceSecTag = soup.find('div', id=re.compile(r'^corePrice'))
+        if priceSecTag:
+            priceTag = priceSecTag.find("span", attrs={"class": "a-offscreen"})
+            if priceTag:
+                product_details["default_price"] = priceTag.text
+
+        varPriceNames = []
+        varNamePriceSecTags = soup.findAll('div', attrs={"class": "twisterTextDiv text"})
+
+        for varNamePriceSecTag in varNamePriceSecTags:
+            pTags = varNamePriceSecTag.findAll('p')
+            # there should be 2 p tags found here. the first one contains the variation name,
+            # the second contains the price for this variation
+            # print(pTags)
+            if len(pTags) > 0:
+                varPriceNames.append(pTags[0].text.strip())
+        # print("varPriceNames:", varPriceNames)
+
+        varPrices = []
+        varPriceSecTags = soup.find_all('div', class_='twisterSlotDiv')
+        # print(varPriceSecTags)
+        varNamePrices = {}
+        for varPriceSecTag in varPriceSecTags:
+            pTags = varPriceSecTag.findAll('p')
+            print(pTags)
+            if len(pTags) > 0:
+                varPrices.append(pTags[0].text.strip())
+        # print("varPrices:", varPrices)
+
+        for i in range(len(varPrices)):
+            varNamePrices[varPriceNames[i]] = varPrices[i]
+
+        product_details["varPrices"] = varNamePrices
+        # print("varNamePrices:", varNamePrices)
+
+        # obtain variations related info.
+        script_tags = soup.findAll('script', text=re.compile(r'P\.register'))
+        # If the script tag is found
+        for script_tag in script_tags:
+            # print("found P.register")
+
+            # Extract the JavaScript code
+            script_content = script_tag.string
+
+            # Use a regular expression to find the JSON content of the abc variable
+            match = re.search(r'var\s+dataToReturn\s*=\s*(\{.*?\});', script_content, re.DOTALL)
+
+            if match:
+                # Extract the JSON string
+                # print("found match")
+                json_str = match.group(1)
+
+                # print(json_str)
+                # print("===========================================================")
+
+                pattern1 = r'"updateDivLists"\s*:\s*\{[^{}]*(\{[^{}]*\}[^{}]*)*\}\s*,?'
+
+                # Use re.sub to replace the matched pattern with an empty string
+                simplified_json_string = re.sub(pattern1, '', json_str, flags=re.DOTALL)
+                simplified_json_string = re.sub(r',\s*}', '}', simplified_json_string)
+                simplified_json_string = re.sub(r',\s*]', ']', simplified_json_string)
+
+                # print(simplified_json_string)
+                # Convert the JSON string to a Python dictionary
+                rawVariationsJson = json.loads(simplified_json_string)
+
+                # copy over the key values only.
+                thisVar = {}
+                if "num_total_variations" in rawVariationsJson:
+                    # print("found num_total_variations")
+                    thisVar["num_total_variations"] = rawVariationsJson["num_total_variations"]
+
+                if "asinVariationValues" in rawVariationsJson:
+                    # print("found asinVariationValues")
+                    thisVar["asinVariationValues"] = rawVariationsJson["asinVariationValues"]
+
+                if "selectedVariationValues" in rawVariationsJson:
+                    # print("found selectedVariationValues")
+                    thisVar["selectedVariationValues"] = rawVariationsJson["selectedVariationValues"]
+
+                if "currentAsin" in rawVariationsJson:
+                    # print("found currentAsin")
+                    thisVar["currentAsin"] = rawVariationsJson["currentAsin"]
+
+                if "parentAsin" in rawVariationsJson:
+                    # print("found parentAsin")
+                    thisVar["parentAsin"] = rawVariationsJson["parentAsin"]
+
+                if "dimensionValuesDisplayData" in rawVariationsJson:
+                    # print("found dimensionValuesDisplayData")
+                    thisVar["dimensionValuesDisplayData"] = rawVariationsJson["dimensionValuesDisplayData"]
+
+                # print("thisVar:", thisVar)
+                product_details["variations"] = thisVar
+                break
+            else:
+                print("Variable 'dataToReturn' not found in the script content.")
+        else:
+            print("Script tag containing 'P.register' not found.")
+
+    print("product_details:", json.dumps(product_details, indent=4))
+    return product_details
 
 def amz_buyer_scrape_product_reviews(html_file,  product):
     with open(html_file, 'rb') as fp:

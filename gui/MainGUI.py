@@ -20,11 +20,14 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 import importlib
 import importlib.util
 
-from globals.bot_service import BotService
-from globals.mission_service import MissionService
-from globals.model import BotModel, MissionModel, init_db, get_session
-from globals.product_service import ProductService
-from globals.skill_service import SkillService
+from common.models.bot import BotModel
+from common.models.mission import MissionModel
+from common.db_init import init_db, get_session
+from common.services.mission_service import MissionService
+from common.services.product_service import ProductService
+from common.services.skill_service import SkillService
+
+from common.services.bot_service import BotService
 
 
 from gui.BotGUI import BotNewWin
@@ -293,8 +296,8 @@ class MainWindow(QMainWindow):
         if self.machine_role != "Platoon":
             engine = init_db(self.dbfile)
             session = get_session(engine)
-            self.bot_service = BotService(self, session)
-            self.mission_service = MissionService(self, session)
+            self.bot_service = BotService(self, session, engine)
+            self.mission_service = MissionService(self, session, engine)
             self.product_service = ProductService(self, session)
             self.skill_service = SkillService(self, session)
 
@@ -1417,9 +1420,15 @@ class MainWindow(QMainWindow):
                 self.showMsg("WARNING!!!! no work TBD after fetching schedule...")
 
         # ni is already incremented by processExtract(), so simply return it.
-        except:
-            self.showMsg("ERROR EXCEPTION:")
-            fetch_stat = "ErrorFetchSchedule:" + jresp["errorType"]
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorFetchSchedule: traceback information not available:" + str(e)
+            self.showMsg(ex_stat)
 
         self.showMsg("done with fetch schedule:"+ fetch_stat)
         return fetch_stat
@@ -1782,7 +1791,8 @@ class MainWindow(QMainWindow):
     def gen_new_buy_search(self, work, mission):
         # simply modify mission's search configuration to fit our need.
         # we'll randomely pick one of the searches and modify its parameter.
-        nth_search = random.randrange(0, len(work["config"]["searches"]))
+        # nth_search = random.randrange(0, len(work["config"]["searches"]))
+        nth_search = 0                  # quick hack for speeding up unit test. should be removed in release code.
         n_pages = len(work["config"]["searches"][nth_search]["prodlist_pages"])
 
         work["config"]["searches"][nth_search]["entry_paths"]["type"] = "Search"
@@ -1797,7 +1807,7 @@ class MainWindow(QMainWindow):
 
             # on each pages, add the target buy product onto the list.
             for page in work["config"]["searches"][nth_search]["prodlist_pages"]:
-                if work["name"].split("_")[1] in ["addCart", "pay", "addCartPay"]:
+                if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
                     target_buy = {
                         "selType": "cus",   # this is key, the skill itself will do the swapping of search terms once it see "cus" here.
                         "detailLvl": 3,
@@ -1858,15 +1868,32 @@ class MainWindow(QMainWindow):
     # might not be loaded from memory, so directly search DB.
     def find_original_buy(self, buy_mission):
         # Construct the SQL query with a parameterized IN clause
-        db_data = self.mission_service.delete_missions_by_ticket(buy_mission.getTicket())
-        self.showMsg("same ticket missions: " + json.dumps(db_data))
-        if len(db_data) != 0:
+        if buy_mission.getTicket() == 0:
+            # this is test mode special ticket, so provide some test vector.
             original_buy_mission = EBMISSION(self)
-            original_buy_mission.loadDBData(db_data[0])
-            self.missions.append(original_buy_mission)
-            self.missionModel.appendRow(original_buy_mission)
+            original_buy_mission.setMid(0)
+            original_buy_mission.setASIN("B0D1BY5VTM")
+            original_buy_mission.setStore("Tikom")
+            original_buy_mission.setBrand("Tikom")
+            original_buy_mission.setImagePath("")
+            original_buy_mission.setSearchKW("robot vacuum cleaner")
+            original_buy_mission.setTitle("Tikom Robot Vacuum and Mop Combo with LiDAR Navigation, L9000 Robotic Vacuum Cleaner with 4000Pa Suction,150Min Max, 14 No-Go Zones, Smart Mapping, Good for Pet Hair, Carpet, Hard Floor")
+            original_buy_mission.setVariations("")
+            original_buy_mission.setRating("5.0")
+            original_buy_mission.setFeedbacks("23")
+            original_buy_mission.setPrice("229.99")
+            original_buy_mission.setCustomerID("")
         else:
-            original_buy_mission = None
+            db_data = self.mission_service.find_missions_by_ticket(buy_mission.getTicket())
+            print("buy mission ticket:", buy_mission.getTicket())
+            self.showMsg("same ticket missions: " + json.dumps(db_data.to_dict()))
+            if len(db_data) != 0:
+                original_buy_mission = EBMISSION(self)
+                original_buy_mission.loadDBData(db_data)
+                self.missions.append(original_buy_mission)
+                self.missionModel.appendRow(original_buy_mission)
+            else:
+                original_buy_mission = None
 
         return original_buy_mission
 
@@ -1898,20 +1925,22 @@ class MainWindow(QMainWindow):
                 task_mission = self.missions[midx]
                 original_buy = self.find_original_buy(task_mission)
                 # first, fill the mission with original buy's private attributes for convenience.
-                task_mission.setASIN(original_buy.getASIN())
-                task_mission.setTitle(original_buy.getTitle())
-                task_mission.setVariations(original_buy.getVariations())
-                task_mission.setStore(original_buy.getStore())
-                task_mission.setBrand(original_buy.getBrand())
-                task_mission.setImagePath(original_buy.getImagePath())
-                task_mission.setRating(original_buy.getRating())
-                task_mission.setFeedbacks(original_buy.getFeedbacks())
-                task_mission.setPrice(original_buy.getPrice())
-                task_mission.setResult(original_buy.getResult())
+                if original_buy:
+                    task_mission.setASIN(original_buy.getASIN())
+                    task_mission.setTitle(original_buy.getTitle())
+                    task_mission.setVariations(original_buy.getVariations())
+                    task_mission.setStore(original_buy.getStore())
+                    task_mission.setBrand(original_buy.getBrand())
+                    task_mission.setImagePath(original_buy.getImagePath())
+                    task_mission.setRating(original_buy.getRating())
+                    task_mission.setFeedbacks(original_buy.getFeedbacks())
+                    task_mission.setPrice(original_buy.getPrice())
+                    task_mission.setResult(original_buy.getResult())
+                    task_mission.setSearchKW(original_buy.getSearchKW())
 
-                self.gen_new_buy_search(buytask, task_mission)
-
-
+                    self.gen_new_buy_search(buytask, task_mission)
+                else:
+                    self.showMsg("ERROR: could NOT find original buy mission!")
 
     # assign per vehicle task group work, if this commander runs, assign works for commander,
     # otherwise, send works to platoons to execute.

@@ -204,10 +204,11 @@ def genStepSearchWordLine(screen, names, name_types, logic, result, flag, site, 
 # search some target content on the page, and scroll the target to the target loction on the page.
 # at_loc is a rough location, meaning the anchor closest to this location, NOT exactly at this location.
 # at_loc is also a 2 dimensional x-y coordinates
-def genStepSearchScroll(screen, target, target_type, at_loc, target_loc, flag, resolution, postwait, site, stepN):
+def genStepSearchScroll(screen, dir, target, target_type, at_loc, target_loc, flag, resolution, postwait, site, stepN):
     stepjson = {
         "type": "Search Scroll",
         "action": "Search Scroll",
+        "dir": dir,
         "target": target,
         "target_type": target_type,
         "at_loc": at_loc,
@@ -714,6 +715,35 @@ def genStepReportToBoss(commander_link, self_ip, exlog_data, result, stepN):
         "self_ip": self_ip,
         "exlog_data": exlog_data,
         "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepCalcObjectsDistance(obj1, obj_type1, obj2, obj_type2, distance_type, distance_dir, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Calc Objs Distance",
+        "obj_name1": obj1,
+        "obj_type1": obj_type1,                     # anchor, info, text
+        "obj_name2": obj2,
+        "obj_type2": obj_type2,
+        "distance_type": distance_type,             # min, max, average
+        "distance_dir": distance_dir,               # vertical, horizontal, c2c(center to center)
+        "result": result_var,
+        "flag": flag_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepAmzDetailsCheckPosition(screen, marker_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "AMZ Details Check Position",
+        "marker_name": marker_name,
+        "screen": screen,
+        "result": result_var,
+        "flag": flag_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -3238,11 +3268,14 @@ def processSearchScroll(step, i):
             vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
             log3("FFOUND: "+json.dumps(vsorted[0]))
             offset = round((target_loc_v - vsorted[0]["loc"][2])/symTab[scroll_resolution])
-            log3("calculated offset: "+str(offset)+"setting flag var ["+str(step["flag"])+"] to be TRUE....")
+            log3("calculated offset: "+str(offset)+"target loc"+str(target_loc_v)+"scroll_resolution"+str(symTab[scroll_resolution])+" setting flag var ["+str(step["flag"])+"] to be TRUE....")
             symTab[step["flag"]] = True
         else:
             # if anchor is not on the page, set the flag and scroll down 90 of a screen
-            offset = 0-round(screensize[0]*0.5/symTab[scroll_resolution])
+            if step["dir"] == "down":
+                offset = 0-round(screensize[0]*0.7/symTab[scroll_resolution])
+            else:
+                offset = round(screensize[0] * 0.7 / symTab[scroll_resolution])
             symTab[step["flag"]] = False
             log3("KEEP scrolling calculated offset: "+str(offset)+"setting flag var ["+str(step["flag"])+"] to be FALSE....")
 
@@ -3291,12 +3324,44 @@ def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN,
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
+    return this_step, psk_words
+
+
+def genScrollUpUntil(target_anchor, target_type, tilpos, page, section, stepN, worksettings, site, theme):
+    psk_words = ""
+    ex_stat = DEFAULT_RUN_STATUS
+    log3("DEBUG", "gen_psk_for_scroll_down_until...")
+    this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
+    psk_words = psk_words + step_words
+
+    # condition, count, end, lc_name, stepN):
+    this_step, step_words = genStepLoop("position_reached != True", "", "", "scrollDown"+str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # (action, screen, smount, stepN):
+    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", page, section, theme, this_step, None)
+    psk_words = psk_words + step_words
+
+
+    # this step search for the lowest position of phrases "free shipping" on the bottom half of the screen, then scroll it to be 1 scroll away from the bottom of the page
+    # this action will position the entire product section from image to free shipping ready to be extracted.
+    # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
+    # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
+    # screen, anchor, at_loc, target_loc, flag, resolution, stepN
+    this_step, step_words = genStepSearchScroll("screen_info", "up", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
 
     return this_step, psk_words
 
@@ -3846,3 +3911,99 @@ def get_csk_icon_names(skill, page, section):
 
     print("csk icon names:", icon_names)
     return icon_names
+
+
+def processCalcObjectsDistance(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["flag"]] = True
+    symTab[step["result"]] = -1
+
+    try:
+        log3("calculating object distance")
+        if step["distance_type"] == "min":
+            if step["distance_dir"] == "vertical":              # always assume obj1 is above obj2
+                # find the lowest of obj1 and highest of obj2
+                vsorted1 = sorted(step["obj1"], key=lambda x: x["loc"][2], reverse=True)
+                vsorted2 = sorted(step["obj2"], key=lambda x: x["loc"][0], reverse=False)
+                log3("calc min vertical gap:"+json.dumps(vsorted1[0]["loc"])+", "+json.dumps(vsorted2[0]["loc"]))
+                op1 = vsorted1[0]["loc"][2]
+                op2 = vsorted2[0]["loc"][0]
+            elif step["distance_dir"] == "horizontal":          # always assume obj1 is to the left of obj2
+                # find the right mostobj1 and left most obj2, then calculate the distance.
+                hsorted1 = sorted(step["obj1"], key=lambda x: x["loc"][3], reverse=True)
+                hsorted2 = sorted(step["obj2"], key=lambda x: x["loc"][1], reverse=False)
+                log3("calc min horizontal gap:" + json.dumps(hsorted1[0]["loc"]) + ", " + json.dumps(hsorted2[0]["loc"]))
+                op1 = hsorted1[0]["loc"][3]
+                op2 = hsorted2[0]["loc"][1]
+        elif step["distance_type"] == "max":
+            if step["distance_dir"] == "vertical":              # always assume obj1 is above obj2
+                # find the highest of obj1 and lowest of obj2
+                vsorted1 = sorted(step["obj1"], key=lambda x: x["loc"][2], reverse=False)
+                vsorted2 = sorted(step["obj2"], key=lambda x: x["loc"][0], reverse=True)
+                log3("calc max vertical gap:" + json.dumps(vsorted1[0]["loc"]) + ", " + json.dumps(vsorted2[0]["loc"]))
+                op1 = vsorted1[0]["loc"][2]
+                op2 = vsorted2[0]["loc"][0]
+            elif step["distance_dir"] == "horizontal":          # always assume obj1 is to the left of obj2
+                # find the left most mostobj1 and right most obj2, then calculate the distance.
+                hsorted1 = sorted(step["obj1"], key=lambda x: x["loc"][3], reverse=False)
+                hsorted2 = sorted(step["obj2"], key=lambda x: x["loc"][1], reverse=True)
+                log3("calc max horizontal gap:" + json.dumps(hsorted1[0]["loc"]) + ", " + json.dumps(hsorted2[0]["loc"]))
+                op1 = hsorted1[0]["loc"][3]
+                op2 = hsorted2[0]["loc"][1]
+
+        symTab[step["result"]] = op2 - op1
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCalcObjectsDistance:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCalcObjectsDistance: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+# this instruction is specific to amazon product details page, it look at info found on a screen
+# and determines whether this screen is before/after/on/unknown the ASIN or Review Section information on the page.
+def processAmzDetailsCheckPosition(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+
+    check_dict = {
+        "asin": {"before": ["product_info", "product_details", "bought_together"], "after": ["similar_items", "star", "reviewed", "related_to", "also_bought", "also_viewed", "back_to_top", "conditions_of_use"]},
+        "reviewed": {"before": [], "after": ["also_bought", "also_viewed", "back_to_top", "conditions_of_use"]}
+    }
+    try:
+        log3("calculating object distance")
+        scrn = symTab[step["screen"]]
+
+        symTab[step["result"]] = "unknown"
+
+        ancs = [x for x in scrn if x["type"] == "anchor text"]
+        anc_names = [x["name"] for x in ancs]
+        if "asin" in anc_names:
+            symTab[step["result"]] = "on"
+        else:
+            before_match = [x for x in ancs if x["name"] in check_dict[step["marker_name"]]["before"]]
+            after_match = [x for x in ancs if x["name"] in check_dict[step["marker_name"]]["after"]]
+            if len(before_match) > len(after_match):
+                symTab[step["result"]] = "before"
+            elif len(before_match) < len(after_match):
+                symTab[step["result"]] = "after"
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorAmzDetailsCheckPosition:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorAmzDetailsCheckPosition: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat

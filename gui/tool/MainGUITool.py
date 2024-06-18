@@ -1,8 +1,6 @@
 import os
 import sqlite3
 
-from globals import model
-
 
 class FileResource:
     def __init__(self, homepath):

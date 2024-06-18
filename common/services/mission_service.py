@@ -4,14 +4,18 @@ from datetime import datetime, timedelta
 from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text
 
 from Cloud import send_query_missions_request_to_cloud
-from globals.model import MissionModel
 import traceback
 from bot.Logger import log3
+from common.models.mission import MissionModel
+from common.db_init import Base
+
+
 
 class MissionService:
-    def __init__(self, main_win, session):
+    def __init__(self, main_win, session, engine):
         self.main_win = main_win
         self.session = session
+        self.engine = engine
 
     def find_missions_by_createon(self):
         current_time = datetime.now()
@@ -22,25 +26,31 @@ class MissionService:
     def find_missions_by_mids(self, mids) -> [MissionModel]:
         results = self.session.query(MissionModel).filter(MissionModel.mid.in_(mids)).all()
         dict_results = [result.to_dict() for result in results]
-        self.main_win.showMsg("Just Added Local DB Mission Row(s): " + json.dumps(dict_results), "debug")
+        self.main_win.showMsg("Found Local DB Mission Row(s) by mids: " + json.dumps(dict_results), "debug")
         return results
 
     def find_missions_by_mid(self, mid) -> MissionModel:
         result: MissionModel = self.session.query(MissionModel).filter(MissionModel.mid == mid).first()
         if result is not None:
-            self.main_win.showMsg("Just Added Local DB Mission Row(s): " + json.dumps(result.to_dict()), "debug")
+            self.main_win.showMsg("Found Local DB Mission Row(s) by mid: " + json.dumps(result.to_dict()), "debug")
         return result
+
+    def find_missions_by_ticket(self, ticket) -> MissionModel:
+        result: MissionModel = self.session.query(MissionModel).filter(MissionModel.ticket == ticket).first()
+        if result is not None:
+            self.main_win.showMsg("Found Local DB Mission Row(s) by ticket: " + json.dumps(result.to_dict()), "debug")
+        return result.to_dict()
 
     def insert_missions_batch_(self, missions: [MissionModel]):
         self.session.add_all(missions)
         self.session.commit()
         dict_results = [result.to_dict() for result in missions]
-        self.main_win.showMsg("Mission fetchall" + json.dumps(dict_results))
+        self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results))
 
     def find_all_missions(self) -> [MissionModel]:
         results = self.session.query(MissionModel).all()
         dict_results = [result.to_dict() for result in results]
-        self.main_win.showMsg("Missions fetchall" + json.dumps(dict_results))
+        self.main_win.showMsg("Missions fetchall after find all" + json.dumps(dict_results))
         return results
 
     def insert_missions_batch(self, jbody, api_missions):
@@ -213,9 +223,9 @@ class MissionService:
 
     def describe_table(self):
         # Connect to the database
-        with model.engine.connect() as conn:
+        with self.engine.connect() as conn:
             # Use the Inspector to get table information
-            inspector = inspect(model.engine)
+            inspector = inspect(self.engine)
 
             # Specify the table name you want to describe
             table_name = 'missions'
@@ -292,32 +302,32 @@ class MissionService:
             # Define the new table schema
             table_name = "missions_old"
             new_table_name = "missions_new"
-            new_table = Table(new_table_name, model.Base.metadata, *new_columns)
+            new_table = Table(new_table_name, Base.metadata, *new_columns)
 
             # with model.engine.connect() as conn:
             # Rename the original table
-            model.session.execute(text(f"DROP TABLE {table_name}"))
+            self.session.execute(text(f"DROP TABLE {table_name}"))
             original_table_name = "missions"
-            model.session.execute(text(f"ALTER TABLE {original_table_name} RENAME TO {table_name}"))
+            self.session.execute(text(f"ALTER TABLE {original_table_name} RENAME TO {table_name}"))
 
             # Create the new table with the desired column order
-            model.Base.metadata.create_all(model.engine, tables=[new_table])
+            Base.metadata.create_all(self.engine, tables=[new_table])
 
             # Copy data from the old table to the new table
             columns_to_copy = [col.name for col in new_table.columns if col.name != new_column_name]
             columns_to_copy_str = ', '.join(columns_to_copy)
-            model.session.execute(text(f"""
+            self.session.execute(text(f"""
                 INSERT INTO {new_table_name} ({columns_to_copy_str})
                 SELECT {columns_to_copy_str} FROM {table_name}
             """))
 
             # Drop the old table
-            model.session.execute(text("DROP TABLE missions_old;"))
+            self.session.execute(text("DROP TABLE missions_old;"))
 
             # Rename the new table to the original table name
-            model.session.execute(text("ALTER TABLE missions_new RENAME TO missions;"))
+            self.session.execute(text("ALTER TABLE missions_new RENAME TO missions;"))
 
-            model.session.commit()
+            self.session.commit()
 
             self.describe_table()
 
@@ -330,6 +340,23 @@ class MissionService:
             else:
                 ex_stat = "ErrorAddColumnToMissionsTable: traceback information not available:" + str(e)
             print(ex_stat)
+
+    def add_last_column(self, new_column_name, new_column_data_type):
+        # Construct the SQL command to add a column
+        try:
+            sql_command = text(f"ALTER TABLE missions ADD COLUMN {new_column_name} {new_column_data_type}")
+            self.session.execute(sql_command)
+            self.session.commit()
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorAddLastColumnToMissionsTable:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorAddLastColumnToMissionsTable: traceback information not available:" + str(e)
+            print(ex_stat)
+
 
     def drop_column(self, col_name):
         # metadata = MetaData(bind=model.engine)
@@ -352,31 +379,31 @@ class MissionService:
             # Define the new table schema
             table_name = "missions_old"
             new_table_name = "missions_new"
-            new_table = Table(new_table_name, model.Base.metadata, *new_columns)
+            new_table = Table(new_table_name, Base.metadata, *new_columns)
 
-            with model.engine.connect() as conn:
+            with self.engine.connect() as conn:
                 # Rename the original table
-                model.session.execute(text("DROP TABLE missions_old;"))
-                model.session.execute(text("ALTER TABLE missions RENAME TO missions_old;"))
+                self.session.execute(text("DROP TABLE missions_old;"))
+                self.session.execute(text("ALTER TABLE missions RENAME TO missions_old;"))
 
                 # Create the new table with the desired column order
-                model.Base.metadata.create_all(model.engine, tables=[new_table])
+                Base.metadata.create_all(self.engine, tables=[new_table])
 
                 # Copy data from the old table to the new table
                 columns_to_copy = [col.name for col in new_table.columns]
                 columns_to_copy_str = ', '.join(columns_to_copy)
-                model.session.execute(text(f"""
+                self.session.execute(text(f"""
                             INSERT INTO {new_table_name} ({columns_to_copy_str})
                             SELECT {columns_to_copy_str} FROM {table_name}
                         """))
 
                 # Drop the old table
-                model.session.execute(text("DROP TABLE missions_old;"))
+                self.session.execute(text("DROP TABLE missions_old;"))
 
                 # Rename the new table to the original table name
-                model.session.execute(text("ALTER TABLE missions_new RENAME TO missions;"))
+                self.session.execute(text("ALTER TABLE missions_new RENAME TO missions;"))
 
-                model.session.commit()
+                self.session.commit()
 
                 self.describe_table()
 

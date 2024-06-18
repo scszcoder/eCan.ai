@@ -1,6 +1,6 @@
 import json
 
-from globals.model import SkillModel
+from common.models.skill import SkillModel
 
 
 class SkillService:
