@@ -19,7 +19,7 @@ from bot.genSkills import genWinTestSkill, genWinTestSkill1, genWinTestSkill2
 from bot.missions import EBMISSION
 from bot.ordersData import ORDER, OrderPerson, OrderedProduct, Shipping
 from bot.readSkill import prepRun1Skill, runAllSteps, prepRunSkill
-from bot.scraperAmz import processAmzScrapeSoldOrdersHtml
+from bot.scraperAmz import processAmzScrapeSoldOrdersHtml, amz_buyer_scrape_product_details
 from bot.scraperEbay import ebay_seller_get_system_msg_thread
 from bot.scraperEtsy import processEtsyScrapeOrders
 
@@ -547,8 +547,9 @@ def test_api(parent, session, token):
 
 def test_sqlite3(mw):
     from sqlalchemy import Text
+    mw.bot_service.describe_table()
     # mw.mission_service.add_column("variations", Text, "title")
-    mw.mission_service.describe_table()
+    #mw.mission_service.describe_table()
     # sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
     #               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''
     # data_tuple = (21, 'songc@yahoo.com', 'Amazon:Buyer:Green', 'Male', '1992-01-01', \
@@ -1150,3 +1151,10 @@ def test_scrape_amz_buy_orders():
     }
 
     next_step = processAmzScrapeSoldOrdersHtml(step, 10)
+
+
+def test_scrape_amz_product_details():
+    html_file = "C:/temp/testAmzPd1.html"
+    # html_file = "C:/temp/testAmzPd5.html"
+    # html_file = "C:/temp/testAmzPd.html"
+    pds = amz_buyer_scrape_product_details(html_file)
