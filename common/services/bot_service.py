@@ -2,7 +2,7 @@ import json
 
 from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text
 
-from Cloud import send_query_bots_request_to_cloud
+from bot.Cloud import send_query_bots_request_to_cloud
 from common.models.bot import BotModel
 import traceback
 from common.db_init import Base
