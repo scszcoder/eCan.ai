@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text
 
-from Cloud import send_query_missions_request_to_cloud
+from bot.Cloud import send_query_missions_request_to_cloud
 import traceback
 from bot.Logger import log3
 from common.models.mission import MissionModel

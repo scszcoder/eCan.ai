@@ -15,7 +15,8 @@ import traceback
 from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml, amz_buyer_scrape_product_list, amz_buyer_scrape_product_details, \
     amz_buyer_scrape_product_reviews
 
-from bot.amzBuyerSkill import genAMZScrollProductListToTop, genAMZScrollProductListToBottom, genStepCalibrateScroll
+from bot.amzBuyerSkill import genAMZScrollProductListToTop, genAMZScrollProductListToBottom, genStepCalibrateScroll, \
+    genAMZBrowseProductLists
 
 SAME_ROW_THRESHOLD = 16
 
