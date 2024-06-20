@@ -9,7 +9,7 @@ from boto3.s3.transfer import TransferConfig
 import logging
 import aiohttp
 
-from envi import getECBotDataHome
+from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
 
 ecb_data_homepath = getECBotDataHome()

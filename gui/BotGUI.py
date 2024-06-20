@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, Q
     QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QListView, QFrame, QMenu, QLabel, \
     QTableView, QMessageBox, QStyledItemDelegate
 from bot.ebbot import EBBOT
-from tool.MainGUITool import StaticResource
+from gui.tool.MainGUITool import StaticResource
 
 
 class ComboBoxDelegate(QStyledItemDelegate):
