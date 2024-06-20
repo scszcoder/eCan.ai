@@ -48,7 +48,7 @@ from bot.basicSkill import STEP_GAP
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
-from lzstring import LZString
+from bot.lzstring import LZString
 import openpyxl
 from datetime import timedelta
 import platform
@@ -58,11 +58,11 @@ from bot.network import myname, fieldLinks
 from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
-from tool.MainGUITool import FileResource, StaticResource
+from gui.tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper
 from tests.unittests import *
 import pandas as pd
-from encrypt import *
+from gui.encrypt import *
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 

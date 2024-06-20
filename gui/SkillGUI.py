@@ -16,7 +16,7 @@ from bot.Cloud import req_train_read_screen, upload_file, send_add_skills_reques
 from bot.WorkSkill import ANCHOR, USER_INFO, PROCEDURAL_STEP, WORKSKILL
 from bot.basicSkill import read_screen
 from bot.genSkills import getWorkSettings, setWorkSettingsSkill
-from envi import getECBotDataHome
+from bot.envi import getECBotDataHome
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info

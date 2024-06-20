@@ -1523,12 +1523,10 @@ def genAMZBrowseAllReviewsPage(level, stepN, settings_var_name, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-
-
-
-    return this_step,psk_words   this_step, step_words = genStepCallExtern("print('DONE BROWSE ALL REVIEWS.....')", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("print('DONE BROWSE ALL REVIEWS.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
+    return this_step,psk_words
 
 def genScroll1StarReviewsPage(stepN, start):
     psk_words = ""

@@ -10,7 +10,6 @@ import tzlocal
 
 from bot.readSkill import runAllSteps
 from common.models.mission import MissionModel
-from encrypt import *
 
 TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
