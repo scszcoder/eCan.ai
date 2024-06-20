@@ -267,6 +267,19 @@ def amz_buyer_scrape_product_details(html_file):
                     # print("found dimensionValuesDisplayData")
                     thisVar["dimensionValuesDisplayData"] = rawVariationsJson["dimensionValuesDisplayData"]
 
+                if "variationDisplayLabels" in rawVariationsJson:
+                    # print("found dimensionValuesDisplayData")
+                    thisVar["variationDisplayLabels"] = rawVariationsJson["variationDisplayLabels"]
+
+                if "variationValues" in rawVariationsJson:
+                    # print("found dimensionValuesDisplayData")
+                    thisVar["variationValues"] = rawVariationsJson["variationValues"]
+
+                if "dimensionsDisplayType" in rawVariationsJson:
+                    # print("found dimensionValuesDisplayData")
+                    thisVar["dimensionsDisplayType"] = rawVariationsJson["dimensionsDisplayType"]
+
+
                 # print("thisVar:", thisVar)
                 product_details["variations"] = thisVar
                 break
