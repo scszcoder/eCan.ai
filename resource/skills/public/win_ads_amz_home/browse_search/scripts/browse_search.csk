@@ -712,6 +712,13 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "results",
+                        "anchor_type"  : "text",
+                        "template"     : "Results",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "orders",
                         "anchor_type"  : "text",
                         "template"     : "Orders",
@@ -970,6 +977,41 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "recent_views",
+                        "anchor_type"  : "text",
+                        "template"     : "recent views",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "in_stock",
+                        "anchor_type"  : "text",
+                        "template"     : "In Stock",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "quantity",
+                        "anchor_type"  : "text",
+                        "template"     : "Quantity",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "top_purchases",
+                        "anchor_type"  : "text",
+                        "template"     : "Top purchases",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "bought_together",
+                        "anchor_type"  : "text",
+                        "template"     : "bought together",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "bought_in_past",
                         "anchor_type"  : "text",
                         "template"     : "bought in past month",
@@ -1026,9 +1068,9 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "products_description",
+                        "anchor_name"  : "product_description",
                         "anchor_type"  : "text",
-                        "template"     : "Products Description",
+                        "template"     : "Product Description",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -1252,7 +1294,7 @@
                     {
                         "anchor_name"  : "conditions_of_use",
                         "anchor_type"  : "text",
-                        "template"     : "Conditions of use",
+                        "template"     : "Conditions of Use",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },

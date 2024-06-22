@@ -2986,6 +2986,30 @@ def process7z(step, i):
     return (i + 1), ex_stat
 
 
+def are_locs_close(obj1, obj2, threshold=10):
+    """
+    Check if two rectangles are within a threshold distance.
+    """
+    left1, top1, right1, bottom1 = obj1["loc"]
+    left2, top2, right2, bottom2 = obj2["loc"]
+
+    return (abs(left1 - left2) <= threshold and
+            abs(top1 - top2) <= threshold and
+            abs(right1 - right2) <= threshold and
+            abs(bottom1 - bottom2) <= threshold)
+
+
+def filter_duplicates(objs, threshold=10):
+    """
+    Filter out duplicate rectangles within a given threshold.
+    """
+    filtered_objs = []
+    for obj in objs:
+        if not any(are_locs_close(obj, unique_one, threshold) for unique_one in filtered_objs):
+            filtered_objs.append(obj)
+    return filtered_objs
+
+
 # create a data structure holder for anchor....
 # "type": "Search",
 # "action": "Search",
@@ -3035,9 +3059,12 @@ def processSearchAnchorInfo(step, i):
         # reg = re.compile(target_names + "[0-9]+")
         # found = [element for index, element in enumerate(scrn["data"]) if reg.match(element["name"]) and element["type"] == target_types]
 
-        log3("found.... "+json.dumps(found))
+        #now remove duplicates
+        uniquely_found = filter_duplicates(found)
+
+        log3("found.... "+json.dumps(uniquely_found))
         # search result should be put into the result variable.
-        symTab[step["result"]] = found
+        symTab[step["result"]] = uniquely_found
 
         if logic == "any":
             if len(found) == 0:
@@ -3923,30 +3950,32 @@ def processCalcObjectsDistance(step, i):
         if step["distance_type"] == "min":
             if step["distance_dir"] == "vertical":              # always assume obj1 is above obj2
                 # find the lowest of obj1 and highest of obj2
-                vsorted1 = sorted(step["obj1"], key=lambda x: x["loc"][2], reverse=True)
-                vsorted2 = sorted(step["obj2"], key=lambda x: x["loc"][0], reverse=False)
+                # print("obj_name1:", step["obj_name1"], symTab[step["obj_name1"]])
+                # print("obj_name2:", step["obj_name2"], symTab[step["obj_name2"]])
+                vsorted1 = sorted(symTab[step["obj_name1"]], key=lambda x: x["loc"][2], reverse=True)
+                vsorted2 = sorted(symTab[step["obj_name2"]], key=lambda x: x["loc"][0], reverse=False)
                 log3("calc min vertical gap:"+json.dumps(vsorted1[0]["loc"])+", "+json.dumps(vsorted2[0]["loc"]))
                 op1 = vsorted1[0]["loc"][2]
                 op2 = vsorted2[0]["loc"][0]
             elif step["distance_dir"] == "horizontal":          # always assume obj1 is to the left of obj2
                 # find the right mostobj1 and left most obj2, then calculate the distance.
-                hsorted1 = sorted(step["obj1"], key=lambda x: x["loc"][3], reverse=True)
-                hsorted2 = sorted(step["obj2"], key=lambda x: x["loc"][1], reverse=False)
+                hsorted1 = sorted(symTab[step["obj_name1"]], key=lambda x: x["loc"][3], reverse=True)
+                hsorted2 = sorted(symTab[step["obj_name2"]], key=lambda x: x["loc"][1], reverse=False)
                 log3("calc min horizontal gap:" + json.dumps(hsorted1[0]["loc"]) + ", " + json.dumps(hsorted2[0]["loc"]))
                 op1 = hsorted1[0]["loc"][3]
                 op2 = hsorted2[0]["loc"][1]
         elif step["distance_type"] == "max":
             if step["distance_dir"] == "vertical":              # always assume obj1 is above obj2
                 # find the highest of obj1 and lowest of obj2
-                vsorted1 = sorted(step["obj1"], key=lambda x: x["loc"][2], reverse=False)
-                vsorted2 = sorted(step["obj2"], key=lambda x: x["loc"][0], reverse=True)
+                vsorted1 = sorted(symTab[step["obj_name1"]], key=lambda x: x["loc"][2], reverse=False)
+                vsorted2 = sorted(symTab[step["obj_name2"]], key=lambda x: x["loc"][0], reverse=True)
                 log3("calc max vertical gap:" + json.dumps(vsorted1[0]["loc"]) + ", " + json.dumps(vsorted2[0]["loc"]))
                 op1 = vsorted1[0]["loc"][2]
                 op2 = vsorted2[0]["loc"][0]
             elif step["distance_dir"] == "horizontal":          # always assume obj1 is to the left of obj2
                 # find the left most mostobj1 and right most obj2, then calculate the distance.
-                hsorted1 = sorted(step["obj1"], key=lambda x: x["loc"][3], reverse=False)
-                hsorted2 = sorted(step["obj2"], key=lambda x: x["loc"][1], reverse=True)
+                hsorted1 = sorted(symTab[step["obj_name1"]], key=lambda x: x["loc"][3], reverse=False)
+                hsorted2 = sorted(symTab[step["obj_name2"]], key=lambda x: x["loc"][1], reverse=True)
                 log3("calc max horizontal gap:" + json.dumps(hsorted1[0]["loc"]) + ", " + json.dumps(hsorted2[0]["loc"]))
                 op1 = hsorted1[0]["loc"][3]
                 op2 = hsorted2[0]["loc"][1]
