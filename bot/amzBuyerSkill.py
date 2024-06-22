@@ -709,7 +709,7 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, ith, stepN, worksetting
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
-        "print('BROWSING DOWN PRODUCT LIST.....', this_attention_index, next_attention_index)", "", "in_line", "",
+        "print('BROWSING DOWN PRODUCT LIST TO LAST ATTENTION.....', this_attention_index, next_attention_index)", "", "in_line", "",
         this_step)
     psk_words = psk_words + step_words
 
@@ -838,20 +838,29 @@ def genAMZBrowseProductListEstimateRowHeight(pl, rh_var, urs_var, stepN, workset
     this_step, step_words = genScrollDownUntil("results", "anchor text", 20, "product_list", "body", stepN, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_list", "body", theme, this_step, None)
+    this_step, step_words = genStepCallExtern("print('BROWSING PRODUCT LISTS ESTIMATE ROW HEIGHT.....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_cols", "NA", "0", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'attention_area':[0, 0, 1, 1], 'attention_targets':['Result']}", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_list", "body", theme, this_step, None, "dyn_options")
     psk_words = psk_words + step_words
 
     # obtain all free delivery
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "results", "direct", "anchor text", "any", "results_anchors", "found_fd", "amz", False, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "free_delivery", "direct", "anchor text", "any", "fd_anchors", "found_fd", "amz", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "n_cols", "NA", "len(fd_anchors)", this_step)
+    this_step, step_words = genStepCallExtern("global n_cols, fd_anchors\nn_cols = len(fd_anchors)\nprint('n_cols:', n_cols)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global n_cols\nprint('n_cols:', n_cols)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCalcObjectsDistance("results", "anchor text", "fd_anchors", "anchor text", "min", "vertical", rh_var, "calc_flg", this_step)
+    this_step, step_words = genStepCalcObjectsDistance("results_anchors", "anchor text", "fd_anchors", "anchor text", "min", "vertical", rh_var, "calc_flg", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global row_height\nprint('row_height:', row_height)", "", "in_line", "", this_step)
@@ -861,6 +870,9 @@ def genAMZBrowseProductListEstimateRowHeight(pl, rh_var, urs_var, stepN, workset
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global unit_row_scroll\nprint('unit_row_scroll:', unit_row_scroll)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('DONE BROWSING PRODUCT LISTS ESTIMATE ROW HEIGHT.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     return this_step,psk_words
@@ -874,6 +886,9 @@ def genAMZBrowseProductListScrollNearNextAttention(pl, here, there, stepN, works
     psk_words = ""
 
     this_step, step_words = genStepCheckCondition(pl+"['products']['layout'] == 'grid'", "", "", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('BROWSING PRODUCT LISTS NEAR NEXT ATTENTION.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global row_gap, "+there+", "+here+", n_cols\nimport math\nrow_gap = math.floor(("+there+" - "+here+")/n_cols)", "", "in_line", "", this_step)
@@ -892,7 +907,7 @@ def genAMZBrowseProductListScrollNearNextAttention(pl, here, there, stepN, works
     this_step, step_words = genStepCallExtern("global scroll_count\nimport math\nscroll_count = math.floor((row_gap*row_height)/(3*scroll_resolution))", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global scroll_count\nprint('scroll_count:', scroll_count)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global scroll_count, row_gap\nprint('scroll_count:', scroll_count, 'row_gap:', row_gap)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("scroll_count != 0", "", "", this_step)
@@ -913,6 +928,9 @@ def genAMZBrowseProductListScrollNearNextAttention(pl, here, there, stepN, works
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('END OF BROWSING PRODUCT LISTS NEAR NEXT ATTENTION.....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     return this_step,psk_words
 
 
@@ -923,12 +941,15 @@ def genAMZBrowseProductListScrollDownToNextAttention(pl, stepN, worksettings, th
     this_step, step_words = genStepCreateData("boolean", "found_attention", "NA", False, stepN)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('BROWSING PRODUCT LISTS TO NEXT ATTENTION.....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # condition, count, end, lc_name, stepN):
     this_step, step_words = genStepLoop("not found_attention", "", "", "scroll2Attens"+str(stepN), this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genScrollDownUntil(["free_delivery", "previous"], "anchor text", 80, "product_list", "body",
-                                               stepN, worksettings, "amz", theme)
+                                               this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -946,6 +967,9 @@ def genAMZBrowseProductListScrollDownToNextAttention(pl, stepN, worksettings, th
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('DONE BROWSING PRODUCT LISTS TO NEXT ATTENTION.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     return this_step,psk_words
@@ -1523,10 +1547,12 @@ def genAMZBrowseAllReviewsPage(level, stepN, settings_var_name, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
+
     this_step, step_words = genStepCallExtern("print('DONE BROWSE ALL REVIEWS.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    return this_step,psk_words
+    return this_step, psk_words
+
 
 def genScroll1StarReviewsPage(stepN, start):
     psk_words = ""
