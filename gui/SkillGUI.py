@@ -2370,7 +2370,7 @@ class SkillGUI(QMainWindow):
                 data = json.load(f)
 
                 self.show_msg(f'JSON data loaded from {file_name}: {data}')
-                self.skFCWidget.decode_json(str(data))
+                self.skFCWidget.decode_json(json.dumps(data))
                 self.edit_mode = "edit"
 
     def save_skill_file(self):
