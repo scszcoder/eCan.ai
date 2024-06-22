@@ -1364,7 +1364,11 @@ class MainWindow(QMainWindow):
                     # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                     # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
                     # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
-                    file = '/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/public/mac_chrome_amz_home/browse_search.json'
+                    system = platform.system()
+                    if system == "Windows":
+                        file = 'C:/temp/scheduleResultTest9.json'
+                    elif system == 'Darwin':
+                        file = '/Users/tangyu/Projects/Tanyo/ecbot/scheduleResultTest7.json'
                     if exists(file):
                         with open(file) as test_schedule_file:
                             bodyobj = json.load(test_schedule_file)
@@ -1930,6 +1934,8 @@ class MainWindow(QMainWindow):
 
         for platform in v_groups.keys():
             p_task_groups = self.unassigned_task_groups[platform]
+            if len(p_task_groups)  == 0:
+                continue
             p_nsites = len(v_groups[platform])
 
             self.showMsg("p_nsites for " + platform + ":" + str(p_nsites))
