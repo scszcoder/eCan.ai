@@ -9,7 +9,7 @@ import traceback
 import time
 
 from bot.missions import TIME_SLOT_MINS, EBMISSION
-from tool.MainGUITool import StaticResource
+from gui.tool.MainGUITool import StaticResource
 from utils.logger_helper import logger_helper
 
 

@@ -1097,6 +1097,7 @@ def readTxtProfiles(fnames):
 # this function removes useless cookies from a ADS Power profile object, so that the cookie is short enough to fit into
 # an excel file cell (32768 Byte), and enough to let one log into the target web site, typically 1 gamil + 1 other site.
 def removeUselessCookies(pfJson, site_list):
+    # for pfJson in pfJsons:
     qualified_cookies = list(filter(lambda x: any(site in x["domain"] for site in site_list), pfJson["cookie"]))
     pfJson["cookie"] = qualified_cookies
 

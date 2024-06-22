@@ -12,14 +12,14 @@ from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXl
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
-    get_top_visible_window
+    get_top_visible_window, processExtractInfo
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
 from bot.genSkills import genWinTestSkill, genWinTestSkill1, genWinTestSkill2
 from bot.missions import EBMISSION
 from bot.ordersData import ORDER, OrderPerson, OrderedProduct, Shipping
 from bot.readSkill import prepRun1Skill, runAllSteps, prepRunSkill
-from bot.scraperAmz import processAmzScrapeSoldOrdersHtml
+from bot.scraperAmz import processAmzScrapeSoldOrdersHtml, amz_buyer_scrape_product_details
 from bot.scraperEbay import ebay_seller_get_system_msg_thread
 from bot.scraperEtsy import processEtsyScrapeOrders
 
@@ -881,18 +881,23 @@ def test_processSearchWordLine():
     processSearchWordLine(stepjson, 1)
 
 
-def test_ads_profiling():
-    profile_json = readTxtProfile("C:/AmazonSeller/SelfSwipe/ADSProfiles/test_profile.txt")
+def test_ads_profiling(username):
+    fname = "C:/temp/adsProfilesTest0.json"
+    fj = open(fname)
+    pJsons = json.load(fj)
+    fj.close()
+
+    profile_json = readTxtProfile("C:/AmazonSeller/SelfSwipe/ADSProfiles/"+username+".txt")
     print("profile json is:", profile_json)
-    print("# cookies:", len(profile_json["cookie"]))
+    print("# cookies:", len(profile_json[0]["cookie"]))
     print("============================================================")
-    removeUselessCookies(profile_json, ["amazon"])
+    # removeUselessCookies(profile_json, ["amazon", "google", "gmail"])
     print("after filter, profile json is:", profile_json)
 
-    print("# cookies:", len(profile_json["cookie"]))
+    print("# cookies:", len(profile_json[0]["cookie"]))
     print("============================================================")
 
-    genProfileXlsx(profile_json, "C:/AmazonSeller/SelfSwipe/ADSProfiles/temp0.xlsx")
+    genProfileXlsx(profile_json, "C:/AmazonSeller/SelfSwipe/ADSProfiles/"+username+".xlsx", [username+"_"], pJsons["site_lists"])
     # genProfileXlsxs(pfJsons, fnames)
 
 
@@ -1151,3 +1156,31 @@ def test_scrape_amz_buy_orders():
     }
 
     next_step = processAmzScrapeSoldOrdersHtml(step, 10)
+
+
+def test_scrape_amz_product_details():
+    html_file = "C:/temp/testAmzPd1.html"
+    # html_file = "C:/temp/testAmzPd5.html"
+    # html_file = "C:/temp/testAmzPd.html"
+    pds = amz_buyer_scrape_product_details(html_file)
+
+
+
+def test_detect_swatch():
+    mission = None
+    skill = None
+    settings = {}
+    dyn_options = "{'anchors': [{'anchor_name': 'this_var', 'anchor_type': 'text', 'template': 'Size', 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'next_var', 'anchor_type': 'text', 'template': 'BOS', 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'swatch', 'anchor_type': 'polygon', 'template': '', 'ref_method': '1', 'ref_location': [{'ref': 'this_var', 'side': 'bottom', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'this_var', 'side': 'right', 'dir': '>', 'offset': '-1', 'offset_unit': 'box'}]}, {'ref': 'next_var', 'side': 'top', 'dir': '<', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'quantity', 'side': 'left', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}], 'attention_area':[0.35, 0, 0.85, 1], 'attention_targets':['@all']}"
+
+    step =  {
+        "type": "Extract Info",
+        "settings": settings,
+        "template": "",
+        "options": dyn_options,
+        "data_sink": "screen_info",
+        "page": "product_details",
+        "page_data_info": None,
+        "theme": "",
+        "section": "top"
+    }
+    ni, status = processExtractInfo(step, 1, mission, skill)

@@ -16,7 +16,7 @@ from bot.Cloud import req_train_read_screen, upload_file, send_add_skills_reques
 from bot.WorkSkill import ANCHOR, USER_INFO, PROCEDURAL_STEP, WORKSKILL
 from bot.basicSkill import read_screen
 from bot.genSkills import getWorkSettings, setWorkSettingsSkill
-from envi import getECBotDataHome
+from bot.envi import getECBotDataHome
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
@@ -2370,7 +2370,7 @@ class SkillGUI(QMainWindow):
                 data = json.load(f)
 
                 self.show_msg(f'JSON data loaded from {file_name}: {data}')
-                self.skFCWidget.decode_json(str(data))
+                self.skFCWidget.decode_json(json.dumps(data))
                 self.edit_mode = "edit"
 
     def save_skill_file(self):
