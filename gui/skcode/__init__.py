@@ -3,6 +3,9 @@
 # @Author: Zhanyi Hou
 # @Email: 1295752786@qq.com
 # @File: __init__.py
+from utils.time_util import TimeUtil
+
+print(TimeUtil.formatted_now_with_ms() + " Initializing package gui.skcode...")
 
 from .highlighters import PythonHighlighter
 from .codeeditor import PMGPythonEditor

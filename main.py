@@ -1,3 +1,6 @@
+from utils.time_util import TimeUtil
+
+print(TimeUtil.formatted_now_with_ms() + " app start...")
 import asyncio
 import sys
 import traceback
@@ -49,6 +52,7 @@ def main():
 
 
 if __name__ == '__main__':
+    print(TimeUtil.formatted_now_with_ms() + " main function run start...")
     setproctitle('ECBot')
 
     # test_eb_orders_scraper()
@@ -71,6 +75,8 @@ if __name__ == '__main__':
     # print("all unit tests done...")
     # test_scrape_amz_buy_orders()
     # list_windows()
+    # test_scrape_amz_product_details()
+
     try:
         main()
     except Exception as e:
