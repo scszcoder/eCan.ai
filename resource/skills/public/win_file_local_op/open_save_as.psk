@@ -50,7 +50,7 @@
 "step 30":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['Open', 'File name:']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['Open', 'File name:', 'Save', 'Cancel']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
