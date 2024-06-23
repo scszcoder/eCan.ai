@@ -1,27 +1,27 @@
 import json
+import threading
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
     QFileDialog
-from pynput import keyboard
-
-from pynput.mouse import Listener as MouseListener
-from pynput.keyboard import Listener as KeyboardListener
+from pynput import keyboard, mouse
 
 import pyautogui
 
 from gui.SkillGUI import SkillGUI
+from utils.logger_helper import logger_helper
 
 counter = 0
 record_over = False
 
 
 class TrainDialogWin(QMainWindow):
-    def __init__(self, parent):
-        super(TrainDialogWin, self).__init__(parent)
+    def __init__(self, train_win):
+        super(TrainDialogWin, self).__init__(train_win)
 
         self.mainWidget = QWidget()
-        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"), alignment=Qt.AlignLeft)
+        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"),
+                                     alignment=Qt.AlignLeft)
 
         self.start_button = QPushButton(QApplication.translate("QPushButton", "Start Training"))
         self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
@@ -33,11 +33,12 @@ class TrainDialogWin(QMainWindow):
 
 
 class ReminderWin(QMainWindow):
-    def __init__(self, parent):
-        super(ReminderWin, self).__init__(parent)
+    def __init__(self, main_win):
+        super(ReminderWin, self).__init__(main_win)
 
         self.mainWidget = QWidget()
-        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"), alignment=Qt.AlignLeft)
+        self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"),
+                                     alignment=Qt.AlignLeft)
         self.rLayout = QHBoxLayout()
         self.rLayout.addWidget(self.reminder_label)
         self.mainWidget.setLayout(self.rLayout)
@@ -46,8 +47,8 @@ class ReminderWin(QMainWindow):
 
 
 class TrainNewWin(QMainWindow):
-    def __init__(self, parent):
-        super(TrainNewWin, self).__init__(parent)
+    def __init__(self, main_win):
+        super(TrainNewWin, self).__init__(main_win)
         self.mouse_listener = None
         self.keyboard_listener = None
 
@@ -56,7 +57,7 @@ class TrainNewWin(QMainWindow):
         self.temp_dir = None
 
         self.newSkill = None
-        self.parent = parent
+        self.main_win = main_win
         self.mainWidget = QWidget()
         self.trainDialog = TrainDialogWin(self)
         self.session = None
@@ -70,7 +71,7 @@ class TrainNewWin(QMainWindow):
         self.bLayout = QHBoxLayout(self)
         self.rLayout = QHBoxLayout(self)
 
-        #self.label = QLabel()
+        # self.label = QLabel()
         self.bLayout.addWidget(self.start_tutor_button)
         self.bLayout.addWidget(self.start_demo_button)
         self.bLayout.addWidget(self.start_skill_button)
@@ -119,7 +120,7 @@ class TrainNewWin(QMainWindow):
         if event.key() == Qt.Key_Escape:
             self.showMinimized()
 
-    def on_move(self, x, y, button, pressed):
+    def on_move(self, x, y):
         if self.record_over:
             self.record_over = False
             return False
@@ -172,7 +173,7 @@ class TrainNewWin(QMainWindow):
         if key == keyboard.Key.esc:
             # Stop listener
             self.record_over = True
-            self.parent.reminderWin.hide()
+            self.main_win.reminderWin.hide()
             msgBox = QMessageBox()
             msgBox.setText(
                 QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
@@ -183,18 +184,29 @@ class TrainNewWin(QMainWindow):
             if ret == QMessageBox.Yes:
                 print("done with demo...")
                 self.saveRecordFile()
+                return False
 
-            return False
 
     def start_listening(self):
         print("Starting input event listeners...")
-        self.keyboard_listener = KeyboardListener(on_press=self.on_press, on_release=self.on_release)
-        self.mouse_listener = MouseListener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll)
-        self.keyboard_listener.start()
-        self.mouse_listener.start()
-        self.record_over = False
-        self.parent.reminderWin.show()
-        self.parent.reminderWin.setGeometry(800, 0, 100, 50)
+        try:
+            def start_keyboard_listener():
+                with keyboard.Listener(on_press=self.on_press, on_release=self.on_release) as listener:
+                    listener.join()
+
+            def start_mouse_listener():
+                with mouse.Listener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll) as listener:
+                    listener.join()
+
+            self.keyboard_listener_thread = threading.Thread(target=start_keyboard_listener)
+            self.mouse_listener_thread = threading.Thread(target=start_mouse_listener)
+            self.keyboard_listener_thread.start()
+            self.mouse_listener_thread.start()
+            self.record_over = False
+            self.main_win.reminderWin.show()
+            self.main_win.reminderWin.setGeometry(800, 0, 100, 50)
+        except Exception as e:
+            logger_helper.error(f"Failed to start listeners: {e}")
 
     def cancel_recording(self):
         self.record_over = True
@@ -232,4 +244,3 @@ class TrainNewWin(QMainWindow):
     def set_cloud(self, session, cog):
         self.session = session
         self.cog = cog
-
