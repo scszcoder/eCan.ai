@@ -1,5 +1,7 @@
+import asyncio
 import json
 import threading
+import time
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
@@ -13,6 +15,15 @@ from utils.logger_helper import logger_helper
 
 counter = 0
 record_over = False
+
+class STEP:
+    def __init__(self, parent):
+        super(STEP, self).__init__(parent)
+        self.temp_dir = parent.homepath + "/resource/skills/temp/"
+        self.order = 0
+        self.img = None
+        self.location = (0, 0, 0, 0)
+        self.action = ""
 
 
 class TrainDialogWin(QMainWindow):
@@ -54,7 +65,9 @@ class TrainNewWin(QMainWindow):
 
         self.record_over = False
         self.oldPos = None
-        self.temp_dir = None
+        # self.temp_dir = None
+        self.temp_dir = main_win.homepath + "/resource/skills/temp/"
+
 
         self.newSkill = None
         self.main_win = main_win
@@ -92,6 +105,8 @@ class TrainNewWin(QMainWindow):
         self.steps = 0
         self.actionRecord = [{"step": 0}]
 
+        self.loop = asyncio.get_event_loop()
+
     def mousePressEvent(self, event):
         self.oldPos = event.globalPos()
 
@@ -121,6 +136,7 @@ class TrainNewWin(QMainWindow):
             self.showMinimized()
 
     def on_move(self, x, y):
+        print("监听到的坐标： ", x, y)
         if self.record_over:
             self.record_over = False
             return False
@@ -151,16 +167,17 @@ class TrainNewWin(QMainWindow):
             #     return False
 
     def on_scroll(self, x, y, dx, dy):
-        if self.record_over:
-            return False
-        else:
-            print('Scrolled {0} at {1}'.format(
-                'down' if dy < 0 else 'up',
-                (x, y)))
-            fname = self.temp_dir + "step" + str(self.steps) + ".png"
-            im = pyautogui.screenshot(fname)
-            # self.record.append(im)
-            self.steps = self.steps + 1
+        print("scroll:", x, y, dx, dy)
+        # if self.record_over:
+        #     return False
+        # else:
+        #     print('Scrolled {0} at {1}'.format(
+        #         'down' if dy < 0 else 'up',
+        #         (x, y)))
+        #     fname = self.temp_dir + "step" + str(self.steps) + ".png"
+        #     im = pyautogui.screenshot(fname)
+        #     # self.record.append(im)
+        #     self.steps = self.steps + 1
 
     def on_press(self, key):
         try:
@@ -184,24 +201,31 @@ class TrainNewWin(QMainWindow):
             if ret == QMessageBox.Yes:
                 print("done with demo...")
                 self.saveRecordFile()
-                return False
 
+    async def start_listeners(self):
+        # 启动鼠标监听器
+        def run_mouse_listener():
+            with mouse.Listener(
+                    on_move=self.on_move,
+                    on_click=self.on_click,
+                    on_scroll=self.on_scroll) as listener:
+                listener.join()
+
+        # 启动键盘监听器
+        def run_keyboard_listener():
+            with keyboard.Listener(
+                    on_press=self.on_press,
+                    on_release=self.on_release) as listener:
+                listener.join()
+
+        # 使用线程池运行监听器
+        await self.loop.run_in_executor(None, run_mouse_listener)
+        await self.loop.run_in_executor(None, run_keyboard_listener)
 
     def start_listening(self):
-        print("Starting input event listeners...")
         try:
-            def start_keyboard_listener():
-                with keyboard.Listener(on_press=self.on_press, on_release=self.on_release) as listener:
-                    listener.join()
-
-            def start_mouse_listener():
-                with mouse.Listener(on_move=self.on_move, on_click=self.on_click, on_scroll=self.on_scroll) as listener:
-                    listener.join()
-
-            self.keyboard_listener_thread = threading.Thread(target=start_keyboard_listener)
-            self.mouse_listener_thread = threading.Thread(target=start_mouse_listener)
-            self.keyboard_listener_thread.start()
-            self.mouse_listener_thread.start()
+            self.loop.create_task(self.start_listeners())
+            print("Starting input event listeners...")
             self.record_over = False
             self.main_win.reminderWin.show()
             self.main_win.reminderWin.setGeometry(800, 0, 100, 50)
