@@ -4458,11 +4458,26 @@ class MainWindow(QMainWindow):
                 self.botModel.appendRow(new_bot)
                 self.selected_bot_row = self.botModel.rowCount() - 1
                 self.selected_bot_item = self.botModel.item(self.selected_bot_row)
+
+                self.addBotToVehicle(new_bot)
         else:
             self.showMsg("WARNING: local bots DB empty!")
             # self.newBotFromFile()
 
 
+    def addBotToVehicle(self, new_bot):
+
+        if new_bot.getVName() != "" and new_bot.getVName() != "NA":
+            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVName()), None)
+
+            if found_v:
+                nadded = found_v.addBot(new_bot.getBid())
+                if nadded == 0:
+                    self.showMsg("WARNING: vehicle reached full capacity!")
+            else:
+                self.showMsg("WARNING: bot vehicle NOT FOUND!")
+        else:
+            self.showMsg("WARNING: bot vehicle NOT ASSIGNED!")
 
     # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
     def loadLocalMissions(self, db_data: [MissionModel]):
