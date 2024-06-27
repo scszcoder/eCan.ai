@@ -1026,9 +1026,23 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "from_us",
+                        "anchor_type"  : "text",
+                        "template"     : "from the United States",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "start_reviews",
                         "anchor_type"  : "text",
                         "template"     : "Top reviews from the United States",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "start_review",
+                        "anchor_type"  : "text",
+                        "template"     : "Top review from the United States",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -1042,7 +1056,7 @@
                     {
                         "anchor_name"  : "reviewed",
                         "anchor_type"  : "text",
-                        "template"     : "reviewed in",
+                        "template"     : "Reviewed in",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },

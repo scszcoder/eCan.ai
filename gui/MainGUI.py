@@ -1873,7 +1873,7 @@ class MainWindow(QMainWindow):
             original_buy_mission.setStore("Tikom")
             original_buy_mission.setBrand("Tikom")
             original_buy_mission.setImagePath("")
-            original_buy_mission.setSearchKW("robot vacuum cleaner")
+            original_buy_mission.setSearchKW("dumb bells")
             original_buy_mission.setTitle("Tikom Robot Vacuum and Mop Combo with LiDAR Navigation, L9000 Robotic Vacuum Cleaner with 4000Pa Suction,150Min Max, 14 No-Go Zones, Smart Mapping, Good for Pet Hair, Carpet, Hard Floor")
             original_buy_mission.setVariations("")
             original_buy_mission.setRating("5.0")
