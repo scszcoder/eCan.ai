@@ -722,6 +722,12 @@ class EBBOT(QStandardItem):
             self.setText(
                 'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
+    def getVid(self):
+        return self.privateProfile.vid
+
+    def getVName(self):
+        return self.privateProfile.vname
+
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
         if len(self.getFn()) > 1:
