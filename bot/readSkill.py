@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches
-from bot.amzBuyerSkill import processAMZSearchProducts, processAMZScrapePLHtml, processAMZBrowseDetails, \
+from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
     processAMZMatchProduct, genStepAMZSearchReviews
 from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, processTextToNumber, processExtractInfo, \

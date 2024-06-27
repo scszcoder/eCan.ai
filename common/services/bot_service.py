@@ -75,10 +75,12 @@ class BotService:
                 result.backemail = api_bot["backemail"]
                 result.backemail_site = api_bot["backemail_site"]
                 result.epw = api_bot["epw"]
+                result.createon = api_bot["createon"]
+                result.vehicle = api_bot["vehicle"]
                 self.session.commit()
                 self.main_win.showMsg("update_bots_batch: " + json.dumps(result.to_dict()))
 
-    def inset_bots_batch(self, bots, api_bots):
+    def insert_bots_batch(self, bots, api_bots):
         for i, api_bot in enumerate(api_bots):
             bot = bots[i]
             local_bot = BotModel()
@@ -103,6 +105,8 @@ class BotService:
             local_bot.backemail = api_bot["backemail"]
             local_bot.backemail_site = api_bot["backemail_site"]
             local_bot.ebpw = api_bot["ebpw"]
+            local_bot.createon = api_bot["createon"]
+            local_bot.vehicle = api_bot["vehicle"]
             self.session.add(local_bot)
             self.session.commit()
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_bot.to_dict()))
@@ -127,7 +131,6 @@ class BotService:
             result.location = bot['location']
             result.roles = bot['roles']
             result.status = bot['status']
-            # result.createon = bot['createon']
             if insert:
                 self.session.add(result)
         self.session.commit()
@@ -152,44 +155,7 @@ class BotService:
 
             return columns
 
-    # original_table = Table(
-    #     'missions', metadata,
-    #     Column('mid', Integer, primary_key=True),
-    #     Column('ticket', Integer),
-    #     Column('botid', Integer),
-    #     Column('status', Text),
-    #     Column('createon', Text),
-    #     Column('esd', Text),
-    #     Column('ecd', Text),
-    #     Column('asd', Text),
-    #     Column('abd', Text),
-    #     Column('aad', Text),
-    #     Column('afd', Text),
-    #     Column('acd', Text),
-    #     Column('actual_start_time', Text),
-    #     Column('est_start_time', Text),
-    #     Column('actual_runtime', Text),
-    #     Column('est_runtime', Text),
-    #     Column('n_retries', Integer),
-    #     Column('cuspas', Text),
-    #     Column('category', Text),
-    #     Column('phrase', Text),
-    #     Column('pseudoStore', Text),
-    #     Column('pseudoBrand', Text),
-    #     Column('pseudoASIN', Text),
-    #     Column('type', Text),
-    #     Column('config', Text),
-    #     Column('skills', Text),
-    #     Column('delDate', Text),
-    #     Column('asin', Text),
-    #     Column('brand', Text),
-    #     Column('title', Text),
-    #     Column('rating', Text),
-    #     Column('feedbacks', Text),
-    #     Column('customer', Text),
-    #     Column('platoon', Text),
-    #     Column('result', Text)
-    # )
+
     def add_column(self, new_column_name, new_column_data_type, after_column_name):
         print("bots Table adding column....")
         # metadata = MetaData(bind=model.engine)

@@ -108,6 +108,9 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrcity = ""
         self.shipping_addrstate = ""
         self.shipping_addrzip = ""
+        self.vid = ""
+        self.vname = ""
+        self.createon = ""
 
     def setFirstLastName(self, fn, ln):
         self.name = fn + " " + ln
@@ -186,6 +189,12 @@ class BOT_PRIVATE_PROFILE():
     def getBirthday(self):
         return self.privateProfile.birthdaydt
 
+    def getCreateOn(self):
+        return self.privateProfile.createon
+
+    def setCreateOn(self, createon):
+        return self.privateProfile.createon = createon
+
     def setAcct(self, email, epw, phone, back_email, acct_pw, back_email_site):
         self.email = email
         self.email_pw = epw
@@ -193,6 +202,19 @@ class BOT_PRIVATE_PROFILE():
         self.backup_email = back_email
         self.backup_email_site = back_email_site
         self.acct_pw = acct_pw
+
+
+    def setVid(self, vid):
+        self.vid = vid
+
+    def setVName(self, vname):
+        self.vname = vname
+
+    def getVid(self):
+        return self.vid
+
+    def getVName(self):
+        return self.vname
 
     def loadJson(self, dj):
         self.first_name = dj["first_name"]
@@ -214,6 +236,7 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrcity = dj["shipaddrcity"]
         self.shipping_addrstate = dj["shipaddrstate"]
         self.shipping_addrzip = dj["shipaddrzip"]
+
 
     def genJson(self):
         jd = {
@@ -257,9 +280,9 @@ class BOT_PUB_PROFILE():
         self.owner = ""
         self.levels = ""
         self.status = "active"
-        self.createdon = ""
         self.delDate = ""
         self.levelStart = ""
+
 
     def setBid(self, bid):
         self.bid = bid
@@ -347,6 +370,7 @@ class BOT_PUB_PROFILE():
 
     def setStatus(self, stat):
         self.status = stat
+
 
     def loadJson(self, dj):
         self.bid = dj["bid"]
@@ -746,6 +770,8 @@ class EBBOT(QStandardItem):
         self.privateProfile.setEPW(dbd.epw)
         self.privateProfile.setBackEmail(dbd.backemail)
         self.privateProfile.setEBPW(dbd.ebpw)
+        self.privateProfile.setCreateOn(dbd.createon)
+        self.privateProfile.setVName(dbd.vehicle)
         self.privateProfile.setBackEmailSite(dbd.backemail_site)
         self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 

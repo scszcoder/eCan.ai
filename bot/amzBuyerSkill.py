@@ -1218,7 +1218,7 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
 
     # after click on "Read more", capture screen again, at this time "Read More" should have dissappear, if there is more, then
     # let the loop takes care of it, if there is no more "Read More" on screen, scroll down a screen....
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", theme, this_step, None)
     psk_words = psk_words + step_words
 
 

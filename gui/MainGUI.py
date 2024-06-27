@@ -1295,8 +1295,8 @@ class MainWindow(QMainWindow):
         # test_get_all_wins()
 
         # test_ads_batch(self)
-        # test_sqlite3(self)
-        test_read_buy_req_files(self)
+        test_sqlite3(self)
+        # test_read_buy_req_files(self)
         # test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
@@ -1939,7 +1939,16 @@ class MainWindow(QMainWindow):
                 else:
                     self.showMsg("ERROR: could NOT find original buy mission!")
 
-    # assign per vehicle task group work, if this commander runs, assign works for commander,
+    # 1) group vehicle based on OS
+    # 2) matche unassigned task group to vehicle based on OS.
+    # 3) generate ADS profile xls for bots on that vehicle.
+    # 4) modify task in case of buy related task....
+    # 5) empower that vehicle with bots(including profiles), missions, tasks, skills
+    # SC-06/27/2024 this algorithm asssumes, any bots can run on any vehicle as long as role, skill platform matches.
+    # but this could be aggressive, bots and vehicles relationship could be fixed. in that case, we'll need a different
+    # algorithm. which leas to assignWork2() where a vehicle-bot relationship will be read out at the beginning and
+    # maintained in constant. when work group is scheduled. we will regroups bots' vehicle, and then generated associated
+    # ads profiles, bots, missions, tasks, skills file.....
     # otherwise, send works to platoons to execute.
     def assignWork(self):
         # tasks should already be sorted by botid,
@@ -2936,7 +2945,7 @@ class MainWindow(QMainWindow):
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
-            self.bot_service.inset_bots_batch(jbody, api_bots)
+            self.bot_service.insert_bots_batch(jbody, api_bots)
 
     def updateBots(self, bots):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
@@ -3190,7 +3199,7 @@ class MainWindow(QMainWindow):
             if self.platoonWin:
                 self.platoonWin.updatePlatoonWinWithMostRecentlyRemovedVehicle()
 
-
+    # add vehicles based on fieldlinks.
     def checkVehicles(self):
         self.showMsg("adding already linked vehicles.....")
         for i in range(len(fieldLinks)):
