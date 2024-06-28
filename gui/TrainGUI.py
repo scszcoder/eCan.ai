@@ -2,6 +2,7 @@ import asyncio
 import json
 import threading
 import time
+from concurrent.futures.thread import ThreadPoolExecutor
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
@@ -104,8 +105,11 @@ class TrainNewWin(QMainWindow):
         self.record = []
         self.steps = 0
         self.actionRecord = [{"step": 0}]
-
+        self.executor = ThreadPoolExecutor()
         self.loop = asyncio.get_event_loop()
+        self.last_screenshot_time = time.time()
+        self.frame_count = 0
+        self.listeners_running = False
 
     def mousePressEvent(self, event):
         self.oldPos = event.globalPos()
@@ -141,11 +145,16 @@ class TrainNewWin(QMainWindow):
             self.record_over = False
             return False
         else:
-            print('Pointer moved to {0}'.format((x, y)))
-            im = pyautogui.screenshot()
-            self.imq.append(im)
-            if len(self.imq) > 5:
-                self.imq.pop(0)
+            current_time = time.time()
+            time_since_last_screenshot = current_time - self.last_screenshot_time
+            if time_since_last_screenshot > 0.5:
+                print('Pointer moved to {0}'.format((x, y)))
+                im = pyautogui.screenshot()
+                self.imq.append(im)
+                if len(self.imq) > 5:
+                    self.imq.pop(0)
+                self.frame_count += 1
+                self.last_screenshot_time = current_time
 
     def on_click(self, x, y, button, pressed):
         print('{0} at {1}'.format('Pressed' if pressed else 'Released', (x, y)))
@@ -201,34 +210,42 @@ class TrainNewWin(QMainWindow):
             if ret == QMessageBox.Yes:
                 print("done with demo...")
                 self.saveRecordFile()
+                return False
+
+    async def _start_listener(self, listener_class, callback_dict):
+        """通用监听器启动函数"""
+        def run_listener():
+            with listener_class(**callback_dict) as listener:
+                listener.join()
+
+        self.loop.run_in_executor(self.executor, run_listener)
 
     async def start_listeners(self):
-        # 启动鼠标监听器
-        def run_mouse_listener():
-            with mouse.Listener(
-                    on_move=self.on_move,
-                    on_click=self.on_click,
-                    on_scroll=self.on_scroll) as listener:
-                listener.join()
+        """启动鼠标和键盘监听器"""
+        if self.listeners_running:
+            print("Listeners are already running.")
+            return
 
-        # 启动键盘监听器
-        def run_keyboard_listener():
-            with keyboard.Listener(
-                    on_press=self.on_press,
-                    on_release=self.on_release) as listener:
-                listener.join()
-
-        # 使用线程池运行监听器
-        await self.loop.run_in_executor(None, run_mouse_listener)
-        await self.loop.run_in_executor(None, run_keyboard_listener)
+        self.listeners_running = True
+        await asyncio.gather(
+            self._start_listener(mouse.Listener, {
+                'on_move': self.on_move,
+                'on_click': self.on_click,
+                'on_scroll': self.on_scroll,
+            }),
+            self._start_listener(keyboard.Listener, {
+                'on_press': self.on_press,
+                'on_release': self.on_release,
+            })
+        )
 
     def start_listening(self):
         try:
-            self.loop.create_task(self.start_listeners())
-            print("Starting input event listeners...")
             self.record_over = False
             self.main_win.reminderWin.show()
             self.main_win.reminderWin.setGeometry(800, 0, 100, 50)
+            print("Starting input event listeners...")
+            self.loop.create_task(self.start_listeners())
         except Exception as e:
             logger_helper.error(f"Failed to start listeners: {e}")
 
