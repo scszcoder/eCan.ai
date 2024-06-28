@@ -50,7 +50,7 @@ from pynput.mouse import Controller
 # from bot.envi import *
 
 STEP_GAP = 5
-
+rd_screen_count = 0
 mouse = Controller()
 
 mission_vars = []
@@ -1223,6 +1223,8 @@ def processExtractInfo(step, i, mission, skill):
         if len(result) > 0:
             updateIconScalesDict(machine_name, sk_name, step["page"], step["section"], result)
 
+        rd_screen_count = rd_screen_count + 1
+        log3("rd_screen_count: "+str(rd_screen_count))
 
     except Exception as e:
         # Get the traceback information
@@ -3239,8 +3241,8 @@ def processSearchWordLine(step, i):
 
     return (i + 1), ex_stat
 
-# this is a convinience function.
-# scroll anchor nearest to the north of at_location, to the target loction.
+# this is a convenience function.
+# scroll anchor nearest to the north of at_location, to the target location.
 # target location, only y direction is used, as we don't intend to mess with x directional scrolling ...
 # if value is positive, it's distance from top, if negative, it's the distance from bottom
 # anchor: anchor, at_loc: at_loc, target_loc: target_loc, screen: screen, flag: flag
@@ -4003,21 +4005,26 @@ def processAmzDetailsCheckPosition(step, i):
 
     check_dict = {
         "asin": {"before": ["product_info", "product_details", "bought_together"], "after": ["similar_items", "star", "reviewed", "related_to", "also_bought", "also_viewed", "back_to_top", "conditions_of_use"]},
-        "reviewed": {"before": [], "after": ["also_bought", "also_viewed", "back_to_top", "conditions_of_use"]}
+        "reviewed": {"before": [], "after": ["also_bought", "reviewed", "also_viewed", "review_helpful", "see_more_reviews", "see_all_reviews", "back_to_top", "conditions_of_use"]}
     }
     try:
-        log3("calculating object distance")
+        log3("check position:"+step["marker_name"])
         scrn = symTab[step["screen"]]
 
         symTab[step["result"]] = "unknown"
 
         ancs = [x for x in scrn if x["type"] == "anchor text"]
         anc_names = [x["name"] for x in ancs]
-        if "asin" in anc_names:
+        # if "asin" in anc_names:
+        if False:
             symTab[step["result"]] = "on"
         else:
             before_match = [x for x in ancs if x["name"] in check_dict[step["marker_name"]]["before"]]
             after_match = [x for x in ancs if x["name"] in check_dict[step["marker_name"]]["after"]]
+
+            print("before_match:", before_match)
+            print("after_match:", after_match)
+
             if len(before_match) > len(after_match):
                 symTab[step["result"]] = "before"
             elif len(before_match) < len(after_match):

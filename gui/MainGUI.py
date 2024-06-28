@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
         self.tz = self.obtainTZ()
         self.file_resouce = FileResource(self.homepath)
         self.SELLER_INVENTORY_FILE = ecb_data_homepath + "/resource/inventory.json"
+        self.VEHICLES_FILE = ecb_data_homepath + "/resource/vehicles.json"
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
         self.static_resource = StaticResource()
@@ -1296,8 +1297,8 @@ class MainWindow(QMainWindow):
         # test_get_all_wins()
 
         # test_ads_batch(self)
-        # test_sqlite3(self)
-        test_read_buy_req_files(self)
+        test_sqlite3(self)
+        # test_read_buy_req_files(self)
         # test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
@@ -1711,6 +1712,40 @@ class MainWindow(QMainWindow):
         self.showMsg("Platform of the group:: "+platform)
         return platform
 
+    def flattenTaskGroup(self, vTasks):
+        try:
+            tgbs = []
+
+            # flatten across time zone
+            for tz in vTasks.keys():
+                tgbs = tgbs + vTasks[tz]
+
+            all_works = []
+
+            for tgb in tgbs:
+                bid = tgb["bid"]
+
+                for bw in tgb["bw_works"]:
+                    bw["bid"] = bid
+                    all_works.append(bw)
+
+                for other in tgb["other_works"]:
+                    other["bid"] = bid
+                    all_works.append(other)
+
+            self.showMsg("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
+            time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorFlattenTasks:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorFlattenTasks: traceback information not available:" + str(e)
+
+        return time_ordered_works
+
 
     def groupTaskGroupsByOS(self, tgs):
         result = {
@@ -1719,6 +1754,25 @@ class MainWindow(QMainWindow):
             "linux": [tg for tg in tgs if "linux" in self.getTaskGroupOS(tg)]
         }
         return result
+
+    # note there could be schedule conflict here, because on cloud side, the schedule are assigned sequentially without knowing
+    # which bot on which vehicle, if 2 bots are on the same vehicle, cloud doesn't know it and could assign them to two
+    # vehicle group and cause them to be assigned with the same time slot. Q: should cloud side change assignment algorithm?
+    # or should time assignment be done locally anyways? should bot cloud DB includes vehicle info? if cloud side includes
+    # vehicle info, what algorithm should it be?
+    def reGroupByBotVehicles(self, tgs):
+        vtgs = {}
+        for platform in tgs.keys():
+            vtasks = self.flattenTaskGroup(tgs[platform])
+            for vtask in vtasks:
+                found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
+                vehicle = found_bot.getVName()
+                if vehicle in vtgs:
+                    vtgs[vehicle].append(vtask)
+                else:
+                    vtgs[vehicle]=[vtask]
+        return vtgs
+
 
     def getUnassignedVehiclesByOS(self):
         self.showMsg("N vehicles " + str(len(self.vehicles)))
@@ -1879,7 +1933,7 @@ class MainWindow(QMainWindow):
             original_buy_mission.setStore("Tikom")
             original_buy_mission.setBrand("Tikom")
             original_buy_mission.setImagePath("")
-            original_buy_mission.setSearchKW("robot vacuum cleaner")
+            original_buy_mission.setSearchKW("dumb bells")
             original_buy_mission.setTitle("Tikom Robot Vacuum and Mop Combo with LiDAR Navigation, L9000 Robotic Vacuum Cleaner with 4000Pa Suction,150Min Max, 14 No-Go Zones, Smart Mapping, Good for Pet Hair, Carpet, Hard Floor")
             original_buy_mission.setVariations("")
             original_buy_mission.setRating("5.0")
@@ -1945,7 +1999,16 @@ class MainWindow(QMainWindow):
                 else:
                     self.showMsg("ERROR: could NOT find original buy mission!")
 
-    # assign per vehicle task group work, if this commander runs, assign works for commander,
+    # 1) group vehicle based on OS
+    # 2) matche unassigned task group to vehicle based on OS.
+    # 3) generate ADS profile xls for bots on that vehicle.
+    # 4) modify task in case of buy related task....
+    # 5) empower that vehicle with bots(including profiles), missions, tasks, skills
+    # SC-06/27/2024 this algorithm asssumes, any bots can run on any vehicle as long as role, skill platform matches.
+    # but this could be aggressive, bots and vehicles relationship could be fixed. in that case, we'll need a different
+    # algorithm. which leas to assignWork2() where a vehicle-bot relationship will be read out at the beginning and
+    # maintained in constant. when work group is scheduled. we will regroups bots' vehicle, and then generated associated
+    # ads profiles, bots, missions, tasks, skills file.....
     # otherwise, send works to platoons to execute.
     def assignWork(self):
         # tasks should already be sorted by botid,
@@ -2942,7 +3005,7 @@ class MainWindow(QMainWindow):
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
-            self.bot_service.inset_bots_batch(jbody, api_bots)
+            self.bot_service.insert_bots_batch(jbody, api_bots)
 
     def updateBots(self, bots):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
@@ -3196,7 +3259,7 @@ class MainWindow(QMainWindow):
             if self.platoonWin:
                 self.platoonWin.updatePlatoonWinWithMostRecentlyRemovedVehicle()
 
-
+    # add vehicles based on fieldlinks.
     def checkVehicles(self):
         self.showMsg("adding already linked vehicles.....")
         for i in range(len(fieldLinks)):
@@ -3209,6 +3272,8 @@ class MainWindow(QMainWindow):
             newVehicle.setVid(ip)
             self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
+
+
 
     def fetchVehicleStatus(self, rows):
         cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
@@ -3331,6 +3396,56 @@ class MainWindow(QMainWindow):
                 )
         else:
             self.showMsg("Bot file does NOT exist.")
+
+
+    def readVehicleJsonFile(self):
+        if exists(self.VEHICLES_FILE):
+            with open(self.VEHICLES_FILE, 'r') as file:
+                self.vehiclesJsonData = json.load(file)
+                self.translateVehiclesJson(self.vehiclesJsonData)
+
+            file.close()
+
+    def translateVehiclesJson(self, vjds):
+        all_vnames = [v.get_name() for v in self.vehicles]
+        for vjd in vjds:
+            if vjd["name"] not in all_vnames:
+                new_v = VEHICLE()
+                new_v.loadJson(vjd)
+                self.vehicles.append(new_v)
+                self.runningVehicleModel.appendRow(new_v)
+
+
+    def saveVehiclesJsonFile(self):
+        if self.VEHICLES_FILE == None:
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                'Save Json File',
+                '',
+                "Json Files (*.json)"
+            )
+            self.VEHICLES_FILE = filename
+
+        if self.VEHICLES_FILE:
+            try:
+                vehiclesdata = []
+                for v in self.vehicles:
+                    vehiclesdata.append(v.genJson())
+
+                self.showMsg("WRITE TO VEHICLES_FILE: " + self.VEHICLES_FILE)
+                with open(self.VEHICLES_FILE, 'w') as jsonfile:
+                    json.dump(vehiclesdata, jsonfile)
+
+                jsonfile.close()
+                # self.rebuildHTML()
+            except IOError:
+                QMessageBox.information(
+                    self,
+                    "Unable to save file: %s" % filename
+                )
+        else:
+            self.showMsg("Vehicles json file does NOT exist.")
+
 
     def translateInventoryJson(self):
         #self.showMsg("Translating JSON to data......."+str(len(self.sellerInventoryJsonData)))
@@ -4400,8 +4515,6 @@ class MainWindow(QMainWindow):
             self.showMsg("gen psk from diagram.")
 
 
-
-
     def matchSkill(self, sk_long_name, sk):
         sk_words = sk_long_name.split("_")
         sk_name = "_".join(sk_words[4:])
@@ -4455,11 +4568,26 @@ class MainWindow(QMainWindow):
                 self.botModel.appendRow(new_bot)
                 self.selected_bot_row = self.botModel.rowCount() - 1
                 self.selected_bot_item = self.botModel.item(self.selected_bot_row)
+
+                self.addBotToVehicle(new_bot)
         else:
             self.showMsg("WARNING: local bots DB empty!")
             # self.newBotFromFile()
 
 
+    def addBotToVehicle(self, new_bot):
+
+        if new_bot.getVName() != "" and new_bot.getVName() != "NA":
+            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVName()), None)
+
+            if found_v:
+                nadded = found_v.addBot(new_bot.getBid())
+                if nadded == 0:
+                    self.showMsg("WARNING: vehicle reached full capacity!")
+            else:
+                self.showMsg("WARNING: bot vehicle NOT FOUND!")
+        else:
+            self.showMsg("WARNING: bot vehicle NOT ASSIGNED!")
 
     # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
     def loadLocalMissions(self, db_data: [MissionModel]):
