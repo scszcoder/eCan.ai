@@ -906,11 +906,17 @@ class BotNewWin(QMainWindow):
         self.newBot.setInterests("")
         rowCount = self.interestTableModel.rowCount()
         for i in range(rowCount):
-            platform = self.interestTableModel.item(i, 0).text()
-            main_category = self.interestTableModel.item(i, 1).text()
-            sub_category1 = self.interestTableModel.item(i, 2).text()
-            sub_category2 = self.interestTableModel.item(i, 3).text()
-            sub_category3 = self.interestTableModel.item(i, 4).text()
+            item0 = self.interestTableModel.item(i, 0)
+
+            platform = '' if item0 is None else item0.text()
+            item1 = self.interestTableModel.item(i, 1)
+            main_category = '' if item1 is None else item1.text()
+            item2 = self.interestTableModel.item(i, 2)
+            sub_category1 = '' if item2 is None else item2.text()
+            item3 = self.interestTableModel.item(i, 3)
+            sub_category2 = '' if item3 is None else item3.text()
+            item4 = self.interestTableModel.item(i, 4)
+            sub_category3 = '' if item4 is None else item4.text()
             int_words = platform + "|" + main_category + "|" + sub_category1 + "|" + sub_category2 + "|" + sub_category3
             if i == 0:
                 self.newBot.setInterests(int_words)
@@ -1032,7 +1038,8 @@ class BotNewWin(QMainWindow):
         return super().eventFilter(obj, event)
 
     def deleteSelectedRow(self, tableView, model):
-        reply = QMessageBox.question(self, 'Delet comfirmation', 'Are you sure you want to delete this record？', QMessageBox.Yes | QMessageBox.No,
+        reply = QMessageBox.question(self, 'Delet comfirmation', 'Are you sure you want to delete this record？',
+                                     QMessageBox.Yes | QMessageBox.No,
                                      QMessageBox.No)
         if reply == QMessageBox.Yes:
             indexes = tableView.selectionModel().selectedIndexes()

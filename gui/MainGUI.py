@@ -1766,7 +1766,7 @@ class MainWindow(QMainWindow):
             vtasks = self.flattenTaskGroup(tgs[platform])
             for vtask in vtasks:
                 found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
-                vehicle = found_bot.getVName()
+                vehicle = found_bot.getVehicle()
                 if vehicle in vtgs:
                     vtgs[vehicle].append(vtask)
                 else:
@@ -4577,8 +4577,8 @@ class MainWindow(QMainWindow):
 
     def addBotToVehicle(self, new_bot):
 
-        if new_bot.getVName() != "" and new_bot.getVName() != "NA":
-            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVName()), None)
+        if new_bot.getVehicle() != "" and new_bot.getVehicle() != "NA":
+            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVehicle()), None)
 
             if found_v:
                 nadded = found_v.addBot(new_bot.getBid())

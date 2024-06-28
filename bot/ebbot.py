@@ -362,14 +362,14 @@ class BOT_PUB_PROFILE():
     def setVid(self, vid):
         self.vid = vid
 
-    def setVName(self, vname):
-        self.vname = vname
+    def setVehicle(self, vehicle):
+        self.vehicle = vehicle
 
     def getVid(self):
         return self.vid
 
-    def getVName(self):
-        return self.vname
+    def getVehicle(self):
+        return self.vehicle
 
 
     def loadJson(self, dj):
@@ -727,8 +727,8 @@ class EBBOT(QStandardItem):
     def getVid(self):
         return self.pubProfile.vid
 
-    def getVName(self):
-        return self.pubProfile.vname
+    def getVehicle(self):
+        return self.pubProfile.vehicle
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
@@ -768,7 +768,7 @@ class EBBOT(QStandardItem):
         self.pubProfile.setRoles(dbd.roles)
         self.pubProfile.setStatus(dbd.status)
         self.pubProfile.setDelDate(dbd.delDate)
-        self.pubProfile.setVName(dbd.vehicle)
+        self.pubProfile.setVehicle(dbd.vehicle)
         self.privateProfile.setName(dbd.name)
         self.pubProfile.setPseudoName(dbd.pseudoname)
         self.pubProfile.setNickName(dbd.nickname)
