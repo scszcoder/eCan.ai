@@ -796,7 +796,7 @@ class EBBOT(QStandardItem):
         self.privateProfile.setName(jd["New First Name"] + " " + jd["Last Name"])
         self.pubProfile.setPseudoName(jd["PseudoFN"] + " " + jd["PseudoLN"])
         self.pubProfile.setNickName("")
-        self.pubProfile.setVName(jd["vehicle"])
+        self.pubProfile.setVehicle(jd["vehicle"])
         self.privateProfile.setAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
         self.privateProfile.setShippingAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
         self.privateProfile.setPhone(jd["IP phone"])

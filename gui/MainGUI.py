@@ -3407,9 +3407,9 @@ class MainWindow(QMainWindow):
             file.close()
 
     def translateVehiclesJson(self, vjds):
-        all_vnames = [v.get_name() for v in self.vehicles]
+        all_vehicles = [v.get_name() for v in self.vehicles]
         for vjd in vjds:
-            if vjd["name"] not in all_vnames:
+            if vjd["name"] not in all_vehicles:
                 new_v = VEHICLE()
                 new_v.loadJson(vjd)
                 self.vehicles.append(new_v)
