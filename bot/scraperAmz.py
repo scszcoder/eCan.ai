@@ -250,6 +250,8 @@ def amz_buyer_scrape_product_details(html_file):
                 if "asinVariationValues" in rawVariationsJson:
                     # print("found asinVariationValues")
                     thisVar["asinVariationValues"] = rawVariationsJson["asinVariationValues"]
+                else:
+                    thisVar["asinVariationValues"] = {}
 
                 if "selectedVariationValues" in rawVariationsJson:
                     # print("found selectedVariationValues")
@@ -270,10 +272,14 @@ def amz_buyer_scrape_product_details(html_file):
                 if "variationDisplayLabels" in rawVariationsJson:
                     # print("found dimensionValuesDisplayData")
                     thisVar["variationDisplayLabels"] = rawVariationsJson["variationDisplayLabels"]
+                else:
+                    thisVar["variationDisplayLabels"] = []
 
                 if "variationValues" in rawVariationsJson:
                     # print("found dimensionValuesDisplayData")
                     thisVar["variationValues"] = rawVariationsJson["variationValues"]
+                else:
+                    thisVar["variationValues"] = []
 
                 if "dimensionsDisplayType" in rawVariationsJson:
                     # print("found dimensionValuesDisplayData")
