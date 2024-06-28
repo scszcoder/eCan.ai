@@ -101,7 +101,6 @@ class VEHICLE(QStandardItem):
                 "os": self.os,
                 "arch": self.arch,
                 "bot_ids": self.bot_ids,
-                "daily_mids": self.daily_mids,
                 "status": self.status
                 }
         return jsd
@@ -115,4 +114,3 @@ class VEHICLE(QStandardItem):
         self.arch = dj["arch"]
         self.status = dj["status"]
         self.bot_ids = dj["bot_ids"]
-        self.daily_mids = dj["daily_mids"]
