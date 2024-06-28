@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches
-from bot.amzBuyerSkill import processAMZSearchProducts, processAMZScrapePLHtml, processAMZBrowseDetails, \
+from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
     processAMZMatchProduct, genStepAMZSearchReviews
 from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, processTextToNumber, processExtractInfo, \
@@ -21,7 +21,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processSellCheckShipping, processGenRespMsg, processUpdateBuyMissionResult, processGoToWindow, processReportToBoss, \
     processExtractInfo8, DEFAULT_RUN_STATUS, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
-    processCalcObjectsDistance, processAmzDetailsCheckPosition
+    processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count
 
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
@@ -359,6 +359,7 @@ def adressAddNameSpace(l, name_space, lvl):
 async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="normal"):
     global last_step
     global next_step
+    global rd_screen_count
     run_result = DEFAULT_RUN_STATUS
     step_stat = DEFAULT_RUN_STATUS
     last_step = -1
@@ -369,6 +370,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     log3("running all steps....."+json.dumps(mission.genJson()))
     last_error_stat = "None"
     stepKeys = list(steps.keys())
+    rd_screen_count = 0
     # for k in stepKeys:
     #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
     log3("====================================="+str(len(stepKeys)))
