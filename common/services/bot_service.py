@@ -75,10 +75,12 @@ class BotService:
                 result.backemail = api_bot["backemail"]
                 result.backemail_site = api_bot["backemail_site"]
                 result.epw = api_bot["epw"]
+                result.createon = api_bot["createon"]
+                result.vehicle = api_bot["vehicle"]
                 self.session.commit()
                 self.main_win.showMsg("update_bots_batch: " + json.dumps(result.to_dict()))
 
-    def inset_bots_batch(self, bots, api_bots):
+    def insert_bots_batch(self, bots, api_bots):
         for i, api_bot in enumerate(api_bots):
             bot = bots[i]
             local_bot = BotModel()
@@ -103,6 +105,8 @@ class BotService:
             local_bot.backemail = api_bot["backemail"]
             local_bot.backemail_site = api_bot["backemail_site"]
             local_bot.ebpw = api_bot["ebpw"]
+            local_bot.createon = api_bot["createon"]
+            local_bot.vehicle = api_bot["vehicle"]
             self.session.add(local_bot)
             self.session.commit()
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_bot.to_dict()))
@@ -127,7 +131,6 @@ class BotService:
             result.location = bot['location']
             result.roles = bot['roles']
             result.status = bot['status']
-            # result.createon = bot['createon']
             if insert:
                 self.session.add(result)
         self.session.commit()

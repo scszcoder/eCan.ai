@@ -19,6 +19,7 @@ class VEHICLE(QStandardItem):
         self.mstats = []
         self.field_link = None
         self.daily_mids = []
+        self.CAP = 56
 
 
     def getFieldLink(self):
@@ -73,6 +74,15 @@ class VEHICLE(QStandardItem):
     def getBotIds(self):
         return self.bot_ids
 
+    def addBot(self, bid):
+        if len(self.getBotIds()) < self.CAP:
+            self.bot_ids.append(bid)
+            nAdded = 1
+        else:
+            nAdded = 0
+
+        return nAdded
+
     def setBotIds(self, bot_ids):
         self.bot_ids = bot_ids
 
@@ -91,7 +101,6 @@ class VEHICLE(QStandardItem):
                 "os": self.os,
                 "arch": self.arch,
                 "bot_ids": self.bot_ids,
-                "daily_mids": self.daily_mids,
                 "status": self.status
                 }
         return jsd
@@ -105,4 +114,3 @@ class VEHICLE(QStandardItem):
         self.arch = dj["arch"]
         self.status = dj["status"]
         self.bot_ids = dj["bot_ids"]
-        self.daily_mids = dj["daily_mids"]
