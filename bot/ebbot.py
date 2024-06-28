@@ -269,7 +269,7 @@ class BOT_PUB_PROFILE():
         self.delDate = ""
         self.levelStart = ""
         self.vid = ""
-        self.vname = ""
+        self.vehicle = ""
 
 
     def setBid(self, bid):
@@ -395,7 +395,7 @@ class BOT_PUB_PROFILE():
         self.bid = dj["bid"]
         self.owner = dj["owner"]
         self.levelStart = dj["levelStart"]
-        self.vname = dj["vehicle"]
+        self.vehicle = dj["vehicle"]
         self.delDate = dj["delDate"]
 
     def genJson(self):
@@ -409,7 +409,7 @@ class BOT_PUB_PROFILE():
             "roles": self.roles,
             "levels": self.levels,
             "bid": self.bid,
-            "vehicle": self.vname,
+            "vehicle": self.vehicle,
             "gender": self.gender,
             "status": self.status
         }
