@@ -108,8 +108,6 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrcity = ""
         self.shipping_addrstate = ""
         self.shipping_addrzip = ""
-        self.vid = ""
-        self.vname = ""
         self.createon = ""
 
     def setFirstLastName(self, fn, ln):
@@ -193,7 +191,7 @@ class BOT_PRIVATE_PROFILE():
         return self.privateProfile.createon
 
     def setCreateOn(self, createon):
-        return self.privateProfile.createon = createon
+        self.createon = createon
 
     def setAcct(self, email, epw, phone, back_email, acct_pw, back_email_site):
         self.email = email
@@ -203,18 +201,6 @@ class BOT_PRIVATE_PROFILE():
         self.backup_email_site = back_email_site
         self.acct_pw = acct_pw
 
-
-    def setVid(self, vid):
-        self.vid = vid
-
-    def setVName(self, vname):
-        self.vname = vname
-
-    def getVid(self):
-        return self.vid
-
-    def getVName(self):
-        return self.vname
 
     def loadJson(self, dj):
         self.first_name = dj["first_name"]
@@ -282,6 +268,8 @@ class BOT_PUB_PROFILE():
         self.status = "active"
         self.delDate = ""
         self.levelStart = ""
+        self.vid = ""
+        self.vname = ""
 
 
     def setBid(self, bid):
@@ -371,6 +359,18 @@ class BOT_PUB_PROFILE():
     def setStatus(self, stat):
         self.status = stat
 
+    def setVid(self, vid):
+        self.vid = vid
+
+    def setVName(self, vname):
+        self.vname = vname
+
+    def getVid(self):
+        return self.vid
+
+    def getVName(self):
+        return self.vname
+
 
     def loadJson(self, dj):
         self.bid = dj["bid"]
@@ -395,6 +395,7 @@ class BOT_PUB_PROFILE():
         self.bid = dj["bid"]
         self.owner = dj["owner"]
         self.levelStart = dj["levelStart"]
+        self.vname = dj["vehicle"]
         self.delDate = dj["delDate"]
 
     def genJson(self):
@@ -408,6 +409,7 @@ class BOT_PUB_PROFILE():
             "roles": self.roles,
             "levels": self.levels,
             "bid": self.bid,
+            "vehicle": self.vname,
             "gender": self.gender,
             "status": self.status
         }
@@ -723,10 +725,10 @@ class EBBOT(QStandardItem):
                 'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def getVid(self):
-        return self.privateProfile.vid
+        return self.pubProfile.vid
 
     def getVName(self):
-        return self.privateProfile.vname
+        return self.pubProfile.vname
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
@@ -766,6 +768,7 @@ class EBBOT(QStandardItem):
         self.pubProfile.setRoles(dbd.roles)
         self.pubProfile.setStatus(dbd.status)
         self.pubProfile.setDelDate(dbd.delDate)
+        self.pubProfile.setVName(dbd.vehicle)
         self.privateProfile.setName(dbd.name)
         self.pubProfile.setPseudoName(dbd.pseudoname)
         self.pubProfile.setNickName(dbd.nickname)
@@ -777,7 +780,6 @@ class EBBOT(QStandardItem):
         self.privateProfile.setBackEmail(dbd.backemail)
         self.privateProfile.setEBPW(dbd.ebpw)
         self.privateProfile.setCreateOn(dbd.createon)
-        self.privateProfile.setVName(dbd.vehicle)
         self.privateProfile.setBackEmailSite(dbd.backemail_site)
         self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
@@ -794,6 +796,7 @@ class EBBOT(QStandardItem):
         self.privateProfile.setName(jd["New First Name"] + " " + jd["Last Name"])
         self.pubProfile.setPseudoName(jd["PseudoFN"] + " " + jd["PseudoLN"])
         self.pubProfile.setNickName("")
+        self.pubProfile.setVName(jd["vehicle"])
         self.privateProfile.setAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
         self.privateProfile.setShippingAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
         self.privateProfile.setPhone(jd["IP phone"])

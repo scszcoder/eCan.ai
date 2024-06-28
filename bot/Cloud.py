@@ -474,6 +474,7 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i]["pubProfile"]["interests"] + "\", "
             rec_string = rec_string + "status: \"" + bots[i]["pubProfile"]["status"] + "\", "
             rec_string = rec_string + "levels: \"" + bots[i]["pubProfile"]["levels"] + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i]["pubProfile"]["vehicle"] + "\", "
             rec_string = rec_string + "location: \"" + bots[i]["pubProfile"]["location"] + "\"} "
         else:
             rec_string = rec_string + "{ bid: \"" + str(bots[i].getBid()) + "\", "
@@ -484,6 +485,7 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
             rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
             rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i].getVName() + "\", "
             rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
 
 
@@ -514,6 +516,7 @@ def gen_update_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i]["pubProfile"]["interests"] + "\", "
             rec_string = rec_string + "status: \"" + bots[i]["pubProfile"]["status"] + "\", "
             rec_string = rec_string + "levels: \"" + bots[i]["pubProfile"]["levels"] + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i]["pubProfile"]["vehicle"] + "\", "
             rec_string = rec_string + "location: \"" + bots[i]["pubProfile"]["location"] + "\"} "
         else:
             rec_string = rec_string + "{ bid: " + str(bots[i].getBid()) + ", "
@@ -524,6 +527,7 @@ def gen_update_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
             rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
             rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i].getVName() + "\", "
             rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
 
         if i != len(bots) - 1:

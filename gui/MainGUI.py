@@ -183,6 +183,7 @@ class MainWindow(QMainWindow):
         self.tz = self.obtainTZ()
         self.file_resouce = FileResource(self.homepath)
         self.SELLER_INVENTORY_FILE = ecb_data_homepath + "/resource/inventory.json"
+        self.VEHICLES_FILE = ecb_data_homepath + "/resource/vehicles.json"
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
         self.static_resource = StaticResource()
@@ -1705,6 +1706,40 @@ class MainWindow(QMainWindow):
         self.showMsg("Platform of the group:: "+platform)
         return platform
 
+    def flattenTaskGroup(self, vTasks):
+        try:
+            tgbs = []
+
+            # flatten across time zone
+            for tz in vTasks.keys():
+                tgbs = tgbs + vTasks[tz]
+
+            all_works = []
+
+            for tgb in tgbs:
+                bid = tgb["bid"]
+
+                for bw in tgb["bw_works"]:
+                    bw["bid"] = bid
+                    all_works.append(bw)
+
+                for other in tgb["other_works"]:
+                    other["bid"] = bid
+                    all_works.append(other)
+
+            self.showMsg("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
+            time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorFlattenTasks:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorFlattenTasks: traceback information not available:" + str(e)
+
+        return time_ordered_works
+
 
     def groupTaskGroupsByOS(self, tgs):
         result = {
@@ -1713,6 +1748,25 @@ class MainWindow(QMainWindow):
             "linux": [tg for tg in tgs if "linux" in self.getTaskGroupOS(tg)]
         }
         return result
+
+    # note there could be schedule conflict here, because on cloud side, the schedule are assigned sequentially without knowing
+    # which bot on which vehicle, if 2 bots are on the same vehicle, cloud doesn't know it and could assign them to two
+    # vehicle group and cause them to be assigned with the same time slot. Q: should cloud side change assignment algorithm?
+    # or should time assignment be done locally anyways? should bot cloud DB includes vehicle info? if cloud side includes
+    # vehicle info, what algorithm should it be?
+    def reGroupByBotVehicles(self, tgs):
+        vtgs = {}
+        for platform in tgs.keys():
+            vtasks = self.flattenTaskGroup(tgs[platform])
+            for vtask in vtasks:
+                found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
+                vehicle = found_bot.getVName()
+                if vehicle in vtgs:
+                    vtgs[vehicle].append(vtask)
+                else:
+                    vtgs[vehicle]=[vtask]
+        return vtgs
+
 
     def getUnassignedVehiclesByOS(self):
         self.showMsg("N vehicles " + str(len(self.vehicles)))
@@ -3213,6 +3267,8 @@ class MainWindow(QMainWindow):
             self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
 
+
+
     def fetchVehicleStatus(self, rows):
         cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
         effective_rows = list(filter(lambda r: r >= 0, rows))
@@ -3334,6 +3390,56 @@ class MainWindow(QMainWindow):
                 )
         else:
             self.showMsg("Bot file does NOT exist.")
+
+
+    def readVehicleJsonFile(self):
+        if exists(self.VEHICLES_FILE):
+            with open(self.VEHICLES_FILE, 'r') as file:
+                self.vehiclesJsonData = json.load(file)
+                self.translateVehiclesJson(self.vehiclesJsonData)
+
+            file.close()
+
+    def translateVehiclesJson(self, vjds):
+        all_vnames = [v.get_name() for v in self.vehicles]
+        for vjd in vjds:
+            if vjd["name"] not in all_vnames:
+                new_v = VEHICLE()
+                new_v.loadJson(vjd)
+                self.vehicles.append(new_v)
+                self.runningVehicleModel.appendRow(new_v)
+
+
+    def saveVehiclesJsonFile(self):
+        if self.VEHICLES_FILE == None:
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                'Save Json File',
+                '',
+                "Json Files (*.json)"
+            )
+            self.VEHICLES_FILE = filename
+
+        if self.VEHICLES_FILE:
+            try:
+                vehiclesdata = []
+                for v in self.vehicles:
+                    vehiclesdata.append(v.genJson())
+
+                self.showMsg("WRITE TO VEHICLES_FILE: " + self.VEHICLES_FILE)
+                with open(self.VEHICLES_FILE, 'w') as jsonfile:
+                    json.dump(vehiclesdata, jsonfile)
+
+                jsonfile.close()
+                # self.rebuildHTML()
+            except IOError:
+                QMessageBox.information(
+                    self,
+                    "Unable to save file: %s" % filename
+                )
+        else:
+            self.showMsg("Vehicles json file does NOT exist.")
+
 
     def translateInventoryJson(self):
         #self.showMsg("Translating JSON to data......."+str(len(self.sellerInventoryJsonData)))
@@ -4401,8 +4507,6 @@ class MainWindow(QMainWindow):
                 SkillGeneratorTable[gen_string] = getattr(module, generator)
         elif os.path.isfile(generator_diagram):
             self.showMsg("gen psk from diagram.")
-
-
 
 
     def matchSkill(self, sk_long_name, sk):
