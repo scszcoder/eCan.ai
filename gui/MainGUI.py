@@ -1357,12 +1357,12 @@ class MainWindow(QMainWindow):
         fetch_stat = "Completed:0"
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
-            self.newBuyMissionFromFiles()
+            # self.newBuyMissionFromFiles()
 
             self.showMsg("Done handling today's new Buy orders...")
 
             # next line commented out for testing purpose....
-            # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+            jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
             jresp = {}
             if "errorType" in jresp:
                 screen_error = True
@@ -1564,7 +1564,8 @@ class MainWindow(QMainWindow):
         # add to the missions list.
         mb_words = ""
         task_groups = resp_data["task_groups"]
-        for tg in task_groups:
+        for v in task_groups:
+            tg = task_groups[v]
             for tz in tg:
                 for wg in tg[tz]:
                     for w in wg["bw_works"]:
@@ -2480,15 +2481,15 @@ class MainWindow(QMainWindow):
         next_run_index = len(mids)
         for j, mid in enumerate(mids):
             midx = next((i for i, m in enumerate(self.missions) if m.getMid() == mid), -1)
-            # if midx != -1:
-            this_stat = self.missions[midx].getStatus()
-            n_2b_retried = self.missions[midx].getRetry()
-            retry_count = self.missions[midx].getNRetries()
-            self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
-            if "Complete" not in this_stat and retry_count < n_2b_retried:
-                self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
-                next_run_index = j
-                break
+            if midx != -1:
+                this_stat = self.missions[midx].getStatus()
+                n_2b_retried = self.missions[midx].getRetry()
+                retry_count = self.missions[midx].getNRetries()
+                self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
+                if "Complete" not in this_stat and retry_count < n_2b_retried:
+                    self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
+                    next_run_index = j
+                    break
         return next_run_index
 
     def updateRunStatus(self, worksTBD, midx):
