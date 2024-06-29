@@ -912,7 +912,7 @@ class EBMISSION(QStandardItem):
         self.setMid(dbd.mid)
         self.setTicket(dbd.ticket)
         self.setBid(dbd.botid)
-        self.setOwner(dbd.owner)
+        # self.setOwner(dbd.owner)
         self.setStatus(dbd.status)
         self.setBD(dbd.createon)
         self.setEsd(dbd.esd)
