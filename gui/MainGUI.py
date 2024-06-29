@@ -652,6 +652,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
+            test_sqlite3(self)
             # load skills into memory.
             self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
             bots_data = self.bot_service.find_all_bots()
@@ -1873,6 +1874,8 @@ class MainWindow(QMainWindow):
                                     "rating": mission.getRating(),
                                     "feedbacks": mission.getFeedbacks(),
                                     "price": mission.getPrice(),
+                                    "follow_seller": mission.getFollowSeller(),
+                                    "follow_price": mission.getFollowPrice()
                                 }]
                     }
                 page["products"].append(target_buy)
@@ -1901,7 +1904,9 @@ class MainWindow(QMainWindow):
                                 "feedback_text": mission.getFeedbackText(),
                                 "feedback_image": mission.getFeedbackImgLink(),
                                 "feedback_video": mission.getFeedbackVideoLink(),
-                                "feedback_instructions": mission.getFeedbackInstructions()
+                                "feedback_instructions": mission.getFeedbackInstructions(),
+                                "follow_seller": mission.getFollowSeller(),
+                                "follow_price": mission.getFollowPrice()
                             }
                         ]
                     }
@@ -1925,6 +1930,7 @@ class MainWindow(QMainWindow):
             original_buy_mission.setMid(0)
             original_buy_mission.setASIN("B0D1BY5VTM")
             original_buy_mission.setStore("Tikom")
+            original_buy_mission.setFollowSeller("")
             original_buy_mission.setBrand("Tikom")
             original_buy_mission.setImagePath("")
             original_buy_mission.setSearchKW("dumb bells")
@@ -1932,7 +1938,8 @@ class MainWindow(QMainWindow):
             original_buy_mission.setVariations("")
             original_buy_mission.setRating("5.0")
             original_buy_mission.setFeedbacks("23")
-            original_buy_mission.setPrice("229.99")
+            original_buy_mission.setPrice(229.99)
+            original_buy_mission.setFollowPrice(0.0)
             original_buy_mission.setCustomerID("")
         else:
             db_data = self.mission_service.find_missions_by_ticket(buy_mission.getTicket())
@@ -1980,12 +1987,14 @@ class MainWindow(QMainWindow):
                     task_mission.setASIN(original_buy.getASIN())
                     task_mission.setTitle(original_buy.getTitle())
                     task_mission.setVariations(original_buy.getVariations())
+                    task_mission.setFollowSeller(original_buy.getFollowSeller())
                     task_mission.setStore(original_buy.getStore())
                     task_mission.setBrand(original_buy.getBrand())
                     task_mission.setImagePath(original_buy.getImagePath())
                     task_mission.setRating(original_buy.getRating())
                     task_mission.setFeedbacks(original_buy.getFeedbacks())
                     task_mission.setPrice(original_buy.getPrice())
+                    task_mission.setFollowPrice(original_buy.getFollowPrice())
                     task_mission.setResult(original_buy.getResult())
                     task_mission.setSearchKW(original_buy.getSearchKW())
 
@@ -3079,6 +3088,7 @@ class MainWindow(QMainWindow):
                 "delDate": new_mission.getDelDate(),
                 "asin": new_mission.getASIN(),
                 "store": new_mission.getStore(),
+                "follow_seller": new_mission.getFollowSeller(),
                 "brand": new_mission.getBrand(),
                 "image": new_mission.getImagePath(),
                 "title": new_mission.getTitle(),
@@ -3086,6 +3096,7 @@ class MainWindow(QMainWindow):
                 "rating": new_mission.getRating(),
                 "feedbacks": new_mission.getFeedbacks(),
                 "price": new_mission.getPrice(),
+                "follow_price": new_mission.getFollowPrice(),
                 "customer": new_mission.getCustomerID(),
                 "platoon": new_mission.getPlatoonID(),
                 "result": ""
@@ -3149,6 +3160,7 @@ class MainWindow(QMainWindow):
                 "delDate": amission.getDelDate(),
                 "asin": amission.getASIN(),
                 "store": amission.getStore(),
+                "follow_seller": amission.getFollowSeller(),
                 "brand": amission.getBrand(),
                 "image": amission.getImagePath(),
                 "title": amission.getTitle(),
@@ -3156,6 +3168,7 @@ class MainWindow(QMainWindow):
                 "rating": amission.getRating(),
                 "feedbacks": amission.getFeedbacks(),
                 "price": amission.getPrice(),
+                "follow_price": amission.getFollowPrice(),
                 "customer": amission.getCustomerID(),
                 "platoon": amission.getPlatoonID(),
                 "result": amission.getResult()
@@ -4088,12 +4101,14 @@ class MainWindow(QMainWindow):
             local_mission.delDate = new_mission.getDelDate()
             local_mission.asin = new_mission.getAsin()
             local_mission.store = new_mission.getStore()
+            local_mission.follow_seller = new_mission.getFollowSeller()
             local_mission.brand = new_mission.getBrand()
             local_mission.img = new_mission.getImg()
             local_mission.title = new_mission.getTitle()
             local_mission.rating = new_mission.getRating()
             local_mission.feedbacks = new_mission.getFeedbacks()
             local_mission.price = new_mission.getPrice()
+            local_mission.follow_price = new_mission.getFollowPrice()
             local_mission.customer = new_mission.getCustomer()
             local_mission.platoon = new_mission.getPlatoon()
             local_mission.result = new_mission.getResult()
