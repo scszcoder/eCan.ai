@@ -1402,7 +1402,8 @@ class MainWindow(QMainWindow):
                             # now that todays' newly added missions are in place, generate the cookie site list for the run.
                             self.build_cookie_site_lists()
                             self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
-                            self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+                            # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+                            self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
                             self.unassigned_task_groups = self.todays_scheduled_task_groups
                             self.assignWork()
                             self.logDailySchedule(uncompressed)
@@ -1708,6 +1709,7 @@ class MainWindow(QMainWindow):
         self.showMsg("Platform of the group:: "+platform)
         return platform
 
+    # flatten all tasks associated with a vehicle.
     def flattenTaskGroup(self, vTasks):
         try:
             tgbs = []
@@ -1758,8 +1760,8 @@ class MainWindow(QMainWindow):
     # vehicle info, what algorithm should it be?
     def reGroupByBotVehicles(self, tgs):
         vtgs = {}
-        for platform in tgs.keys():
-            vtasks = self.flattenTaskGroup(tgs[platform])
+        for vehicle in tgs.keys():
+            vtasks = self.flattenTaskGroup(tgs[vehicle])
             for vtask in vtasks:
                 found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
                 vehicle = found_bot.getVName()
@@ -2019,90 +2021,100 @@ class MainWindow(QMainWindow):
         nsites = 0
         v_groups = self.getUnassignedVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
 
+        # print some debug info.
         for key in v_groups:
             print("num vehicles in "+key+" :"+str(len(v_groups[key])))
             if len(v_groups[key]) > 0:
                 for k, v in enumerate(v_groups[key]):
                     self.showMsg("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n")
 
-        for platform in v_groups.keys():
-            p_task_groups = self.unassigned_task_groups[platform]
-            p_nsites = len(v_groups[platform])
-
-            self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
-
-            if p_nsites > 0:
-                if len(p_task_groups) > p_nsites:
-                    # there will be unserved tasks due to over capacity
-                    self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!"+str(len(p_task_groups))+"::"+str(p_nsites))
-                    # save capacity spill into unassigned_task_groups
-                    self.unassigned_task_groups[platform] = self.unassigned_task_groups[platform][p_nsites:]
-                else:
-                    self.showMsg("No under-capacity")
-                    self.unassigned_task_groups[platform] = []
+        # for platform in v_groups.keys():
+        #     p_task_groups = self.unassigned_task_groups[platform]
+        #     p_nsites = len(v_groups[platform])
+        #
+        #     self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
+        for vname in self.unassigned_task_groups:
+            p_task_groups = self.unassigned_task_groups[vname]      # flattend per vehicle tasks.
+            if len(p_task_groups) > 0:
+                # if len(p_task_groups) > p_nsites:
+                #     # there will be unserved tasks due to over capacity
+                #     self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!"+str(len(p_task_groups))+"::"+str(p_nsites))
+                #     # save capacity spill into unassigned_task_groups
+                #     self.unassigned_task_groups[platform] = self.unassigned_task_groups[platform][p_nsites:]
+                # else:
+                #     self.showMsg("No under-capacity")
+                #     self.unassigned_task_groups[platform] = []
 
                 # distribute work to all available sites, which is the limit for the total capacity.
-                if p_nsites > 0:
-                    for i in range(p_nsites):
-                        if i == 0 and not self.rpa_work_assigned_for_today and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
-                            # if commander participate work, give the first(0th) work to self.
-                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[0], self)
-                            # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
-                            self.showMsg("arranged for today on this machine....")
-                            self.add_buy_searchs(batched_tasks)
-                            # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
-                            self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
-                            vidx = 0
-                            self.rpa_work_assigned_for_today = True
-                        else:
-                            # #otherwise, send work to platoons in the field
-                            # if self.hostrole == "CommanderOnly":
-                            #     # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
-                            #     vidx = i
-                            # else:
-                            #     # in case of n > 0 and not commander only. grouptask index is one more than the platoon vehicle index.
-                            #     # because the first group is assigned to self. starting the 2nd task group, the 2nd task group will
-                            #     # be send to the 1st vehicle , the 3rd will be send the 2nd vehicle and so .....
-                            #     vidx = i - 1
-
-                            vidx = i
-
-                            self.showMsg("working on task group index: "+str(i)+" vehicle index: " + str(vidx))
-                            # flatten tasks and regroup them based on sites, and divide them into batches
-                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i], self)
-                            self.add_buy_searchs(batched_tasks)
-                            # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
-                            self.todays_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i].getIP(), "status": "yet to start",
-                                 "current widx": 0, "completed": [], "aborted": []})
-
-                            for profile in ads_profiles:
-                                self.send_file_to_platoon(v_groups[platform][i].getFieldLink(), "ads profile", profile)
-
-                            task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
-
-                            # now need to fetch this task associated bots, mission, skills
-                            # get all bots IDs involved. get all mission IDs involved.
-                            tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups[i])
-                            v_groups[platform][i].setBotIds(tg_botids)
-                            v_groups[platform][i].setMids(tg_botids)
-
-                            self.showMsg("tg_skids:"+json.dumps(tg_skids))
-                            # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
-                            # execute
-                            # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
-                            resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids, tg_skids)
-                            schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
-                            self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
-
-                            # send over scheduled tasks to platton.
-                            self.send_json_to_platoon(v_groups[platform][i].getFieldLink(), schedule)
-
-                            # send over skills to platoon
-                            self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink(), tg_skids)
-
+                # if p_nsites > 0:
+                #     for i in range(p_nsites):
+                # if i == 0 and not self.rpa_work_assigned_for_today and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
+                if self.machine_name in vname:
+                    # if commander participate work, give the first(0th) work to self.
+                    batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, self)
+                    # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
+                    self.showMsg("arranged for today on this machine....")
+                    self.add_buy_searchs(batched_tasks)
+                    # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
+                    self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
+                    vidx = 0
+                    self.rpa_work_assigned_for_today = True
                 else:
-                    self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
+                    # #otherwise, send work to platoons in the field
+                    # if self.hostrole == "CommanderOnly":
+                    #     # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
+                    #     vidx = i
+                    # else:
+                    #     # in case of n > 0 and not commander only. grouptask index is one more than the platoon vehicle index.
+                    #     # because the first group is assigned to self. starting the 2nd task group, the 2nd task group will
+                    #     # be send to the 1st vehicle , the 3rd will be send the 2nd vehicle and so .....
+                    #     vidx = i - 1
+
+                    # vidx = i
+                    vehicle = self.getVehicleByName(vname)
+
+                    if vehicle:
+                        self.showMsg("working on task group vehicle : " + vname)
+                        # flatten tasks and regroup them based on sites, and divide them into batches
+                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, self)
+                        self.add_buy_searchs(batched_tasks)
+                        # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
+                        self.todays_work["tbd"].append(
+                            {"name": "automation", "works": batched_tasks, "ip": vehicle.getIP(), "status": "yet to start",
+                             "current widx": 0, "completed": [], "aborted": []})
+
+                        for profile in ads_profiles:
+                            self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
+
+                        task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
+
+                        # now need to fetch this task associated bots, mission, skills
+                        # get all bots IDs involved. get all mission IDs involved.
+                        tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups[i])
+                        vehicle.setBotIds(tg_botids)
+                        vehicle.setMids(tg_botids)
+
+                        self.showMsg("tg_skids:"+json.dumps(tg_skids))
+                        # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
+                        # execute
+                        # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
+                        resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids, tg_skids)
+                        schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
+                        self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+vehicle.getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
+
+                        # send over scheduled tasks to platton.
+                        self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
+
+                        # send over skills to platoon
+                        self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
+
+                # else:
+                #     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
+
+    def getVehicleByName(self, vname):
+        found_vehicle = next((v for i, v in enumerate(self.vehicles) if v.getName() == vname), None)
+        return found_vehicle
+
 
     def empower_platoon_with_skills(self, platoon_link, skill_ids):
         # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
