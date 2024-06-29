@@ -655,6 +655,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
+            test_sqlite3(self)
             # load skills into memory.
             self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
             bots_data = self.bot_service.find_all_bots()
@@ -1359,12 +1360,12 @@ class MainWindow(QMainWindow):
         fetch_stat = "Completed:0"
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
-            self.newBuyMissionFromFiles()
+            # self.newBuyMissionFromFiles()
 
             self.showMsg("Done handling today's new Buy orders...")
 
             # next line commented out for testing purpose....
-            # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+            jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
             jresp = {}
             if "errorType" in jresp:
                 screen_error = True
@@ -1404,7 +1405,8 @@ class MainWindow(QMainWindow):
                             # now that todays' newly added missions are in place, generate the cookie site list for the run.
                             self.build_cookie_site_lists()
                             self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
-                            self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+                            # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+                            self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
                             self.unassigned_task_groups = self.todays_scheduled_task_groups
                             self.assignWork()
                             self.logDailySchedule(uncompressed)
@@ -1566,7 +1568,8 @@ class MainWindow(QMainWindow):
         # add to the missions list.
         mb_words = ""
         task_groups = resp_data["task_groups"]
-        for tg in task_groups:
+        for v in task_groups:
+            tg = task_groups[v]
             for tz in tg:
                 for wg in tg[tz]:
                     for w in wg["bw_works"]:
@@ -1709,6 +1712,7 @@ class MainWindow(QMainWindow):
         self.showMsg("Platform of the group:: "+platform)
         return platform
 
+    # flatten all tasks associated with a vehicle.
     def flattenTaskGroup(self, vTasks):
         try:
             tgbs = []
@@ -1759,8 +1763,8 @@ class MainWindow(QMainWindow):
     # vehicle info, what algorithm should it be?
     def reGroupByBotVehicles(self, tgs):
         vtgs = {}
-        for platform in tgs.keys():
-            vtasks = self.flattenTaskGroup(tgs[platform])
+        for vehicle in tgs.keys():
+            vtasks = self.flattenTaskGroup(tgs[vehicle])
             for vtask in vtasks:
                 found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
                 vehicle = found_bot.getVName()
@@ -1876,6 +1880,8 @@ class MainWindow(QMainWindow):
                                     "rating": mission.getRating(),
                                     "feedbacks": mission.getFeedbacks(),
                                     "price": mission.getPrice(),
+                                    "follow_seller": mission.getFollowSeller(),
+                                    "follow_price": mission.getFollowPrice()
                                 }]
                     }
                 page["products"].append(target_buy)
@@ -1904,7 +1910,9 @@ class MainWindow(QMainWindow):
                                 "feedback_text": mission.getFeedbackText(),
                                 "feedback_image": mission.getFeedbackImgLink(),
                                 "feedback_video": mission.getFeedbackVideoLink(),
-                                "feedback_instructions": mission.getFeedbackInstructions()
+                                "feedback_instructions": mission.getFeedbackInstructions(),
+                                "follow_seller": mission.getFollowSeller(),
+                                "follow_price": mission.getFollowPrice()
                             }
                         ]
                     }
@@ -1928,6 +1936,7 @@ class MainWindow(QMainWindow):
             original_buy_mission.setMid(0)
             original_buy_mission.setASIN("B0D1BY5VTM")
             original_buy_mission.setStore("Tikom")
+            original_buy_mission.setFollowSeller("")
             original_buy_mission.setBrand("Tikom")
             original_buy_mission.setImagePath("")
             original_buy_mission.setSearchKW("dumb bells")
@@ -1935,7 +1944,8 @@ class MainWindow(QMainWindow):
             original_buy_mission.setVariations("")
             original_buy_mission.setRating("5.0")
             original_buy_mission.setFeedbacks("23")
-            original_buy_mission.setPrice("229.99")
+            original_buy_mission.setPrice(229.99)
+            original_buy_mission.setFollowPrice(0.0)
             original_buy_mission.setCustomerID("")
         else:
             db_data = self.mission_service.find_missions_by_ticket(buy_mission.getTicket())
@@ -1983,12 +1993,14 @@ class MainWindow(QMainWindow):
                     task_mission.setASIN(original_buy.getASIN())
                     task_mission.setTitle(original_buy.getTitle())
                     task_mission.setVariations(original_buy.getVariations())
+                    task_mission.setFollowSeller(original_buy.getFollowSeller())
                     task_mission.setStore(original_buy.getStore())
                     task_mission.setBrand(original_buy.getBrand())
                     task_mission.setImagePath(original_buy.getImagePath())
                     task_mission.setRating(original_buy.getRating())
                     task_mission.setFeedbacks(original_buy.getFeedbacks())
                     task_mission.setPrice(original_buy.getPrice())
+                    task_mission.setFollowPrice(original_buy.getFollowPrice())
                     task_mission.setResult(original_buy.getResult())
                     task_mission.setSearchKW(original_buy.getSearchKW())
 
@@ -2012,90 +2024,100 @@ class MainWindow(QMainWindow):
         nsites = 0
         v_groups = self.getUnassignedVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
 
+        # print some debug info.
         for key in v_groups:
             print("num vehicles in "+key+" :"+str(len(v_groups[key])))
             if len(v_groups[key]) > 0:
                 for k, v in enumerate(v_groups[key]):
                     self.showMsg("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n")
 
-        for platform in v_groups.keys():
-            p_task_groups = self.unassigned_task_groups[platform]
-            p_nsites = len(v_groups[platform])
-
-            self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
-
-            if p_nsites > 0:
-                if len(p_task_groups) > p_nsites:
-                    # there will be unserved tasks due to over capacity
-                    self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!"+str(len(p_task_groups))+"::"+str(p_nsites))
-                    # save capacity spill into unassigned_task_groups
-                    self.unassigned_task_groups[platform] = self.unassigned_task_groups[platform][p_nsites:]
-                else:
-                    self.showMsg("No under-capacity")
-                    self.unassigned_task_groups[platform] = []
+        # for platform in v_groups.keys():
+        #     p_task_groups = self.unassigned_task_groups[platform]
+        #     p_nsites = len(v_groups[platform])
+        #
+        #     self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
+        for vname in self.unassigned_task_groups:
+            p_task_groups = self.unassigned_task_groups[vname]      # flattend per vehicle tasks.
+            if len(p_task_groups) > 0:
+                # if len(p_task_groups) > p_nsites:
+                #     # there will be unserved tasks due to over capacity
+                #     self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!"+str(len(p_task_groups))+"::"+str(p_nsites))
+                #     # save capacity spill into unassigned_task_groups
+                #     self.unassigned_task_groups[platform] = self.unassigned_task_groups[platform][p_nsites:]
+                # else:
+                #     self.showMsg("No under-capacity")
+                #     self.unassigned_task_groups[platform] = []
 
                 # distribute work to all available sites, which is the limit for the total capacity.
-                if p_nsites > 0:
-                    for i in range(p_nsites):
-                        if i == 0 and not self.rpa_work_assigned_for_today and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
-                            # if commander participate work, give the first(0th) work to self.
-                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[0], self)
-                            # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
-                            self.showMsg("arranged for today on this machine....")
-                            self.add_buy_searchs(batched_tasks)
-                            # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
-                            self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
-                            vidx = 0
-                            self.rpa_work_assigned_for_today = True
-                        else:
-                            # #otherwise, send work to platoons in the field
-                            # if self.hostrole == "CommanderOnly":
-                            #     # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
-                            #     vidx = i
-                            # else:
-                            #     # in case of n > 0 and not commander only. grouptask index is one more than the platoon vehicle index.
-                            #     # because the first group is assigned to self. starting the 2nd task group, the 2nd task group will
-                            #     # be send to the 1st vehicle , the 3rd will be send the 2nd vehicle and so .....
-                            #     vidx = i - 1
-
-                            vidx = i
-
-                            self.showMsg("working on task group index: "+str(i)+" vehicle index: " + str(vidx))
-                            # flatten tasks and regroup them based on sites, and divide them into batches
-                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups[i], self)
-                            self.add_buy_searchs(batched_tasks)
-                            # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
-                            self.todays_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": v_groups[platform][i].getIP(), "status": "yet to start",
-                                 "current widx": 0, "completed": [], "aborted": []})
-
-                            for profile in ads_profiles:
-                                self.send_file_to_platoon(v_groups[platform][i].getFieldLink(), "ads profile", profile)
-
-                            task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
-
-                            # now need to fetch this task associated bots, mission, skills
-                            # get all bots IDs involved. get all mission IDs involved.
-                            tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups[i])
-                            v_groups[platform][i].setBotIds(tg_botids)
-                            v_groups[platform][i].setMids(tg_botids)
-
-                            self.showMsg("tg_skids:"+json.dumps(tg_skids))
-                            # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
-                            # execute
-                            # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
-                            resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids, tg_skids)
-                            schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
-                            self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+v_groups[platform][i].getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
-
-                            # send over scheduled tasks to platton.
-                            self.send_json_to_platoon(v_groups[platform][i].getFieldLink(), schedule)
-
-                            # send over skills to platoon
-                            self.empower_platoon_with_skills(v_groups[platform][i].getFieldLink(), tg_skids)
-
+                # if p_nsites > 0:
+                #     for i in range(p_nsites):
+                # if i == 0 and not self.rpa_work_assigned_for_today and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
+                if self.machine_name in vname:
+                    # if commander participate work, give the first(0th) work to self.
+                    batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, self)
+                    # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
+                    self.showMsg("arranged for today on this machine....")
+                    self.add_buy_searchs(batched_tasks)
+                    # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
+                    self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
+                    vidx = 0
+                    self.rpa_work_assigned_for_today = True
                 else:
-                    self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
+                    # #otherwise, send work to platoons in the field
+                    # if self.hostrole == "CommanderOnly":
+                    #     # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
+                    #     vidx = i
+                    # else:
+                    #     # in case of n > 0 and not commander only. grouptask index is one more than the platoon vehicle index.
+                    #     # because the first group is assigned to self. starting the 2nd task group, the 2nd task group will
+                    #     # be send to the 1st vehicle , the 3rd will be send the 2nd vehicle and so .....
+                    #     vidx = i - 1
+
+                    # vidx = i
+                    vehicle = self.getVehicleByName(vname)
+
+                    if vehicle:
+                        self.showMsg("working on task group vehicle : " + vname)
+                        # flatten tasks and regroup them based on sites, and divide them into batches
+                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, self)
+                        self.add_buy_searchs(batched_tasks)
+                        # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
+                        self.todays_work["tbd"].append(
+                            {"name": "automation", "works": batched_tasks, "ip": vehicle.getIP(), "status": "yet to start",
+                             "current widx": 0, "completed": [], "aborted": []})
+
+                        for profile in ads_profiles:
+                            self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
+
+                        task_group_string = json.dumps(batched_tasks).replace('"', '\\"')
+
+                        # now need to fetch this task associated bots, mission, skills
+                        # get all bots IDs involved. get all mission IDs involved.
+                        tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups[i])
+                        vehicle.setBotIds(tg_botids)
+                        vehicle.setMids(tg_botids)
+
+                        self.showMsg("tg_skids:"+json.dumps(tg_skids))
+                        # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
+                        # execute
+                        # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
+                        resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids, tg_skids)
+                        schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
+                        self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+vehicle.getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
+
+                        # send over scheduled tasks to platton.
+                        self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
+
+                        # send over skills to platoon
+                        self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
+
+                # else:
+                #     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
+
+    def getVehicleByName(self, vname):
+        found_vehicle = next((v for i, v in enumerate(self.vehicles) if v.getName() == vname), None)
+        return found_vehicle
+
 
     def empower_platoon_with_skills(self, platoon_link, skill_ids):
         # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
@@ -2474,15 +2496,15 @@ class MainWindow(QMainWindow):
         next_run_index = len(mids)
         for j, mid in enumerate(mids):
             midx = next((i for i, m in enumerate(self.missions) if m.getMid() == mid), -1)
-            # if midx != -1:
-            this_stat = self.missions[midx].getStatus()
-            n_2b_retried = self.missions[midx].getRetry()
-            retry_count = self.missions[midx].getNRetries()
-            self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
-            if "Complete" not in this_stat and retry_count < n_2b_retried:
-                self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
-                next_run_index = j
-                break
+            if midx != -1:
+                this_stat = self.missions[midx].getStatus()
+                n_2b_retried = self.missions[midx].getRetry()
+                retry_count = self.missions[midx].getNRetries()
+                self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
+                if "Complete" not in this_stat and retry_count < n_2b_retried:
+                    self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
+                    next_run_index = j
+                    break
         return next_run_index
 
     def updateRunStatus(self, worksTBD, midx):
@@ -3082,6 +3104,7 @@ class MainWindow(QMainWindow):
                 "delDate": new_mission.getDelDate(),
                 "asin": new_mission.getASIN(),
                 "store": new_mission.getStore(),
+                "follow_seller": new_mission.getFollowSeller(),
                 "brand": new_mission.getBrand(),
                 "image": new_mission.getImagePath(),
                 "title": new_mission.getTitle(),
@@ -3089,6 +3112,7 @@ class MainWindow(QMainWindow):
                 "rating": new_mission.getRating(),
                 "feedbacks": new_mission.getFeedbacks(),
                 "price": new_mission.getPrice(),
+                "follow_price": new_mission.getFollowPrice(),
                 "customer": new_mission.getCustomerID(),
                 "platoon": new_mission.getPlatoonID(),
                 "result": ""
@@ -3152,6 +3176,7 @@ class MainWindow(QMainWindow):
                 "delDate": amission.getDelDate(),
                 "asin": amission.getASIN(),
                 "store": amission.getStore(),
+                "follow_seller": amission.getFollowSeller(),
                 "brand": amission.getBrand(),
                 "image": amission.getImagePath(),
                 "title": amission.getTitle(),
@@ -3159,6 +3184,7 @@ class MainWindow(QMainWindow):
                 "rating": amission.getRating(),
                 "feedbacks": amission.getFeedbacks(),
                 "price": amission.getPrice(),
+                "follow_price": amission.getFollowPrice(),
                 "customer": amission.getCustomerID(),
                 "platoon": amission.getPlatoonID(),
                 "result": amission.getResult()
@@ -4091,12 +4117,14 @@ class MainWindow(QMainWindow):
             local_mission.delDate = new_mission.getDelDate()
             local_mission.asin = new_mission.getAsin()
             local_mission.store = new_mission.getStore()
+            local_mission.follow_seller = new_mission.getFollowSeller()
             local_mission.brand = new_mission.getBrand()
             local_mission.img = new_mission.getImg()
             local_mission.title = new_mission.getTitle()
             local_mission.rating = new_mission.getRating()
             local_mission.feedbacks = new_mission.getFeedbacks()
             local_mission.price = new_mission.getPrice()
+            local_mission.follow_price = new_mission.getFollowPrice()
             local_mission.customer = new_mission.getCustomer()
             local_mission.platoon = new_mission.getPlatoon()
             local_mission.result = new_mission.getResult()

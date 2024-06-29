@@ -546,11 +546,13 @@ def test_api(parent, session, token):
     # print("send_account_info_request_to_cloud RESULT:", result)
 
 def test_sqlite3(mw):
-    from sqlalchemy import Text
-    mw.bot_service.describe_table()
+    from sqlalchemy import Text, REAL
+    # mw.bot_service.describe_table()
     # mw.bot_service.add_column("createon", Text, "ebpw")
     # mw.bot_service.add_column("vehicle", Text, "createon")
-    # mw.mission_service.add_column("variations", Text, "title")
+    mw.mission_service.describe_table()
+    # mw.mission_service.add_column("follow_seller", Text, "store")
+    # mw.mission_service.add_column("follow_price", REAL, "price")
     #mw.mission_service.describe_table()
     # sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)
     #               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); '''

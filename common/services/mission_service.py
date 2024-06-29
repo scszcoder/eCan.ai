@@ -96,6 +96,8 @@ class MissionService:
             local_mission.customer = messions["customer"]
             local_mission.platoon = messions["platoon"]
             local_mission.result = messions["result"]
+            local_mission.follow_seller = messions["follow_seller"]
+            local_mission.follow_price = messions["follow_price"]
             self.session.add(local_mission)
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
         self.session.commit()
@@ -141,6 +143,8 @@ class MissionService:
             result.customer = amission["customer"]
             result.platoon = amission["platoon"]
             result.result = amission["result"]
+            result.follow_seller = amission["follow_seller"]
+            result.follow_price = amission["follow_price"]
             self.session.commit()
             self.main_win.showMsg("update row: " + json.dumps(result.to_dict()))
 
@@ -306,7 +310,7 @@ class MissionService:
 
             # with model.engine.connect() as conn:
             # Rename the original table
-            self.session.execute(text(f"DROP TABLE {table_name}"))
+            # self.session.execute(text(f"DROP TABLE {table_name}"))
             original_table_name = "missions"
             self.session.execute(text(f"ALTER TABLE {original_table_name} RENAME TO {table_name}"))
 
