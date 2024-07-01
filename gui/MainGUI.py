@@ -2,6 +2,7 @@ import asyncio
 import base64
 import copy
 import math
+import os.path
 import random
 import traceback
 import webbrowser
@@ -41,7 +42,7 @@ from gui.ScheduleGUI import ScheduleWin
 from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
-from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, updateIndividualProfileFromBatchSavedTxt
 from bot.basicSkill import STEP_GAP
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
@@ -52,7 +53,7 @@ from datetime import timedelta
 import platform
 from pynput.mouse import Controller
 
-from bot.network import myname, fieldLinks
+from bot.network import myname, fieldLinks, commanderIP
 from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
@@ -211,9 +212,9 @@ class MainWindow(QMainWindow):
         self.inventories = []
 
         self.bot_cookie_site_lists = {}
-        self.ads_profile_dir = ecb_data_homepath + "/ads_profiles"
+        self.ads_profile_dir = ecb_data_homepath + "/ads_profiles/"
 
-        self.ads_settings_file = self.ads_profile_dir + "/ads_settings.json"
+        self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
         self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2}
 
         # self.readBotJsonFile()
@@ -287,6 +288,7 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("This is a platoon...")
             self.commanderXport = tcpserver
+            self.commanderIP = commanderIP
             self.tcpServer = None
 
         self.showMsg("self.platform==================================================>" + self.platform)
@@ -3234,6 +3236,8 @@ class MainWindow(QMainWindow):
             self.botModel.appendRow(self.newBot)
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
+            bot_profile_name = ecb_data_homepath + "/ads_profiles/"+bjs["privateProfile"]["email"].split("@")[0]+".txt"
+            self.todays_bot_profiles.append(bot_profile_name)
 
         for mjs in missionsJson:
             self.newMission = EBMISSION(self)
@@ -5021,7 +5025,10 @@ class MainWindow(QMainWindow):
                     # check = all(item in List1 for item in List2)
                     # this means all reports are collected, ready to send to cloud.
                     self.doneWithToday()
-
+            elif msg["type"] == "botsADSProfilesUpdate":
+                self.showMsg("received botsADSProfilesUpdate message")
+                # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
+                self.receivePlattonBotsADSProfileUpdateMessage(msg)
             elif msg["type"] == "chat":
                 self.showMsg("received chat message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
@@ -5048,6 +5055,23 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorprocessPlatoonMsgs: traceback information not available:" + str(e)
 
             self.showMsg(ex_stat)
+
+
+    # what's received here is a ADS profile for one individual bot, for safety, save the existing
+    # file to file.old so that we at least always have two copies and in case something is wrong
+    # we can at least go back to the previous copy.
+    def receivePlattonBotsADSProfileUpdateMessage(self, pMsg):
+        file_name = ecb_data_homepath + pMsg["file_name"]           # msg["file_name"] should start with "/"
+        file_name_wo_extension = os.path.basename(file_name).split(".")[0]
+        file_name_dir = os.path.dirname(file_name)
+        new_filename = file_name_dir + "/" + file_name_wo_extension + "_old.txt"
+        os.rename(file_name, new_filename)
+
+        file_type = pMsg["file_type"]
+        file_contents = pMsg["file_contents"].encode('latin1')  # Encode string to binary data
+        with open(file_name, 'wb') as file:
+            file.write(file_contents)
+            file.close()
 
 
 
@@ -5180,7 +5204,7 @@ class MainWindow(QMainWindow):
         elif msg["cmd"] == "reqSendFile":
             # update vehicle status display.
             self.showMsg("received a file: "+msg["file_name"])
-            file_name = msg["file_name"]
+            file_name = self.ads_profile_dir + msg["file_name"]
             file_type = msg["file_type"]
             file_contents = msg["file_contents"].encode('latin1')  # Encode string to binary data
             with open(file_name, 'wb') as file:
@@ -5198,6 +5222,7 @@ class MainWindow(QMainWindow):
             # the actual running of the tasks will be taken care of by the schduler.
             localworks = msg["todos"]
             self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
+
             self.showMsg("received work request:"+json.dumps(localworks))
             # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
@@ -5235,6 +5260,7 @@ class MainWindow(QMainWindow):
             self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
             resp = {"ip": self.ip, "type":"pong", "content": self_info}
             # send to commander
+            self.commanderIP = commanderIP
             self.commanderXport.write(json.dumps(resp).encode('utf8'))
         elif msg["cmd"] == "chat":
             # update vehicle status display.
@@ -5344,6 +5370,10 @@ class MainWindow(QMainWindow):
                     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
                     self.showMsg("Sending report to Commander::"+json.dumps(rpt))
                     self.commanderXport.write(str.encode(json.dumps(rpt)))
+
+                # also send updated bot ADS profiles to the commander for backup purose.
+                for bot_profile in self.todays_bot_profiles:
+                    self.send_file_to_commander(self.commanderXport, "txt", bot_profile)
 
             # 2) log reports on local drive.
             self.saveDailyRunReport(self.todaysPlatoonReports)
@@ -5665,6 +5695,7 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg(f"Error: TCP link doesn't exist")
 
+
     def send_json_to_platoon(self, platoon_link, json_data):
         if json_data and platoon_link:
             self.showMsg(f"Sending JSON Data to platoon "+platoon_link["ip"][0] + "::" + json.dumps(json_data))
@@ -5678,6 +5709,30 @@ class MainWindow(QMainWindow):
                 self.showMsg(f"Error: JSON empty")
             else:
                 self.showMsg(f"Error: TCP link doesn't exist")
+
+
+    def send_file_to_commander(self, commander_link, file_type, file_name_full_path):
+        if os.path.exists(file_name_full_path) and commander_link:
+            self.showMsg(f"Sending File [{file_name_full_path}] to commander: " + self.commanderIP)
+            with open(file_name_full_path, 'rb') as fileTBSent:
+                binary_data = fileTBSent.read()
+                encoded_data = base64.b64encode(binary_data).decode('utf-8')
+
+                # Embed in JSON
+                json_data = json.dumps({"type": "botsADSProfilesUpdate", "file_name": file_name_full_path, "file_type": file_type,
+                                        "file_contents": encoded_data})
+                length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
+                # Send data
+                commander_link.write(length_prefix + json_data.encode('utf-8'))
+                # await xport.drain()
+
+                fileTBSent.close()
+        else:
+            if not os.path.exists(file_name_full_path):
+                self.showMsg(f"Error: File [{file_name_full_path}] not found")
+            else:
+                self.showMsg(f"Error: TCP link doesn't exist")
+
 
 
     def getEncryptKey(self):
