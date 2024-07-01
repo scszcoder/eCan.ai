@@ -183,7 +183,7 @@ class MainWindow(QMainWindow):
         self.tz = self.obtainTZ()
         self.file_resouce = FileResource(self.homepath)
         self.SELLER_INVENTORY_FILE = ecb_data_homepath + "/resource/inventory.json"
-        self.VEHICLES_FILE = ecb_data_homepath + "/resource/vehicles.json"
+        self.VEHICLES_FILE = ecb_data_homepath + "/vehicles.json"
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
         self.static_resource = StaticResource()
@@ -263,6 +263,13 @@ class MainWindow(QMainWindow):
         self.SettingsWin = SettingsWidget(self)
         self.netLogWin = CommanderLogWin(self)
         self.machine_name = myname
+        self.system = platform.system()
+        if self.system == "Windows":
+            self.os_short = "win"
+        elif  self.system == "Linux":
+            self.os_short = "linux"
+        elif  self.system == "Mac":
+            self.os_short = "mac"
 
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
@@ -653,6 +660,7 @@ class MainWindow(QMainWindow):
         self.showMsg("load local bots, mission, skills ")
         if (self.machine_role != "Platoon"):
             test_sqlite3(self)
+            self.readVehicleJsonFile()
             # load skills into memory.
             self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
             bots_data = self.bot_service.find_all_bots()
@@ -707,7 +715,7 @@ class MainWindow(QMainWindow):
             self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
             self.num_todays_task_groups = self.num_todays_task_groups + 1
             # point to the 1st task to run for the day.
-            self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
+            # self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
 
         # self.async_interface = AsyncInterface()
         self.showMsg("ready to spawn mesg server task")
@@ -1357,12 +1365,12 @@ class MainWindow(QMainWindow):
         fetch_stat = "Completed:0"
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
-            # self.newBuyMissionFromFiles()
+            self.newBuyMissionFromFiles()
 
             self.showMsg("Done handling today's new Buy orders...")
 
             # next line commented out for testing purpose....
-            jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+            # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
             jresp = {}
             if "errorType" in jresp:
                 screen_error = True
@@ -1530,7 +1538,8 @@ class MainWindow(QMainWindow):
         blank_m.loadNetRespJson(m)
         # self.showMsg("after fill mission paramter:"+str(blank_m.getRetry()))
         mconfig = None
-        for tz_group in tgs:
+        for v in tgs:
+            tz_group = tgs[v]
             for tz in tz_group:
                 if len(tz_group[tz]) > 0:
                     for bot_works in tz_group[tz]:
@@ -1634,16 +1643,19 @@ class MainWindow(QMainWindow):
         return self.formBotsJsons(botids),self.formMissionsJsons(mids),self.formSkillsJsons(skids)
 
     def getAllBotidsMidsSkidsFromTaskGroup(self, task_group):
-        bids = []
-        mids = []
-        for key, value in task_group.items():
-            if isinstance(value, list) and len(value) > 0:
-                for assignment in value:
-                    bids.append(assignment["bid"])
-                    for work in assignment["bw_works"]:
-                        mids.append(work["mid"])
-                    for work in assignment["other_works"]:
-                        mids.append(work["mid"])
+        # bids = []
+        # mids = []
+        # for key, value in task_group.items():
+        #     if isinstance(value, list) and len(value) > 0:
+        #         for assignment in value:
+        #             bids.append(assignment["bid"])
+        #             for work in assignment["bw_works"]:
+        #                 mids.append(work["mid"])
+        #             for work in assignment["other_works"]:
+        #                 mids.append(work["mid"])
+
+        bids = [task["bid"] for task in task_group]
+        mids = [task["mid"] for task in task_group]
 
         # Convert the set back to a list
         bids_set = set(bids)
@@ -1762,13 +1774,11 @@ class MainWindow(QMainWindow):
         vtgs = {}
         for vehicle in tgs.keys():
             vtasks = self.flattenTaskGroup(tgs[vehicle])
-            for vtask in vtasks:
-                found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
-                vehicle = found_bot.getVName()
-                if vehicle in vtgs:
-                    vtgs[vehicle].append(vtask)
-                else:
-                    vtgs[vehicle]=[vtask]
+            # for vtask in vtasks:
+            #     found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
+            #     bot_v = found_bot.getVName()
+            #     print("bot_v:", bot_v, "task v:", vehicle)
+            vtgs[vehicle] = vtasks
         return vtgs
 
 
@@ -2033,8 +2043,11 @@ class MainWindow(QMainWindow):
         #     p_nsites = len(v_groups[platform])
         #
         #     self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
+        print("unassigned_task_groups: ", self.unassigned_task_groups)
         for vname in self.unassigned_task_groups:
+            print("assignwork checking vehicle: ", vname)
             p_task_groups = self.unassigned_task_groups[vname]      # flattend per vehicle tasks.
+            print("p_task_groups: ", p_task_groups)
             if len(p_task_groups) > 0:
                 # if len(p_task_groups) > p_nsites:
                 #     # there will be unserved tasks due to over capacity
@@ -2072,7 +2085,7 @@ class MainWindow(QMainWindow):
 
                     # vidx = i
                     vehicle = self.getVehicleByName(vname)
-
+                    print("assign work for vehicle:"+vname)
                     if vehicle:
                         self.showMsg("working on task group vehicle : " + vname)
                         # flatten tasks and regroup them based on sites, and divide them into batches
@@ -2090,7 +2103,7 @@ class MainWindow(QMainWindow):
 
                         # now need to fetch this task associated bots, mission, skills
                         # get all bots IDs involved. get all mission IDs involved.
-                        tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups[i])
+                        tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups)
                         vehicle.setBotIds(tg_botids)
                         vehicle.setMids(tg_botids)
 
@@ -2100,13 +2113,19 @@ class MainWindow(QMainWindow):
                         # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
                         resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids, tg_skids)
                         schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
-                        self.showMsg(get_printable_datetime() + "SENDING ["+platform+"]PLATOON["+vehicle.getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
 
                         # send over scheduled tasks to platton.
-                        self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
+                        if vehicle.getFieldLink():
+                            self.showMsg(get_printable_datetime() + "SENDING ["+vname+"]PLATOON["+vehicle.getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
 
-                        # send over skills to platoon
-                        self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
+                            self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
+
+                            # send over skills to platoon
+                            self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
+                        else:
+                            self.showMsg(get_printable_datetime() + "vehicle "+vname+" is not FOUND on LAN.")
+                    else:
+                        print("ERROR: vehicle not found: "+vehicle)
 
                 # else:
                 #     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
@@ -2158,7 +2177,9 @@ class MainWindow(QMainWindow):
         if len(self.todays_work["tbd"]) > 0:
             if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
+                self.showMsg("set up first todo")
                 if self.ts2time(int(self.todays_work["tbd"][0]["works"][0]["start_time"]/1)) < pt:
+                    print("set up next run", self.todays_work["tbd"][0])
                     nextrun = self.todays_work["tbd"][0]
             elif "Completed" not in self.todays_work["tbd"][0]["status"]:
                 # in case the 1st todos is an automation task.
@@ -3239,6 +3260,7 @@ class MainWindow(QMainWindow):
                 print("existing Vids "+ip+":"+json.dumps(vids))
             else:
                 vids = []
+
             if ip not in vids:
                 self.showMsg("adding a new vehicle..... "+vip)
                 newVehicle = VEHICLE(self)
@@ -3281,6 +3303,15 @@ class MainWindow(QMainWindow):
 
     # add vehicles based on fieldlinks.
     def checkVehicles(self):
+        self.showMsg("adding self as a vehicle if is Commander.....")
+        if self.machine_role == "Commander":
+            # should add this machine to vehicle list.
+            newVehicle = VEHICLE(self)
+            newVehicle.setIP(self.ip)
+            newVehicle.setName(self.machine_name+":"+self.os_short)
+            self.vehicles.append(newVehicle)
+            self.runningVehicleModel.appendRow(newVehicle)
+
         self.showMsg("adding already linked vehicles.....")
         for i in range(len(fieldLinks)):
             self.showMsg("a fieldlink....."+json.dumps(fieldLinks[i]["ip"]))
@@ -3292,7 +3323,6 @@ class MainWindow(QMainWindow):
             newVehicle.setVid(ip)
             self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
-
 
 
     def fetchVehicleStatus(self, rows):
@@ -3419,21 +3449,24 @@ class MainWindow(QMainWindow):
 
 
     def readVehicleJsonFile(self):
+        self.showMsg("Reading Vehicle Json File: "+self.VEHICLES_FILE)
         if exists(self.VEHICLES_FILE):
             with open(self.VEHICLES_FILE, 'r') as file:
                 self.vehiclesJsonData = json.load(file)
                 self.translateVehiclesJson(self.vehiclesJsonData)
 
             file.close()
+        else:
+            self.showMsg("WARNING: Vehicle Json File NOT FOUND: " + self.VEHICLES_FILE)
 
     def translateVehiclesJson(self, vjds):
-        all_vnames = [v.get_name() for v in self.vehicles]
+        all_vnames = [v.getName() for v in self.vehicles]
         for vjd in vjds:
             if vjd["name"] not in all_vnames:
-                new_v = VEHICLE()
+                new_v = VEHICLE(self)
                 new_v.loadJson(vjd)
                 self.vehicles.append(new_v)
-                self.runningVehicleModel.appendRow(new_v)
+                # self.runningVehicleModel.appendRow(new_v)             # can't do this because if in file but not in data, that means no communication yet.
 
 
     def saveVehiclesJsonFile(self):
@@ -4284,9 +4317,10 @@ class MainWindow(QMainWindow):
 
                 for buy_req in buy_mission_reqs:
                     n_buys = int(buy_req["quantity"])
-                    for n in range(n_buys):
-                        print("creating new buy mission:", n)
-                        # new_buy_missions.append(self.newMissionFromNewReq(buy_req))
+                    if len(n_buys) > 0:
+                        for n in range(n_buys):
+                            print("creating new buy mission:", n)
+                            new_buy_missions.append(self.newMissionFromNewReq(buy_req))
 
         # now that we have created all the new missions,
         # create the in the cloud and local DB.
@@ -4929,13 +4963,15 @@ class MainWindow(QMainWindow):
                     found_vehicle = next((x for x in self.vehicles if x.getIP() == msg["ip"]), None)
                     if found_vehicle:
                         print("found a vehicle to set.... "+found_vehicle.getOS())
-                        found_vehicle.setName(msg["content"]["name"])
                         if "Windows" in msg["content"]["os"]:
                             found_vehicle.setOS("Windows")
+                            found_vehicle.setName(msg["content"]["name"]+":win")
                         elif "Mac" in msg["content"]["os"]:
                             found_vehicle.setOS("Mac")
+                            found_vehicle.setName(msg["content"]["name"] + ":mac")
                         elif "Lin" in msg["content"]["os"]:
                             found_vehicle.setOS("Linux")
+                            found_vehicle.setName(msg["content"]["name"] + ":linux")
 
                         print("now found vehicle" + found_vehicle.getName() + " " + found_vehicle.getOS())
 
@@ -5431,7 +5467,7 @@ class MainWindow(QMainWindow):
             if len(bots) > 0:
                 bot = bots[0]
                 if bot.getEmail() == "":
-                    self.showMsg("Error: Bot("+str(bot.getBid())+") running ADS without an Account!!!!!")
+                    self.showMsg("Error: Mission("+str(mission.getMid())+") Bot("+str(bot.getBid())+") running ADS without an Account!!!!!")
                 else:
                     user_prefix = bot.getEmail().split("@")[0]
                     mail_site_words = bot.getEmail().split("@")[1].split(".")
