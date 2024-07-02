@@ -1889,8 +1889,8 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     psk_words = psk_words + step_words
 
     # save the html file.
-    # this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_save_input", "fileStatus", this_step)
+    psk_words = psk_words + step_words
 
     # this_step, step_words = genStepWait(18, 0, 0, this_step)
     # psk_words = psk_words + step_words
@@ -1970,8 +1970,8 @@ def genAMZBrowseProductLists(pageCfgsName, ith, lastone, flows, stepN, worksetti
     this_step, step_words = genStepCheckCondition(lastone, "", "", this_step)
     psk_words = psk_words + step_words
 
-    # this_step, step_words = genStepAMZScrapePLHtml("current_html_file", "plSearchResult", ith, pageCfgsName, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepAMZScrapePLHtml("current_html_file", "plSearchResult", ith, pageCfgsName, this_step)
+    psk_words = psk_words + step_words
 
     # if this is the last page of this search, then no need to scroll to the bottom, simply scroll to whatever
     # the last attention point. If there is no attention needed, simply scroll a few times and be done.

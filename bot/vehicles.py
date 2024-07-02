@@ -19,7 +19,7 @@ class VEHICLE(QStandardItem):
         self.mstats = []
         self.field_link = None
         self.daily_mids = []
-        self.CAP = 56
+        self.CAP = 56*3
 
 
     def getFieldLink(self):
@@ -85,6 +85,9 @@ class VEHICLE(QStandardItem):
 
     def setBotIds(self, bot_ids):
         self.bot_ids = bot_ids
+
+    def getBotsOverCapStatus(self):
+        return (len(self.bot_ids) > self.CAP)
 
     def getMids(self):
         return self.daily_mids

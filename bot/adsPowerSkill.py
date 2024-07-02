@@ -982,28 +982,29 @@ def getBotEMail(bid, bots):
 def formADSProfileBatchesFor1Vehicle(vTasks, commander):
     # vTasks, allbots, all_profiles_csv, run_data_dir):
     try:
-        tgbs = []
+        # tgbs = []
 
         # flatten across time zone
-        for tz in vTasks.keys():
-            tgbs = tgbs + vTasks[tz]
+        # for tz in vTasks.keys():
+        #     tgbs = tgbs + vTasks[tz]
 
-        all_works = []
-        for tgb in tgbs:
-            bid = tgb["bid"]
-
-            for bw in tgb["bw_works"]:
-                bw["bid"] = bid
-                all_works.append(bw)
-
-            for other in tgb["other_works"]:
-                other["bid"] = bid
-                all_works.append(other)
+        all_works = vTasks
+        # all_works = []
+        # for tgb in tgbs:
+        #     bid = tgb["bid"]
+        #
+        #     for bw in tgb["bw_works"]:
+        #         bw["bid"] = bid
+        #         all_works.append(bw)
+        #
+        #     for other in tgb["other_works"]:
+        #         other["bid"] = bid
+        #         all_works.append(other)
 
         log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
 
-        ads_profile_batches_fnames = gen_ads_profile_batchs(commander, commander.getIP(), time_ordered_works)
+        ads_profile_batches_fnames = genAdsProfileBatchs(commander, commander.getIP(), time_ordered_works)
 
         log3("all_ads_batches===>"+json.dumps(ads_profile_batches_fnames))
         log3("time_ordered_works===>"+json.dumps(time_ordered_works))
@@ -1137,7 +1138,6 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
     df.to_excel(fname, index=False)
 
 
-
 def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
     # Convert JSON data to a DataFrame
     log3("read txt profiles:" + json.dumps(profile_names))
@@ -1193,7 +1193,7 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
 
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
-def gen_ads_profile_batchs(commander, host_ip, task_groups):
+def genAdsProfileBatchs(commander, host_ip, task_groups):
     log3("commander ads batch size:"+str(commander.getADSBatchSize()))
     ads_profile_dir = commander.getADSProfileDir()
     # ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
@@ -1268,7 +1268,7 @@ def gen_ads_profile_batchs(commander, host_ip, task_groups):
 # a batch can be done easily.
 # input: batch_profiles_txt: just saved batch of profiles in txt format:
 # site_list:
-def update_individual_profile_from_batch_saved_txt(batch_profiles_txt):
+def updateIndividualProfileFromBatchSavedTxt(batch_profiles_txt):
     pfJsons = readTxtProfile(batch_profiles_txt)
     pf_dir = os.path.dirname(batch_profiles_txt)
     # log3("pf_dir:"+pf_dir)
@@ -1350,7 +1350,7 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
         # first remove the previously save rollback point, but leave up to 3 rollback points
         for latest in latest_n_files:
             log3("extract individual ADS profile from latest_file:" + latest)
-            update_individual_profile_from_batch_saved_txt(latest)
+            updateIndividualProfileFromBatchSavedTxt(latest)
 
         # wait after key action.
         # time.sleep(step["wait_after"])
