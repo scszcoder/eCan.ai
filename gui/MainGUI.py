@@ -267,9 +267,9 @@ class MainWindow(QMainWindow):
         self.system = platform.system()
         if self.system == "Windows":
             self.os_short = "win"
-        elif  self.system == "Linux":
+        elif self.system == "Linux":
             self.os_short = "linux"
-        elif  self.system == "Mac":
+        elif self.system == "Darwin":
             self.os_short = "mac"
 
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
@@ -4637,8 +4637,8 @@ class MainWindow(QMainWindow):
 
     def addBotToVehicle(self, new_bot):
 
-        if new_bot.getVName() != "" and new_bot.getVName() != "NA":
-            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVName()), None)
+        if new_bot.getVehicle() != "" and new_bot.getVehicle() != "NA":
+            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVehicle()), None)
 
             if found_v:
                 nadded = found_v.addBot(new_bot.getBid())
