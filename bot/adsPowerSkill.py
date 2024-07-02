@@ -982,23 +982,24 @@ def getBotEMail(bid, bots):
 def formADSProfileBatchesFor1Vehicle(vTasks, commander):
     # vTasks, allbots, all_profiles_csv, run_data_dir):
     try:
-        tgbs = []
+        # tgbs = []
 
         # flatten across time zone
-        for tz in vTasks.keys():
-            tgbs = tgbs + vTasks[tz]
+        # for tz in vTasks.keys():
+        #     tgbs = tgbs + vTasks[tz]
 
-        all_works = []
-        for tgb in tgbs:
-            bid = tgb["bid"]
-
-            for bw in tgb["bw_works"]:
-                bw["bid"] = bid
-                all_works.append(bw)
-
-            for other in tgb["other_works"]:
-                other["bid"] = bid
-                all_works.append(other)
+        all_works = vTasks
+        # all_works = []
+        # for tgb in tgbs:
+        #     bid = tgb["bid"]
+        #
+        #     for bw in tgb["bw_works"]:
+        #         bw["bid"] = bid
+        #         all_works.append(bw)
+        #
+        #     for other in tgb["other_works"]:
+        #         other["bid"] = bid
+        #         all_works.append(other)
 
         log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
