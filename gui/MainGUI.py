@@ -5233,6 +5233,9 @@ class MainWindow(QMainWindow):
             self.todays_scheduled_task_groups[platform_os] = localworks
             self.unassigned_task_groups[platform_os] = localworks
 
+            # generate ADS loadable batch profiles
+            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self)
+
             # clean up the reports on this vehicle....
             self.todaysReports = []
             self.DONE_WITH_TODAY = False
@@ -5510,6 +5513,8 @@ class MainWindow(QMainWindow):
 
                     if mission.getSite() == "amz":
                         self.bot_cookie_site_lists[bot_mission_ads_profile].append("amazon")
+                    if mission.getSite() == "ebay":
+                        self.bot_cookie_site_lists[bot_mission_ads_profile].append("ebay")
                     elif mission.getSite() == "ali":
                         self.bot_cookie_site_lists[bot_mission_ads_profile].append("aliexpress")
                     else:

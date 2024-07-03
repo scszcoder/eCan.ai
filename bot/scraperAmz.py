@@ -121,7 +121,7 @@ def amz_buyer_scrape_product_list(html_file, idx):
                 product.setSummery(summery)
                 products.append(product.toJson())
 
-    if len(products) < 32:
+    if len(products) < 28:
         pagefull_of_pl["layout"] = "list"
     pagefull_of_pl["pl"] = products
     log3("+++++++++++++++++++++"+str(len(pagefull_of_pl["pl"]))+"+++++++++++++++++++++++++++++")

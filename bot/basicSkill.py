@@ -3300,11 +3300,11 @@ def processSearchScroll(step, i):
             log3("calculated offset: "+str(offset)+"target loc"+str(target_loc_v)+"scroll_resolution"+str(symTab[scroll_resolution])+" setting flag var ["+str(step["flag"])+"] to be TRUE....")
             symTab[step["flag"]] = True
         else:
-            # if anchor is not on the page, set the flag and scroll down 90 of a screen
+            # if anchor is not on the page, set the flag and scroll down or up 0% of a screen height
             if step["dir"] == "down":
-                offset = 0-round(screensize[0]*0.7/symTab[scroll_resolution])
+                offset = 0-round(screensize[0]*0.6/symTab[scroll_resolution])
             else:
-                offset = round(screensize[0] * 0.7 / symTab[scroll_resolution])
+                offset = round(screensize[0] * 0.6/symTab[scroll_resolution])
             symTab[step["flag"]] = False
             log3("KEEP scrolling calculated offset: "+str(offset)+"setting flag var ["+str(step["flag"])+"] to be FALSE....")
 
@@ -3353,7 +3353,7 @@ def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN,
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [20, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
