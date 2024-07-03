@@ -1138,6 +1138,26 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
     df.to_excel(fname, index=False)
 
 
+def genDefaultProfileXlsx(pfJsons, fname):
+    # Convert JSON data to a DataFrame
+    new_pfJsons = []
+    # log3("batch_bot_mid_keys:"+str(len(pfJsons))+" " + json.dumps(batch_bot_mid_keys))
+
+    for original_pfJson in pfJsons:
+        site_list = DEFAULT_SITE_LIST
+        pfJson = copy.deepcopy(original_pfJson)
+        removeUselessCookies(pfJson, site_list)
+        pfJson["cookie"]=json.dumps(pfJson["cookie"])
+        new_pfJsons.append(pfJson)
+
+
+    df = pd.DataFrame(new_pfJsons)
+    log3("writing to xlsx:"+fname)
+    # Write DataFrame to Excel file
+    df.to_excel(fname, index=False)
+
+
+
 def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
     # Convert JSON data to a DataFrame
     log3("read txt profiles:" + json.dumps(profile_names))
@@ -1190,6 +1210,19 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
         log3("reading in # jsons:"+str(len(pfjsons)))
         genProfileXlsx(pfjsons, xls_name, site_lists.keys(), site_lists)
         pf_idx = pf_idx + 1
+
+
+def covertTxtProfiles2DefaultXlsxProfiles(fnames):
+    pf_idx = 0
+    for fname in fnames:
+        basename = os.path.basename(fname)
+        dirname = os.path.dirname(fname)
+        xls_name = dirname + "/" + basename.split(".")[0]+".xlsx"
+        pfjsons = readTxtProfile(fname)
+        log3("reading in # jsons:"+str(len(pfjsons)))
+        genDefaultProfileXlsx(pfjsons, xls_name)
+        pf_idx = pf_idx + 1
+
 
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
