@@ -40,7 +40,7 @@ from gui.ScheduleGUI import ScheduleWin
 from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
-from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, updateIndividualProfileFromBatchSavedTxt
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles
 from bot.basicSkill import STEP_GAP
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
@@ -475,6 +475,7 @@ class MainWindow(QMainWindow):
 
         self.skillNewFromFileAction = self._createSkillNewFromFileAction()
 
+        self.toolsADSProfileConverterAction = self._createToolsADSProfileConverterAction()
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
@@ -987,6 +988,14 @@ class MainWindow(QMainWindow):
         skill_menu.addAction(self.skillNewFromFileAction)
         menu_bar.addMenu(skill_menu)
 
+
+        tools_menu = QMenu(QApplication.translate("QMenu", "&Tools"), self)
+        tools_menu.setFont(self.main_menu_font)
+        tools_menu.addAction(self.toolsADSProfileConverterAction)
+
+        menu_bar.addMenu(tools_menu)
+
+
         help_menu = QMenu(QApplication.translate("QMenu", "&Help"), self)
         help_menu.setFont(self.main_menu_font)
         help_menu.addAction(self.helpUGAction)
@@ -1249,6 +1258,14 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&User Guide"))
+        return new_action
+
+
+    def _createToolsADSProfileConverterAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&ADS Profile Converter"))
+        new_action.triggered.connect(self.runADSProfileConverter)
         return new_action
 
 
@@ -2931,6 +2948,23 @@ class MainWindow(QMainWindow):
         # run all the todo steps
         # (steps, mission, skill, mode="normal"):
         runResult = runAllSteps(task.todos, task_mission.parent_settings)
+
+
+    def runADSProfileConverter(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            QApplication.translate("QFileDialog", "Open ADS Profile File"),
+            '',
+            QApplication.translate("QFileDialog", "Text Files (*.txt)")
+        )
+
+        try:
+            if exists(filename):
+                print("file name:", filename)
+                covertTxtProfiles2DefaultXlsxProfiles([filename])
+
+        except IOError:
+            QMessageBox.information(self, "Unable to open/save file: %s" % filename)
 
 
     def showAbout(self):
@@ -5233,6 +5267,9 @@ class MainWindow(QMainWindow):
             self.todays_scheduled_task_groups[platform_os] = localworks
             self.unassigned_task_groups[platform_os] = localworks
 
+            # generate ADS loadable batch profiles
+            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self)
+
             # clean up the reports on this vehicle....
             self.todaysReports = []
             self.DONE_WITH_TODAY = False
@@ -5510,6 +5547,8 @@ class MainWindow(QMainWindow):
 
                     if mission.getSite() == "amz":
                         self.bot_cookie_site_lists[bot_mission_ads_profile].append("amazon")
+                    if mission.getSite() == "ebay":
+                        self.bot_cookie_site_lists[bot_mission_ads_profile].append("ebay")
                     elif mission.getSite() == "ali":
                         self.bot_cookie_site_lists[bot_mission_ads_profile].append("aliexpress")
                     else:

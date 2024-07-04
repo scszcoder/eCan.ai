@@ -40,5 +40,7 @@ pyscreeze==0.1.30
 sqlalchemy==2.0.30
 cryptography==42.0.7
 typing-extensions==4.12.1
+chardet==5.2.0
+fuzzywuzzy==0.18.0
 pyobjc~=10.3
 pyobjc-framework-Quartz~=10.3
