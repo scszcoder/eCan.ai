@@ -979,7 +979,7 @@ def getBotEMail(bid, bots):
 # so in the code of executing tasks one by one, when it's time to run, it will check which profile
 # Note: no all tasks involves using ADS, so could very well be that out of N bots, there will be less than N lines in
 #       profiles.
-def formADSProfileBatchesFor1Vehicle(vTasks, commander):
+def formADSProfileBatchesFor1Vehicle(vTasks, host):
     # vTasks, allbots, all_profiles_csv, run_data_dir):
     try:
         # tgbs = []
@@ -1004,7 +1004,7 @@ def formADSProfileBatchesFor1Vehicle(vTasks, commander):
         log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
 
-        ads_profile_batches_fnames = genAdsProfileBatchs(commander, commander.getIP(), time_ordered_works)
+        ads_profile_batches_fnames = genAdsProfileBatchs(host, host.getIP(), time_ordered_works)
 
         log3("all_ads_batches===>"+json.dumps(ads_profile_batches_fnames))
         log3("time_ordered_works===>"+json.dumps(time_ordered_works))
@@ -1138,6 +1138,26 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
     df.to_excel(fname, index=False)
 
 
+def genDefaultProfileXlsx(pfJsons, fname):
+    # Convert JSON data to a DataFrame
+    new_pfJsons = []
+    # log3("batch_bot_mid_keys:"+str(len(pfJsons))+" " + json.dumps(batch_bot_mid_keys))
+
+    for original_pfJson in pfJsons:
+        site_list = DEFAULT_SITE_LIST
+        pfJson = copy.deepcopy(original_pfJson)
+        removeUselessCookies(pfJson, site_list)
+        pfJson["cookie"]=json.dumps(pfJson["cookie"])
+        new_pfJsons.append(pfJson)
+
+
+    df = pd.DataFrame(new_pfJsons)
+    log3("writing to xlsx:"+fname)
+    # Write DataFrame to Excel file
+    df.to_excel(fname, index=False)
+
+
+
 def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
     # Convert JSON data to a DataFrame
     log3("read txt profiles:" + json.dumps(profile_names))
@@ -1191,11 +1211,24 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
         genProfileXlsx(pfjsons, xls_name, site_lists.keys(), site_lists)
         pf_idx = pf_idx + 1
 
+
+def covertTxtProfiles2DefaultXlsxProfiles(fnames):
+    pf_idx = 0
+    for fname in fnames:
+        basename = os.path.basename(fname)
+        dirname = os.path.dirname(fname)
+        xls_name = dirname + "/" + basename.split(".")[0]+".xlsx"
+        pfjsons = readTxtProfile(fname)
+        log3("reading in # jsons:"+str(len(pfjsons)))
+        genDefaultProfileXlsx(pfjsons, xls_name)
+        pf_idx = pf_idx + 1
+
+
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
-def genAdsProfileBatchs(commander, host_ip, task_groups):
-    log3("commander ads batch size:"+str(commander.getADSBatchSize()))
-    ads_profile_dir = commander.getADSProfileDir()
+def genAdsProfileBatchs(host, host_ip, task_groups):
+    log3("host ads batch size:"+str(host.getADSBatchSize()))
+    ads_profile_dir = host.getADSProfileDir()
     # ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
     log3("time_ordered_works:"+json.dumps(task_groups))
     pfJsons_batches = []
@@ -1209,11 +1242,11 @@ def genAdsProfileBatchs(commander, host_ip, task_groups):
     batch_bot_profiles_read = []
     for bot_work in task_groups:
         bid = bot_work["bid"]
-        found_bots = list(filter(lambda cbot: cbot.getBid() == bid, commander.bots))
+        found_bots = list(filter(lambda cbot: cbot.getBid() == bid, host.bots))
 
         mid = bot_work["mid"]
 
-        found_missions = list(filter(lambda cm: cm.getMid() == mid, commander.missions))
+        found_missions = list(filter(lambda cm: cm.getMid() == mid, host.missions))
         found_mision = None
         if len(found_missions) > 0:
             found_mision = found_missions[0]
@@ -1242,8 +1275,8 @@ def genAdsProfileBatchs(commander, host_ip, task_groups):
 
             bot_pfJsons = bot_pfJsons + newly_read
 
-            if w_idx >= commander.getADSBatchSize()-1:
-                genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
+            if w_idx >= host.getADSBatchSize()-1:
+                genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, host.getCookieSiteLists())
                 v_ads_profile_batch_xlsxs.append(batch_file)
                 w_idx = 0
                 bot_pfJsons = []
@@ -1258,7 +1291,7 @@ def genAdsProfileBatchs(commander, host_ip, task_groups):
 
     # take care of the last batch.
     if len(bot_pfJsons) > 0:
-        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
+        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, host.getCookieSiteLists())
         v_ads_profile_batch_xlsxs.append(batch_file)
 
     return v_ads_profile_batch_xlsxs

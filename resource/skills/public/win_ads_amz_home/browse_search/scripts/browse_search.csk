@@ -688,6 +688,13 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "results",
+                        "anchor_type"  : "text",
+                        "template"     : "Results",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "free_delivery",
                         "anchor_type"  : "text",
                         "template"     : "FREE delivery",
@@ -875,6 +882,13 @@
                         "anchor_name"  : "next",
                         "anchor_type"  : "text",
                         "template"     : "Next",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "need_help",
+                        "anchor_type"  : "text",
+                        "template"     : "Need help",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -1104,6 +1118,13 @@
                         "anchor_name"  : "no_customer_reviews",
                         "anchor_type"  : "text",
                         "template"     : "No customer reviews",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "read_more",
+                        "anchor_type"  : "text",
+                        "template"     : "Read more",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },

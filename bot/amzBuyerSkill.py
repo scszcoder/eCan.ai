@@ -210,6 +210,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
 
     # following is for tests purpose. hijack the flow, go directly to browse....
     this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
+    # this_step, step_words = genStepGoToWindow("Chrome", "", "g2w_status", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(3, 1, 3, this_step)
@@ -221,9 +222,9 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWait(1, 0, 0, this_step)
+    # psk_words = psk_words + step_words
 
     #now call the amz chrome browse sub-skill to go thru the walk process.
     this_step, step_words = genWinChromeAMZWalkSteps("sk_work_settings", this_step, theme)
@@ -585,12 +586,12 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
 
     this_step, step_words = genAMZBrowseProductListEstimateRowHeight(pl, "row_height", "unit_row_scroll", this_step, worksettings, theme)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "row_height", "NA", 500, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "unit_row_scroll", "NA", 3, this_step)
-    psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("int", "row_height", "NA", 500, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("int", "unit_row_scroll", "NA", 3, this_step)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
@@ -609,7 +610,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
     this_step, step_words = genStepCheckCondition("next_attention_index == len("+pl+"['products'])-1 and this_attention_count >= len("+pl+"['attention'])", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genScrollDownUntil(["next", "previous"], "anchor text", 50, "product_list", "body", this_step, worksettings, "amz", theme)
+    this_step, step_words = genScrollDownUntil(["next", "previous", "need_help"], "anchor text", 50, "product_list", "body", this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
@@ -624,7 +625,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
     psk_words = psk_words + step_words
 
     # create a loop to browse attention details...
-    this_step, step_words = genStepCreateData("expr", "att_count", "NA", "len(pl_need_attention)-1", this_step)
+    this_step, step_words = genStepCreateData("expr", "att_count", "NA", "len(pl_need_attention)", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global att_count, this_attention_count\nthis_attention_count = this_attention_count + att_count\nprint('this_attention_count:', this_attention_count, att_count)", "", "in_line", "", this_step)
@@ -635,17 +636,17 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
     psk_words = psk_words + step_words
 
     # condition, count, end, lc_name, stepN):
-    this_step, step_words = genStepLoop("att_count >= 0", "", "", "browseAttens"+str(stepN), this_step)
+    this_step, step_words = genStepLoop("att_count > 0", "", "", "browseAttens"+str(stepN), this_step)
     psk_words = psk_words + step_words
 
     # action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['txts']['box']", "expr", "", [0, 0], "bottom", [0, 0], "box", 1, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count-1]['loc']", "expr", "", [0, 0], "center", [0, 0], "box", 1, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "pur", "NA", "pl_need_attention[att_count]['purchase']", this_step)
+    this_step, step_words = genStepCreateData("expr", "pur", "NA", "pl_need_attention[att_count-1]['purchase']", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "det_lvl", "NA", "pl_need_attention[att_count]['detailLvl']", this_step)
+    this_step, step_words = genStepCreateData("expr", "det_lvl", "NA", "pl_need_attention[att_count-1]['detailLvl']", this_step)
     psk_words = psk_words + step_words
 
     # "pl_need_attention", "att_count"
@@ -663,17 +664,35 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCheckCondition("this_attention_count >= 1 and this_attention_count < len("+pl+"['attention'])", "", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCallExtern("global att_count, this_attention_index, next_attention_index, this_attention_count\nthis_attention_index = "+pl+"['attention_indices'][this_attention_count-1]\nnext_attention_index = "+pl+"['attention_indices'][this_attention_count]\nprint('this_attention_count:', this_attention_count, this_attention_index, next_attention_index)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("this_attention_count >= len("+pl+"['attention'])", "", "", this_step)
     psk_words = psk_words + step_words
 
+    # if somehow this attention count is bigger than number of attentions, simpley set the next attention index to the last products.
     this_step, step_words = genStepCallExtern("global next_attention_index\nnext_attention_index = len("+pl+"['products'])-1\nprint('next_attention_index:', next_attention_index)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # this is the case where this_attention_count == 0, in such a case, this attention index is the first attention index.
+    this_step, step_words = genStepCallExtern("global att_count, this_attention_index, next_attention_index, this_attention_count\nnext_attention_index = "+pl+"['attention_indices'][this_attention_count]\nprint('this_attention_count:', this_attention_count, this_attention_index, next_attention_index)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
@@ -687,7 +706,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
     # psk_words = psk_words + step_words
 
     # need now click into the target product.
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["previous", "next"], "direct", ["anchor text", "anchor text"], "and", "useless", "atBottom", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["previous", "next", "need_help"], "direct", ["anchor text", "anchor text"], "and", "useless", "atBottom", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -731,8 +750,13 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, ith, stepN, worksetting
     this_step, step_words = genStepCheckCondition(ith + "== 0", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genAMZBrowseProductListEstimateRowHeight(pl, "row_height", "unit_row_scroll", this_step,
-                                                                     worksettings, theme)
+    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'attention_area':[0, 0, 1, 1], 'attention_targets':['Result']}", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_list", "body", theme, this_step, None, "dyn_options")
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genAMZBrowseProductListEstimateRowHeight(pl, "row_height", "unit_row_scroll", this_step, worksettings, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -758,7 +782,7 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, ith, stepN, worksetting
     psk_words = psk_words + step_words
 
     # create a loop to browse attention details...
-    this_step, step_words = genStepCreateData("expr", "att_count", "NA", "len(pl_need_attention)-1", this_step)
+    this_step, step_words = genStepCreateData("expr", "att_count", "NA", "len(pl_need_attention)", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
@@ -770,11 +794,11 @@ def genAMZBrowseProductListToLastAttention(page_cfg, pl, ith, stepN, worksetting
     psk_words = psk_words + step_words
 
     # condition, count, end, lc_name, stepN):
-    this_step, step_words = genStepLoop("att_count >= 0", "", "", "browseAttens" + str(stepN), this_step)
+    this_step, step_words = genStepLoop("att_count > 0", "", "", "browseAttens" + str(stepN), this_step)
     psk_words = psk_words + step_words
 
     # action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['txts']['box']", "expr", "", [0, 0], "bottom", [0, 0], "box", 1, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "", "pl_need_attention[att_count]['loc']", "expr", "", [0, 0], "bottom", [0, 0], "box", 1, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "pur", "NA", "pl_need_attention[att_count]['purchase']", this_step)
@@ -962,6 +986,7 @@ def genAMZBrowseProductListScrollDownToNextAttention(pl, stepN, worksettings, th
     this_step, step_words = genStepLoop("not found_attention", "", "", "scroll2Attens"+str(stepN), this_step)
     psk_words = psk_words + step_words
 
+    # scroll screen down for 65% of the screen height
     this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 65, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
     psk_words = psk_words + step_words
 
@@ -969,14 +994,14 @@ def genAMZBrowseProductListScrollDownToNextAttention(pl, stepN, worksettings, th
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_list", "body", theme, this_step, None)
     psk_words = psk_words + step_words
 
-    #
-    # this_step, step_words = genScrollDownUntil(["free_delivery", "previous"], "anchor text", 80, "product_list", "body",
-    #                                            this_step, worksettings, "amz", theme)
-    # psk_words = psk_words + step_words
-    #
-    # # now extract the screen info.
-    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_list", "body", theme, this_step, None)
-    # psk_words = psk_words + step_words
+    # screen down until either keywords "free deliver" or "previous" reaches. 80% of the screen height from the top. or 20%from the bottom.
+    this_step, step_words = genScrollDownUntil(["free_delivery", "previous", "need_help"], "anchor text", 80, "product_list", "body",
+                                               this_step, worksettings, "amz", theme)
+    psk_words = psk_words + step_words
+
+    # now extract the screen info.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_list", "body", theme, this_step, None)
+    psk_words = psk_words + step_words
 
     # check whether there is any match of this page's product, if matched, click into it.
     # pl_need_attention contains a list of products that needs attention on this screen.
@@ -987,13 +1012,6 @@ def genAMZBrowseProductListScrollDownToNextAttention(pl, stepN, worksettings, th
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genScrollDownUntil(["free_delivery", "previous"], "anchor text", 80, "product_list", "body",
-                                               this_step, worksettings, "amz", theme)
-    psk_words = psk_words + step_words
-
-    # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_list", "body", theme, this_step, None)
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("print('DONE BROWSING PRODUCT LISTS TO NEXT ATTENTION.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
@@ -1266,8 +1284,6 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews"], "direct", ["anchor text", "anchor text", "anchor text"], "any", "see_reviews", "end_of_detail", "amz", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["no_customer_reviews"], "direct", ["anchor text"], "any", "see_no_reviews", "no_reviews", "amz", False, this_step)
-    psk_words = psk_words + step_words
 
     # close for loop: end_of_detail != True
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -3333,7 +3349,7 @@ def processAMZMatchProduct(step, i):
             for tbm in tbMatched:
                 print("matching title:", tbm["summery"]["title"])
                 # title_matched, matched_paragraph = match_product(tbm["summery"], scrn)        #for testing
-                title_matched, matched_paragraph = match_product_title(tbm["summery"], scrn)
+                title_matched, matched_paragraph, matched_location = match_product_title(tbm["summery"], scrn)
                 if title_matched:
                     # first, figure out the longest text line in this paragraph,
                     # then use this longest line's bound box to calculate the location.
@@ -3349,7 +3365,7 @@ def processAMZMatchProduct(step, i):
                     matched_paragraph["txt_struct"][longest_li]["box"][0] = tempy0
                     matched_paragraph["txt_struct"][longest_li]["box"][2] = tempy1
 
-                    matched.append({"txts": matched_paragraph["txt_struct"][longest_li], "detailLvl": tbm["detailLvl"], "purchase": tbm["purchase"]})
+                    matched.append({"txts": matched_paragraph["txt_struct"][longest_li], "loc": matched_location, "detailLvl": tbm["detailLvl"], "purchase": tbm["purchase"]})
                     # matched.append({"txts": matched_paragraph["txt_struct"][longest_li], "detailLvl": 1, "purchase":[]})        #for testing
                     matched_tbm.append(tbm)
 
@@ -3456,9 +3472,13 @@ def match_title_against_paragraph(title, paragraph, tolerance=66):
 
 
 def match_title_against_paragraph2(title, paragraph, tolerance=66):
-    matched = False
+    matched = False, "", [0, 0, 0, 0]
+    matched_flag = False
+    matched_loc = [0, 0, 0, 0]          # left, top, right, bottom
     lines = paragraph["txt_struct"]
-
+    combined_words = []
+    for line in lines:
+        combined_words = combined_words + line["words"]
     combined_line = (paragraph["text"].replace("\n", " "))
 
     combined_line2 = combine_lines(lines)
@@ -3470,21 +3490,22 @@ def match_title_against_paragraph2(title, paragraph, tolerance=66):
     ellipsis_match = re.search(r'\.\.\.', combined_line2)
     if ellipsis_match:
         ellipsis_index = ellipsis_match.start()
-        pre_ellipsis_text = combined_line2[:ellipsis_index].strip().split()[-3:]  # Get the last 3 tokens before '...'
-        pre_ellipsis_tokens = pre_ellipsis_text.split()
+        pre_ellipsis_tokens = combined_line2[:ellipsis_index].strip().split()[-3:]  # Get the last 3 tokens/words before '...'
+        pre_ellipsis_text = " ".join(pre_ellipsis_tokens)
 
         # Find the match of the curtailed portion in the title
         title_tokens = title.split()
         max_ratio = 0
         match_index = -1
 
-        for i in range(len(title_tokens) - len(pre_ellipsis_tokens), -1, -1):  # Start from the end
-            window = title_tokens[i:i + len(pre_ellipsis_tokens)]
-            window_text = ' '.join(window)
-            ratio = fuzz.ratio(pre_ellipsis_text, window_text)
-            if ratio > max_ratio:
-                max_ratio = ratio
-                match_index = i
+        if len(title_tokens) > len(pre_ellipsis_tokens):      # this will almost surely be true as title should be longer than 3 words.
+            for i in range(len(title_tokens) - len(pre_ellipsis_tokens), -1, -1):  # Start from the end
+                window = title_tokens[i:i + len(pre_ellipsis_tokens)]
+                window_text = ' '.join(window)
+                ratio = fuzz.ratio(pre_ellipsis_text, window_text)
+                if ratio > max_ratio:
+                    max_ratio = ratio
+                    match_index = i
 
         # If a match is found within the tolerance
         # If a match is found within the tolerance
@@ -3492,7 +3513,34 @@ def match_title_against_paragraph2(title, paragraph, tolerance=66):
             # Curtail the title up to the matched location
             curtailed_title = ' '.join(title_tokens[:match_index + len(pre_ellipsis_text.split())])
             paragraph_up_to_ellipsis = combined_line2[:ellipsis_index].strip()  # Up to '...'
-            matched = fuzz.partial_ratio(paragraph_up_to_ellipsis, curtailed_title) >= tolerance, curtailed_title
+            start_word_index = len(paragraph_up_to_ellipsis.split()) - len(curtailed_title.split())
+            matched_flag = fuzz.partial_ratio(paragraph_up_to_ellipsis, curtailed_title) >= tolerance
+            if matched_flag:
+                matched_words = combined_words[start_word_index:len(paragraph_up_to_ellipsis.split())]
+                left_most = 100000
+                right_most = 0
+                top_most = 1000000
+                bottom_most = 0
+                for w in matched_words:
+                    if len(w["text"]) < 32:            # wierd long string won't count, like an web address somehow....
+                        if w["box"][0] < left_most:
+                            left_most = w["box"][0]
+                        if w["box"][2] > left_most:
+                            right_most = w["box"][2]
+                        if w["box"][1] < top_most:
+                            top_most = w["box"][1]
+                        if w["box"][3] > bottom_most:
+                            bottom_most = w["box"][3]
+
+                vmiddle = int((bottom_most + top_most)/2)
+
+                # now find a line that's nearest to the middle of the title boundbox
+                #sort all lines based on their vertical distance to center of the matched boundbox
+                vsorted = sorted(lines, key=lambda l: abs(l["box"][1] - vmiddle), reverse=False)
+                l_center = vsorted[0]
+                matched_loc = [l_center["box"][1], l_center["box"][0], l_center["box"][3], l_center["box"][2]]   # format according mouse click order. not consistent
+
+            matched = matched_flag, curtailed_title, matched_loc
     else:
         # If no '...', perform standard fuzzy matching
         max_ratio = 0
@@ -3511,8 +3559,38 @@ def match_title_against_paragraph2(title, paragraph, tolerance=66):
                 if ratio > max_ratio:
                     max_ratio = ratio
                     best_match = window_text
+                    best_index = i
 
-            matched = max_ratio >= tolerance, best_match
+            if max_ratio >= tolerance:
+                # found a match and calculate boundbox of the matched lines.
+
+                matched_words = combined_words[best_index: best_index + len(title_tokens)]
+                print("best match:", max_ratio, i, len(title_tokens), window_text, matched_words)
+                left_most = 100000
+                right_most = 0
+                top_most = 1000000
+                bottom_most = 0
+                for w in matched_words:
+                    if len(w["text"]) < 32:             # wierd long string won't count, like an web address somehow....
+                        if w["box"][0] < left_most:
+                            left_most = w["box"][0]
+                        if w["box"][2] > left_most:
+                            right_most = w["box"][2]
+                        if w["box"][1] < top_most:
+                            top_most = w["box"][1]
+                        if w["box"][3] > bottom_most:
+                            bottom_most = w["box"][3]
+
+                vmiddle = int((bottom_most + top_most)/2)
+
+                # now find a line that's nearest to the middle of the title boundbox
+                #sort all lines based on their vertical distance to center of the matched boundbox
+                vsorted = sorted(lines, key=lambda l: abs(l["box"][1] - vmiddle), reverse=False)
+                l_center = vsorted[0]
+                matched_loc = [l_center["box"][1], l_center["box"][0], l_center["box"][3], l_center["box"][2]]   # format according mouse click order. not consistent
+
+
+            matched = max_ratio >= tolerance, best_match, matched_loc
 
     return matched
 
@@ -3523,12 +3601,13 @@ def match_product_title(summery, screen_data):
     ps = [element for index, element in enumerate(screen_data) if element["name"] == "paragraph"]
     title = re.sub(" +", " ", summery["title"])
     matched_p = None
+    matched_loc = [0, 0, 0, 0]
 
     for p in ps:
         # log3("START MATCHING TITLE AGAINST PARAGRAPH========>"+p["text"]+"::"+title)
-        matched = match_title_against_paragraph2(title, p)
+        matched, matched_text, matched_loc = match_title_against_paragraph2(title, p)
         if matched:
-            print("found a match for:", title)
+            print("found a match for:", title, ">>against:", matched_text, ">> at location:", matched_loc)
             matched_p = p
             break
 
@@ -3536,7 +3615,7 @@ def match_product_title(summery, screen_data):
         print("failed to match anything for this title:", title)
 
     log3("matched flag:: " + str(matched))
-    return matched, matched_p
+    return matched, matched_p, matched_loc
 
 
 def processExtractPurchaseOrder(step, i):
