@@ -19,10 +19,12 @@ def build_app():
     options = [
         '--name=ecbot',  # 替换为你的应用程序名称
         '--windowed',
-        # '--clean',
+        '--clean',
         # '--noconsole',
         '--log-level=DEBUG',
         '--onefile',
+        # --debug = imports, # 分析工具查看哪些模块被打包
+        # --strip, # 选项去除可执行文件中的符号表和调试信息，减小文件大小
         '--icon=ECBot.ico',
         # '--add-data=resource:resource'
         pathsep.join(['--add-data=resource/images', 'resource/images']),

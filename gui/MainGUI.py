@@ -1,3 +1,6 @@
+from utils.time_util import TimeUtil
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
 import base64
 import copy
@@ -62,6 +65,8 @@ from utils.logger_helper import logger_helper
 from tests.unittests import *
 import pandas as pd
 from encrypt import *
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 

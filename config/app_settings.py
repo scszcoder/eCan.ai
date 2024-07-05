@@ -2,16 +2,18 @@ import os
 import sys
 import shutil
 import logging
-from config.constants import *
+from config.constants import RESOURCE, FOLDER_SKILLS, FOLDER_SETTINGS, FOLDER_RUNLOGS, FOLDER_DATA, APP_NAME
 from config.app_info import app_info
 from utils.logger_helper import logger_helper
-from bot.envi import *
+from bot.envi import getECBotDataHome
 
 ecb_data_homepath = getECBotDataHome()
 runlogs_dir = ecb_data_homepath + "/runlogs"
 if not os.path.isdir(runlogs_dir):
     os.mkdir(runlogs_dir)
     print("create runlogs directory ", runlogs_dir)
+else:
+    print(f"runlogs {runlogs_dir} directory is existed")
 
 def copy_skills_file():
     """

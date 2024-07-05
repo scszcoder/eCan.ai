@@ -6,6 +6,10 @@
 """
 Package implementing various functions/classes needed everywhere within eric6.
 """
+from utils.time_util import TimeUtil
+
+print(TimeUtil.formatted_now_with_ms() + " Initializing package gui.skcode.Utilities...")
+
 import os
 import re
 from codecs import BOM_UTF8, BOM_UTF16, BOM_UTF32
