@@ -1178,6 +1178,11 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews", "conditions_of_use"], "direct", ["anchor text", "anchor text", "anchor text", "anchor text"], "any", "see_reviews", "end_of_detail", "amz", False, this_step)
+    psk_words = psk_words + step_words
 
     # browse all the way down, until seeing "No customer reviews" or "See all reviews"
     this_step, step_words = genStepLoop("end_of_detail != True", "", "", "browseDetails"+str(stepN+1), this_step)
@@ -1247,7 +1252,7 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews"], "direct", ["anchor text", "anchor text", "anchor text"], "any", "temp", "end_of_detail", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews", "conditions_of_use"], "direct", ["anchor text", "anchor text", "anchor text", "anchor text"], "any", "see_reviews", "end_of_detail", "amz", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("end_of_detail == True", "", "", this_step)
@@ -1267,7 +1272,7 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "read_more", "direct", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
@@ -1282,7 +1287,7 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews"], "direct", ["anchor text", "anchor text", "anchor text"], "any", "see_reviews", "end_of_detail", "amz", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews", "conditions_of_use"], "direct", ["anchor text", "anchor text", "anchor text", "anchor text"], "any", "see_reviews", "end_of_detail", "amz", False, this_step)
     psk_words = psk_words + step_words
 
 
@@ -1290,6 +1295,12 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["back_to_top", "conditions_of_use"], "direct", ["anchor text", "anchor text"], "any", "useless", "end_of_page", "amz", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not end_of_page", "", "", this_step)
+    psk_words = psk_words + step_words
 
     # # check for whether we have reached end of product details. page.
     # # for level 1 details, will view all the way till the end of reviews
@@ -1337,6 +1348,9 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     # psk_words = psk_words + step_words
     #
     # # close on check level <= 2
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -1452,7 +1466,7 @@ def genAMZBrowseDetailsScrollPassReviews(settings_var_name, stepN, theme):
     this_step, step_words = genAMZBrowseDetailsScrollDownSome("5", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", theme, this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepAmzDetailsCheckPosition("screen_info", "reviewed", "scrn_position", "position_flag", this_step)

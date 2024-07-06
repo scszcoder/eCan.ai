@@ -29,6 +29,7 @@ from common.services.product_service import ProductService
 from common.services.skill_service import SkillService
 
 from common.services.bot_service import BotService
+from tests.TestAll import Tester
 
 
 from gui.BotGUI import BotNewWin
@@ -279,6 +280,7 @@ class MainWindow(QMainWindow):
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
+        self.tester = Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
 
