@@ -50,7 +50,7 @@
 "step 30":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['Open', 'File name:']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['Open', 'File name:', 'Save', 'Cancel']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -141,7 +141,7 @@
     "save_rb": false,
     "text": "fopen_f_path",
     "text_type": "var",
-    "speed": 0.05,
+    "speed": 0.0,
     "key_after": "enter",
     "wait_after": 1
 },
@@ -219,7 +219,7 @@
     "save_rb": false,
     "text": "fopen_f_name",
     "text_type": "var",
-    "speed": 0.01,
+    "speed": 0.0,
     "key_after": "",
     "wait_after": 1
 },
