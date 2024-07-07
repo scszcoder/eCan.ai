@@ -713,7 +713,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("print('DONE BROWSING DOWN PRODUCT LIST........')", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("print('DONE BROWSING DOWN PRODUCT LIST.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     return this_step,psk_words
