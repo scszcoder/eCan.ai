@@ -17,7 +17,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processFillData, processLoadData, processSaveData, processCheckCondition, processRepeat, processGoto, \
     processCallFunction, processReturn, processUseSkill, processOverloadSkill, processStub, processCallExtern, \
     processExceptionHandler, processEndException, processSearchAnchorInfo, processSearchWordLine, processThink, \
-    processFillRecipients, processSearchScroll, process7z, processListDir, processCheckExistence, processCreateDir, \
+    processFillRecipients, processSearchScroll, processScrollToLocation, process7z, processListDir, processCheckExistence, processCreateDir, \
     processSellCheckShipping, processGenRespMsg, processUpdateBuyMissionResult, processGoToWindow, processReportToBoss, \
     processExtractInfo8, DEFAULT_RUN_STATUS, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
@@ -124,6 +124,7 @@ RAIS = {
     "Think": lambda x, y, z: processThink(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
+    "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
     "Calc Objs Distance": lambda x,y: processCalcObjectsDistance(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),
     "List Dir": lambda x, y: processListDir(x, y),
@@ -205,6 +206,7 @@ ARAIS = {
     "Think": lambda x, y: processThink8(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
+    "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
     "Calc Objs Distance": lambda x,y: processCalcObjectsDistance(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),
     "List Dir": lambda x, y: processListDir(x, y),
