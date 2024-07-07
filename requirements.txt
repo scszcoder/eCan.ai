@@ -42,4 +42,5 @@ pywin32==306
 sqlalchemy==2.0.30
 cryptography==42.0.7
 typing-extensions==4.12.1
+keyboard==0.13.5
 fuzzywuzzy==0.18.0

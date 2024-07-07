@@ -16,7 +16,7 @@ from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAn
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
 from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
-    QMessageBox, QFileDialog, QPlainTextEdit
+    QMessageBox, QFileDialog, QPlainTextEdit, QDialog
 
 import importlib
 import importlib.util
@@ -57,7 +57,7 @@ import platform
 from pynput.mouse import Controller
 
 from bot.network import myname, fieldLinks, commanderIP
-from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress
+from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from tool.MainGUITool import FileResource, StaticResource
@@ -65,6 +65,8 @@ from utils.logger_helper import logger_helper
 from tests.unittests import *
 import pandas as pd
 from encrypt import *
+import keyboard
+
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -636,6 +638,37 @@ class MainWindow(QMainWindow):
         #layout.addWidget(self.centralSplitter)
         #layout.addLayout(self.south_layout)
 
+        self.rpa_quit_dialog = QDialog(self)
+        self.rpa_quit_dialog.setWindowTitle(QApplication.translate("QDialog", "Quit RPA Confirmation"))
+        self.rpa_quit_dialog_layout = QHBoxLayout()
+
+        self.rpa_quit_label = QLabel(QApplication.translate("QLabel", "Are you sure you want to quit?"))
+        self.rpa_quit_dialog_layout.addWidget(self.rpa_quit_label)
+
+        self.rpa_quit_ok_button = QPushButton("OK")
+        self.rpa_quit_cancel_button = QPushButton("Cancel")
+
+        self.rpa_quit_dialog_layout.addWidget(self.rpa_quit_ok_button)
+        self.rpa_quit_dialog_layout.addWidget(self.rpa_quit_cancel_button)
+
+        self.rpa_quit_dialog.setLayout(self.rpa_quit_dialog_layout)
+        self.rpa_quit_confirmation_future = asyncio.get_event_loop().create_future()
+
+        def on_ok():
+            self.rpa_quit_confirmation_future = loop.create_future()
+            if not self.rpa_quit_confirmation_future.done():
+                self.rpa_quit_confirmation_future.set_result(True)
+            self.rpa_quit_dialog.close()
+
+        def on_cancel():
+            self.rpa_quit_confirmation_future = loop.create_future()
+            if not self.rpa_quit_confirmation_future.done():
+                self.rpa_quit_confirmation_future.set_result(False)
+            self.rpa_quit_dialog.close()
+
+        self.rpa_quit_ok_button.clicked.connect(on_ok)
+        self.rpa_quit_cancel_button.clicked.connect(on_cancel)
+
 
         self.mainWidget.setLayout(layout)
         self.setCentralWidget(self.mainWidget)
@@ -746,6 +779,8 @@ class MainWindow(QMainWindow):
         # with ThreadPoolExecutor(max_workers=3) as self.executor:
         #     self.rpa_task_future = asyncio.wrap_future(self.executor.submit(self.runbotworks, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
         #     self.showMsg("spawned RPA task")
+
+        self.keyboard_task = asyncio.create_task(self.listen_for_hotkey())
 
         # await asyncio.gather(peer_task, monitor_task, chat_task, rpa_task_future)
         loop = asyncio.get_event_loop()
@@ -5782,3 +5817,55 @@ class MainWindow(QMainWindow):
     def getEncryptKey(self):
         key, salt = derive_key(self.main_key)
         return key
+
+
+    async def halt_action(self):
+        print("escape hotkey pressed!")
+        # send a message to RPA virtual machine engine.
+        msg = {"cmd": "reqHaltMissions"}
+        rpa_ctl_msg = json.dumps(msg)
+        asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
+
+    async def resume_action(self):
+        print("space hotkey pressed!")
+        # send a message to RPA virtual machine engine.
+        msg = {"cmd": "reqResumeMissions"}
+        rpa_ctl_msg = json.dumps(msg)
+        asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
+
+    async def quit_action(self):
+        print("quit hotkey pressed!")
+        # Show the dialog and wait for the user to respond
+        self.rpa_quit_confirmation_future = asyncio.get_event_loop().create_future()
+        self.rpa_quit_dialog.show()
+        while not self.rpa_quit_confirmation_future.done():
+            await asyncio.sleep(0.1)
+        print("hello????????????????????????????????????????????????")
+        if self.rpa_quit_confirmation_future.result():
+            print("reqCancelAllMissions")
+            msg = {"cmd": "reqCancelAllMissions"}
+            rpa_ctl_msg = json.dumps(msg)
+            asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
+
+
+
+    # Coroutine to listen for hotkey and run the action
+    async def listen_for_hotkey(self):
+        loop = asyncio.get_running_loop()
+
+        def esc_callback():
+            asyncio.run_coroutine_threadsafe(self.halt_action(), loop)
+
+        def space_callback():
+            asyncio.run_coroutine_threadsafe(self.resume_action(), loop)
+
+        def q_callback():
+            asyncio.run_coroutine_threadsafe(self.quit_action(), loop)
+
+        keyboard.add_hotkey('esc', esc_callback)
+        keyboard.add_hotkey('space', space_callback)
+        keyboard.add_hotkey('q', q_callback)
+
+        # Keep the coroutine running to listen for the hotkey indefinitely
+        while True:
+            await asyncio.sleep(1)
