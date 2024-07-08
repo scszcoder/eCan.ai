@@ -91,32 +91,9 @@ def genWinADSCheckGMailSkill(worksettings, stepN, theme):
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "no_profiles", "ads", False, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("not no_profiles", "", "", this_step)
+    this_step, step_words = genStepsChromeCheckGMailSkill(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
-
-    # here should delete existing loaded profiles first.
-    # first click on select All.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # go back to main email list.
-    this_step, step_words = genStepKeyInput("", True, "alt,left", "", 3, this_step)
-    psk_words = psk_words + step_words
-
-    #read screen for the confirmation pop up.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    # click on the confirmation popup.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
 
     # close the tab and be done with this sub-skill.
     this_step, step_words = genStepKeyInput("", True, "ctrl,w", "", 3, this_step)
@@ -132,18 +109,10 @@ def genWinADSCheckGMailSkill(worksettings, stepN, theme):
 
 
 
-def genWinChromeCheckGMailSkill(worksettings, stepN, theme):
-    psk_words = "{"
-    # site_url = "https://www.amazon.com/"
+def genStepsChromeCheckGMailSkill(worksettings, stepN, theme):
+    psk_words = ""
 
-    this_step, step_words = genStepHeader("win_chrome_gmail_home_routine_access", "win", "1.0", "AIPPS LLC", "PUBWINCHROMECHECKGMAIL001",
-                                          "Windows chrome handle emails send/read.", stepN)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("start skill", "public/win_chrome_gmail_home/routine_access", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, stepN)
     psk_words = psk_words + step_words
 
     # assume profile file is ready.
@@ -185,8 +154,6 @@ def genWinChromeCheckGMailSkill(worksettings, stepN, theme):
 
 
 
-
-
     this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
     psk_words = psk_words + step_words
 
@@ -212,48 +179,22 @@ def genWinChromeCheckGMailSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "no_profiles", "ads", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("not no_profiles", "", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    # here should delete existing loaded profiles first.
-    # first click on select All.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # go back to main email list.
-    this_step, step_words = genStepKeyInput("", True, "alt,left", "", 3, this_step)
-    psk_words = psk_words + step_words
-
     #read screen for the confirmation pop up.
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
     # click on the confirmation popup.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "sent", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "inbox", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # refresh the current tab to keep logged in.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,r", "", 3, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
-
-    # close the tab and be done with this sub-skill.
-    this_step, step_words = genStepKeyInput("", True, "ctrl,w", "", 3, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/routine_access", "", this_step)
-    psk_words = psk_words + step_words
-
-    psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows chrome gmail routine access....." + psk_words)
 
     return this_step, psk_words

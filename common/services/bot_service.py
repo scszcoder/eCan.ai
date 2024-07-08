@@ -20,7 +20,7 @@ class BotService:
         # 执行删除
         result = self.session.execute(delete_stmt)
         self.session.commit()
-        if result.rowcount() > 0:
+        if result.rowcount > 0:
             print(f"Bot with botid {botid} deleted successfully.")
         else:
             print(f"No bot found with botid {botid} to delete.")
