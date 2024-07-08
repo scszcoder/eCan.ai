@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import threading
 import time
 from concurrent.futures.thread import ThreadPoolExecutor
@@ -16,6 +17,7 @@ from utils.logger_helper import logger_helper
 
 counter = 0
 record_over = False
+
 
 class STEP:
     def __init__(self, parent):
@@ -52,11 +54,14 @@ class ReminderWin(QMainWindow):
         self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"),
                                      alignment=Qt.AlignLeft)
         self.rLayout = QHBoxLayout()
+        if os.name == 'darwin':
+            self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
+            self.cancel_button.clicked.connect(main_win.trainNewSkillWin.stop_record)
+            self.rLayout.addWidget(self.cancel_button)
         self.rLayout.addWidget(self.reminder_label)
         self.mainWidget.setLayout(self.rLayout)
         self.setCentralWidget(self.mainWidget)
         self.setWindowFlags(Qt.Window | Qt.CustomizeWindowHint | Qt.WindowStaysOnTopHint)
-
 
 class TrainNewWin(QMainWindow):
     def __init__(self, main_win):
@@ -68,7 +73,6 @@ class TrainNewWin(QMainWindow):
         self.oldPos = None
         # self.temp_dir = None
         self.temp_dir = main_win.homepath + "/resource/skills/temp/"
-
 
         self.newSkill = None
         self.main_win = main_win
@@ -104,7 +108,7 @@ class TrainNewWin(QMainWindow):
         self.imq = []
         self.record = []
         self.steps = 0
-        self.actionRecord = [{"step": 0}]
+        self.actionRecord = []
         self.executor = ThreadPoolExecutor()
         self.loop = asyncio.get_event_loop()
         self.last_screenshot_time = time.time()
@@ -149,44 +153,54 @@ class TrainNewWin(QMainWindow):
             time_since_last_screenshot = current_time - self.last_screenshot_time
             if time_since_last_screenshot > 0.5:
                 print('Pointer moved to {0}'.format((x, y)))
-                im = pyautogui.screenshot()
-                self.imq.append(im)
-                if len(self.imq) > 5:
-                    self.imq.pop(0)
-                self.frame_count += 1
+                # self.screenshot('move', x, y)
+                asyncio.run(self.screenshot('move', x, y))
                 self.last_screenshot_time = current_time
 
+    async def screenshot(self, option: str, x: int = None, y: int = None, dx: any = None, dy: any = None,
+                   button: any = None):
+        self.steps += 1
+        fname = self.temp_dir + "step" + str(self.steps) + ".png"
+
+        pyautogui.screenshot(fname)
+
+        button_name = None
+        if button is not None:
+            button_name = button.name
+        action = {
+            'step': self.steps,
+            'file_name': fname,
+            'type': option,
+            'time': time.time(),
+            'x': x,
+            'y': y,
+            'dx': dx,
+            'dy': dy,
+            'button': button_name
+        }
+        self.actionRecord.append(action)
+
     def on_click(self, x, y, button, pressed):
+
+        if self.record_over:
+            return False
         print('{0} at {1}'.format('Pressed' if pressed else 'Released', (x, y)))
         if self.record_over:
             return False
         else:
-
-            self.steps = self.steps + 1
-            fname = self.temp_dir + "step" + str(self.steps) + ".png"
-            im = pyautogui.screenshot(fname)
-            # self.record.append(im)
-            self.steps = self.steps + 1
-
-            self.record.append(self.imq.pop(0))
-            im = pyautogui.screenshot()
-            self.imq.append(im)
-            # if not pressed:
-            #     # Stop listener
-            #     return False
+            #  当按键松了后才进行记录事件
+            if not pressed:
+                asyncio.run(self.screenshot('click', x, y, button=button))
 
     def on_scroll(self, x, y, dx, dy):
         print("scroll:", x, y, dx, dy)
-        # if self.record_over:
-        #     return False
-        # else:
-        #     print('Scrolled {0} at {1}'.format(
-        #         'down' if dy < 0 else 'up',
-        #         (x, y)))
-        #     fname = self.temp_dir + "step" + str(self.steps) + ".png"
-        #     im = pyautogui.screenshot(fname)
-        #     # self.record.append(im)
-        #     self.steps = self.steps + 1
+        if self.record_over:
+            return False
+        else:
+            print('Scrolled {0} at {1}'.format(
+                'down' if dy < 0 else 'up',
+                (x, y)))
+            asyncio.run(self.screenshot('scroll', x, y, dx, dy))
 
     def on_press(self, key):
         try:
@@ -198,22 +212,24 @@ class TrainNewWin(QMainWindow):
         print('{0} released'.format(key))
         if key == keyboard.Key.esc:
             # Stop listener
-            self.record_over = True
-            self.main_win.reminderWin.hide()
-            msgBox = QMessageBox()
-            msgBox.setText(
-                QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
-            # msgBox.setInformativeText("Do you want to save your changes?")
-            msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            # msgBox.setDefaultButton(QMessageBox.Save)
-            ret = msgBox.exec()
-            if ret == QMessageBox.Yes:
-                print("done with demo...")
-                self.saveRecordFile()
-                return False
+            return self.stop_record()
+
+    def stop_record(self):
+        self.record_over = True
+        self.main_win.reminderWin.hide()
+        msg_box = QMessageBox()
+        msg_box.setText(
+            QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
+        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        ret = msg_box.exec()
+        if ret == QMessageBox.Yes:
+            print("done with demo...")
+            self.saveRecordFile()
+            return False
 
     async def _start_listener(self, listener_class, callback_dict):
         """通用监听器启动函数"""
+
         def run_listener():
             with listener_class(**callback_dict) as listener:
                 listener.join()
@@ -225,19 +241,22 @@ class TrainNewWin(QMainWindow):
         if self.listeners_running:
             print("Listeners are already running.")
             return
-
+        listener_list = []
         self.listeners_running = True
-        await asyncio.gather(
-            self._start_listener(mouse.Listener, {
-                'on_move': self.on_move,
-                'on_click': self.on_click,
-                'on_scroll': self.on_scroll,
-            }),
-            self._start_listener(keyboard.Listener, {
+
+        mouse_listener = self._start_listener(mouse.Listener, {
+            'on_move': self.on_move,
+            'on_click': self.on_click,
+            'on_scroll': self.on_scroll,
+        })
+        listener_list.append(mouse_listener)
+        if os.name != 'darwin':
+            keyboard_listener = self._start_listener(keyboard.Listener, {
                 'on_press': self.on_press,
                 'on_release': self.on_release,
             })
-        )
+            listener_list.append(keyboard_listener)
+        await asyncio.gather(*listener_list)
 
     def start_listening(self):
         try:
@@ -245,6 +264,9 @@ class TrainNewWin(QMainWindow):
             self.main_win.reminderWin.show()
             self.main_win.reminderWin.setGeometry(800, 0, 100, 50)
             print("Starting input event listeners...")
+            self.temp_dir = self.temp_dir + "/" + time.strftime("%Y%m%d-%H%M%S") + "/"
+            if not os.path.exists(self.temp_dir):
+                os.makedirs(self.temp_dir)
             self.loop.create_task(self.start_listeners())
         except Exception as e:
             logger_helper.error(f"Failed to start listeners: {e}")
@@ -267,10 +289,7 @@ class TrainNewWin(QMainWindow):
                     json.dump(self.actionRecord, f)
                 # self.rebuildHTML()
             except IOError:
-                QMessageBox.information(
-                    self,
-                    "Unable to open file: %s" % filename
-                )
+                QMessageBox.information(self, "Unable to open file: %s" % filename)
 
     def skill_tutorial(self):
         print("start tutorial....")
