@@ -4089,8 +4089,7 @@ class MainWindow(QMainWindow):
                     screen_error = True
                     self.showMsg("Delete Bots ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
                 else:
-                    self.showMsg("JRESP:"+json.dumps(jresp)+"<>"+json.dumps(jresp['body'])+"<>"+json.dumps(jresp['body']['$metadata'])+"<>"+json.dumps(jresp['body']['numberOfRecordsUpdated']))
-                    meta_data = jresp['body']['$metadata']
+                    self.showMsg("JRESP:"+json.dumps(jresp)+"<>"+json.dumps(jresp['body']))
                     if jresp['body']['numberOfRecordsUpdated'] == 0:
                         self.showMsg("WARNING: CLOUD SIDE DELETE NOT EXECUTED.")
 
@@ -5840,7 +5839,6 @@ class MainWindow(QMainWindow):
         self.rpa_quit_dialog.show()
         while not self.rpa_quit_confirmation_future.done():
             await asyncio.sleep(0.1)
-        print("hello????????????????????????????????????????????????")
         if self.rpa_quit_confirmation_future.result():
             print("reqCancelAllMissions")
             msg = {"cmd": "reqCancelAllMissions"}

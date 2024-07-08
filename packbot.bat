@@ -68,6 +68,7 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/aiohttp;aiohttp/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/pyscreeze;pyscreeze/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/sqlalchemy;sqlalchemy/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/keyboard;keyboard/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/importlib_metadata;importlib_metadata/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/six.py;." ^
 --hiddenimport "__future__" ^
