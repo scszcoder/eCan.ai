@@ -45,6 +45,8 @@ class MissionModel(Base):
     customer = Column(Text)
     platoon = Column(Text)
     result = Column(Text)
+    follow_seller = Column(Text)
+    follow_price = Column(Text)
 
     def to_dict(self):
         return {
@@ -88,4 +90,6 @@ class MissionModel(Base):
             "customer": self.customer,
             "platoon": self.platoon,
             "result": self.result,
+            "follow_seller": self.follow_seller,
+            "follow_price": self.follow_price,
         }

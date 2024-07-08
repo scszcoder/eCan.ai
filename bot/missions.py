@@ -68,6 +68,8 @@ class M_Private_Attributes():
         self.feedback_rating = ""
         self.order_id = ""
         self.original_req_file = ""
+        self.follow_seller = ""
+        self.follow_price = 0.0
 
 
 
@@ -114,15 +116,19 @@ class M_Private_Attributes():
         self.feedback_text = dj["feedback_text"]
         self.feedback_rating = dj["feedback_rating"]
         self.order_id = dj["order_id"]
+        self.follow_price = dj["follow_price"]
+        self.follow_seller = dj["follow_seller"]
 
     def genJson(self):
         jd = {
                 "item_number": self.item_number,
                 "seller": self.seller,
+                "follow_seller": self.follow_seller,
                 "title": self.title,
                 "variations": self.variations,
                 "imglink": self.imglink,
                 "price": self.price,
+                "follow_price": self.follow_price,
                 "rank": self.rank,
                 "feedbacks": self.feedbacks,
                 "result": self.result,
@@ -857,6 +863,18 @@ class EBMISSION(QStandardItem):
     def setPrice(self, price):
         self.privateAttributes.price = price
 
+    def setFollowSeller(self, fseller):
+        self.privateAttributes.follow_seller = fseller
+
+    def setFollowPrice(self, fprice):
+        self.privateAttributes.follow_price = fprice
+
+    def getFollowSeller(self):
+        return self.privateAttributes.follow_seller
+
+    def getFollowPrice(self):
+        return self.privateAttributes.follow_price
+
     def updateDisplay(self):
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
@@ -893,7 +911,7 @@ class EBMISSION(QStandardItem):
         self.setMid(dbd.mid)
         self.setTicket(dbd.ticket)
         self.setBid(dbd.botid)
-        self.setOwner(dbd.owner)
+        # self.setOwner(dbd.owner)
         self.setStatus(dbd.status)
         self.setBD(dbd.createon)
         self.setEsd(dbd.esd)
@@ -930,6 +948,8 @@ class EBMISSION(QStandardItem):
         self.setCustomerID(dbd.customer)
         self.setPlatoon(dbd.platoon)
         self.setResult(dbd.result)
+        self.setFollowSeller(dbd.follow_seller)
+        self.setFollowPrice(dbd.follow_price)
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadXlsxData(self, jd):
@@ -962,7 +982,39 @@ class EBMISSION(QStandardItem):
         self.setCustomerID(jd["customer"])
         self.setPlatoon(jd["platoon"])
         self.setResult(jd["result"])
+        self.setFollowSeller(jd["follow_seller"])
+        self.setFollowPrice(jd["follow_price"])
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
+
+    def loadAMZReqData(self,jd):
+        self.setApp("ads")
+        self.setSite("amz")
+        self.setSearchKW(jd["search term"])
+
+        if jd["fb type"] == "" or jd["fb type"] == "免评":
+            self.setMtype("buy")
+        elif jd["fb type"] == "点星":
+            self.setMtype("goodRating")
+        elif jd["fb type"] == "好评":
+            self.setMtype("goodFB")
+
+        self.setASIN(jd["asin"])
+        self.setStore(jd["store"])
+        self.setBrand(jd["brand"])
+        self.setTitle(jd["title"])
+
+        self.setVariations(jd["variations"])
+        if "rating" in jd:
+            self.setRating(jd["rating"])
+
+        if "feedbacks" in jd:
+            self.setFeedbacks(jd["feedbacks"])
+
+        self.setPrice(jd["price"])
+        self.setCustomerID(jd["email"])
+        self.setFollowSeller(jd["follow seller"])
+        self.setFollowPrice(jd["follow price"])
+
 
     def loadJsonData(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])

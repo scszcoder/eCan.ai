@@ -224,6 +224,28 @@ def genStepSearchScroll(screen, dir, target, target_type, at_loc, target_loc, fl
 
 
 
+
+# search some target content on the page, and scroll the target to the target loction on the page.
+# at_loc is a rough location, meaning the anchor closest to this location, NOT exactly at this location.
+# at_loc is also a 2 dimensional x-y coordinates
+def genStepScrollToLocation(screen, target, target_type, target_loc, flag, resolution, postwait, site, stepN):
+    stepjson = {
+        "type": "Scroll To Location",
+        "action": "Scroll To Location",
+        "target": target,
+        "target_type": target_type,
+        "target_loc": target_loc,
+        "screen": screen,
+        "resolution": resolution,
+        "postwait": postwait,
+        "site": site,
+        "flag": flag
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 # loc: location on screen, could take value "", "middle" "bottome" "top" - meaning take some unique text that's nearest the location of the screen.
 #       the resulting text is defauly putinto the variable "ResolutionCalibrationMarker"
 # txt: text to record the location. - caller can also directly specify the text to be extracted, in such a case, loc = ""
@@ -2005,7 +2027,7 @@ def processCreateData(step, i):
             else:
                 symTab[step["data_name"]] = step["key_value"]
         else:
-            if not re.match("\[.*\]|\{.*\}", step["key_value"]):
+            if not re.match(r"\[.*\]|\{.*\}", step["key_value"]):
                 symTab[step["data_name"]] = {step["key_name"]: step["key_value"]}
             else:
                 symTab[step["data_name"]] = {step["key_name"]: json.loads(step["key_value"])}
@@ -2066,21 +2088,21 @@ def processFillData(step, i):
     try:
         # if not re.match("\[.*\]|\{.*\}", step["from"]):
         if type(step["from"]) is str:
-            from_words = re.split('\[|\(|\{', step["from"])
+            from_words = re.split(r'\[|\(|\{', step["from"])
             source = from_words[0]
         else:
             source = step["from"]
         log3("source var:"+json.dumps(source))
 
         if type(step["to"]) is str:
-            to_words = re.split('\[|\(|\{', step["to"])
+            to_words = re.split(r'\[|\(|\{', step["to"])
             sink = to_words[0]
         else:
             sink = step["to"]
         log3("sink var:"+json.dumps(sink))
 
         if step["result"] != "":
-            res_words = re.split('\[|\(|\{', step["result"])
+            res_words = re.split(r'\[|\(|\{', step["result"])
             res = to_words[0]
             log3("res var:"+json.dumps(res))
 
@@ -3280,31 +3302,43 @@ def processSearchScroll(step, i):
         # find all images matches the name and above the at_loc
         log3("finding....:"+json.dumps(targets))
         if "anchor" in step["target_type"]:
-            ancs = [element for index, element in enumerate(scrn) if element["name"] in targets and element["loc"][0] > at_loc_top_v and element["loc"][2] < at_loc_bottom_v]
+            if step["dir"] == "down":
+                ancs = [element for index, element in enumerate(scrn) if element["name"] in targets and element["loc"][0] > at_loc_top_v and element["loc"][2] < target_loc_v]
+            else:
+                ancs = [element for index, element in enumerate(scrn) if element["name"] in targets and element["loc"][0] > target_loc_v and element["loc"][2] < at_loc_bottom_v]
         elif step["target_type"] == "text var":
             exec("global target_txt\ntarget_txt = " + step["target"])
             all_paragraphs = [element for index, element in enumerate(scrn) if element["name"] == "paragraph"]
             all_lines = []
             for p in all_paragraphs:
                 all_lines = all_lines + p["txt_struct"]
-            matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"] and line["box"][1] > at_loc_top_v and line["box"][3] < at_loc_bottom_v]
+
+            if step["dir"] == "down":
+                matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"] and line["box"][1] > at_loc_top_v and line["box"][3] < target_loc_v]
+            else:
+                matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"] and line["box"][1] > target_loc_v and line["box"][3] < at_loc_bottom_v]
+
             # do a format conversion due to stupid "box", "loc" format mismatch, got to fix this at some point.
             ancs = [{"loc": [ml["box"][1], ml["box"][0], ml["box"][3], ml["box"][2]]} for ml in matched_lines]
 
         log3("found targets in bound: "+json.dumps(ancs))
         if len(ancs) > 0:
             # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
-            vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
+            if step["dir"] == "down":
+                vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=True)
+            else:
+                vsorted = sorted(ancs, key=lambda x: x["loc"][2], reverse=False)
+
             log3("FFOUND: "+json.dumps(vsorted[0]))
             offset = round((target_loc_v - vsorted[0]["loc"][2])/symTab[scroll_resolution])
             log3("calculated offset: "+str(offset)+"target loc"+str(target_loc_v)+"scroll_resolution"+str(symTab[scroll_resolution])+" setting flag var ["+str(step["flag"])+"] to be TRUE....")
             symTab[step["flag"]] = True
         else:
-            # if anchor is not on the page, set the flag and scroll down 90 of a screen
+            # if anchor is not on the page, set the flag and scroll down or up 0% of a screen height
             if step["dir"] == "down":
-                offset = 0-round(screensize[0]*0.7/symTab[scroll_resolution])
+                offset = 0-round(screensize[0]*0.6/symTab[scroll_resolution])
             else:
-                offset = round(screensize[0] * 0.7 / symTab[scroll_resolution])
+                offset = round(screensize[0] * 0.6/symTab[scroll_resolution])
             symTab[step["flag"]] = False
             log3("KEEP scrolling calculated offset: "+str(offset)+"setting flag var ["+str(step["flag"])+"] to be FALSE....")
 
@@ -3323,6 +3357,66 @@ def processSearchScroll(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+
+# this routine scroll an object to the target location. if multiple targets are found, the one nearest to target will be scrolled to target
+# location. location will be an integer that respresent the percentage of screen height from the top of the screen
+def processScrollToLocation(step, i):
+
+    log3("ScrollToLocation Searching...."+json.dumps(step["target"]))
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        scrn = symTab[step["screen"]]
+        if isinstance(step["target"], list):
+            targets = step["target"]
+        else:
+            targets = [step["target"]]
+
+        target_loc = int(step["target_loc"])/100
+        scroll_resolution = step["resolution"]
+        screensize = (scrn[len(scrn)-2]["loc"][2], scrn[len(scrn)-2]["loc"][3])
+        log3("screen size: "+json.dumps(screensize)+"scroll resolution: "+str(symTab[scroll_resolution])+" target_loc:"+json.dumps(target_loc))
+
+        target_loc_v = int(screensize[0]*target_loc)
+
+        # find all images matches the name and above the at_loc
+        log3("finding....:"+json.dumps(targets))
+        if "anchor" in step["target_type"]:
+            ancs = [element for index, element in enumerate(scrn) if element["name"] in targets]
+        elif step["target_type"] == "text var":
+            exec("global target_txt\ntarget_txt = " + step["target"])
+            all_paragraphs = [element for index, element in enumerate(scrn) if element["name"] == "paragraph"]
+            all_lines = []
+            for p in all_paragraphs:
+                all_lines = all_lines + p["txt_struct"]
+            matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"]]
+            # do a format conversion due to stupid "box", "loc" format mismatch, got to fix this at some point.
+            ancs = [{"loc": [ml["box"][1], ml["box"][0], ml["box"][3], ml["box"][2]]} for ml in matched_lines]
+
+        log3("found targets in bound: "+json.dumps(ancs))
+        if len(ancs) > 0:
+            # sort them by vertial distance, largest v coordinate first, so the 1st one is the closest.
+            vsorted = sorted(ancs, key=lambda x: abs(x["loc"][0]-target_loc_v), reverse=False)
+            log3("FFOUND: "+json.dumps(vsorted[0]))
+            offset = round((target_loc_v - vsorted[0]["loc"][0])/symTab[scroll_resolution])
+            log3("calculated offset: "+str(offset)+"target loc"+str(target_loc_v)+"scroll_resolution"+str(symTab[scroll_resolution])+" setting flag var ["+str(step["flag"])+"] to be TRUE....")
+
+        mouse.scroll(0, offset)
+        time.sleep(step["postwait"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorScrollToLocation:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorScrollToLocation: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
 
 
 # this routine scroll until certain a product is right in the middle of the screen and capture its information.
@@ -3353,7 +3447,7 @@ def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN,
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [20, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
