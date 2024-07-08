@@ -7,7 +7,7 @@ from concurrent.futures.thread import ThreadPoolExecutor
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
-    QFileDialog
+    QFileDialog, QDialog, QVBoxLayout
 from pynput import keyboard, mouse
 
 import pyautogui
@@ -19,14 +19,27 @@ counter = 0
 record_over = False
 
 
-class STEP:
-    def __init__(self, parent):
-        super(STEP, self).__init__(parent)
-        self.temp_dir = parent.homepath + "/resource/skills/temp/"
-        self.order = 0
-        self.img = None
-        self.location = (0, 0, 0, 0)
-        self.action = ""
+class StopRecordDialog(QDialog):
+    def __init__(self):
+        super(StopRecordDialog, self).__init__()
+        # 创建提示标签
+        self.prompt_label = QLabel(self.tr("Are you done with showing the process to be automated?"))
+
+        # 创建带有翻译文本的“是”和“否”按钮
+        self.yes_button = QPushButton(self.tr("Yes"))
+        self.no_button = QPushButton(self.tr("No"))
+
+        # 连接按钮点击信号与槽函数
+        self.yes_button.clicked.connect(self.accept)
+        self.no_button.clicked.connect(self.reject)
+
+        # 创建一个垂直布局用于对话框
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(self.prompt_label)
+        main_layout.addWidget(self.yes_button)
+        main_layout.addWidget(self.no_button)
+
+        self.setLayout(main_layout)
 
 
 class TrainDialogWin(QMainWindow):
@@ -161,16 +174,18 @@ class TrainNewWin(QMainWindow):
                 self.last_screenshot_time = current_time
 
     async def process_events(self):
-        while True:
+        while not self.record_over:
             # 从队列中获取事件
             event_type, x, y, dx, dy, button = self.event_queue.get()
-            # 根据事件类型处理，例如创建异步任务执行截图
-            await self.screenshot(event_type, x, y, dx, dy, button)
+            if event_type is not None:
+                # 根据事件类型处理，例如创建异步任务执行截图
+                await self.screenshot(event_type, x, y, dx, dy, button)
             # 处理完事件后通知队列
             self.event_queue.task_done()
+            await asyncio.sleep(1)
 
     async def screenshot(self, option: str, x: int = None, y: int = None, dx: any = None, dy: any = None,
-                        button: any = None):
+                            button: any = None):
         self.steps += 1
         fname = self.temp_dir + "step" + str(self.steps) + ".png"
         # 使用run_in_executor来异步执行耗时的IO操作（如截图）
@@ -225,16 +240,30 @@ class TrainNewWin(QMainWindow):
         print('{0} released'.format(key))
         if key == keyboard.Key.esc:
             # Stop listener
-            return self.stop_record()
+            self.stop_record()
+            return False
 
     def stop_record(self):
+        # self.record_over = True
+        # self.main_win.reminderWin.hide()
+        # stopRecordDialog = StopRecordDialog()
+        # # self.trainDialog.show()
+        # result = stopRecordDialog.exec()
+        # print(result)
+        # if result == QDialog.Accepted:
+        #     self.saveRecordFile()
+        #     # print("用户点击了确定")
+        # else:
+        #     print("用户点击了取消")
         self.record_over = True
         self.main_win.reminderWin.hide()
-        msg_box = QMessageBox()
-        msg_box.setText(
+        msgBox = QMessageBox()
+        msgBox.setText(
             QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
-        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        ret = msg_box.exec()
+        # msgBox.setInformativeText("Do you want to save your changes?")
+        msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        # msgBox.setDefaultButton(QMessageBox.Save)
+        ret = msgBox.exec()
         if ret == QMessageBox.Yes:
             print("done with demo...")
             self.saveRecordFile()
@@ -283,6 +312,8 @@ class TrainNewWin(QMainWindow):
             if not os.path.exists(self.temp_dir):
                 os.makedirs(self.temp_dir)
             # 创建任务
+            self.main_win.hide()
+            self.hide()
             self.loop.create_task(self.start_listeners())
         except Exception as e:
             logger_helper.error(f"Failed to start listeners: {e}")
