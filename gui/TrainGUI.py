@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-import threading
+import queue
 import time
 from concurrent.futures.thread import ThreadPoolExecutor
 
@@ -54,7 +54,7 @@ class ReminderWin(QMainWindow):
         self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"),
                                      alignment=Qt.AlignLeft)
         self.rLayout = QHBoxLayout()
-        if os.name == 'darwin':
+        if os.name == 'Darwin':
             self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
             self.cancel_button.clicked.connect(main_win.trainNewSkillWin.stop_record)
             self.rLayout.addWidget(self.cancel_button)
@@ -72,8 +72,8 @@ class TrainNewWin(QMainWindow):
         self.record_over = False
         self.oldPos = None
         # self.temp_dir = None
-        self.temp_dir = main_win.homepath + "/resource/skills/temp/"
-
+        self.root_temp_dir = main_win.homepath + "/resource/skills/temp/"
+        self.temp_dir = ''
         self.newSkill = None
         self.main_win = main_win
         self.mainWidget = QWidget()
@@ -114,6 +114,8 @@ class TrainNewWin(QMainWindow):
         self.last_screenshot_time = time.time()
         self.frame_count = 0
         self.listeners_running = False
+        # 创建一个队列来存储事件
+        self.event_queue = queue.Queue()
 
     def mousePressEvent(self, event):
         self.oldPos = event.globalPos()
@@ -153,16 +155,27 @@ class TrainNewWin(QMainWindow):
             time_since_last_screenshot = current_time - self.last_screenshot_time
             if time_since_last_screenshot > 0.5:
                 print('Pointer moved to {0}'.format((x, y)))
+                self.event_queue.put(('move', x, y, None, None, None))
                 # self.screenshot('move', x, y)
-                asyncio.run(self.screenshot('move', x, y))
+                # asyncio.create_task(self.screenshot('move', x, y))
                 self.last_screenshot_time = current_time
 
+    async def process_events(self):
+        while True:
+            # 从队列中获取事件
+            event_type, x, y, dx, dy, button = self.event_queue.get()
+            # 根据事件类型处理，例如创建异步任务执行截图
+            await self.screenshot(event_type, x, y, dx, dy, button)
+            # 处理完事件后通知队列
+            self.event_queue.task_done()
+
     async def screenshot(self, option: str, x: int = None, y: int = None, dx: any = None, dy: any = None,
-                   button: any = None):
+                        button: any = None):
         self.steps += 1
         fname = self.temp_dir + "step" + str(self.steps) + ".png"
-
+        # 使用run_in_executor来异步执行耗时的IO操作（如截图）
         pyautogui.screenshot(fname)
+        # pyautogui.screenshot(fname)
 
         button_name = None
         if button is not None:
@@ -190,7 +203,7 @@ class TrainNewWin(QMainWindow):
         else:
             #  当按键松了后才进行记录事件
             if not pressed:
-                asyncio.run(self.screenshot('click', x, y, button=button))
+                self.event_queue.put(('move', x, y, None, None, button))
 
     def on_scroll(self, x, y, dx, dy):
         print("scroll:", x, y, dx, dy)
@@ -200,7 +213,7 @@ class TrainNewWin(QMainWindow):
             print('Scrolled {0} at {1}'.format(
                 'down' if dy < 0 else 'up',
                 (x, y)))
-            asyncio.run(self.screenshot('scroll', x, y, dx, dy))
+            self.event_queue.put(('move', x, y, dx, dy, None))
 
     def on_press(self, key):
         try:
@@ -250,12 +263,14 @@ class TrainNewWin(QMainWindow):
             'on_scroll': self.on_scroll,
         })
         listener_list.append(mouse_listener)
-        if os.name != 'darwin':
+        if os.name != 'Darwin':
             keyboard_listener = self._start_listener(keyboard.Listener, {
                 'on_press': self.on_press,
                 'on_release': self.on_release,
             })
             listener_list.append(keyboard_listener)
+        process_events = self.process_events()
+        listener_list.append(process_events)
         await asyncio.gather(*listener_list)
 
     def start_listening(self):
@@ -264,9 +279,10 @@ class TrainNewWin(QMainWindow):
             self.main_win.reminderWin.show()
             self.main_win.reminderWin.setGeometry(800, 0, 100, 50)
             print("Starting input event listeners...")
-            self.temp_dir = self.temp_dir + "/" + time.strftime("%Y%m%d-%H%M%S") + "/"
+            self.temp_dir = self.root_temp_dir + "/" + time.strftime("%Y%m%d-%H%M%S") + "/"
             if not os.path.exists(self.temp_dir):
                 os.makedirs(self.temp_dir)
+            # 创建任务
             self.loop.create_task(self.start_listeners())
         except Exception as e:
             logger_helper.error(f"Failed to start listeners: {e}")
