@@ -171,6 +171,7 @@ class AsyncInterface:
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self, loginout_gui, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
+        global wifi_data
         super(MainWindow, self).__init__()
         self.loginout_gui = loginout_gui
         if homepath[len(homepath)-1] == "/":
@@ -682,7 +683,14 @@ class MainWindow(QMainWindow):
             wifi_info = subprocess.check_output(['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'])
 
         if wifi_info:
-            wifi_data = wifi_info.decode('utf-8')
+            try:
+                wifi_data = wifi_info.decode('utf-8')
+            except UnicodeDecodeError:
+                for enc in ['utf-8', 'gbk', 'latin1']:
+                    try:
+                        wifi_data = wifi_info.decode(enc)
+                    except UnicodeDecodeError:
+                        pass
             wifi_lines = wifi_data.split("\n")
             ssidline = [l for l in wifi_lines if " SSID" in l]
             if len(ssidline) == 1:
