@@ -17,7 +17,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processFillData, processLoadData, processSaveData, processCheckCondition, processRepeat, processGoto, \
     processCallFunction, processReturn, processUseSkill, processOverloadSkill, processStub, processCallExtern, \
     processExceptionHandler, processEndException, processSearchAnchorInfo, processSearchWordLine, processThink, \
-    processFillRecipients, processSearchScroll, process7z, processListDir, processCheckExistence, processCreateDir, \
+    processFillRecipients, processSearchScroll, processScrollToLocation, process7z, processListDir, processCheckExistence, processCreateDir, \
     processSellCheckShipping, processGenRespMsg, processUpdateBuyMissionResult, processGoToWindow, processReportToBoss, \
     processExtractInfo8, DEFAULT_RUN_STATUS, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
@@ -124,6 +124,7 @@ RAIS = {
     "Think": lambda x, y, z: processThink(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
+    "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
     "Calc Objs Distance": lambda x,y: processCalcObjectsDistance(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),
     "List Dir": lambda x, y: processListDir(x, y),
@@ -205,6 +206,7 @@ ARAIS = {
     "Think": lambda x, y: processThink8(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
+    "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
     "Calc Objs Distance": lambda x,y: processCalcObjectsDistance(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),
     "List Dir": lambda x, y: processListDir(x, y),
@@ -365,12 +367,13 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     last_step = -1
     next_step = 0
     next_step_index = 0
-    running = True
+    global running
     run_stack = []
     log3("running all steps....."+json.dumps(mission.genJson()))
     last_error_stat = "None"
     stepKeys = list(steps.keys())
     rd_screen_count = 0
+    running= True
     # for k in stepKeys:
     #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
     log3("====================================="+str(len(stepKeys)))
@@ -408,19 +411,23 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
 
         # check whether there is any msging handling need.
-        # log3("listening to message queue......")
+        log3("listening to message queue......")
         if not in_msg_queue.empty():
             message = await in_msg_queue.get()
             log3(f"Rx RunAllSteps message: {message}")
             msg = json.loads(message)
             if msg["cmd"] == "reqCancelAllMissions":
                 # set program counter to the end, this shall stop it.
+                print("STOPPING ALL Missions by directly jump to the end.....")
+                step_stat = "ABORTEDByKey"
                 next_step_index = len(stepKeys)
             elif msg["cmd"] == "reqCancelCurrentMission":
                 next_step_index = len(stepKeys)
             elif msg["cmd"] == "reqHaltMissions":
+                print("RPA HALTed", next_step_index, len(stepKeys), step_stat)
                 running = False
             elif msg["cmd"] == "reqResumeMissions":
+                print("RPA RESUMEd")
                 running = True
             elif msg["cmd"] == "reqMissionStatus":
                 # send back current running status based on msg["content"]
@@ -432,6 +439,9 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
         if step_stat != DEFAULT_RUN_STATUS:
             break
+
+        if not running:
+            await asyncio.sleep(1)
 
     if step_stat != DEFAULT_RUN_STATUS:
         log3("RUN Error!")
