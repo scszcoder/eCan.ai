@@ -12,7 +12,7 @@ class BotService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(BotModel)
+        sync_table_columns(BotModel, "bots")
 
     def delete_bots_by_botid(self, botid):
         # 构建删除表达式

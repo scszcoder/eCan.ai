@@ -268,7 +268,7 @@ class MainWindow(QMainWindow):
         self.system = platform.system()
         if self.system == "Windows":
             self.os_short = "win"
-        elif  self.system == "Linux":
+        elif self.system == "Linux":
             self.os_short = "linux"
         elif  self.system == "Darwin":
             self.os_short = "mac"
@@ -1829,11 +1829,9 @@ class MainWindow(QMainWindow):
             vtasks = self.flattenTaskGroup(tgs[vehicle])
             # for vtask in vtasks:
             #     found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
-            #     vehicle = found_bot.getVName()
-            #     if vehicle in vtgs:
-            #         vtgs[vehicle].append(vtask)
-            #     else:
-            vtgs[vehicle]=[vtasks]
+            #     bot_v = found_bot.getVName()
+            #     print("bot_v:", bot_v, "task v:", vehicle)
+            vtgs[vehicle] = vtasks
         return vtgs
 
 
@@ -4706,8 +4704,8 @@ class MainWindow(QMainWindow):
 
     def addBotToVehicle(self, new_bot):
 
-        if new_bot.getVName() != "" and new_bot.getVName() != "NA":
-            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVName()), None)
+        if new_bot.getVehicle() != "" and new_bot.getVehicle() != "NA":
+            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVehicle()), None)
 
             if found_v:
                 nadded = found_v.addBot(new_bot.getBid())

@@ -11,7 +11,7 @@ class ProductService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(ProductsModel)
+        sync_table_columns(ProductsModel, "products")
 
 
     def find_all_products(self):
