@@ -12,7 +12,7 @@ class SkillService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(SkillModel)
+        sync_table_columns(SkillModel, 'skills')
 
     def insert_skill(self, api_skills):
         local_skill = SkillModel()

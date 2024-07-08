@@ -26,21 +26,20 @@ def init_db(dbfile):
     return engine
 
 
-# 如果你想检查并添加遗漏的列，这里有一个简化的思路
-def sync_table_columns(model_class):
+def sync_table_columns(model_class, table_name):
     """检查并尝试添加缺失的列"""
     # 获取表的元数据
     inspector = inspect(engine)
     # 获取模型中定义的列
-    existing_columns = {col['name']: col for col in inspector.get_columns('bots')}
+    existing_columns = {col['name']: col for col in inspector.get_columns(table_name)}
     model_columns = {c.name: c for c in model_class.__table__.columns}
     with engine.begin() as conn:
         for col_name, column in model_columns.items():
             if col_name not in existing_columns:
                 # 构造并执行ALTER TABLE ADD COLUMN语句
                 alter_query = text(
-                    f"ALTER TABLE bots ADD COLUMN {column.name} {column.type.compile(dialect=engine.dialect)}")
-                logger_helper.info(f"Adding column {column.name} to table bots")
+                    f"ALTER TABLE {table_name} ADD COLUMN {column.name} {column.type.compile(dialect=engine.dialect)}")
+                logger_helper.info(f"Adding column {column.name} to table bots, sql: {alter_query}")
                 conn.execute(alter_query)
 
 

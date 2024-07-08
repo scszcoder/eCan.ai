@@ -13,7 +13,7 @@ class MissionService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(MissionModel)
+        sync_table_columns(MissionModel, 'missions')
 
     def find_missions_by_createon(self):
         current_time = datetime.now()
@@ -230,5 +230,5 @@ class MissionService:
         columns = inspector.columns
         for column in columns:
             logger_helper.debug(
-                f"Column: {column['name']}, Type: {column['type']}, Nullable: {column['nullable']}, Default: {column['default']}")
+                f"Column: {column.name}, Type: {column.type}, Nullable: {column.nullable}, Default: {column.default}")
         return columns
