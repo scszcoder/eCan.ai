@@ -889,12 +889,14 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
 
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
     #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
     im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     im0.save(sfile)
     screen_loc = (window_rect[0], window_rect[1])
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     #upload screen to S3
     upload_file(settings["session"], sfile, settings["token"], "screen")
@@ -1001,11 +1003,15 @@ async def read_screen8(site_page, page_sect, page_theme, layout, mission, sk_set
 
     #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
     # im0 = await asyncio.to_thread(pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3])))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+
     im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+
     im0.save(sfile)
     screen_loc = (window_rect[0], window_rect[1])
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1B: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     #upload screen to S3
     await upload_file8(settings["session"], sfile, settings["token"], "screen")
@@ -1015,7 +1021,7 @@ async def read_screen8(site_page, page_sect, page_theme, layout, mission, sk_set
     csk_name = sk_settings["skfname"].replace("psk", "csk")
     m_csk_names = [csk_name]
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     # request an analysis of the uploaded screen
     # some example options usage:
@@ -1070,13 +1076,13 @@ async def read_screen8(site_page, page_sect, page_theme, layout, mission, sk_set
         # request[0]["options"]["attention_targets"] = []
         request[0]["options"] = json.dumps({"attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     result = await req_cloud_read_screen8(settings["session"], request, settings["token"])
     # log3("result::: "+json.dumps(result))
     jresult = json.loads(result['body'])
     log3("cloud result data: "+json.dumps(jresult["data"]))
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     if "errors" in jresult:
         screen_error = True
