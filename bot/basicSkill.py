@@ -2523,7 +2523,7 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         log3("skname:"+skname+"  "+sk_table[skname])
         idx = step_keys.index(sk_table[skname])
         log3("idx:"+str(idx))
-        log3("step_keys:"+json.dumps(step_keys))
+        # log3("step_keys:"+json.dumps(step_keys))
 
 
     except Exception as e:

@@ -50,6 +50,7 @@ from bot.basicSkill import STEP_GAP
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
+from bot.wanChat import subscribe_to_wan_chat, wan_handle_rx_message, wan_send_message
 from lzstring import LZString
 import openpyxl
 from datetime import timedelta
@@ -194,6 +195,7 @@ class MainWindow(QMainWindow):
         self.VEHICLES_FILE = ecb_data_homepath + "/vehicles.json"
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
+        self.wan_chat_msg_queue = asyncio.Queue()
         self.static_resource = StaticResource()
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
@@ -672,7 +674,8 @@ class MainWindow(QMainWindow):
 
         self.mainWidget.setLayout(layout)
         self.setCentralWidget(self.mainWidget)
-
+        self.wan_connected = False
+        self.websocket = None
         self.setWindowTitle("Main Bot&Mission Scheduler")
         # ================= DONE with GUI ==============================
         self.todays_scheduled_task_groups = {"win": [], "mac": [], "linux": []}
@@ -776,6 +779,10 @@ class MainWindow(QMainWindow):
         self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
         self.showMsg("spawned chat task")
 
+        self.wan_sub_task = asyncio.create_task(subscribe_to_wan_chat(self, self.session, self.tokens))
+        self.wan_msg_task = asyncio.create_task(wan_handle_rx_message(self.session, self.tokens, self.websocket, self.wan_chat_msg_queue))
+        self.showMsg("spawned wan chat task")
+
         # with ThreadPoolExecutor(max_workers=3) as self.executor:
         #     self.rpa_task_future = asyncio.wrap_future(self.executor.submit(self.runbotworks, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
         #     self.showMsg("spawned RPA task")
@@ -791,7 +798,7 @@ class MainWindow(QMainWindow):
 
     async def run_async_tasks(self):
         self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
-        await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task)
+        await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, wan_msg_task)
 
     def dailySkillsetUpdate(self):
         # this will handle all skill bundled into software itself.
@@ -1167,7 +1174,6 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.newMissionFromFile)
         return new_action
 
-
     def _createMissionEditAction(self):
         # File actions
         new_action = QAction(self)
@@ -1452,8 +1458,8 @@ class MainWindow(QMainWindow):
                     # file = 'C:/software/scheduleResultTest7.json'
                     # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                     # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                    # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                    file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
+                    file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
+                    # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                     if exists(file):
                         with open(file) as test_schedule_file:
                             bodyobj = json.load(test_schedule_file)
@@ -1656,6 +1662,17 @@ class MainWindow(QMainWindow):
             self.missionModel.appendRow(new_mission)
             self.showMsg("adding mission.... "+str(new_mission.getRetry()))
 
+    def getBotByID(self, bid):
+        found_bot = next((bot for i, bot in enumerate(self.bots) if bot.getBid() == bid), None)
+        return found_bot
+
+    def getMissionByID(self, mid):
+        found_mission = next((mission for i, mission in enumerate(self.missions) if mission.getMid() == mid), None)
+        return found_mission
+
+    def getSkillByID(self, skid):
+        found_skill = next((skill for i, skill in enumerate(self.skills) if skill.getSkid() == skid), None)
+        return found_skill
 
     def formBotsJsons(self, botids):
         result = []
@@ -3851,7 +3868,7 @@ class MainWindow(QMainWindow):
                 elif selected_act == self.cusMissionUpdateAction:
                     self.updateCusMissionStatus(self.selected_cus_mission_item)
                 elif selected_act == self.cusMissionRunAction:
-                    asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue))
+                    asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
 
             return True
         elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
@@ -4007,18 +4024,21 @@ class MainWindow(QMainWindow):
         #     # now that delete is successfull, update local file as well.
         #     self.writeMissionJsonFile()
 
-    async def runCusMissionNow(self, amission, gui_rpa_queue):
+    async def runCusMissionNow(self, amission, gui_rpa_queue, gui_monitor_queue):
         # check if psk is already there, if not generate psk, then run it.
         self.showMsg("run mission now....")
+        executor = self.getBotByID(amission.getBid())
+
         worksTBD = {"works": [{
             "mid": amission.getMid(),
             "name": "automation",
+            "start_time": 1,            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
             "bid": amission.getBid(),
-            "config": {},
-            "ads_xlsx_profile": ""
+            "config": amission.getConfig(),
+            "ads_xlsx_profile": amission.setADSXlsxProfile()
         }], "current widx":0}
 
-        current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_rpa_queue)
+        current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_rpa_queue, gui_monitor_queue)
 
 
     def _createBotRCEditAction(self):
@@ -4322,6 +4342,7 @@ class MainWindow(QMainWindow):
             # new_mission.genJson()
 
         self.addNewMissions(missions_from_file)
+
 
     def process_original_xlsx_file(self, file_path):
         # Read the Excel file, skipping the first two rows
@@ -5769,9 +5790,9 @@ class MainWindow(QMainWindow):
                 fileTBSent.close()
         else:
             if not os.path.exists(file_name_full_path):
-                self.showMsg(f"Error: File [{file_name_full_path}] not found")
+                self.showMsg(f"ErrorSendFileToPlatoon: File [{file_name_full_path}] not found")
             else:
-                self.showMsg(f"Error: TCP link doesn't exist")
+                self.showMsg(f"ErrorSendFileToPlatoon: TCP link doesn't exist")
 
 
     def send_json_to_platoon(self, platoon_link, json_data):
@@ -5784,9 +5805,9 @@ class MainWindow(QMainWindow):
             platoon_link["transport"].write(length_prefix+encoded_json_string)
         else:
             if json_data == None:
-                self.showMsg(f"Error: JSON empty")
+                self.showMsg(f"ErrorSendJsonToPlatoon: JSON empty")
             else:
-                self.showMsg(f"Error: TCP link doesn't exist")
+                self.showMsg(f"ErrorSendJsonToPlatoon: TCP link doesn't exist")
 
 
     def send_file_to_commander(self, commander_link, file_type, file_name_full_path):
@@ -5807,9 +5828,9 @@ class MainWindow(QMainWindow):
                 fileTBSent.close()
         else:
             if not os.path.exists(file_name_full_path):
-                self.showMsg(f"Error: File [{file_name_full_path}] not found")
+                self.showMsg(f"ErrorSendFileToCommander: File [{file_name_full_path}] not found")
             else:
-                self.showMsg(f"Error: TCP link doesn't exist")
+                self.showMsg(f"ErrorSendFileToCommander: TCP link doesn't exist")
 
 
 
@@ -5867,3 +5888,15 @@ class MainWindow(QMainWindow):
         # Keep the coroutine running to listen for the hotkey indefinitely
         while True:
             await asyncio.sleep(1)
+
+    def set_wan_connected(self, wan_stat):
+        self.wan_connected = wan_stat
+
+    def set_websocket(self, ws):
+        self.websocket = ws
+
+    def get_wan_connected(self):
+        return self.wan_connected
+
+    def get_websocket(self):
+        return self.websocket
