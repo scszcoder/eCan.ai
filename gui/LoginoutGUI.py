@@ -237,6 +237,9 @@ class Login(QDialog):
     def set_ip(self, ip):
         self.ip = ip
 
+    def set_wan_connected(self, wan_status):
+        self.main_win.set_wan_connected(wan_status)
+
     def read_role(self):
         self.machine_role = "Platoon"
         print("ROLE FILE: " + ROLE_FILE)

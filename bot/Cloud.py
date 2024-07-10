@@ -8,9 +8,11 @@ from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 import logging
 import aiohttp
+import asyncio
 
 from envi import getECBotDataHome
 from utils.logger_helper import logger_helper
+import websockets
 
 ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
@@ -917,6 +919,35 @@ def gen_feedback_request_string(fbReq):
     logger_helper.debug(query_string)
     return query_string
 
+def gen_wan_chat_message_string(wan_chat_req):
+    send_msg_mutation = """
+        mutation sendMessage($content: String!, $sender: String!) {
+          sendMessage(content: $content, sender: $sender) {
+            id
+            content
+            sender
+            timestamp
+          }
+        }
+        """
+    return send_msg_mutation
+
+
+def gen_wan_subscription_connection_string(wan_chat_req):
+    sub_conn_string = """
+        subscription onMessageSent {
+          onMessageSent {
+            id
+            content
+            sender
+            timestamp
+          }
+        }
+        """
+
+    return sub_conn_string
+
+
 def set_up_cloud():
     this_session = requests.Session()
     return this_session
@@ -1591,3 +1622,82 @@ async def upload_file8(session, f2ul, token, ftype):
     resp = await send_file_with_presigned_url8(session, f2ul, resd['body'][0])
     #  logger_helper.debug("upload result: "+json.dumps(resp))
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+
+async def send_wan_chat_message(content, sender, token):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    variables = {
+        "content": content,
+        "sender": sender
+    }
+    query_string = gen_wan_chat_message_string(content['msg'])
+    headers = {
+        'Content-Type': "application/graphql",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+    async with aiohttp.ClientSession() as session8:
+        async with session8.post(
+                url=APPSYNC_API_ENDPOINT_URL,
+                timeout=aiohttp.ClientTimeout(total=300),
+                headers=headers,
+                json={
+                        'query': query_string,
+                        'variables': variables
+                }
+        ) as response:
+            jresp = await response.json()
+            print(jresp)
+            return jresp
+
+
+
+async def wan_chat_subscribe(token):
+    WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    query_string = gen_wan_subscription_connection_string()
+    async def handle_message(websocket):
+        while True:
+            try:
+                response = await websocket.recv()
+                response_data = json.loads(response)
+                if response_data["type"] == "data":
+                    message = response_data["payload"]["data"]["onMessageSent"]
+                    print("New message received:", message)
+            except websockets.exceptions.ConnectionClosedError:
+                print("Connection lost. Attempting to reconnect...")
+                break
+
+    while True:
+        try:
+            async with websockets.connect(WS_URL, extra_headers={
+                'Content-Type': 'application/json',
+                'Authorization': token
+            }) as websocket:
+                # Send connection init message
+                init_msg = {
+                    "type": "connection_init"
+                }
+                await websocket.send(json.dumps(init_msg))
+
+                # Wait for connection ack
+                while True:
+                    response = await websocket.recv()
+                    response_data = json.loads(response)
+                    if response_data["type"] == "connection_ack":
+                        break
+
+                # Start subscription
+                sub_msg = {
+                    "id": "1",
+                    "type": "start",
+                    "payload": {
+                        "query": query_string,
+                        "variables": {}
+                    }
+                }
+                await websocket.send(json.dumps(sub_msg))
+
+                await handle_message(websocket)
+        except Exception as e:
+            print(f"ErrorInternetConnectionLost: {e}. Retrying websocket connection in 5 seconds...")
+            await asyncio.sleep(5)
