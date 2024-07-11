@@ -208,7 +208,8 @@ class MainWindow(QMainWindow):
         self.chat_id = user.split("@")[0]
         self.cog = None
         self.cog_client = None
-        self.hostrole = machine_role
+        self.host_role = machine_role
+        self.chat_id = self.chat_id+"_"+self.host_role
         self.workingState = "Idle"
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
@@ -755,7 +756,7 @@ class MainWindow(QMainWindow):
         self.todays_work = {"tbd": [], "allstat": "working"}
         self.todays_completed = []
         self.num_todays_task_groups = 0
-        if not self.hostrole == "Platoon":
+        if not self.host_role == "Platoon":
             # For commander creates
             self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
             self.num_todays_task_groups = self.num_todays_task_groups + 1
@@ -764,7 +765,7 @@ class MainWindow(QMainWindow):
 
         # self.async_interface = AsyncInterface()
         self.showMsg("ready to spawn mesg server task")
-        if not self.hostrole == "Platoon":
+        if not self.host_role == "Platoon":
             self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
             self.wan_sub_task = asyncio.create_task(subscribe_to_wan_chat(self, self.tokens, self.chat_id))
             self.wan_msg_task = asyncio.create_task(wan_handle_rx_message(self.session, self.tokens, self.websocket, self.wan_chat_msg_queue))
@@ -939,11 +940,11 @@ class MainWindow(QMainWindow):
         return self.wifis
 
     #async def networking(self, platoonCallBack):
-    def setHostRole(self, role):
-        self.hostrole = role
+    def set_host_role(self, role):
+        self.host_role = role
 
-    def getHostRole(self):
-        return self.hostrole
+    def get_host_role(self):
+        return self.host_role
 
     def appendNetLogs(self, msgs):
         for msg in msgs:
@@ -1868,7 +1869,7 @@ class MainWindow(QMainWindow):
             "linux": [v for v in self.vehicles if v.getOS().lower() in "Linux".lower() and len(v.getBotIds()) == 0]
         }
         self.showMsg("N vehicles win " + str(len(result["win"]))+" " + str(len(result["mac"]))+" " + str(len(result["linux"])))
-        if self.hostrole == "Commander" and not self.rpa_work_assigned_for_today:
+        if self.host_role == "Commander" and not self.rpa_work_assigned_for_today:
             print("checking commander", self.todays_work["tbd"])
             if len([wk for wk in self.todays_work["tbd"] if wk["name"] == "automation"]) == 0:
                 self.showMsg("myself unassigned "+self.getIP())
@@ -1892,7 +1893,7 @@ class MainWindow(QMainWindow):
 
 
     def groupVehiclesByOS(self):
-        self.showMsg("groupVehiclesByOS>>>>>>>>>>>> "+self.hostrole)
+        self.showMsg("groupVehiclesByOS>>>>>>>>>>>> "+self.host_role)
         result = {
             "win": [v for v in self.vehicles if v.getOS() == "Windows"],
             "mac": [v for v in self.vehicles if v.getOS() == "Mac"],
@@ -1900,7 +1901,7 @@ class MainWindow(QMainWindow):
         }
         self.showMsg("all vehicles>>>>>>>>>>>> " + json.dumps(result))
         self.showMsg("now take care of commander machine itself in case of being a dual role commander")
-        if self.hostrole == "Commander":
+        if self.host_role == "Commander":
             self.showMsg("checking commander>>>>>>>>>>>>>>>>>>>>>>>>> "+self.getIP())
             # put in a dummy V
             self_v = VEHICLE(self)
@@ -2139,7 +2140,7 @@ class MainWindow(QMainWindow):
                 # distribute work to all available sites, which is the limit for the total capacity.
                 # if p_nsites > 0:
                 #     for i in range(p_nsites):
-                # if i == 0 and not self.rpa_work_assigned_for_today and not self.hostrole == "CommanderOnly" and platform in self.platform.lower():
+                # if i == 0 and not self.rpa_work_assigned_for_today and not self.host_role == "Commander Only" and platform in self.platform.lower():
                 if self.machine_name in vname:
                     # if commander participate work, give the first(0th) work to self.
                     batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, self)
@@ -2152,7 +2153,7 @@ class MainWindow(QMainWindow):
                     self.rpa_work_assigned_for_today = True
                 else:
                     # #otherwise, send work to platoons in the field
-                    # if self.hostrole == "CommanderOnly":
+                    # if self.host_role == "Commander Only":
                     #     # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
                     #     vidx = i
                     # else:
@@ -4818,7 +4819,7 @@ class MainWindow(QMainWindow):
             "vlnxs": len([v for v in self.vehicles if v.getOS() == "linux"])
         }
         # add self to the compute resource pool
-        if self.hostrole == "Commander":
+        if self.host_role == "Commander":
             if self.platform == "win":
                 vsettings["vwins"] = vsettings["vwins"] + 1
             elif self.platform == "mac":
@@ -4931,7 +4932,7 @@ class MainWindow(QMainWindow):
 
 
                             if len(self.todays_work["tbd"]) == 0:
-                                if self.hostrole == "Platoon":
+                                if self.host_role == "Platoon":
                                     self.showMsg("Platoon Done with today!!!!!!!!!")
                                     self.doneWithToday()
                                 else:
@@ -4952,7 +4953,7 @@ class MainWindow(QMainWindow):
                 else:
                     # nothing to do right now. check if all of today's work are done.
                     # if my own works are done and all platoon's reports are collected.
-                    if self.hostrole == "Platoon":
+                    if self.host_role == "Platoon":
                         if len(self.todays_work["tbd"]) == 0:
                             self.doneWithToday()
 
@@ -5392,11 +5393,11 @@ class MainWindow(QMainWindow):
             current_bid = 0
 
         # self.showMsg("GEN REPORT FOR WORKS:"+json.dumps(works))
-        if not self.hostrole == "CommanderOnly":
+        if not self.host_role == "Commander Only":
             mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
             self.showMsg("mission_report:"+json.dumps(mission_report))
 
-            if self.hostrole != "Platoon":
+            if self.host_role != "Platoon":
                 # add generated report to report list....
                 self.showMsg("commander gen run report....."+str(len(self.todaysReport)) + str(len(works)))
                 self.todaysReport.append(mission_report)
@@ -5444,8 +5445,8 @@ class MainWindow(QMainWindow):
             self.DONE_WITH_TODAY = True
             self.rpa_work_assigned_for_today = False
 
-            if not self.hostrole == "Platoon":
-                # if self.hostrole == "Commander":
+            if not self.host_role == "Platoon":
+                # if self.host_role == "Commander":
                 #     self.showMsg("commander generate today's report")
                 #     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
                 #     self.todaysPlatoonReports.append(rpt)
@@ -5478,7 +5479,7 @@ class MainWindow(QMainWindow):
             self.saveDailyRunReport(self.todaysPlatoonReports)
 
             # 3) clear data structure, set up for tomorrow morning, this is the case only if this is a commander
-            if not self.hostrole == "Platoon":
+            if not self.host_role == "Platoon":
                 self.todays_work = {"tbd": [
                     {"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start",
                      "current widx": 0, "completed": [], "aborted": []}]}
