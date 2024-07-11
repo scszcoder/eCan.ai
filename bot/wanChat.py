@@ -11,6 +11,14 @@ from Cloud import gen_wan_send_chat_message_string
 import base64
 from datetime import datetime
 
+# Wan Chat Logic
+# Commander will connect to websocket and subscribe, and wan logging is default off, then sit in a loop
+# and listen for turn on logging command,
+# Staff Officer will get online and connect to websocket and shoot out ping command to any commander out there.
+# once hearing ack back from the commander off websocket, it sends a request logging command if needed.
+#
+
+
 STATUS_UPDATE_SUBSCRIPTION = """
 subscription onStatusUpdate {
   onStatusUpdate {

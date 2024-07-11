@@ -209,7 +209,8 @@ class MainWindow(QMainWindow):
         self.cog = None
         self.cog_client = None
         self.host_role = machine_role
-        self.chat_id = self.chat_id+"_"+self.host_role
+        self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
+        self.staff_officer_on_line = False
         self.workingState = "Idle"
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
@@ -293,10 +294,10 @@ class MainWindow(QMainWindow):
         self.readSellerInventoryJsonFile("")
 
         self.showMsg("main window ip:" + self.ip)
-        if self.machine_role != "Platoon":
+        if "Commander" in self.machine_role:
             self.tcpServer = tcpserver
             self.commanderXport = None
-        else:
+        elif self.machine_role == "Platoon":
             self.showMsg("This is a platoon...")
             self.commanderXport = tcpserver
             self.commanderIP = commanderIP
@@ -311,7 +312,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
-        if self.machine_role != "Platoon":
+        if "Commander" in self.machine_role:
             engine = init_db(self.dbfile)
             session = get_session(engine)
             self.bot_service = BotService(self, session, engine)
@@ -560,7 +561,7 @@ class MainWindow(QMainWindow):
 
         centralWidget = DragPanel()
 
-        if self.machine_role == "Platoon":
+        if "Commander" not in self.machine_role:
             self.botNewAction.setDisabled(True)
             self.saveAllAction.setDisabled(True)
             self.botDelAction.setDisabled(True)
@@ -704,7 +705,7 @@ class MainWindow(QMainWindow):
 
 
         self.showMsg("load local bots, mission, skills ")
-        if (self.machine_role != "Platoon"):
+        if ("Commander" in self.machine_role):
             test_sqlite3(self)
             self.readVehicleJsonFile()
             # load skills into memory.
@@ -756,7 +757,7 @@ class MainWindow(QMainWindow):
         self.todays_work = {"tbd": [], "allstat": "working"}
         self.todays_completed = []
         self.num_todays_task_groups = 0
-        if not self.host_role == "Platoon":
+        if "Commander" in self.host_role:
             # For commander creates
             self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
             self.num_todays_task_groups = self.num_todays_task_groups + 1
@@ -766,7 +767,10 @@ class MainWindow(QMainWindow):
         # self.async_interface = AsyncInterface()
         self.showMsg("ready to spawn mesg server task")
         if not self.host_role == "Platoon":
-            self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
+            if not self.host_role == "Staff Officer":
+                self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
+            else:
+                self.peer_task = asyncio.create_task(self.wait_forever())
             self.wan_sub_task = asyncio.create_task(subscribe_to_wan_chat(self, self.tokens, self.chat_id))
             self.wan_msg_task = asyncio.create_task(wan_handle_rx_message(self.session, self.tokens, self.websocket, self.wan_chat_msg_queue))
             self.showMsg("spawned wan chat task")
@@ -800,8 +804,12 @@ class MainWindow(QMainWindow):
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
     async def run_async_tasks(self):
-        self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
-        await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, wan_msg_task)
+        if self.host_role != "Staff Officer":
+            self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+        else:
+            self.rpa_task = asyncio.create_task(self.wait_forever())
+
+        await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task)
 
     def dailySkillsetUpdate(self):
         # this will handle all skill bundled into software itself.
@@ -5529,7 +5537,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.showMsg('Main window close....')
-        for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task):
+        for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task):
             if not task.done():
                 task.cancel()
         if self.loginout_gui:
@@ -5910,6 +5918,13 @@ class MainWindow(QMainWindow):
     def get_wan_msg_subscribed(self):
         return self.wan_msg_subscribed
 
+    def set_staff_officer_online(self, ol):
+        self.staff_officer_on_line = ol
+
+    def get_staff_officer_online(self):
+        return self.staff_officer_on_line
+
     # this is an empty task
     async def wait_forever(self):
         await asyncio.Event().wait()  # This will wait indefinitely
+
