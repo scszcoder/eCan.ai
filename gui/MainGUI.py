@@ -3166,15 +3166,7 @@ class MainWindow(QMainWindow):
                 new_bots[i].setInterests(resp_rec["interests"])
                 self.bots.append(new_bots[i])
                 self.botModel.appendRow(new_bots[i])
-                if new_bots[i].getVName() is not None and new_bots[i].getVName() != "":
-                    ip = new_bots[i].getVName().split("-")[2].split(" ")[0]
-                    vehicle = self.vehicle_service.find_vehicle_by_ip(ip)
-                    if vehicle is not None:
-                        bot_ids = ast.literal_eval(vehicle.bot_ids)
-                        if new_bots[i].getBid() not in bot_ids:
-                            bot_ids.append(new_bots[i].getBid())
-                            vehicle.bot_ids = str(bot_ids)
-                            self.vehicle_service.update_vehicle(vehicle)
+                self.updateVehicles(new_bots[i])
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
@@ -3209,15 +3201,7 @@ class MainWindow(QMainWindow):
                 "ebpw": abot.getAcctPw(),
                 "backemail_site": abot.getAcctPw()
             })
-            if abot.getVName() is not None and abot.getVName()!= "":
-                ip = abot.getVName().split("-")[2].split(" ")[0]
-                vehicle = self.vehicle_service.find_vehicle_by_ip(ip)
-                if vehicle is not None:
-                    bot_ids = ast.literal_eval(vehicle.bot_ids)
-                    if abot.getBid() not in bot_ids:
-                        bot_ids.append(abot.getBid())
-                        vehicle.bot_ids = str(bot_ids)
-                        self.vehicle_service.update_vehicle(vehicle)
+            self.updateVehicles(abot)
 
         jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
@@ -3231,6 +3215,29 @@ class MainWindow(QMainWindow):
                 self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
+
+    def updateVehicles(self, bot):
+        if bot.getVName() is not None and bot.getVName() != "":
+            ip = bot.getVName().split("-")[2].split(" ")[0]
+            vehicle = self.vehicle_service.find_vehicle_by_ip(ip)
+            if vehicle is not None:
+                bot_ids = ast.literal_eval(vehicle.bot_ids)
+                if bot.getBid() not in bot_ids:
+                    bot_ids.append(bot.getBid())
+                    vehicle.bot_ids = str(bot_ids)
+                    self.vehicle_service.update_vehicle(vehicle, bot.getBid())
+        vehicles = self.vehicle_service.findAllVehicle()
+        self.vehicles = []
+        for v in vehicles:
+            vehicle = VEHICLE(self)
+            vehicle.setVid(v.id)
+            vehicle.setName(v.name)
+            vehicle.setIP(v.ip)
+            vehicle.setBotIds(v.bot_ids)
+            vehicle.setMids(v.daily_mids)
+            vehicle.setOS(v.os)
+            vehicle.setMStats(v.mstats)
+            self.vehicles.append(vehicle)
 
     def addNewMissions(self, new_missions):
         # Logic for creating a new mission:
@@ -3497,7 +3504,6 @@ class MainWindow(QMainWindow):
             vehicle.setMids(ast.literal_eval(v.daily_mids))
             v.cap = vehicle.CAP
             self.vehicle_service.update_vehicle(v)
-
 
     def fetchVehicleStatus(self, rows):
         cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'

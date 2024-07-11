@@ -1,3 +1,4 @@
+import ast
 import json
 from typing import List
 
@@ -20,9 +21,19 @@ class VehicleService:
         self.session.commit()
         self.main_win.showMsg("Skill fetchall" + json.dumps(vehicle.to_dict()))
 
-    def update_vehicle(self, vehicle: VehicleModel):
+    def update_vehicle(self, vehicle: VehicleModel, botid: str = None):
+        if botid is not None:
+            self.find_vehicle_by_botid(botid)
         self.session.query(VehicleModel).filter(VehicleModel.ip == vehicle.ip).update(vehicle.to_dict())
         self.session.commit()
+
+    def find_vehicle_by_botid(self, botid: str):
+        vehicle = self.session.query(VehicleModel).filter(VehicleModel.bot_ids.like(f"%{botid}%")).first()
+        if vehicle is not None:
+            bot_ids = ast.literal_eval(vehicle.bot_ids)
+            bot_ids.remove(botid)
+            vehicle.bot_ids = str(bot_ids)
+            self.session.commit()
 
     def find_vehicle_by_ip(self, ip: str) -> VehicleModel:
         return self.session.query(VehicleModel).filter(VehicleModel.ip == ip).first()
