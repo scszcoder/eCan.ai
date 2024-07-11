@@ -545,6 +545,12 @@ def test_api(parent, session, token):
     # result = send_account_info_request_to_cloud(session, qs, token)
     # print("send_account_info_request_to_cloud RESULT:", result)
 
+
+def fix_localDB(mw):
+    # fix local DB tables if their columns don't match the reference.
+    bot_table_cols = mw.bot_service.describe_table()
+    mission_table_cols = mw.mission_service.describe_table()
+
 def test_sqlite3(mw):
     from sqlalchemy import Text, REAL
     # mw.bot_service.describe_table()
