@@ -1,9 +1,12 @@
 import asyncio
 import json
 import os
+import platform
 import queue
+import threading
 import time
 from concurrent.futures.thread import ThreadPoolExecutor
+from datetime import datetime
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QMessageBox, \
@@ -11,6 +14,7 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushB
 from pynput import keyboard, mouse
 
 import pyautogui
+import pyscreenshot as ImageGrab
 
 from gui.SkillGUI import SkillGUI
 from utils.logger_helper import logger_helper
@@ -42,6 +46,7 @@ class StopRecordDialog(QDialog):
         self.setLayout(main_layout)
 
 
+
 class TrainDialogWin(QMainWindow):
     def __init__(self, train_win):
         super(TrainDialogWin, self).__init__(train_win)
@@ -67,7 +72,7 @@ class ReminderWin(QMainWindow):
         self.reminder_label = QLabel(QApplication.translate("QLabel", "press <Esc> key to end recording"),
                                      alignment=Qt.AlignLeft)
         self.rLayout = QHBoxLayout()
-        if os.name == 'Darwin':
+        if platform.system() == 'Darwin':
             self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
             self.cancel_button.clicked.connect(main_win.trainNewSkillWin.stop_record)
             self.rLayout.addWidget(self.cancel_button)
@@ -118,7 +123,7 @@ class TrainNewWin(QMainWindow):
 
         self.skillGUI = SkillGUI(self)
 
-        self.imq = []
+        self.screen_image_stream = []
         self.record = []
         self.steps = 0
         self.actionRecord = []
@@ -166,11 +171,9 @@ class TrainNewWin(QMainWindow):
         else:
             current_time = time.time()
             time_since_last_screenshot = current_time - self.last_screenshot_time
-            if time_since_last_screenshot > 0.5:
+            if time_since_last_screenshot > 0.3:
                 print('Pointer moved to {0}'.format((x, y)))
                 self.event_queue.put(('move', x, y, None, None, None))
-                # self.screenshot('move', x, y)
-                # asyncio.create_task(self.screenshot('move', x, y))
                 self.last_screenshot_time = current_time
 
     async def process_events(self):
@@ -178,20 +181,31 @@ class TrainNewWin(QMainWindow):
             # 从队列中获取事件
             event_type, x, y, dx, dy, button = self.event_queue.get()
             if event_type is not None:
-                # 根据事件类型处理，例如创建异步任务执行截图
                 await self.screenshot(event_type, x, y, dx, dy, button)
             # 处理完事件后通知队列
             self.event_queue.task_done()
+            await asyncio.sleep(0.01)
+
+    async def save_screenshot(self):
+        while not self.record_over:
+            if len(self.screen_image_stream) >= 5:
+                for stream in self.screen_image_stream:
+                    stream['stream'].save(stream['file_name'])
             await asyncio.sleep(1)
 
-    async def screenshot(self, option: str, x: int = None, y: int = None, dx: any = None, dy: any = None,
-                            button: any = None):
-        self.steps += 1
-        fname = self.temp_dir + "step" + str(self.steps) + ".png"
-        # 使用run_in_executor来异步执行耗时的IO操作（如截图）
-        pyautogui.screenshot(fname)
-        # pyautogui.screenshot(fname)
+        if self.record_over:
+            if len(self.screen_image_stream) > 0:
+                for stream in self.screen_image_stream:
+                    stream['stream'].save(stream['file_name'])
 
+    async def screenshot(self, option: str, x: int = None, y: int = None, dx: any = None, dy: any = None,
+                         button: any = None):
+        self.steps += 1
+        now = datetime.now()
+        fname = self.temp_dir + option + "_step" + str(self.steps) + '_' + str(now.timestamp()) + ".png"
+        print("目前的操作：", option, x, y, dx, dy, button, self.steps, fname)
+        im = pyautogui.screenshot(fname)
+        self.screen_image_stream.append({'file_name': fname, 'stream': im})
         button_name = None
         if button is not None:
             button_name = button.name
@@ -199,7 +213,7 @@ class TrainNewWin(QMainWindow):
             'step': self.steps,
             'file_name': fname,
             'type': option,
-            'time': time.time(),
+            'time': now.timestamp(),
             'x': x,
             'y': y,
             'dx': dx,
@@ -207,6 +221,7 @@ class TrainNewWin(QMainWindow):
             'button': button_name
         }
         self.actionRecord.append(action)
+
 
     def on_click(self, x, y, button, pressed):
 
@@ -218,17 +233,21 @@ class TrainNewWin(QMainWindow):
         else:
             #  当按键松了后才进行记录事件
             if not pressed:
-                self.event_queue.put(('move', x, y, None, None, button))
+                self.event_queue.put(('click', x, y, None, None, button))
 
     def on_scroll(self, x, y, dx, dy):
         print("scroll:", x, y, dx, dy)
         if self.record_over:
             return False
         else:
-            print('Scrolled {0} at {1}'.format(
-                'down' if dy < 0 else 'up',
-                (x, y)))
-            self.event_queue.put(('move', x, y, dx, dy, None))
+            current_time = time.time()
+            time_since_last_screenshot = current_time - self.last_screenshot_time
+            if time_since_last_screenshot > 0.5:
+                print('Scrolled {0} at {1} at {2}'.format(
+                    'down' if dy < 0 else 'up',
+                    (x, y), (dx, dy)))
+                self.event_queue.put(('scroll', x, y, dx, dy, None))
+                self.last_screenshot_time = current_time
 
     def on_press(self, key):
         try:
@@ -244,17 +263,6 @@ class TrainNewWin(QMainWindow):
             return False
 
     def stop_record(self):
-        # self.record_over = True
-        # self.main_win.reminderWin.hide()
-        # stopRecordDialog = StopRecordDialog()
-        # # self.trainDialog.show()
-        # result = stopRecordDialog.exec()
-        # print(result)
-        # if result == QDialog.Accepted:
-        #     self.saveRecordFile()
-        #     # print("用户点击了确定")
-        # else:
-        #     print("用户点击了取消")
         self.record_over = True
         self.main_win.reminderWin.hide()
         msgBox = QMessageBox()
@@ -292,7 +300,7 @@ class TrainNewWin(QMainWindow):
             'on_scroll': self.on_scroll,
         })
         listener_list.append(mouse_listener)
-        if os.name != 'Darwin':
+        if platform.system() != 'Darwin':
             keyboard_listener = self._start_listener(keyboard.Listener, {
                 'on_press': self.on_press,
                 'on_release': self.on_release,
@@ -300,6 +308,8 @@ class TrainNewWin(QMainWindow):
             listener_list.append(keyboard_listener)
         process_events = self.process_events()
         listener_list.append(process_events)
+        save_screenshot = self.save_screenshot()
+        listener_list.append(save_screenshot)
         await asyncio.gather(*listener_list)
 
     def start_listening(self):
@@ -308,7 +318,7 @@ class TrainNewWin(QMainWindow):
             self.main_win.reminderWin.show()
             self.main_win.reminderWin.setGeometry(800, 0, 100, 50)
             print("Starting input event listeners...")
-            self.temp_dir = self.root_temp_dir + "/" + time.strftime("%Y%m%d-%H%M%S") + "/"
+            self.temp_dir = self.root_temp_dir + time.strftime("%Y%m%d-%H%M%S") + "/"
             if not os.path.exists(self.temp_dir):
                 os.makedirs(self.temp_dir)
             # 创建任务

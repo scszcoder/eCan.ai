@@ -5862,9 +5862,9 @@ class MainWindow(QMainWindow):
         def q_callback():
             asyncio.run_coroutine_threadsafe(self.quit_action(), loop)
 
-        keyboard.add_hotkey('esc', esc_callback)
-        keyboard.add_hotkey('space', space_callback)
-        keyboard.add_hotkey('q', q_callback)
+        # keyboard.add_hotkey('esc', esc_callback)
+        # keyboard.add_hotkey('space', space_callback)
+        # keyboard.add_hotkey('q', q_callback)
 
         # Keep the coroutine running to listen for the hotkey indefinitely
         while True:
