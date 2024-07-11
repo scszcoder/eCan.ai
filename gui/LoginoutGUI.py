@@ -36,7 +36,6 @@ ecb_data_homepath = getECBotDataHome()
 ACCT_FILE = ecb_data_homepath + "/uli.json"
 ROLE_FILE = ecb_data_homepath + "/role.json"
 
-
 class Login(QDialog):
     def __init__(self, parent=None):
         self.cog = None
@@ -47,7 +46,7 @@ class Login(QDialog):
         self.lang = "en"
         self.gui_net_msg_queue = asyncio.Queue()
         self.aws_srp = None
-
+        self.role_list = ["Staff Officer", "Commander", "Commander Only", "Platoon"]
         self.mode = "Sign In"
         self.machine_role = "Platoon"
         self.read_role()
@@ -75,11 +74,24 @@ class Login(QDialog):
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
 
         self.__translator = QTranslator()
-
+        self.lan_label = QLabel(QApplication.translate("QLabel", "Lauguage"))
         self.lan_select = QComboBox(self)
         self.lan_select.addItem('English')
         self.lan_select.addItem('中文')
         self.lan_select.currentIndexChanged.connect(self.on_lan_selected)
+
+        self.role_label = QLabel(QApplication.translate("QLabel", "Role"))
+        self.role_select = QComboBox(self)
+        for role in self.role_list:
+            self.role_select.addItem(QApplication.translate("QComboBox", role))
+
+        found_role_idx = next((i for i, role in enumerate(self.role_list) if role == self.machine_role), -1)
+        if found_role_idx > 0:
+            self.role_select.setCurrentIndex(found_role_idx)
+        else:
+            self.role_select.setCurrentIndex(1)         #commander will be set if file based machine role is unknown
+        self.role_select.currentIndexChanged.connect(self.on_role_selected)
+
 
         self.logo0 = QLabel(self)
         pixmap = QPixmap(ecbhomepath + '/resource/images/icons/maipps_logo192.png')
@@ -200,7 +212,14 @@ class Login(QDialog):
         self.reminder_layout = QHBoxLayout()
         self.reminder_layout.addWidget(self.mempw_cb)
         self.reminder_layout.addWidget(self.forget_label)
-        log_layout.addWidget(self.lan_select)
+
+        self.headline_layout = QHBoxLayout(self)
+        self.headline_layout.addWidget(self.lan_label)
+        self.headline_layout.addWidget(self.lan_select)
+        self.headline_layout.addWidget(self.role_label)
+        self.headline_layout.addWidget(self.role_select)
+
+        log_layout.addLayout(self.headline_layout)
         log_layout.addWidget(self.logo0)
         log_layout.addWidget(self.login_label)
         log_layout.addWidget(self.user_label)
@@ -237,6 +256,9 @@ class Login(QDialog):
     def set_ip(self, ip):
         self.ip = ip
 
+    def set_wan_connected(self, wan_status):
+        self.main_win.set_wan_connected(wan_status)
+
     def read_role(self):
         self.machine_role = "Platoon"
         print("ROLE FILE: " + ROLE_FILE)
@@ -256,7 +278,7 @@ class Login(QDialog):
         self.machine_role = role
 
     def isCommander(self):
-        if self.machine_role == "Commander" or self.machine_role == "CommanderOnly":
+        if self.machine_role == "Commander" or self.machine_role == "Commander Only":
             return True
         else:
             return False
@@ -300,6 +322,11 @@ class Login(QDialog):
             self.lang = "en"
             _app = QApplication.instance()
             _app.removeTranslator(self.__translator)
+
+    def on_role_selected(self, index):
+        print("Index changed", index)
+        self.machine_role = self.role_select.currentText()
+        print("new role selected: "+self.machine_role)
 
     def changeEvent(self, event):
         print("event occured....", event.type())
@@ -461,7 +488,7 @@ class Login(QDialog):
             print("hello hello hello")
             main_key = self.scramble(self.textPass.text())
 
-            if self.machine_role == "CommanderOnly" or self.machine_role == "Commander":
+            if self.machine_role == "Commander Only" or self.machine_role == "Commander":
                 # global commanderServer
 
                 self.main_win = MainWindow(self, main_key, self.tokens, commanderServer, self.ip,
