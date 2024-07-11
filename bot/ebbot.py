@@ -382,6 +382,8 @@ class BOT_PUB_PROFILE():
         self.interests = dj["interests"]
         self.roles = dj["roles"]
         self.levels = dj["levels"]
+        self.levelStart = dj["levelStart"]
+        self.vname = dj["vehicle"]
         self.status = dj["status"]
 
     def loadNetRespJson(self, dj):

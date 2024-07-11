@@ -45,7 +45,7 @@ from gui.ScheduleGUI import ScheduleWin
 from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
-from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt
 from bot.basicSkill import STEP_GAP
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
@@ -488,6 +488,7 @@ class MainWindow(QMainWindow):
         self.skillNewFromFileAction = self._createSkillNewFromFileAction()
 
         self.toolsADSProfileConverterAction = self._createToolsADSProfileConverterAction()
+        self.toolsADSProfileBatchToSinglesAction = self._createToolsADSProfileBatchToSinglesAction()
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
@@ -1050,6 +1051,7 @@ class MainWindow(QMainWindow):
         tools_menu = QMenu(QApplication.translate("QMenu", "&Tools"), self)
         tools_menu.setFont(self.main_menu_font)
         tools_menu.addAction(self.toolsADSProfileConverterAction)
+        tools_menu.addAction(self.toolsADSProfileBatchToSinglesAction)
 
         menu_bar.addMenu(tools_menu)
 
@@ -1325,6 +1327,12 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.runADSProfileConverter)
         return new_action
 
+    def _createToolsADSProfileBatchToSinglesAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&ADS Profile Batch To Singles"))
+        new_action.triggered.connect(self.runADSProfileBatchToSingles)
+        return new_action
 
     def _createHelpCommunityAction(self):
         # File actions
@@ -3030,6 +3038,22 @@ class MainWindow(QMainWindow):
             if exists(filename):
                 print("file name:", filename)
                 covertTxtProfiles2DefaultXlsxProfiles([filename])
+
+        except IOError:
+            QMessageBox.information(self, "Unable to open/save file: %s" % filename)
+
+    def runADSProfileBatchToSingles(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            QApplication.translate("QFileDialog", "Open ADS Profile File"),
+            '',
+            QApplication.translate("QFileDialog", "Text Files (*.txt)")
+        )
+
+        try:
+            if exists(filename):
+                print("file name:", filename)
+                updateIndividualProfileFromBatchSavedTxt(filename)
 
         except IOError:
             QMessageBox.information(self, "Unable to open/save file: %s" % filename)

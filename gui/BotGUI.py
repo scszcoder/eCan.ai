@@ -880,6 +880,7 @@ class BotNewWin(QMainWindow):
             self.main_win.addNewBots([self.newBot])
         elif self.mode == "update":
             self.main_win.showMsg("update a bot....")
+            print("new bot:", self.newBot.getVName(), self.newBot.getInterests())
             self.main_win.updateBots([self.newBot])
 
         self.close()
@@ -905,17 +906,41 @@ class BotNewWin(QMainWindow):
     def fillInterests(self):
         self.newBot.setInterests("")
         rowCount = self.interestTableModel.rowCount()
+        print("interest table rows:", rowCount)
         for i in range(rowCount):
-            platform = self.interestTableModel.item(i, 0).text()
-            main_category = self.interestTableModel.item(i, 1).text()
-            sub_category1 = self.interestTableModel.item(i, 2).text()
-            sub_category2 = self.interestTableModel.item(i, 3).text()
-            sub_category3 = self.interestTableModel.item(i, 4).text()
+            if self.interestTableModel.item(i, 0):
+                platform = self.interestTableModel.item(i, 0).text()
+            else:
+                platform = "any"
+
+            if self.interestTableModel.item(i, 1):
+                main_category = self.interestTableModel.item(i, 1).text()
+            else:
+                main_category = "any"
+
+            if self.interestTableModel.item(i, 2):
+                sub_category1 = self.interestTableModel.item(i, 2).text()
+            else:
+                sub_category1 = "any"
+
+            if self.interestTableModel.item(i, 3):
+                sub_category2 = self.interestTableModel.item(i, 3).text()
+            else:
+                sub_category2 = "any"
+
+            if self.interestTableModel.item(i, 4):
+                sub_category3 = self.interestTableModel.item(i, 4).text()
+            else:
+                sub_category3 = "any"
+
             int_words = platform + "|" + main_category + "|" + sub_category1 + "|" + sub_category2 + "|" + sub_category3
             if i == 0:
                 self.newBot.setInterests(int_words)
             else:
                 self.newBot.setInterests(self.newBot.getInterests() + "," + int_words)
+
+            if self.interestTableModel.item(i, 0):
+                break
         self.main_win.showMsg("interests>>>>>" + json.dumps(self.newBot.getInterests()))
 
     def selFile(self):
