@@ -3486,6 +3486,7 @@ class MainWindow(QMainWindow):
             vehicle_model.mstats = json.dumps(vehicle.mstats)
             vehicle_model.name = vehicle.name
             vehicle_model.os = vehicle.os
+            vehicle_model.cap = vehicle.CAP
             vehicle_model.status = vehicle.status
             self.vehicle_service.insert_vehicle(vehicle_model)
             vehicle.id = vehicle_model.id
@@ -3494,6 +3495,8 @@ class MainWindow(QMainWindow):
             vehicle.setBotIds(ast.literal_eval(v.bot_ids))
             vehicle.setMStats(ast.literal_eval(v.mstats))
             vehicle.setMids(ast.literal_eval(v.daily_mids))
+            v.cap = vehicle.CAP
+            self.vehicle_service.update_vehicle(v)
 
 
     def fetchVehicleStatus(self, rows):
