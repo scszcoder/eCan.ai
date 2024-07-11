@@ -205,6 +205,7 @@ class MainWindow(QMainWindow):
         self.main_key = main_key
 
         self.user = user
+        self.chat_id = user.split("@")[0]
         self.cog = None
         self.cog_client = None
         self.hostrole = machine_role
@@ -765,8 +766,13 @@ class MainWindow(QMainWindow):
         self.showMsg("ready to spawn mesg server task")
         if not self.hostrole == "Platoon":
             self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
+            self.wan_sub_task = asyncio.create_task(subscribe_to_wan_chat(self, self.tokens, self.chat_id))
+            self.wan_msg_task = asyncio.create_task(wan_handle_rx_message(self.session, self.tokens, self.websocket, self.wan_chat_msg_queue))
+            self.showMsg("spawned wan chat task")
         else:
             self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
+            self.wan_sub_task = asyncio.create_task(self.wait_forever())
+            self.wan_sub_task = asyncio.create_task(self.wait_forever())
 
         # the message queue are
         self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
@@ -778,10 +784,6 @@ class MainWindow(QMainWindow):
 
         self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
         self.showMsg("spawned chat task")
-
-        self.wan_sub_task = asyncio.create_task(subscribe_to_wan_chat(self, self.session, self.tokens))
-        self.wan_msg_task = asyncio.create_task(wan_handle_rx_message(self.session, self.tokens, self.websocket, self.wan_chat_msg_queue))
-        self.showMsg("spawned wan chat task")
 
         # with ThreadPoolExecutor(max_workers=3) as self.executor:
         #     self.rpa_task_future = asyncio.wrap_future(self.executor.submit(self.runbotworks, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
@@ -5900,3 +5902,13 @@ class MainWindow(QMainWindow):
 
     def get_websocket(self):
         return self.websocket
+
+    def set_wan_msg_subscribed(self, ss):
+        self.wan_msg_subscribed = ss
+
+    def get_wan_msg_subscribed(self):
+        return self.wan_msg_subscribed
+
+    # this is an empty task
+    async def wait_forever(self):
+        await asyncio.Event().wait()  # This will wait indefinitely
