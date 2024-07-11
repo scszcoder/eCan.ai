@@ -1111,6 +1111,7 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
         one_un = one_profile.split("_")[0]
 
         found_match = False
+        un = "none"
         for original_pfJson in pfJsons:
             un = original_pfJson["username"].split("@")[0]
             log3("searching user name. "+un+" "+one_un+" from:"+fname)
@@ -1130,7 +1131,7 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
             pfJson["cookie"]=json.dumps(pfJson["cookie"])
             new_pfJsons.append(pfJson)
         else:
-            log3("ERROR user not found..."+un)
+            log3("ERROR user not found..."+one_un+"  "+un)
 
     df = pd.DataFrame(new_pfJsons)
     log3("writing to xlsx:"+fname)
