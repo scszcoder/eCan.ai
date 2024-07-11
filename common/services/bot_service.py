@@ -8,6 +8,30 @@ import traceback
 from common.db_init import Base
 from bot.Logger import log3
 
+BOT_TABLE_DEF = [ {'name': 'botid', 'type': 'INTEGER', 'nullable': True, 'default': 0 },
+                      {'name': 'owner', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'levels', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'gender', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'birthday', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'interests', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'location', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'roles', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'status', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'delDate', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'name', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'pseudoname', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'nickname', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'addr', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'shipaddr', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'phone', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'email', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'epw', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'backemail', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'ebpw', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'backemail_site', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'createon', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'vehicle', 'type': 'TEXT', 'nullable': True, 'default': ""}
+                    ]
 class BotService:
     def __init__(self, main_win, session, engine):
         self.main_win = main_win
@@ -292,4 +316,21 @@ class BotService:
                 ex_stat = "ErrorDeleteColumnFromBotsTable:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorDeleteColumnFromBotsTable: traceback information not available:" + str(e)
+            print(ex_stat)
+
+
+    def fix_bot_table(self):
+        table_name = "bots"
+        try:
+            columns_info = self.describe_table()
+
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorFixBotsTable:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorFixBotsTable: traceback information not available:" + str(e)
             print(ex_stat)

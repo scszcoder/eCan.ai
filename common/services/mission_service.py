@@ -10,7 +10,48 @@ from common.models.mission import MissionModel
 from common.db_init import Base
 
 
-
+MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'ticket', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'botid', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'status', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'createon', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'esd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'ecd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'asd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'abd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'aad', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'afd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'acd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'actual_start_time', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'est_start_time', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'actual_runtime', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'est_runtime', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'n_retries', 'type': 'INTEGER', 'nullable': True, 'default': 3},
+                          {'name': 'cuspas', 'type': 'TEXT', 'nullable': True, 'default': "win,ads,amz"},
+                          {'name': 'category', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'phrase', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'pseudoStore', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'pseudoBrand', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'pseudoASIN', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'type', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'config', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'skills', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'delDate', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'asin', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'store', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'follow_seller', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'brand', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'img', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'title', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'variations', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'rating', 'type': 'REAL', 'nullable': True, 'default': 0.0},
+                          {'name': 'feedbacks', 'type': 'INTEGER', 'nullable': True, 'default': -1},
+                          {'name': 'price', 'type': 'REAL', 'nullable': True, 'default': 0.0},
+                          {'name': 'follow_price', 'type': 'REAL', 'nullable': True, 'default': 0.0},
+                          {'name': 'customer', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'platoon', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'result', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                     ]
 class MissionService:
     def __init__(self, main_win, session, engine):
         self.main_win = main_win
@@ -245,44 +286,7 @@ class MissionService:
 
             return columns
 
-    # original_table = Table(
-    #     'missions', metadata,
-    #     Column('mid', Integer, primary_key=True),
-    #     Column('ticket', Integer),
-    #     Column('botid', Integer),
-    #     Column('status', Text),
-    #     Column('createon', Text),
-    #     Column('esd', Text),
-    #     Column('ecd', Text),
-    #     Column('asd', Text),
-    #     Column('abd', Text),
-    #     Column('aad', Text),
-    #     Column('afd', Text),
-    #     Column('acd', Text),
-    #     Column('actual_start_time', Text),
-    #     Column('est_start_time', Text),
-    #     Column('actual_runtime', Text),
-    #     Column('est_runtime', Text),
-    #     Column('n_retries', Integer),
-    #     Column('cuspas', Text),
-    #     Column('category', Text),
-    #     Column('phrase', Text),
-    #     Column('pseudoStore', Text),
-    #     Column('pseudoBrand', Text),
-    #     Column('pseudoASIN', Text),
-    #     Column('type', Text),
-    #     Column('config', Text),
-    #     Column('skills', Text),
-    #     Column('delDate', Text),
-    #     Column('asin', Text),
-    #     Column('brand', Text),
-    #     Column('title', Text),
-    #     Column('rating', Text),
-    #     Column('feedbacks', Text),
-    #     Column('customer', Text),
-    #     Column('platoon', Text),
-    #     Column('result', Text)
-    # )
+
     def add_column(self, new_column_name, new_column_data_type, after_column_name):
         print("missions Table adding column....")
         # metadata = MetaData(bind=model.engine)

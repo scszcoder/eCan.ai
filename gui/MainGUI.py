@@ -707,7 +707,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
-            test_sqlite3(self)
+            fix_localDB(self)
             self.readVehicleJsonFile()
             # load skills into memory.
             self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
