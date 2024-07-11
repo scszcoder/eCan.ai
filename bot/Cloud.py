@@ -919,13 +919,17 @@ def gen_feedback_request_string(fbReq):
     logger_helper.debug(query_string)
     return query_string
 
-def gen_wan_chat_message_string(wan_chat_req):
+
+def gen_wan_send_chat_message_string(wan_chat_req):
     send_msg_mutation = """
-        mutation sendMessage($content: String!, $sender: String!) {
-          sendMessage(content: $content, sender: $sender) {
+        mutation sendWanMessage($content: String!, $sender: String!, $receiver: String!, $parameters: String!) {
+          sendWanMessage(input: { chatID: $chatID, content: $content, sender: $sender ,receiver: $receiver, parameters: $parameters) {
             id
+            chatID
             content
             sender
+            receiver
+            parameters
             timestamp
           }
         }
@@ -1630,7 +1634,7 @@ async def send_wan_chat_message(content, sender, token):
         "content": content,
         "sender": sender
     }
-    query_string = gen_wan_chat_message_string(content['msg'])
+    query_string = gen_wan_send_chat_message_string(content['msg'])
     headers = {
         'Content-Type': "application/graphql",
         'Authorization': token,
