@@ -1,6 +1,7 @@
 import json
 
-from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text
+import sqlalchemy.sql.sqltypes
+from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, INTEGER, Integer, String, REAL, TEXT, Text, text
 
 from Cloud import send_query_bots_request_to_cloud
 from common.models.bot import BotModel
@@ -32,6 +33,10 @@ BOT_TABLE_DEF = [ {'name': 'botid', 'type': 'INTEGER', 'nullable': True, 'defaul
                       {'name': 'createon', 'type': 'TEXT', 'nullable': True, 'default': ""},
                       {'name': 'vehicle', 'type': 'TEXT', 'nullable': True, 'default': ""}
                     ]
+
+SA_TYPE_TABLE = {"TEXT": TEXT, "REAL": REAL, "INTEGER": INTEGER}
+
+
 class BotService:
     def __init__(self, main_win, session, engine):
         self.main_win = main_win
@@ -159,14 +164,11 @@ class BotService:
                 self.session.add(result)
         self.session.commit()
 
-    def describe_table(self):
+    def describe_table(self, table_name="bots"):
         # Connect to the database
         with self.engine.connect() as conn:
             # Use the Inspector to get table information
             inspector = inspect(self.engine)
-
-            # Specify the table name you want to describe
-            table_name = 'bots'
 
             # Get the columns of the table
             columns = inspector.get_columns(table_name)
@@ -175,7 +177,7 @@ class BotService:
             log3("bots Table column definitions:")
             for column in columns:
                 log3(
-                    f"Column: {column['name']}, Type: {column['type']}, Nullable: {column['nullable']}, Default: {column['default']}")
+                    f"Column: {column['name']}, Type: {column['type']} -  - {type(column['type'])}, Nullable: {column['nullable']}, Default: {column['default']}")
 
             return columns
 
@@ -319,10 +321,80 @@ class BotService:
             print(ex_stat)
 
 
-    def fix_bot_table(self):
-        table_name = "bots"
+    def fix_local_table(self, local_table="bots", ref_table=BOT_TABLE_DEF):
         try:
+            print("fix local table")
             columns_info = self.describe_table()
+            col_names = [c["name"] for c in columns_info]
+            # Create list of columns for the new table
+            new_columns = []
+
+            for col_info in ref_table:
+                if col_info['name'] not in col_names:
+                    new_columns.append(Column(col_info['name'], SA_TYPE_TABLE[col_info['type']], nullable=col_info['nullable'], default=col_info['default']))
+                else:
+                    ci = col_names.index(col_info['name'])
+                    if col_info['type'] != type(columns_info[ci]['type']).__name__.upper():
+                        new_columns.append(Column(col_info['name'], SA_TYPE_TABLE[col_info['type']], nullable=col_info['nullable'], default=col_info['default']))
+                    else:
+                        new_columns.append(Column(col_info['name'], columns_info[ci]['type'], nullable=col_info['nullable'], default=col_info['default']))
+
+            # Define the new table schema
+            table_name = local_table+"_old"
+            new_table_name = local_table+"_new"
+            new_table = Table(new_table_name, Base.metadata, *new_columns)
+
+            # with model.engine.connect() as conn:
+            # Rename the original table
+            # self.session.execute(text(f"DROP TABLE {table_name}"))
+            original_table_name = local_table
+            self.session.execute(text(f"ALTER TABLE {original_table_name} RENAME TO {table_name}"))
+
+            # Create the new table with the desired column order
+            Base.metadata.create_all(self.engine, tables=[new_table])
+
+            # Copy data from the old table to the new table
+
+            columns_to_copy = [col.name for col in new_table.columns if col.name in col_names]
+            columns_to_copy_str = ', '.join(columns_to_copy)
+
+            # Copy data from the original table to the temporary table
+            cols = [col_def['name'] for col_def in ref_table]
+            cols_str = ", ".join(cols)
+
+            # Adjust the select statement to ensure data is correctly converted
+            select_stmt = f"SELECT "
+            for col_def in ref_table:
+                col_name = col_def['name']
+                if col_name in col_names:
+                    if col_def['type'] == "INTEGER":
+                        select_stmt += f"COALESCE(CAST({col_name} AS INTEGER), {col_def['default']}), "
+                    elif col_def['type'] == "REAL":
+                        select_stmt += f"COALESCE(CAST({col_name} AS REAL), {col_def['default']}), "
+                    elif col_def['type'] == "TEXT":
+                        select_stmt += f"COALESCE(CAST({col_name} AS TEXT), '{col_def['default']}'), "
+                    else:
+                        select_stmt += f"COALESCE({col_name}, {col_def['default']}), "
+                else:
+                    select_stmt += f"{repr(col_def['default'])} AS {col_name}, "
+
+            select_stmt = select_stmt.rstrip(", ") + f" FROM {table_name}"
+
+
+            # Copy data from the old table to the new table
+            self.session.execute(text(f"INSERT INTO {new_table_name} ({cols_str}) {select_stmt}"))
+
+            # Drop the old table
+            self.session.execute(text(f"DROP TABLE {table_name};"))
+
+            # Rename the new table to the original table name
+            self.session.execute(text(f"ALTER TABLE {new_table_name} RENAME TO {local_table};"))
+
+            self.session.commit()
+
+            print("after modifying table=============================================")
+            self.describe_table()
+            self.find_all_bots()
 
 
         except Exception as e:
