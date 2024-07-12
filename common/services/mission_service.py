@@ -137,6 +137,7 @@ class MissionService:
             local_mission.result = messions["result"]
             local_mission.follow_seller = messions["follow_seller"]
             local_mission.follow_price = messions["follow_price"]
+            local_mission.fingerprint_profile = messions["fingerprint_profile"]
             self.session.add(local_mission)
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
         self.session.commit()
