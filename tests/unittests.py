@@ -545,12 +545,20 @@ def test_api(parent, session, token):
     # result = send_account_info_request_to_cloud(session, qs, token)
     # print("send_account_info_request_to_cloud RESULT:", result)
 
+
+def fix_localDB(mw):
+    print("fix local DB is no longer necessary")
+    # fix local DB tables if their columns don't match the reference.
+    # mw.bot_service.fix_local_table()
+    # mission_table_cols = mw.mission_service.fix_local_table()
+
 def test_sqlite3(mw):
     from sqlalchemy import Text, REAL
-    # mw.bot_service.describe_table()
+    mw.bot_service.describe_table()
     # mw.bot_service.add_column("createon", Text, "ebpw")
     # mw.bot_service.add_column("vehicle", Text, "createon")
     mw.mission_service.describe_table()
+    mw.mission_service.find_all_missions()
     # mw.mission_service.add_column("follow_seller", Text, "store")
     # mw.mission_service.add_column("follow_price", REAL, "price")
     #mw.mission_service.describe_table()

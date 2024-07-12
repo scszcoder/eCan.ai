@@ -1,14 +1,55 @@
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import inspect, delete, or_
+from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text, TEXT, REAL, INTEGER
 
 from Cloud import send_query_missions_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.mission import MissionModel
 from utils.logger_helper import logger_helper
 
-
+MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'ticket', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'botid', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'status', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'createon', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'esd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'ecd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'asd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'abd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'aad', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'afd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'acd', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'actual_start_time', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'est_start_time', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'actual_runtime', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'est_runtime', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                          {'name': 'n_retries', 'type': 'INTEGER', 'nullable': True, 'default': 3},
+                          {'name': 'cuspas', 'type': 'TEXT', 'nullable': True, 'default': "win,ads,amz"},
+                          {'name': 'category', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'phrase', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'pseudoStore', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'pseudoBrand', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'pseudoASIN', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'type', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'config', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'skills', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'delDate', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'asin', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'store', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'follow_seller', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'brand', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'img', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'title', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'variations', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'rating', 'type': 'REAL', 'nullable': True, 'default': 0.0},
+                          {'name': 'feedbacks', 'type': 'INTEGER', 'nullable': True, 'default': -1},
+                          {'name': 'price', 'type': 'REAL', 'nullable': True, 'default': 0.0},
+                          {'name': 'follow_price', 'type': 'REAL', 'nullable': True, 'default': 0.0},
+                          {'name': 'customer', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'platoon', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'result', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                     ]
 class MissionService:
     def __init__(self, main_win, session):
         self.main_win = main_win

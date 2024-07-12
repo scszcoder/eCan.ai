@@ -712,7 +712,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
-            test_sqlite3(self)
+            fix_localDB(self)
             self.readVehicleJsonFile()
             # load skills into memory.
             self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
@@ -1876,7 +1876,7 @@ class MainWindow(QMainWindow):
             vtasks = self.flattenTaskGroup(tgs[vehicle])
             # for vtask in vtasks:
             #     found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
-            #     bot_v = found_bot.getVName()
+            #     bot_v = found_bot.getVehicle()
             #     print("bot_v:", bot_v, "task v:", vehicle)
             vtgs[vehicle] = vtasks
         return vtgs
@@ -2225,7 +2225,7 @@ class MainWindow(QMainWindow):
                         else:
                             self.showMsg(get_printable_datetime() + "vehicle "+vname+" is not FOUND on LAN.")
                     else:
-                        print("ERROR: vehicle not found: "+vehicle)
+                        print("ERROR: vehicle not found: "+vname)
 
                 # else:
                 #     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
@@ -2466,8 +2466,8 @@ class MainWindow(QMainWindow):
             # generate walk skills on the fly.
             running_mission = self.missions[worksettings["midx"]]
 
-            if 'ads' in running_mission.getCusPAS() and running_mission.getADSXlsxProfile() == "":
-                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()) + " " + running_mission.getCusPAS() + " " + running_mission.getADSXlsxProfile())
+            if 'ads' in running_mission.getCusPAS() and running_mission.getFingerPrintProfile() == "":
+                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()) + " " + running_mission.getCusPAS() + " " + running_mission.getFingerPrintProfile())
                 runResult = "ErrorRPA ADS mission has no profile " + str(running_mission.getMid())
                 self.update1MStat(worksettings["midx"], runResult)
                 self.update1WorkRunStatus(worksTBD, worksettings["midx"])
@@ -3217,14 +3217,14 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             if jbody['numberOfRecordsUpdated'] == len(bots):
                 for i, abot in bots:
-                    api_bots[i]["vehicle"] = abot.getVName()
+                    api_bots[i]["vehicle"] = abot.getVehicle()
                 self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
 
     def updateVehicles(self, bot):
-        if bot.getVName() is not None and bot.getVName() != "":
-            ip = bot.getVName().split("-")[2].split(" ")[0]
+        if bot.getVehicle() is not None and bot.getVehicle() != "":
+            ip = bot.getVehicle().split("-")[2].split(" ")[0]
             vehicle = self.vehicle_service.find_vehicle_by_ip(ip)
             if vehicle is not None:
                 bot_ids = ast.literal_eval(vehicle.bot_ids)
@@ -3966,6 +3966,9 @@ class MainWindow(QMainWindow):
         elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
             self.showMsg("CLICKED on bot:"+str(source.indexAt(event.pos()).row()))
         #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
+        elif (event.type() == QEvent.MouseButtonPress ) and source is self.missionListView:
+            self.showMsg("CLICKED on mission:"+str(source.indexAt(event.pos()).row())+"selected row:"+str(self.missions))
+        #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
             self.popMenu = QMenu(self)
@@ -4039,8 +4042,8 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("populating a newly created mission GUI............")
             self.missionWin = MissionNewWin(self)
-            self.showMsg("done create mission win............"+str(self.selected_mission_item.getMid()))
-            self.missionWin.setMission(self.selected_mission_item)
+            self.showMsg("done create mission win............"+str(self.selected_cus_mission_item.getMid()))
+            self.missionWin.setMission(self.selected_cus_mission_item)
 
         self.missionWin.setMode("update")
         self.missionWin.show()
@@ -4127,7 +4130,7 @@ class MainWindow(QMainWindow):
             "start_time": 1,            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
             "bid": amission.getBid(),
             "config": amission.getConfig(),
-            "ads_xlsx_profile": amission.setADSXlsxProfile()
+            "fingerprint_profile": amission.setFingerPrintProfile()
         }], "current widx":0}
 
         current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_rpa_queue, gui_monitor_queue)
@@ -4823,8 +4826,8 @@ class MainWindow(QMainWindow):
 
     def addBotToVehicle(self, new_bot):
 
-        if new_bot.getVName() != "" and new_bot.getVName() != "NA":
-            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVName()), None)
+        if new_bot.getVehicle() != "" and new_bot.getVehicle() != "NA":
+            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVehicle()), None)
 
             if found_v:
                 nadded = found_v.addBot(new_bot.getBid())
