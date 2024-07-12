@@ -370,7 +370,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "b_backup_email": bot.getBackEm(),
             "b_backup_email_pw": bot.getAcctPw(),
             "b_backup_email_site": bot.getBackEmSite(),
-            "batch_profile": works[widx]["ads_xlsx_profile"],
+            "batch_profile": works[widx]["fingerprint_profile"],
             "full_site": full_site,
             "seller": sij,
             "mid": mission_id,

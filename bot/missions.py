@@ -413,13 +413,13 @@ class EBMISSION(QStandardItem):
         self.icon = QIcon(main_win.file_resouce.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(main_win.std_item_font)
-        self.ads_xlsx_profile = ""
+        self.fingerprint_profile = ""
 
-    def setADSXlsxProfile(self, axpf):
-        self.ads_xlsx_profile = axpf
+    def setFingerPrintProfile(self, axpf):
+        self.fingerprint_profile = axpf
 
-    def getADSXlsxProfile(self):
-        return self.ads_xlsx_profile
+    def getFingerPrintProfile(self):
+        return self.fingerprint_profile
 
     def setMissionIcon(self, icon):
         self.icon = icon
@@ -886,7 +886,7 @@ class EBMISSION(QStandardItem):
 
     def genJson(self):
         jsd = {
-                "ads_xlsx_profile": self.ads_xlsx_profile,
+                "fingerprint_profile": self.fingerprint_profile,
                 "pubAttributes": self.pubAttributes.genJson(),
                 "privateAttributes": self.privateAttributes.genJson()
                 }
@@ -902,7 +902,7 @@ class EBMISSION(QStandardItem):
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
-        self.ads_xlsx_profile = jd["ads_xlsx_profile"]
+        self.fingerprint_profile = jd["fingerprint_profile"]
         # self.tasks = jd["tasks"]
         # self.main_win_settings["uid"] = jd["main_win_settings"]["uid"]
 

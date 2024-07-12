@@ -1251,12 +1251,12 @@ def genAdsProfileBatchs(host, host_ip, task_groups):
         found_mision = None
         if len(found_missions) > 0:
             found_mision = found_missions[0]
-            bot_work["ads_xlsx_profile"] = batch_file
-            found_mision.setADSXlsxProfile(batch_file)
+            bot_work["fingerprint_profile"] = batch_file
+            found_mision.setFingerPrintProfile(batch_file)
         else:
-            bot_work["ads_xlsx_profile"] = ""
+            bot_work["fingerprint_profile"] = ""
 
-        log3("bot ads_xlsx_profile:" + bot_work["ads_xlsx_profile"])
+        log3("bot fingerprint_profile:" + bot_work["fingerprint_profile"])
 
         if len(found_bots) > 0 and found_mision:
             found_bot = found_bots[0]
@@ -1269,7 +1269,7 @@ def genAdsProfileBatchs(host, host_ip, task_groups):
                 batch_bot_profiles_read.append(bot_txt_profile_name)
             else:
                 log3("bot_txt_profile_name doesn't exist!")
-                found_mision.setADSXlsxProfile("")
+                found_mision.setFingerPrintProfile("")
                 newly_read = []
 
             batch_bot_mids.append(bot_mid_key)
