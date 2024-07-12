@@ -1,11 +1,40 @@
 import json
 
-from sqlalchemy import inspect, delete, or_
+import sqlalchemy.sql.sqltypes
+from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, INTEGER, Integer, String, REAL, TEXT, Text, text
 
 from Cloud import send_query_bots_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.bot import BotModel
 from utils.logger_helper import logger_helper
+
+
+BOT_TABLE_DEF = [ {'name': 'botid', 'type': 'INTEGER', 'nullable': True, 'default': 0 },
+                      {'name': 'owner', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'levels', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'gender', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'birthday', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'interests', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'location', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'roles', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'status', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'delDate', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'name', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'pseudoname', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'nickname', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'addr', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'shipaddr', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'phone', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'email', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'epw', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'backemail', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'ebpw', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'backemail_site', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'createon', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'vehicle', 'type': 'TEXT', 'nullable': True, 'default': ""}
+                    ]
+
+SA_TYPE_TABLE = {"TEXT": TEXT, "REAL": REAL, "INTEGER": INTEGER}
 
 
 class BotService:
