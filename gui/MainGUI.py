@@ -3292,6 +3292,7 @@ class MainWindow(QMainWindow):
                 "follow_price": new_mission.getFollowPrice(),
                 "customer": new_mission.getCustomerID(),
                 "platoon": new_mission.getPlatoonID(),
+                "fingerprint_profile": new_mission.getFingerPrintProfile(),
                 "result": ""
             })
         jresp = send_add_missions_request_to_cloud(self.session, new_missions,
@@ -3364,7 +3365,8 @@ class MainWindow(QMainWindow):
                 "follow_price": amission.getFollowPrice(),
                 "customer": amission.getCustomerID(),
                 "platoon": amission.getPlatoonID(),
-                "result": amission.getResult()
+                "result": amission.getResult(),
+                "fingerprint_profile": amission.getFingerPrintProfile()
             })
 
         jresp = send_update_missions_request_to_cloud(self.session, missions, self.tokens['AuthenticationResult']['IdToken'])
@@ -3375,7 +3377,7 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             self.showMsg("Update Cloud side result:"+json.dumps(jbody))
             if jbody['numberOfRecordsUpdated'] == len(missions):
-                self.mission_service.update_missions_by_ticket(api_missions)
+                self.mission_service.update_missions_by_id(api_missions)
                 mid_list = [mission.getMid() for mission in missions]
                 self.mission_service.find_missions_by_mids(mid_list)
             else:

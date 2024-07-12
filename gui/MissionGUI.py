@@ -453,6 +453,24 @@ class MissionNewWin(QMainWindow):
         self.cus_id_edit = QLineEdit()
         self.cus_id_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Customer ID here"))
 
+        self.veriations_label = QLabel(QApplication.translate("QLabel", "Veriations:"), alignment=Qt.AlignLeft)
+        self.veriations_edit = QLineEdit()
+        self.veriations_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Veriations here"))
+
+        self.follow_price_label = QLabel(QApplication.translate("QLabel", "Follow Price:"), alignment=Qt.AlignLeft)
+        self.follow_price_edit = QLineEdit()
+        self.follow_price_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Follow Price here"))
+
+        self.follow_seller_label = QLabel(QApplication.translate("QLabel", "Follow Seller:"), alignment=Qt.AlignLeft)
+        self.follow_seller_edit = QLineEdit()
+        self.follow_seller_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Follow Seller here"))
+
+        self.fingerprint_profile_label = QLabel(QApplication.translate("QLabel", "Fingerprint Profile:"), alignment=Qt.AlignLeft)
+        self.fingerprint_profile_edit = QLineEdit()
+        self.fingerprint_profile_edit.setReadOnly(True)
+        self.fingerprint_profile_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Please select files of type Text, xls, xlsx or csv."))
+        self.fingerprint_profile_button = QPushButton("...")
+        self.fingerprint_profile_button.clicked.connect(self.fingerprint_profile_file)
         self.cus_sm_type_label = QLabel(QApplication.translate("QLabel", "Customer Messenging Type:"),
                                         alignment=Qt.AlignLeft)
         self.cus_sm_type_sel = QComboBox()
@@ -577,6 +595,21 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine10Layout.addWidget(self.op_mission_type_custome_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine11Layout)
 
+        self.prvAttrLine12Layout = QHBoxLayout(self)
+        self.prvAttrLine12Layout.addWidget(self.veriations_label)
+        self.prvAttrLine12Layout.addWidget(self.veriations_edit)
+        self.prvAttrLine12Layout.addWidget(self.follow_seller_label)
+        self.prvAttrLine12Layout.addWidget(self.follow_seller_edit)
+        self.prvAttrLine12Layout.addWidget(self.follow_price_label)
+        self.prvAttrLine12Layout.addWidget(self.follow_price_edit)
+        self.prvAttrWidget.layout.addLayout(self.prvAttrLine12Layout)
+
+        self.prvAttrLine13Layout = QHBoxLayout(self)
+        self.prvAttrLine13Layout.addWidget(self.fingerprint_profile_label)
+        self.prvAttrLine13Layout.addWidget(self.fingerprint_profile_edit)
+        self.prvAttrLine13Layout.addWidget(self.fingerprint_profile_button)
+        self.prvAttrWidget.layout.addLayout(self.prvAttrLine13Layout)
+
         self.prvAttrWidget.setLayout(self.prvAttrWidget.layout)
 
         self.mission_status_label = QLabel(QApplication.translate("QLabel", "Mission Status:"), alignment=Qt.AlignLeft)
@@ -636,6 +669,14 @@ class MissionNewWin(QMainWindow):
         elif self.mode == "update":
             self.setWindowTitle('Updating a mission')
 
+    def fingerprint_profile_file(self):
+        file_dialog = QFileDialog()
+        file_dialog.setFileMode(QFileDialog.ExistingFile)  # 只选择现有文件
+        file_dialog.setNameFilter("Text files (*.txt);;Excel files (*.xls *.xlsx *.csv)")  # 限制文件类型
+        file_path, _ = file_dialog.getOpenFileName(self, "Select File")
+        if file_path:
+            self.fingerprint_profile_edit.setText(file_path)
+
     def saveMission(self):
         self.main_win.showMsg("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
@@ -688,6 +729,10 @@ class MissionNewWin(QMainWindow):
                                                   self.price_edit.text())
 
         self.newMission.setCustomerID(self.cus_email_edit.text())
+        self.newMission.setFollowPrice(self.follow_price_edit.text())
+        self.newMission.setFollowSeller(self.follow_seller_edit.text())
+        self.newMission.setVariations(self.veriations_edit.text())
+        self.newMission.setFingerPrintProfile(self.fingerprint_profile_edit.text())
         self.newMission.setCustomerSMID(self.cus_sm_id_edit.text())
         self.newMission.setCustomerSMPlatform(self.cus_alt_sm_type_sel.currentText())
 
