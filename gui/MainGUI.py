@@ -2466,8 +2466,8 @@ class MainWindow(QMainWindow):
             # generate walk skills on the fly.
             running_mission = self.missions[worksettings["midx"]]
 
-            if 'ads' in running_mission.getCusPAS() and running_mission.getADSXlsxProfile() == "":
-                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()) + " " + running_mission.getCusPAS() + " " + running_mission.getADSXlsxProfile())
+            if 'ads' in running_mission.getCusPAS() and running_mission.getFingerPrintProfile() == "":
+                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()) + " " + running_mission.getCusPAS() + " " + running_mission.getFingerPrintProfile())
                 runResult = "ErrorRPA ADS mission has no profile " + str(running_mission.getMid())
                 self.update1MStat(worksettings["midx"], runResult)
                 self.update1WorkRunStatus(worksTBD, worksettings["midx"])
@@ -4130,7 +4130,7 @@ class MainWindow(QMainWindow):
             "start_time": 1,            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
             "bid": amission.getBid(),
             "config": amission.getConfig(),
-            "ads_xlsx_profile": amission.setADSXlsxProfile()
+            "fingerprint_profile": amission.setFingerPrintProfile()
         }], "current widx":0}
 
         current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_rpa_queue, gui_monitor_queue)
