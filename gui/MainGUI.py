@@ -1876,7 +1876,7 @@ class MainWindow(QMainWindow):
             vtasks = self.flattenTaskGroup(tgs[vehicle])
             # for vtask in vtasks:
             #     found_bot = next((b for i, b in enumerate(self.bots) if b.getBid() == vtask["bid"]), None)
-            #     bot_v = found_bot.getVName()
+            #     bot_v = found_bot.getVehicle()
             #     print("bot_v:", bot_v, "task v:", vehicle)
             vtgs[vehicle] = vtasks
         return vtgs
@@ -3217,14 +3217,14 @@ class MainWindow(QMainWindow):
             jbody = jresp["body"]
             if jbody['numberOfRecordsUpdated'] == len(bots):
                 for i, abot in bots:
-                    api_bots[i]["vehicle"] = abot.getVName()
+                    api_bots[i]["vehicle"] = abot.getVehicle()
                 self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
 
     def updateVehicles(self, bot):
-        if bot.getVName() is not None and bot.getVName() != "":
-            ip = bot.getVName().split("-")[2].split(" ")[0]
+        if bot.getVehicle() is not None and bot.getVehicle() != "":
+            ip = bot.getVehicle().split("-")[2].split(" ")[0]
             vehicle = self.vehicle_service.find_vehicle_by_ip(ip)
             if vehicle is not None:
                 bot_ids = ast.literal_eval(vehicle.bot_ids)
@@ -4823,8 +4823,8 @@ class MainWindow(QMainWindow):
 
     def addBotToVehicle(self, new_bot):
 
-        if new_bot.getVName() != "" and new_bot.getVName() != "NA":
-            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVName()), None)
+        if new_bot.getVehicle() != "" and new_bot.getVehicle() != "NA":
+            found_v = next((x for x in self.vehicles if x.getName() == new_bot.getVehicle()), None)
 
             if found_v:
                 nadded = found_v.addBot(new_bot.getBid())
