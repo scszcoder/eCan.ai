@@ -16,7 +16,6 @@ from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml, amz_buyer_scrape_produ
     amz_buyer_scrape_product_reviews
 import time
 import os
-from fuzzywuzzy import fuzz
 
 SAME_ROW_THRESHOLD = 16
 

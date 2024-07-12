@@ -1,4 +1,6 @@
+import ast
 import json
+from typing import List
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QFont, QStandardItemModel, QStandardItem, QIcon, QAction
@@ -6,7 +8,9 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, Q
     QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QListView, QFrame, QMenu, QLabel, \
     QTableView, QMessageBox, QStyledItemDelegate
 from bot.ebbot import EBBOT
+from models import VehicleModel
 from tool.MainGUITool import StaticResource
+
 
 
 class ComboBoxDelegate(QStyledItemDelegate):
@@ -39,7 +43,7 @@ class BotNewWin(QMainWindow):
         super(BotNewWin, self).__init__(main_win)
         self.main_win = main_win
         self.newBot = EBBOT(main_win)
-
+        self.vehicleArray = self.findAllVehicle()
         # def __init__(self):
         #     super().__init__()
         self.mainWidget = QWidget()
@@ -61,7 +65,7 @@ class BotNewWin(QMainWindow):
         self.selected_interest_sub_category3 = "any"
         self.selected_interest_sub_category4 = "any"
         self.selected_interest_sub_category5 = "any"
-
+        self.selected_vehicle_combo_box = 'NA'
         self.selected_role_platform = "Amazon"
         self.selected_role_level = "Green"
         self.selected_role_role = "Buyer"
@@ -152,6 +156,20 @@ class BotNewWin(QMainWindow):
         self.age_edit = QLineEdit()
         self.age_edit.setReadOnly(True)
         self.pfn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input age here"))
+        self.vehicle_label = QLabel(QApplication.translate("QLabel", "Vehicle:"), alignment=Qt.AlignLeft)
+        self.vehicle_combo_box = QComboBox()
+
+        for p in self.main_win.vehicles:
+            combined_value = f"{p.getOS()}-{p.getName()}-{p.getIP()} {len(p.getBotIds())}"  # 拼接字符串
+            item = QApplication.translate("QComboBox", combined_value)
+            self.vehicle_combo_box.addItem(item)
+            if len(p.bot_ids) > p.CAP:  # 若 status 为 False 则禁用该选项
+                index = self.vehicle_combo_box.findText(item)
+                if index >= 0:
+                    self.vehicle_combo_box.model().item(index).setEnabled(False)
+        self.vehicle_combo_box.setCurrentIndex(-1)
+        self.vehicle_combo_box.currentTextChanged.connect(self.vehicle_combo_box_changed)
+
         self.mf_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Gender:</b>"),
                                alignment=Qt.AlignLeft)
 
@@ -309,6 +327,11 @@ class BotNewWin(QMainWindow):
         self.pubpflLine6Layout.addWidget(self.age_label)
         self.pubpflLine6Layout.addWidget(self.age_edit)
         self.pubpflWidget_layout.addLayout(self.pubpflLine6Layout)
+
+        self.pubpflLine6ALayout = QHBoxLayout(self)
+        self.pubpflLine6ALayout.addWidget(self.vehicle_label)
+        self.pubpflLine6ALayout.addWidget(self.vehicle_combo_box)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine6ALayout)
 
         self.pubpflLine7Layout = QHBoxLayout(self)
         self.pubpflLine7Layout.addWidget(self.mf_label)
@@ -841,6 +864,8 @@ class BotNewWin(QMainWindow):
 
     def saveBot(self):
         self.main_win.showMsg("saving bot....")
+
+
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         # if self.mode == "new":
         #    self.newBot = EBBOT()
@@ -860,7 +885,6 @@ class BotNewWin(QMainWindow):
 
         self.newBot.pubProfile.setPubBirthday(self.bd_edit.text())
         self.newBot.pubProfile.setNickName(self.pnn_edit.text())
-
         self.newBot.settings.setComputer(self.os_sel.currentText(), self.machine_sel.currentText(),
                                          self.browser_sel.currentText())
 
@@ -874,16 +898,25 @@ class BotNewWin(QMainWindow):
 
         self.fillRoles()
         self.fillInterests()
+        self.newBot.pubProfile.setVName(self.selected_vehicle_combo_box)
+        os = self.selected_vehicle_combo_box.split("-")[0]
+        roles = self.newBot.getRoles()
+        if os not in roles:
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setText(QApplication.translate("QMessageBox", "Login Error.  Try again..."))
+            msg_box.setWindowTitle("Error")
+            msg_box.exec_()
+        else:
+            if self.mode == "new":
+                self.main_win.showMsg("adding new bot....")
+                self.main_win.addNewBots([self.newBot])
+            elif self.mode == "update":
+                self.main_win.showMsg("update a bot....")
+                print("new bot:", self.newBot.getVName(), self.newBot.getInterests())
+                self.main_win.updateBots([self.newBot])
 
-        if self.mode == "new":
-            self.main_win.showMsg("adding new bot....")
-            self.main_win.addNewBots([self.newBot])
-        elif self.mode == "update":
-            self.main_win.showMsg("update a bot....")
-            print("new bot:", self.newBot.getVName(), self.newBot.getInterests())
-            self.main_win.updateBots([self.newBot])
-
-        self.close()
+            self.close()
 
     def fillRoles(self):
         self.newBot.setRoles("")
@@ -955,6 +988,9 @@ class BotNewWin(QMainWindow):
             self.setWindowTitle('Adding a new bot')
         elif self.mode == "update":
             self.setWindowTitle('Updating a new bot')
+
+    def vehicle_combo_box_changed(self):
+        self.selected_vehicle_combo_box = self.vehicle_combo_box.currentText().split("(")[0]
 
     def rolePlatformSel_changed(self):
         if self.role_platform_sel.currentText() != QApplication.translate("QComboBox", "Custom"):
@@ -1056,6 +1092,11 @@ class BotNewWin(QMainWindow):
             return True
         return super().eventFilter(obj, event)
 
+    def findAllVehicle(self) -> List[VehicleModel]:
+       return self.main_win.vehicle_service.findAllVehicle()
+
+    def findVehicleByIp(self, ip) -> VehicleModel:
+        return self.main_win.vehicle_service.find_vehicle_by_ip(ip)
     def deleteSelectedRow(self, tableView, model):
         reply = QMessageBox.question(self, '删除确认', '确定要删除这条记录吗？', QMessageBox.Yes | QMessageBox.No,
                                      QMessageBox.No)

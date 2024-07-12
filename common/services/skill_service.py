@@ -1,6 +1,10 @@
 import json
 
+from sqlalchemy import inspect
+
+from common.db_init import sync_table_columns
 from common.models.skill import SkillModel
+from utils.logger_helper import logger_helper
 
 
 class SkillService:
@@ -8,6 +12,7 @@ class SkillService:
     def __init__(self, main_win, session):
         self.main_win = main_win
         self.session = session
+        sync_table_columns(SkillModel, 'skills')
 
     def insert_skill(self, api_skills):
         local_skill = SkillModel()
@@ -31,3 +36,13 @@ class SkillService:
         self.session.add(local_skill)
         self.session.commit()
         self.main_win.showMsg("Skill fetchall" + json.dumps(local_skill.to_dict()))
+
+    def describe_table(self):
+        inspector = inspect(SkillModel)
+        # 打印表结构信息
+        print(f"{SkillModel.__tablename__} Table column definitions: ")
+        columns = inspector.columns
+        for column in columns:
+            logger_helper.debug(
+                f"Column: {column['name']}, Type: {column['type']}, Nullable: {column['nullable']}, Default: {column['default']}")
+        return columns

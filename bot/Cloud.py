@@ -10,7 +10,7 @@ import logging
 import aiohttp
 import asyncio
 
-from envi import getECBotDataHome
+from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
 import websockets
 
@@ -487,7 +487,7 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
             rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
             rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i].getVName() + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i].getv() + "\", "
             rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
 
 
@@ -529,7 +529,7 @@ def gen_update_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
             rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
             rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i].getVName() + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i].getVehicle() + "\", "
             rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
 
         if i != len(bots) - 1:
