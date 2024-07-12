@@ -860,7 +860,7 @@ class MissionNewWin(QMainWindow):
             else:
                 self.mission_site_sel.setCurrentText('Custom')
                 self.missionCustomAppNameEdit.setText(self.newMission.getSite())
-                self.missionCustomAppLinkEdit.setText(self.newMission.getSiteH())
+                self.missionCustomAppLinkEdit.setText(self.newMission.getSiteHTML())
 
             self.loadSkills(mission)
         except Exception as e:

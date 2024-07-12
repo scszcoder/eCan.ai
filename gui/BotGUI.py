@@ -898,7 +898,7 @@ class BotNewWin(QMainWindow):
 
         self.fillRoles()
         self.fillInterests()
-        self.newBot.pubProfile.setVName(self.selected_vehicle_combo_box)
+        self.newBot.pubProfile.setVehicle(self.selected_vehicle_combo_box)
         os = self.selected_vehicle_combo_box.split("-")[0]
         roles = self.newBot.getRoles()
         if os not in roles:

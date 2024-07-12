@@ -2225,7 +2225,7 @@ class MainWindow(QMainWindow):
                         else:
                             self.showMsg(get_printable_datetime() + "vehicle "+vname+" is not FOUND on LAN.")
                     else:
-                        print("ERROR: vehicle not found: "+vehicle)
+                        print("ERROR: vehicle not found: "+vname)
 
                 # else:
                 #     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
@@ -3966,6 +3966,9 @@ class MainWindow(QMainWindow):
         elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
             self.showMsg("CLICKED on bot:"+str(source.indexAt(event.pos()).row()))
         #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
+        elif (event.type() == QEvent.MouseButtonPress ) and source is self.missionListView:
+            self.showMsg("CLICKED on mission:"+str(source.indexAt(event.pos()).row())+"selected row:"+str(self.missions))
+        #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
             self.popMenu = QMenu(self)
@@ -4039,8 +4042,8 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("populating a newly created mission GUI............")
             self.missionWin = MissionNewWin(self)
-            self.showMsg("done create mission win............"+str(self.selected_mission_item.getMid()))
-            self.missionWin.setMission(self.selected_mission_item)
+            self.showMsg("done create mission win............"+str(self.selected_cus_mission_item.getMid()))
+            self.missionWin.setMission(self.selected_cus_mission_item)
 
         self.missionWin.setMode("update")
         self.missionWin.show()
