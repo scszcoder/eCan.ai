@@ -899,24 +899,24 @@ class BotNewWin(QMainWindow):
         self.fillRoles()
         self.fillInterests()
         self.newBot.pubProfile.setVName(self.selected_vehicle_combo_box)
-        os = self.selected_vehicle_combo_box.split("-")[0]
-        roles = self.newBot.getRoles()
-        if os not in roles:
-            msg_box = QMessageBox()
-            msg_box.setIcon(QMessageBox.Critical)
-            msg_box.setText(QApplication.translate("QMessageBox", "Login Error.  Try again..."))
-            msg_box.setWindowTitle("Error")
-            msg_box.exec_()
-        else:
-            if self.mode == "new":
-                self.main_win.showMsg("adding new bot....")
-                self.main_win.addNewBots([self.newBot])
-            elif self.mode == "update":
-                self.main_win.showMsg("update a bot....")
-                print("new bot:", self.newBot.getVName(), self.newBot.getInterests())
-                self.main_win.updateBots([self.newBot])
+        # os = self.selected_vehicle_combo_box.split("-")[0]
+        # roles = self.newBot.getRoles()
+        # if os not in roles:
+        #     msg_box = QMessageBox()
+        #     msg_box.setIcon(QMessageBox.Critical)
+        #     msg_box.setText(QApplication.translate("QMessageBox", "Login Error.  Try again..."))
+        #     msg_box.setWindowTitle("Error")
+        #     msg_box.exec_()
+        # else:
+        if self.mode == "new":
+            self.main_win.showMsg("adding new bot....")
+            self.main_win.addNewBots([self.newBot])
+        elif self.mode == "update":
+            self.main_win.showMsg("update a bot....")
+            print("new bot:", self.newBot.getVName(), self.newBot.getInterests())
+            self.main_win.updateBots([self.newBot])
 
-            self.close()
+        self.close()
 
     def fillRoles(self):
         self.newBot.setRoles("")

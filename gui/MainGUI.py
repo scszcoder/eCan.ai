@@ -3493,10 +3493,10 @@ class MainWindow(QMainWindow):
         if v is None:
             vehicle_model = VehicleModel()
             vehicle_model.arch = vehicle.arch
-            vehicle_model.bot_ids = json.dumps(vehicle.bot_ids)
-            vehicle_model.daily_mids = json.dumps(vehicle.daily_mids)
+            vehicle_model.bot_ids = str(vehicle.bot_ids)
+            vehicle_model.daily_mids = str(vehicle.daily_mids)
             vehicle_model.ip = vehicle.ip
-            vehicle_model.mstats = json.dumps(vehicle.mstats)
+            vehicle_model.mstats = str(vehicle.mstats)
             vehicle_model.name = vehicle.name
             vehicle_model.os = vehicle.os
             vehicle_model.cap = vehicle.CAP
