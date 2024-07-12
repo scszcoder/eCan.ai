@@ -45,3 +45,4 @@ typing-extensions==4.12.1
 keyboard==0.13.5
 fuzzywuzzy==0.18.0
 websockets==12.0
+pyscreenshot==3.1

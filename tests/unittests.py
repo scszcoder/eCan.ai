@@ -547,8 +547,9 @@ def test_api(parent, session, token):
 
 
 def fix_localDB(mw):
+    print("fix local DB is no longer necessary")
     # fix local DB tables if their columns don't match the reference.
-    mw.bot_service.fix_local_table()
+    # mw.bot_service.fix_local_table()
     # mission_table_cols = mw.mission_service.fix_local_table()
 
 def test_sqlite3(mw):
