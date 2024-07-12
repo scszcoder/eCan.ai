@@ -913,7 +913,7 @@ class BotNewWin(QMainWindow):
             self.main_win.addNewBots([self.newBot])
         elif self.mode == "update":
             self.main_win.showMsg("update a bot....")
-            print("new bot:", self.newBot.getVName(), self.newBot.getInterests())
+            print("new bot:", self.newBot.getVehicle(), self.newBot.getInterests())
             self.main_win.updateBots([self.newBot])
 
         self.close()
