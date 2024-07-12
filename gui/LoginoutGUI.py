@@ -510,7 +510,6 @@ class Login(QDialog):
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
                 self.main_win.show()
-
         except botocore.errorfactory.ClientError as e:
             # except ClientError as e:
             print("Exception Error:", e)
@@ -524,6 +523,8 @@ class Login(QDialog):
                 msgBox.setText(QApplication.translate("QMessageBox", "Login Error.  Try again..."))
 
             ret = msgBox.exec()
+        except Exception as e:
+            print("Exception Error:", e)
 
     def fakeLogin(self):
         print("logging in....")

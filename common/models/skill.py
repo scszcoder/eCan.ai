@@ -35,4 +35,3 @@ class SkillModel(Base):
             'privacy': self.privacy,
             'createon': self.createon,
         }
-

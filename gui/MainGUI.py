@@ -1,3 +1,7 @@
+import ast
+import json
+
+from models import VehicleModel
 from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -20,15 +24,9 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 
 import importlib
 import importlib.util
-
-from common.models.bot import BotModel
-from common.models.mission import MissionModel
+from common.models import BotModel, MissionModel
 from common.db_init import init_db, get_session
-from common.services.mission_service import MissionService
-from common.services.product_service import ProductService
-from common.services.skill_service import SkillService
-
-from common.services.bot_service import BotService
+from common.services import MissionService, ProductService, SkillService, BotService, VehicleService
 from tests.TestAll import Tester
 
 
@@ -61,13 +59,12 @@ from bot.network import myname, fieldLinks, commanderIP
 from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
-from tool.MainGUITool import FileResource, StaticResource
+from gui.tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper
 from tests.unittests import *
 import pandas as pd
-from encrypt import *
+from gui.encrypt import *
 import keyboard
-
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -279,9 +276,9 @@ class MainWindow(QMainWindow):
         self.system = platform.system()
         if self.system == "Windows":
             self.os_short = "win"
-        elif  self.system == "Linux":
+        elif self.system == "Linux":
             self.os_short = "linux"
-        elif  self.system == "Mac":
+        elif self.system == "Darwin":
             self.os_short = "mac"
 
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
@@ -315,10 +312,11 @@ class MainWindow(QMainWindow):
         if "Commander" in self.machine_role:
             engine = init_db(self.dbfile)
             session = get_session(engine)
-            self.bot_service = BotService(self, session, engine)
-            self.mission_service = MissionService(self, session, engine)
+            self.bot_service = BotService(self, session)
+            self.mission_service = MissionService(self, session)
             self.product_service = ProductService(self, session)
             self.skill_service = SkillService(self, session)
+            self.vehicle_service = VehicleService(self, session)
 
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
@@ -695,7 +693,14 @@ class MainWindow(QMainWindow):
             wifi_info = subprocess.check_output(['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'])
 
         if wifi_info:
-            wifi_data = wifi_info.decode('utf-8')
+            try:
+                wifi_data = wifi_info.decode('utf-8')
+            except UnicodeDecodeError:
+                for enc in ['utf-8', 'gbk', 'latin1']:
+                    try:
+                        wifi_data = wifi_info.decode(enc)
+                    except UnicodeDecodeError:
+                        pass
             wifi_lines = wifi_data.split("\n")
             ssidline = [l for l in wifi_lines if " SSID" in l]
             if len(ssidline) == 1:
@@ -3167,6 +3172,7 @@ class MainWindow(QMainWindow):
                 new_bots[i].setInterests(resp_rec["interests"])
                 self.bots.append(new_bots[i])
                 self.botModel.appendRow(new_bots[i])
+                self.updateVehicles(new_bots[i])
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
@@ -3201,6 +3207,7 @@ class MainWindow(QMainWindow):
                 "ebpw": abot.getAcctPw(),
                 "backemail_site": abot.getAcctPw()
             })
+            self.updateVehicles(abot)
 
         jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
@@ -3208,11 +3215,35 @@ class MainWindow(QMainWindow):
             self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
         else:
             jbody = jresp["body"]
-
             if jbody['numberOfRecordsUpdated'] == len(bots):
+                for i, abot in bots:
+                    api_bots[i]["vehicle"] = abot.getVName()
                 self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
+
+    def updateVehicles(self, bot):
+        if bot.getVName() is not None and bot.getVName() != "":
+            ip = bot.getVName().split("-")[2].split(" ")[0]
+            vehicle = self.vehicle_service.find_vehicle_by_ip(ip)
+            if vehicle is not None:
+                bot_ids = ast.literal_eval(vehicle.bot_ids)
+                if bot.getBid() not in bot_ids:
+                    bot_ids.append(bot.getBid())
+                    vehicle.bot_ids = str(bot_ids)
+                    self.vehicle_service.update_vehicle(vehicle, bot.getBid())
+        vehicles = self.vehicle_service.findAllVehicle()
+        self.vehicles = []
+        for v in vehicles:
+            vehicle = VEHICLE(self)
+            vehicle.setVid(v.id)
+            vehicle.setName(v.name)
+            vehicle.setIP(v.ip)
+            vehicle.setBotIds(v.bot_ids)
+            vehicle.setMids(v.daily_mids)
+            vehicle.setOS(v.os)
+            vehicle.setMStats(v.mstats)
+            self.vehicles.append(vehicle)
 
     def addNewMissions(self, new_missions):
         # Logic for creating a new mission:
@@ -3399,6 +3430,7 @@ class MainWindow(QMainWindow):
                 found_fl = next((fl for i, fl in enumerate(fieldLinks) if fl["ip"][0] == vip), None)
                 print("FL0 IP:", fieldLinks[0]["ip"])
                 newVehicle.setFieldLink(found_fl)
+                self.saveVehicle(newVehicle)
                 self.vehicles.append(newVehicle)
                 self.runningVehicleModel.appendRow(newVehicle)
                 if self.platoonWin:
@@ -3439,6 +3471,7 @@ class MainWindow(QMainWindow):
             newVehicle = VEHICLE(self)
             newVehicle.setIP(self.ip)
             newVehicle.setName(self.machine_name+":"+self.os_short)
+            self.saveVehicle(newVehicle)
             self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
 
@@ -3451,9 +3484,32 @@ class MainWindow(QMainWindow):
             ipfields = fieldLinks[i]["ip"][0].split(".")
             ip = ipfields[len(ipfields)-1]
             newVehicle.setVid(ip)
+            self.saveVehicle(newVehicle)
             self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
 
+    def saveVehicle(self, vehicle: VEHICLE):
+        v = self.vehicle_service.find_vehicle_by_ip(vehicle.ip)
+        if v is None:
+            vehicle_model = VehicleModel()
+            vehicle_model.arch = vehicle.arch
+            vehicle_model.bot_ids = json.dumps(vehicle.bot_ids)
+            vehicle_model.daily_mids = json.dumps(vehicle.daily_mids)
+            vehicle_model.ip = vehicle.ip
+            vehicle_model.mstats = json.dumps(vehicle.mstats)
+            vehicle_model.name = vehicle.name
+            vehicle_model.os = vehicle.os
+            vehicle_model.cap = vehicle.CAP
+            vehicle_model.status = vehicle.status
+            self.vehicle_service.insert_vehicle(vehicle_model)
+            vehicle.id = vehicle_model.id
+        else:
+            vehicle.setVid(v.id)
+            vehicle.setBotIds(ast.literal_eval(v.bot_ids))
+            vehicle.setMStats(ast.literal_eval(v.mstats))
+            vehicle.setMids(ast.literal_eval(v.daily_mids))
+            v.cap = vehicle.CAP
+            self.vehicle_service.update_vehicle(v)
 
     def fetchVehicleStatus(self, rows):
         cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
@@ -3595,6 +3651,7 @@ class MainWindow(QMainWindow):
             if vjd["name"] not in all_vnames:
                 new_v = VEHICLE(self)
                 new_v.loadJson(vjd)
+                self.saveVehicle(new_v)
                 self.vehicles.append(new_v)
                 # self.runningVehicleModel.appendRow(new_v)             # can't do this because if in file but not in data, that means no communication yet.
 
@@ -5915,10 +5972,10 @@ class MainWindow(QMainWindow):
 
         def q_callback():
             asyncio.run_coroutine_threadsafe(self.quit_action(), loop)
-
-        keyboard.add_hotkey('esc', esc_callback)
-        keyboard.add_hotkey('space', space_callback)
-        keyboard.add_hotkey('q', q_callback)
+        #
+        # keyboard.add_hotkey('esc', esc_callback)
+        # keyboard.add_hotkey('space', space_callback)
+        # keyboard.add_hotkey('q', q_callback)
 
         # Keep the coroutine running to listen for the hotkey indefinitely
         while True:
