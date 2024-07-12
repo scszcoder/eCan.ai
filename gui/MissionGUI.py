@@ -670,12 +670,17 @@ class MissionNewWin(QMainWindow):
             self.setWindowTitle('Updating a mission')
 
     def fingerprint_profile_file(self):
-        file_dialog = QFileDialog()
-        file_dialog.setFileMode(QFileDialog.ExistingFile)  # 只选择现有文件
-        file_dialog.setNameFilter("Text files (*.txt);;Excel files (*.xls *.xlsx *.csv)")  # 限制文件类型
-        file_path, _ = file_dialog.getOpenFileName(self, "Select File")
-        if file_path:
-            self.fingerprint_profile_edit.setText(file_path)
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            'Select File',
+            '',
+            '*.txt *.xls *.xlsx',
+            options=options
+        )
+        if file_name:
+            self.fingerprint_profile_edit.setText(file_name)
 
     def saveMission(self):
         self.main_win.showMsg("saving bot....")
