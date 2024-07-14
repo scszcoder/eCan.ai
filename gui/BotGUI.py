@@ -158,12 +158,13 @@ class BotNewWin(QMainWindow):
         self.pfn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input age here"))
         self.vehicle_label = QLabel(QApplication.translate("QLabel", "Vehicle:"), alignment=Qt.AlignLeft)
         self.vehicle_combo_box = QComboBox()
-
+        self.vehicle_list = []
         for p in self.main_win.vehicles:
-            combined_value = f"{p.getOS()}-{p.getName()}-{p.getIP()} {len(p.getBotIds())}"  # 拼接字符串
+            combined_value = f"{p.getOS()}-{p.getName()}-{p.getIP()} {len(p.getBotIds())}"
+            self.vehicle_list.append(combined_value)
             item = QApplication.translate("QComboBox", combined_value)
             self.vehicle_combo_box.addItem(item)
-            if len(p.bot_ids) > p.CAP:  # 若 status 为 False 则禁用该选项
+            if len(p.bot_ids) > p.CAP:
                 index = self.vehicle_combo_box.findText(item)
                 if index >= 0:
                     self.vehicle_combo_box.model().item(index).setEnabled(False)
@@ -800,7 +801,11 @@ class BotNewWin(QMainWindow):
         self.shipaddr_city_edit.setText(bot.getShippingAddrCity())
         self.shipaddr_state_edit.setText(bot.getShippingAddrState())
         self.shipaddr_zip_edit.setText(bot.getShippingAddrZip())
-
+        if bot.getVehicle() == "NA" or bot.getVehicle() == "" or bot.getVehicle() is None:
+            self.vehicle_combo_box.setCurrentIndex(-1)
+        else:
+            index = self.vehicle_list.index(bot.getVehicle())
+            self.vehicle_combo_box.setCurrentIndex(index)
         self.load_role(bot)
         self.load_interests(bot)
 

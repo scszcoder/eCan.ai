@@ -3205,7 +3205,9 @@ class MainWindow(QMainWindow):
                 "epw": abot.getEmPW(),
                 "backemail": abot.getBackEm(),
                 "ebpw": abot.getAcctPw(),
-                "backemail_site": abot.getAcctPw()
+                "backemail_site": abot.getAcctPw(),
+                "vehicle": abot.getVehicle(),
+                "createon": time.time()
             })
             self.updateVehicles(abot)
 
@@ -3216,14 +3218,12 @@ class MainWindow(QMainWindow):
         else:
             jbody = jresp["body"]
             if jbody['numberOfRecordsUpdated'] == len(bots):
-                for i, abot in bots:
-                    api_bots[i]["vehicle"] = abot.getVehicle()
                 self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
 
     def updateVehicles(self, bot):
-        if bot.getVehicle() is not None and bot.getVehicle() != "":
+        if bot.getVehicle() is not None and bot.getVehicle() != "" and bot.getVehicle() != "NA":
             ip = bot.getVehicle().split("-")[2].split(" ")[0]
             vehicle = self.vehicle_service.find_vehicle_by_ip(ip)
             if vehicle is not None:
