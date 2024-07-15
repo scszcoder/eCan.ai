@@ -1261,15 +1261,18 @@ class SkillGUI(QMainWindow):
         self.IA_Remove_button = QPushButton("Remove")
         self.IA_Add_button = QPushButton("Add")
         self.IA_Save_button = QPushButton("Save")
+        self.IA_Load_button = QPushButton("Load")
 
         self.IA_Remove_button.clicked.connect(self.ia_remove)
         self.IA_Add_button.clicked.connect(self.ia_add)
         self.IA_Save_button.clicked.connect(self.ia_save)
+        self.IA_Load_button.clicked.connect(self.ia_load)
 
         self.pbskButtonsLayout = QHBoxLayout()
-        self.pbskButtonsLayout.addWidget(self.IA_Remove_button)
+        self.pbskButtonsLayout.addWidget(self.IA_Load_button)
         self.pbskButtonsLayout.addWidget(self.IA_Add_button)
         self.pbskButtonsLayout.addWidget(self.IA_Save_button)
+        self.pbskButtonsLayout.addWidget(self.IA_Remove_button)
 
         self.pbskButtonsWidget = QWidget()
         self.pbskButtonsWidget.setLayout(self.pbskButtonsLayout)
@@ -2191,6 +2194,8 @@ class SkillGUI(QMainWindow):
             info_item = model.item(index)
             ij = self.gen_info_json(info_item)
 
+    def ia_load(self):
+        self.show_msg("save images to files....")
     def gen_anchor_json(self, aitem):
         ajson = {
             "anchor_name": aitem.get_name(),
@@ -2343,6 +2348,7 @@ class SkillGUI(QMainWindow):
             self.IA_Add_button.setText(QApplication.translate("QPushButton", "Add Feature"))
             self.IA_Remove_button.setText(QApplication.translate("QPushButton", "Remove CSK"))
             self.IA_Save_button.setText(QApplication.translate("QPushButton", "Save CSK"))
+            self.IA_Load_button.setText(QApplication.translate("QPushButton", "Load CSK"))
             self.pbskALWidget.setVisible(True)
             self.pbskDLWidget.setVisible(True)
             self.pbskSLWidget.setVisible(False)
@@ -2355,7 +2361,7 @@ class SkillGUI(QMainWindow):
             self.IA_Add_button.setText(QApplication.translate("QPushButton", "Add Step"))
             self.IA_Remove_button.setText(QApplication.translate("QPushButton", "Remove Step"))
             self.IA_Save_button.setText(QApplication.translate("QPushButton", "Save Step"))
-
+            self.IA_Load_button.setVisible(False)
     def load_skill_file(self):
         # bring out the load file dialog
         my_skill_dir_path = app_info.app_home_path + "/resource/skills/my"

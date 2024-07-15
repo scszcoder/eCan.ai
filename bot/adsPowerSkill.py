@@ -979,7 +979,7 @@ def getBotEMail(bid, bots):
 # so in the code of executing tasks one by one, when it's time to run, it will check which profile
 # Note: no all tasks involves using ADS, so could very well be that out of N bots, there will be less than N lines in
 #       profiles.
-def formADSProfileBatchesFor1Vehicle(vTasks, host):
+def formADSProfileBatchesFor1Vehicle(vTasks, vehicle, commander):
     # vTasks, allbots, all_profiles_csv, run_data_dir):
     try:
         # tgbs = []
@@ -1004,7 +1004,7 @@ def formADSProfileBatchesFor1Vehicle(vTasks, host):
         log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
 
-        ads_profile_batches_fnames = genAdsProfileBatchs(host, host.getIP(), time_ordered_works)
+        ads_profile_batches_fnames = genAdsProfileBatchs(commander, vehicle.getIP(), time_ordered_works)
 
         log3("all_ads_batches===>"+json.dumps(ads_profile_batches_fnames))
         log3("time_ordered_works===>"+json.dumps(time_ordered_works))
@@ -1025,8 +1025,12 @@ def formADSProfileBatchesFor1Vehicle(vTasks, host):
 
 
 def formADSProfileBatches(AllVTasks, commander):
-    for vtasks in AllVTasks:
-        formADSProfileBatchesFor1Vehicle(vtasks, commander)
+    for vname in AllVTasks:
+        vehicle = commander.getVehicleByName(vname)
+        if vehicle:
+            formADSProfileBatchesFor1Vehicle(AllVTasks['vname'], vehicle, commander)
+        else:
+            log3("ERROR: Vehicle NOT FOUND:" + vname)
 
 # taskgroup will be the full task group on a vehicle.
 # profiles_dir is the path name that will hold the resulting files
@@ -1227,27 +1231,27 @@ def covertTxtProfiles2DefaultXlsxProfiles(fnames):
 
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
-def genAdsProfileBatchs(host, host_ip, task_groups):
-    log3("host ads batch size:"+str(host.getADSBatchSize()))
-    ads_profile_dir = host.getADSProfileDir()
+def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
+    log3("host ads batch size:"+str(commander.getADSBatchSize()))
+    ads_profile_dir = commander.getADSProfileDir()
     # ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
     log3("time_ordered_works:"+json.dumps(task_groups))
     pfJsons_batches = []
     bot_pfJsons=[]
     v_ads_profile_batch_xlsxs = []
     batch_idx = 0
-    batch_file = "Host" + host_ip + "B" + str(batch_idx) + "profile.xlsx"
+    batch_file = "Host" + target_vehicle_ip + "B" + str(batch_idx) + "profile.xlsx"
     batch_file = ads_profile_dir + "/" + batch_file
     w_idx = 0
     batch_bot_mids = []
     batch_bot_profiles_read = []
     for bot_work in task_groups:
         bid = bot_work["bid"]
-        found_bots = list(filter(lambda cbot: cbot.getBid() == bid, host.bots))
+        found_bots = list(filter(lambda cbot: cbot.getBid() == bid, commander.bots))
 
         mid = bot_work["mid"]
 
-        found_missions = list(filter(lambda cm: cm.getMid() == mid, host.missions))
+        found_missions = list(filter(lambda cm: cm.getMid() == mid, commander.missions))
         found_mision = None
         if len(found_missions) > 0:
             found_mision = found_missions[0]
@@ -1276,15 +1280,15 @@ def genAdsProfileBatchs(host, host_ip, task_groups):
 
             bot_pfJsons = bot_pfJsons + newly_read
 
-            if w_idx >= host.getADSBatchSize()-1:
-                genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, host.getCookieSiteLists())
+            if w_idx >= commander.getADSBatchSize()-1:
+                genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
                 v_ads_profile_batch_xlsxs.append(batch_file)
                 w_idx = 0
                 bot_pfJsons = []
                 batch_bot_mids = []
                 batch_bot_profiles_read = []
                 batch_idx = batch_idx + 1
-                batch_file = "Host" + host_ip + "B" + str(batch_idx) + "profile.xlsx"
+                batch_file = "Host" + target_vehicle_ip + "B" + str(batch_idx) + "profile.xlsx"
                 batch_file = ads_profile_dir + "/" + batch_file
                 log3("batch_file:" + batch_file)
             else:
@@ -1292,7 +1296,7 @@ def genAdsProfileBatchs(host, host_ip, task_groups):
 
     # take care of the last batch.
     if len(bot_pfJsons) > 0:
-        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, host.getCookieSiteLists())
+        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
         v_ads_profile_batch_xlsxs.append(batch_file)
 
     return v_ads_profile_batch_xlsxs
@@ -1323,6 +1327,9 @@ def updateIndividualProfileFromBatchSavedTxt(batch_profiles_txt):
 
             # now merge the new cookies into all cookies.
             pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
+        else:
+            # if the individual bot's profile doesn't even exist, create one.
+            print("bot request can be sh")
 
         #now update txt version of the profile of the bot
         genProfileTxt([pfJson], txt_file_path)
@@ -1402,10 +1409,10 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
     return (i + 1), ex_stat
 
 
-def genStepADSGenXlsxBatchProfiles(commander_name, vtasks_name, output, stepN):
+def genStepADSGenXlsxBatchProfiles(vehicle_name, vtasks_name, output, stepN):
         stepjson = {
             "type": "ADS Gen XLSX Batch Profiles",
-            "commander": commander_name,
+            "vehicle_name": vehicle_name,
             "vtasks": vtasks_name,
             "output": output
         }
@@ -1421,8 +1428,8 @@ def processADSGenXlsxBatchProfiles(step, i):
         # now save for roll back if ever needed.
         # first remove the previously save rollback point, but leave up to 3 rollback points
         vTasks = symTab[["vtasks"]]
-        commander = symTab[step["commander"]]
-        formADSProfileBatches(vTasks, commander)
+        vehicle_name = symTab[step["vehicle_name"]]
+        formADSProfileBatches(vTasks, vehicle_name)
 
         # wait after key action.
         # time.sleep(step["wait_after"])
