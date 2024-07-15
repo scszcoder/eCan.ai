@@ -306,7 +306,7 @@ class MainWindow(QMainWindow):
                 ads_settings = json.load(ads_settings_f)
 
             ads_settings_f.close()
-
+        self.showMsg("=========Done With Network Setup, Start Local DB Setup =========")
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
         if "Commander" in self.machine_role:
@@ -321,7 +321,7 @@ class MainWindow(QMainWindow):
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
         self.rpa_work_assigned_for_today = False
-
+        self.showMsg("=========Done With Local DB Setup, Start GUI Setup =========")
         self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
         self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
         self.south_layout = QVBoxLayout(self)
@@ -658,6 +658,7 @@ class MainWindow(QMainWindow):
         self.rpa_quit_dialog.setLayout(self.rpa_quit_dialog_layout)
         self.rpa_quit_confirmation_future = asyncio.get_event_loop().create_future()
 
+
         def on_ok():
             self.rpa_quit_confirmation_future = loop.create_future()
             if not self.rpa_quit_confirmation_future.done():
@@ -679,13 +680,14 @@ class MainWindow(QMainWindow):
         self.wan_connected = False
         self.websocket = None
         self.setWindowTitle("Main Bot&Mission Scheduler")
-        # ================= DONE with GUI ==============================
+        self.showMsg("================= DONE with GUI Setup ==============================")
+
         self.todays_scheduled_task_groups = {"win": [], "mac": [], "linux": []}
         self.unassigned_task_groups = {"win": [], "mac": [], "linux": []}
         self.checkVehicles()
 
         # get current wifi ssid and store it.
-        self.showMsg("OS platform: "+self.platform)
+        self.showMsg("Checking Wifi on OS platform: "+self.platform)
         wifi_info = None
         if self.platform == "win":
             wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
@@ -714,14 +716,20 @@ class MainWindow(QMainWindow):
         if ("Commander" in self.machine_role):
             fix_localDB(self)
             self.readVehicleJsonFile()
+            self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
             self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
+            print("hohohohohohoho")
             bots_data = self.bot_service.find_all_bots()
+            print("hahahahahahah")
             self.loadLocalBots(bots_data)
+            self.showMsg("bots loaded")
             self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
             missions_data = self.mission_service.find_missions_by_createon()
             self.loadLocalMissions(missions_data)
+            self.showMsg("missions loaded")
             self.dailySkillsetUpdate()
+            self.showMsg("skills loaded")
 
         # Done with all UI stuff, now do the instruction set extension work.
         self.showMsg("set up rais extensions ")
@@ -3645,6 +3653,7 @@ class MainWindow(QMainWindow):
 
             file.close()
         else:
+            self.vehiclesJsonData = {}
             self.showMsg("WARNING: Vehicle Json File NOT FOUND: " + self.VEHICLES_FILE)
 
     def translateVehiclesJson(self, vjds):
