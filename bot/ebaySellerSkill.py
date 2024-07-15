@@ -616,6 +616,62 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
                                               this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepsWinChromeEbayUpdateShipmentTrackingSkill(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/update_tracking", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome update tracking info on ebay...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinChromeEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+
+    this_step, step_words = genStepHeader("win_chrome_ebay_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEEBAY001",
+                                          "Ebay Fullfill New Orders On Windows.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_chrome_ebay_orders/update_tracking", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    # open the order page again.
+    this_step, step_words = genStepCallExtern("global blurl\nblurl = 'https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepsWinChromeEbayUpdateShipmentTrackingSkill(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_chrome_ebay_orders/update_tracking", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome update tracking info on ebay...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genStepsWinChromeEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
+    psk_words = ""
+
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, stepN)
+    psk_words = psk_words + step_words
+
+    # open the order page again.
+    this_step, step_words = genStepCallExtern("global blurl\nblurl = 'https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
     # hit ctrl-t to open a new tab.
     this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
     psk_words = psk_words + step_words
@@ -814,13 +870,9 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/update_tracking", "", this_step)
-    psk_words = psk_words + step_words
-
-    psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
-
     return this_step, psk_words
+
+
 
 def genWinADSEbayHandleMessagesSkill(worksettings, stepN, theme):
     psk_words = "{"

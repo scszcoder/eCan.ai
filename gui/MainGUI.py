@@ -2171,15 +2171,18 @@ class MainWindow(QMainWindow):
                 #     for i in range(p_nsites):
                 # if i == 0 and not self.rpa_work_assigned_for_today and not self.host_role == "Commander Only" and platform in self.platform.lower():
                 if self.machine_name in vname:
-                    # if commander participate work, give the first(0th) work to self.
-                    batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, self)
-                    # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
-                    self.showMsg("arranged for today on this machine....")
-                    self.add_buy_searchs(batched_tasks)
-                    # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
-                    self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
-                    vidx = 0
-                    self.rpa_work_assigned_for_today = True
+                    vehicle = self.getVehicleByName(vname)
+
+                    if vehicle:
+                        # if commander participate work, give the first(0th) work to self.
+                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
+                        # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
+                        self.showMsg("arranged for today on this machine....")
+                        self.add_buy_searchs(batched_tasks)
+                        # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
+                        self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
+                        vidx = 0
+                        self.rpa_work_assigned_for_today = True
                 else:
                     # #otherwise, send work to platoons in the field
                     # if self.host_role == "Commander Only":
@@ -2197,7 +2200,7 @@ class MainWindow(QMainWindow):
                     if vehicle:
                         self.showMsg("working on task group vehicle : " + vname)
                         # flatten tasks and regroup them based on sites, and divide them into batches
-                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, self)
+                        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                         self.add_buy_searchs(batched_tasks)
                         # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
                         self.todays_work["tbd"].append(
@@ -3203,6 +3206,8 @@ class MainWindow(QMainWindow):
                 "interests": abot.getInterests(),
                 "status": abot.getStatus(),
                 "delDate": abot.getInterests(),
+                "createon": abot.getCreateOn(),
+                "vehicle": abot.getVehicle(),
                 "name": abot.getName(),
                 "pseudoname": abot.getPseudoName(),
                 "nickname": abot.getNickName(),
@@ -3213,9 +3218,7 @@ class MainWindow(QMainWindow):
                 "epw": abot.getEmPW(),
                 "backemail": abot.getBackEm(),
                 "ebpw": abot.getAcctPw(),
-                "backemail_site": abot.getAcctPw(),
-                "vehicle": abot.getVehicle(),
-                "createon": time.time()
+                "backemail_site": abot.getAcctPw()
             })
             self.updateVehicles(abot)
 
@@ -3226,6 +3229,8 @@ class MainWindow(QMainWindow):
         else:
             jbody = jresp["body"]
             if jbody['numberOfRecordsUpdated'] == len(bots):
+                for i, abot in enumerate(bots):
+                    api_bots[i]["vehicle"] = abot.getVehicle()
                 self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")

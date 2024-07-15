@@ -357,3 +357,15 @@ Here some default settings and assumptions:
   Built-in ADS skill will collect the necessary number of these txt profiles and convert them into .xlsx format and
   the resulting xlsx will be batch importable to ADS Power. 
 
+### Steps to Create a custom Skill on GUI
+
+
+### Steps to Create a custom Skill with Code
+- create a directory $ECBOT_DATA_HOME/resource/skills/my/%platform_%app_%site_%page where %page, %app, %site, %page are the shorthand name of the platform, app, site, page of your skill.
+  - for example: win_chrome_ebay_home will be a settings directory your skill will be applied to: windows, chrome browser, ebay site, seller homepage.
+- under this directory, create a %skill_name.json file and a %skill_name diretory and inside the directory there will be two sub-directories: "images" and "scripts"
+    - for example: if your skill about fullfill orders, you can name your skill directory "fullfill_orders", and also the corresponding skill defining json file.
+- the "images" directory contains all the icons you expect this skill to be able to recognize on a screen captured image.
+- the "scripts" directory contains the .csk file which defines all the anchors and info elements associated on the skill
+- This whole directory will then be uploaded to the cloud side, using the "CSK Upload" button under the skill editor menu.
+- 

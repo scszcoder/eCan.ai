@@ -188,7 +188,7 @@ class BOT_PRIVATE_PROFILE():
         return self.privateProfile.birthdaydt
 
     def getCreateOn(self):
-        return self.privateProfile.createon
+        return self.createon
 
     def setCreateOn(self, createon):
         self.createon = createon
@@ -266,7 +266,7 @@ class BOT_PUB_PROFILE():
         self.owner = ""
         self.levels = ""
         self.status = "active"
-        self.delDate = ""
+        self.delDate = "2121-01-01"
         self.levelStart = ""
         self.vid = ""
         self.vehicle = ""
@@ -691,6 +691,8 @@ class EBBOT(QStandardItem):
     def getPubBirthday(self):
         return self.pubProfile.pubbirthday
 
+    def getCreateOn(self):
+        return self.privateProfile.createon
     # sets--------------------------
 
     def setBid(self, bid):

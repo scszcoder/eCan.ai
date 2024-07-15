@@ -1107,6 +1107,7 @@ def send_update_bots_request_to_cloud(session, bots, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateBots"])
+        logger_helper.error("updateBots Response: " + jresp["data"]["updateBots"])
 
     return jresponse
 
@@ -1126,7 +1127,7 @@ def send_remove_bots_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeBots"])
-
+        logger_helper.error("removeBots Response: " + jresp["data"]["removeBots"])
     return jresponse
 
 
@@ -1146,6 +1147,7 @@ def send_add_missions_request_to_cloud(session, missions, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addMissions"])
+        logger_helper.error("addMissions Response: " + jresp["data"]["addMissions"])
 
     return jresponse
 
@@ -1164,7 +1166,7 @@ def send_update_missions_request_to_cloud(session, missions, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateMissions"])
-
+        logger_helper.error("updateMissions Response: " + jresp["data"]["updateMissions"])
     return jresponse
 
 
@@ -1183,6 +1185,7 @@ def send_remove_missions_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeMissions"])
+        logger_helper.error("removeMissions Response: " + jresp["data"]["removeMissions"])
 
     return jresponse
 
@@ -1201,6 +1204,7 @@ def send_add_skills_request_to_cloud(session, skills, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addSkills"])
+        logger_helper.error("addSkills Response: " + jresp["data"]["addSkills"])
 
     return jresponse
 
@@ -1219,6 +1223,7 @@ def send_update_skills_request_to_cloud(session, bots, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateSkills"])
+        logger_helper.error("updateSkills Response: " + jresp["data"]["updateSkills"])
 
     return jresponse
 
@@ -1238,6 +1243,7 @@ def send_remove_skills_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeSkills"])
+        logger_helper.error("removeSkills Response: " + jresp["data"]["removeSkills"])
 
     return jresponse
 
@@ -1440,7 +1446,7 @@ def findIdx(list, element):
 
 
 def upload_file(session, f2ul, token, ftype):
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     fname = os.path.basename(f2ul)
     fwords = f2ul.split("/")
@@ -1452,7 +1458,7 @@ def upload_file(session, f2ul, token, ftype):
 
     res = send_file_op_request_to_cloud(session, fopreqs, token)
     logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     resd = json.loads(res['body']['urls']['result'])
     logger_helper.debug("resd: "+json.dumps(resd))
@@ -1603,7 +1609,7 @@ async def send_file_with_presigned_url8(session, src_file, resp):
 
 
 async def upload_file8(session, f2ul, token, ftype):
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     fname = os.path.basename(f2ul)
     fwords = f2ul.split("/")
@@ -1616,7 +1622,7 @@ async def upload_file8(session, f2ul, token, ftype):
     # get presigned URL
     res = await send_file_op_request_to_cloud8(session, fopreqs, token)
     logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     resd = json.loads(res['body']['urls']['result'])
     logger_helper.debug("resd: "+json.dumps(resd))

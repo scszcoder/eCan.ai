@@ -25,11 +25,14 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepThink, genException, genStepReportToBoss
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
-    genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill
+    genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
+    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
     genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
-    genWinChromeEtsyFullfillOrdersSkill, genWinChromeEtsyHandleMessagesSkill
+    genWinChromeEtsyFullfillOrdersSkill, genWinChromeEtsyHandleMessagesSkill, genWinADSEtsyFullfillOrdersSkill, \
+    genWinADSEtsyCollectOrderListSkill, genWinADSEtsyUpdateShipmentTrackingSkill
+
 from bot.fileSkill import genWinFileLocalOpenSaveSkill
 from bot.printLabel import genStepPrintLabels, genWinPrinterLocalReformatPrintSkill
 from bot.rarSkill import genWinRARLocalUnzipSkill
@@ -87,6 +90,9 @@ PUBLIC = {
     'genWinADSEbayFullfillOrdersSkill': genWinADSEbayFullfillOrdersSkill,
     'genWinADSEbayCollectOrderListSkill': genWinADSEbayCollectOrderListSkill,
     'genWinADSEbayUpdateShipmentTrackingSkill': genWinADSEbayUpdateShipmentTrackingSkill,
+    'genWinChromeEbayUpdateShipmentTrackingSkill': genWinChromeEbayUpdateShipmentTrackingSkill,
+    'genWinChromeEbayBuyShippingSkill': genWinChromeEbayBuyShippingSkill,
+    'genWinADSEbayBuyShippingSkill': genWinADSEbayBuyShippingSkill,
     'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
     'genStepSetupADS': genStepSetupADS,
     'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
