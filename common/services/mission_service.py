@@ -144,7 +144,7 @@ class MissionService:
 
     def update_missions_by_id(self, api_missions):
         for i, amission in enumerate(api_missions):
-            result = self.session.query(MissionModel).filter(MissionModel.mid == amission["amission"]).first()
+            result = self.session.query(MissionModel).filter(MissionModel.mid == amission["mid"]).first()
             result.ticket = amission["ticket"]
             result.botid = amission["botid"]
             result.status = amission["status"]
@@ -185,6 +185,7 @@ class MissionService:
             result.result = amission["result"]
             result.follow_seller = amission["follow_seller"]
             result.follow_price = amission["follow_price"]
+            result.fingerprint_profile = amission["fingerprint_profile"]
             self.session.commit()
             self.main_win.showMsg("update row: " + json.dumps(result.to_dict()))
 

@@ -4349,6 +4349,7 @@ class MainWindow(QMainWindow):
             local_mission.feedbacks = new_mission.getFeedbacks()
             local_mission.price = new_mission.getPrice()
             local_mission.follow_price = new_mission.getFollowPrice()
+            local_mission.fingerprint_profile = new_mission.getFingerPrintProfile()
             local_mission.customer = new_mission.getCustomer()
             local_mission.platoon = new_mission.getPlatoon()
             local_mission.result = new_mission.getResult()
