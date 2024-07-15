@@ -885,6 +885,10 @@ class MissionNewWin(QMainWindow):
             self.price_edit.setText(str(self.newMission.getPrice()))
             self.cus_email_edit.setText(self.newMission.getCustomerID())
             self.cus_sm_id_edit.setText(self.newMission.getCustomerSMID())
+            self.veriations_edit.setText(self.newMission.getVariations())
+            self.follow_seller_edit.setText(self.newMission.getFollowSeller())
+            self.follow_price_edit.setText(self.newMission.getFollowPrice())
+            self.fingerprint_profile_edit.setText(self.newMission.getFingerPrintProfile())
 
             if self.newMission.getCustomerSMPlatform() in self.static_resource.SM_PLATFORMS:
                 self.cus_alt_sm_type_sel.setCurrentText(self.newMission.getCustomerSMPlatform())
