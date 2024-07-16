@@ -12,7 +12,7 @@ import webbrowser
 from datetime import datetime
 
 import numpy as np
-import pyautogui
+
 from ping3 import ping
 
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
@@ -41,6 +41,7 @@ elif sys.platform == 'darwin':
 # https://github.com/asweigart/pyautogui/issues/790
 import pyscreeze
 import PIL
+import pyautogui
 
 __PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
 pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
@@ -889,14 +890,14 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
     im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     im0.save(sfile)
     screen_loc = (window_rect[0], window_rect[1])
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     #upload screen to S3
     upload_file(settings["session"], sfile, settings["token"], "screen")
@@ -906,7 +907,7 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
     csk_name = sk_settings["skfname"].replace("psk", "csk")
     m_csk_names = [csk_name]
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     # request an analysis of the uploaded screen
     # some example options usage:
@@ -961,13 +962,13 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
         # request[0]["options"]["attention_targets"] = []
         request[0]["options"] = json.dumps({"attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     result = req_cloud_read_screen(settings["session"], request, settings["token"])
     # log3("result::: "+json.dumps(result))
     jresult = json.loads(result['body'])
     log3("cloud result data: "+json.dumps(jresult["data"]))
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     if "errors" in jresult:
         screen_error = True
@@ -1174,7 +1175,7 @@ def processWait(step, i):
 def processExtractInfo(step, i, mission, skill):
     # mission_id, session, token, top_win, skill_name, uid
     log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     mainwin = mission.get_main_win()
 
@@ -1240,13 +1241,13 @@ def processExtractInfo(step, i, mission, skill):
         log3("sfile: "+sfile)
         found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
         sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
-        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
         icon_names = get_csk_icon_names(found_skill, step["page"], step["section"])
         factors = findAndFormIconScaleFactors(machine_name, sk_name, step["page"], step["section"], icon_names)
 
         result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
-        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
         if len(result) > 0:
             updateIconScalesDict(machine_name, sk_name, step["page"], step["section"], result)
@@ -1270,7 +1271,7 @@ def processExtractInfo(step, i, mission, skill):
 async def processExtractInfo8(step, i, mission, skill):
     # mission_id, session, token, top_win, skill_name, uid
     log3("Extracting info...."+"mission["+str(mission.getMid())+"] cuspas: "+mission.getCusPAS() + " skill["+str(skill.getSkid())+"] " + skill.getPskFileName())
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     mainwin = mission.get_main_win()
 
@@ -1336,13 +1337,13 @@ async def processExtractInfo8(step, i, mission, skill):
         log3("sfile: "+sfile)
         found_skill = next((x for x in mainwin.skills if x.getName() == step_settings["skname"]), None)
         sk_name = platform + "_" + app + "_" + site + "_" + step_settings["skname"]
-        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1A: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
         icon_names = get_csk_icon_names(found_skill, step["page"], step["section"])
         factors = findAndFormIconScaleFactors(machine_name, sk_name, step["page"], step["section"], icon_names)
 
         result = await read_screen8(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
-        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
         if len(result) > 0:
             updateIconScalesDict(machine_name, sk_name, step["page"], step["section"], result)
@@ -2523,7 +2524,7 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         log3("skname:"+skname+"  "+sk_table[skname])
         idx = step_keys.index(sk_table[skname])
         log3("idx:"+str(idx))
-        log3("step_keys:"+json.dumps(step_keys))
+        # log3("step_keys:"+json.dumps(step_keys))
 
 
     except Exception as e:

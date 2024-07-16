@@ -188,7 +188,7 @@ class BOT_PRIVATE_PROFILE():
         return self.privateProfile.birthdaydt
 
     def getCreateOn(self):
-        return self.privateProfile.createon
+        return self.createon
 
     def setCreateOn(self, createon):
         self.createon = createon
@@ -266,10 +266,10 @@ class BOT_PUB_PROFILE():
         self.owner = ""
         self.levels = ""
         self.status = "active"
-        self.delDate = ""
+        self.delDate = "2121-01-01"
         self.levelStart = ""
         self.vid = ""
-        self.vname = ""
+        self.vehicle = ""
 
 
     def setBid(self, bid):
@@ -362,14 +362,14 @@ class BOT_PUB_PROFILE():
     def setVid(self, vid):
         self.vid = vid
 
-    def setVName(self, vname):
-        self.vname = vname
+    def setVehicle(self, vehicle):
+        self.vehicle = vehicle
 
     def getVid(self):
         return self.vid
 
-    def getVName(self):
-        return self.vname
+    def getVehicle(self):
+        return self.vehicle
 
 
     def loadJson(self, dj):
@@ -382,6 +382,8 @@ class BOT_PUB_PROFILE():
         self.interests = dj["interests"]
         self.roles = dj["roles"]
         self.levels = dj["levels"]
+        self.levelStart = dj["levelStart"]
+        self.vname = dj["vehicle"]
         self.status = dj["status"]
 
     def loadNetRespJson(self, dj):
@@ -395,7 +397,7 @@ class BOT_PUB_PROFILE():
         self.bid = dj["bid"]
         self.owner = dj["owner"]
         self.levelStart = dj["levelStart"]
-        self.vname = dj["vehicle"]
+        self.vehicle = dj["vehicle"]
         self.delDate = dj["delDate"]
 
     def genJson(self):
@@ -409,7 +411,7 @@ class BOT_PUB_PROFILE():
             "roles": self.roles,
             "levels": self.levels,
             "bid": self.bid,
-            "vehicle": self.vname,
+            "vehicle": self.vehicle,
             "gender": self.gender,
             "status": self.status
         }
@@ -689,6 +691,8 @@ class EBBOT(QStandardItem):
     def getPubBirthday(self):
         return self.pubProfile.pubbirthday
 
+    def getCreateOn(self):
+        return self.privateProfile.createon
     # sets--------------------------
 
     def setBid(self, bid):
@@ -727,8 +731,8 @@ class EBBOT(QStandardItem):
     def getVid(self):
         return self.pubProfile.vid
 
-    def getVName(self):
-        return self.pubProfile.vname
+    def getVehicle(self):
+        return self.pubProfile.vehicle
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
@@ -768,7 +772,7 @@ class EBBOT(QStandardItem):
         self.pubProfile.setRoles(dbd.roles)
         self.pubProfile.setStatus(dbd.status)
         self.pubProfile.setDelDate(dbd.delDate)
-        self.pubProfile.setVName(dbd.vehicle)
+        self.pubProfile.setVehicle(dbd.vehicle)
         self.privateProfile.setName(dbd.name)
         self.pubProfile.setPseudoName(dbd.pseudoname)
         self.pubProfile.setNickName(dbd.nickname)
@@ -796,7 +800,7 @@ class EBBOT(QStandardItem):
         self.privateProfile.setName(jd["New First Name"] + " " + jd["Last Name"])
         self.pubProfile.setPseudoName(jd["PseudoFN"] + " " + jd["PseudoLN"])
         self.pubProfile.setNickName("")
-        self.pubProfile.setVName(jd["vehicle"])
+        self.pubProfile.setVehicle(jd["vehicle"])
         self.privateProfile.setAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
         self.privateProfile.setShippingAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
         self.privateProfile.setPhone(jd["IP phone"])

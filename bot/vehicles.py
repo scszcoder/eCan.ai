@@ -7,7 +7,7 @@ class VEHICLE(QStandardItem):
         self.parent = parent
         self.bot_ids = []
         self.arch = ""
-        self.os = "win"
+        self.os = parent.os_short
         self.name = ""
         self.ip = ""
         self.id = ""
@@ -33,7 +33,7 @@ class VEHICLE(QStandardItem):
 
     def setVid(self, vid):
         self.id = vid
-        self.setText('vehicle' + self.id)
+        self.setText('vehicle' + str(self.id))
 
     def getStatus(self):
         return self.status

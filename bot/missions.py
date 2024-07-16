@@ -70,6 +70,7 @@ class M_Private_Attributes():
         self.original_req_file = ""
         self.follow_seller = ""
         self.follow_price = 0.0
+        self.fingerprint_profile = ""
 
 
 
@@ -118,6 +119,7 @@ class M_Private_Attributes():
         self.order_id = dj["order_id"]
         self.follow_price = dj["follow_price"]
         self.follow_seller = dj["follow_seller"]
+        self.fingerprint_profile = dj["fingerprint_profile"]
 
     def genJson(self):
         jd = {
@@ -137,7 +139,8 @@ class M_Private_Attributes():
                 "feedback_instructions": self.feedback_instructions,
                 "feedback_text": self.feedback_text,
                 "feedback_rating": self.feedback_rating,
-                "order_id": self.order_id
+                "order_id": self.order_id,
+                "fingerprint_profile": self.fingerprint_profile
             }
         return jd
 
@@ -186,7 +189,6 @@ class M_Pub_Attributes():
         self.platoon_id = ""
         self.buy_type = ""
         self.sell_type = ""
-
 
     def setType(self, atype, mtype):
         self.assign_type = atype
@@ -359,7 +361,7 @@ class M_Pub_Attributes():
                 "n_retries": 0,
                 "del_date": self.del_date,
                 "platoon_id": self.platoon_id,
-                "app_exe": self.app_exe
+                "app_exe": self.app_exe,
             }
         return jd
 
@@ -413,13 +415,12 @@ class EBMISSION(QStandardItem):
         self.icon = QIcon(main_win.file_resouce.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(main_win.std_item_font)
-        self.ads_xlsx_profile = ""
 
-    def setADSXlsxProfile(self, axpf):
-        self.ads_xlsx_profile = axpf
+    def setFingerPrintProfile(self, axpf):
+        self.privateAttributes.fingerprint_profile = axpf
 
-    def getADSXlsxProfile(self):
-        return self.ads_xlsx_profile
+    def getFingerPrintProfile(self):
+        return self.privateAttributes.fingerprint_profile
 
     def setMissionIcon(self, icon):
         self.icon = icon
@@ -886,7 +887,7 @@ class EBMISSION(QStandardItem):
 
     def genJson(self):
         jsd = {
-                "ads_xlsx_profile": self.ads_xlsx_profile,
+                "fingerprint_profile": self.fingerprint_profile,
                 "pubAttributes": self.pubAttributes.genJson(),
                 "privateAttributes": self.privateAttributes.genJson()
                 }
@@ -902,7 +903,7 @@ class EBMISSION(QStandardItem):
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
-        self.ads_xlsx_profile = jd["ads_xlsx_profile"]
+        self.fingerprint_profile = jd["fingerprint_profile"]
         # self.tasks = jd["tasks"]
         # self.main_win_settings["uid"] = jd["main_win_settings"]["uid"]
 
@@ -950,6 +951,7 @@ class EBMISSION(QStandardItem):
         self.setResult(dbd.result)
         self.setFollowSeller(dbd.follow_seller)
         self.setFollowPrice(dbd.follow_price)
+        self.setFingerPrintProfile(dbd.fingerprint_profile)
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadXlsxData(self, jd):
@@ -984,6 +986,7 @@ class EBMISSION(QStandardItem):
         self.setResult(jd["result"])
         self.setFollowSeller(jd["follow_seller"])
         self.setFollowPrice(jd["follow_price"])
+        self.setFingerPrintProfile(jd["fingerprint_profile"])
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadAMZReqData(self,jd):

@@ -8,9 +8,11 @@ from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 import logging
 import aiohttp
+import asyncio
 
 from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
+import websockets
 
 ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
@@ -485,7 +487,7 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
             rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
             rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i].getVName() + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i].getv() + "\", "
             rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
 
 
@@ -527,7 +529,7 @@ def gen_update_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
             rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
             rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i].getVName() + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i].getVehicle() + "\", "
             rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
 
         if i != len(bots) - 1:
@@ -917,6 +919,39 @@ def gen_feedback_request_string(fbReq):
     logger_helper.debug(query_string)
     return query_string
 
+
+def gen_wan_send_chat_message_string(wan_chat_req):
+    send_msg_mutation = """
+        mutation sendWanMessage($content: String!, $sender: String!, $receiver: String!, $parameters: String!) {
+          sendWanMessage(input: { chatID: $chatID, content: $content, sender: $sender ,receiver: $receiver, parameters: $parameters) {
+            id
+            chatID
+            content
+            sender
+            receiver
+            parameters
+            timestamp
+          }
+        }
+        """
+    return send_msg_mutation
+
+
+def gen_wan_subscription_connection_string(wan_chat_req):
+    sub_conn_string = """
+        subscription onMessageSent {
+          onMessageSent {
+            id
+            content
+            sender
+            timestamp
+          }
+        }
+        """
+
+    return sub_conn_string
+
+
 def set_up_cloud():
     this_session = requests.Session()
     return this_session
@@ -1072,6 +1107,7 @@ def send_update_bots_request_to_cloud(session, bots, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateBots"])
+        logger_helper.error("updateBots Response: " + jresp["data"]["updateBots"])
 
     return jresponse
 
@@ -1091,7 +1127,7 @@ def send_remove_bots_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeBots"])
-
+        logger_helper.error("removeBots Response: " + jresp["data"]["removeBots"])
     return jresponse
 
 
@@ -1111,6 +1147,7 @@ def send_add_missions_request_to_cloud(session, missions, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addMissions"])
+        logger_helper.error("addMissions Response: " + jresp["data"]["addMissions"])
 
     return jresponse
 
@@ -1129,7 +1166,7 @@ def send_update_missions_request_to_cloud(session, missions, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateMissions"])
-
+        logger_helper.error("updateMissions Response: " + jresp["data"]["updateMissions"])
     return jresponse
 
 
@@ -1148,6 +1185,7 @@ def send_remove_missions_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeMissions"])
+        logger_helper.error("removeMissions Response: " + jresp["data"]["removeMissions"])
 
     return jresponse
 
@@ -1166,6 +1204,7 @@ def send_add_skills_request_to_cloud(session, skills, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addSkills"])
+        logger_helper.error("addSkills Response: " + jresp["data"]["addSkills"])
 
     return jresponse
 
@@ -1184,6 +1223,7 @@ def send_update_skills_request_to_cloud(session, bots, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateSkills"])
+        logger_helper.error("updateSkills Response: " + jresp["data"]["updateSkills"])
 
     return jresponse
 
@@ -1203,6 +1243,7 @@ def send_remove_skills_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeSkills"])
+        logger_helper.error("removeSkills Response: " + jresp["data"]["removeSkills"])
 
     return jresponse
 
@@ -1405,7 +1446,7 @@ def findIdx(list, element):
 
 
 def upload_file(session, f2ul, token, ftype):
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     fname = os.path.basename(f2ul)
     fwords = f2ul.split("/")
@@ -1417,7 +1458,7 @@ def upload_file(session, f2ul, token, ftype):
 
     res = send_file_op_request_to_cloud(session, fopreqs, token)
     logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     resd = json.loads(res['body']['urls']['result'])
     logger_helper.debug("resd: "+json.dumps(resd))
@@ -1568,7 +1609,7 @@ async def send_file_with_presigned_url8(session, src_file, resp):
 
 
 async def upload_file8(session, f2ul, token, ftype):
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     fname = os.path.basename(f2ul)
     fwords = f2ul.split("/")
@@ -1581,7 +1622,7 @@ async def upload_file8(session, f2ul, token, ftype):
     # get presigned URL
     res = await send_file_op_request_to_cloud8(session, fopreqs, token)
     logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     resd = json.loads(res['body']['urls']['result'])
     logger_helper.debug("resd: "+json.dumps(resd))
@@ -1591,3 +1632,82 @@ async def upload_file8(session, f2ul, token, ftype):
     resp = await send_file_with_presigned_url8(session, f2ul, resd['body'][0])
     #  logger_helper.debug("upload result: "+json.dumps(resp))
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+
+async def send_wan_chat_message(content, sender, token):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    variables = {
+        "content": content,
+        "sender": sender
+    }
+    query_string = gen_wan_send_chat_message_string(content['msg'])
+    headers = {
+        'Content-Type': "application/graphql",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+    async with aiohttp.ClientSession() as session8:
+        async with session8.post(
+                url=APPSYNC_API_ENDPOINT_URL,
+                timeout=aiohttp.ClientTimeout(total=300),
+                headers=headers,
+                json={
+                        'query': query_string,
+                        'variables': variables
+                }
+        ) as response:
+            jresp = await response.json()
+            print(jresp)
+            return jresp
+
+
+
+async def wan_chat_subscribe(token):
+    WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    query_string = gen_wan_subscription_connection_string()
+    async def handle_message(websocket):
+        while True:
+            try:
+                response = await websocket.recv()
+                response_data = json.loads(response)
+                if response_data["type"] == "data":
+                    message = response_data["payload"]["data"]["onMessageSent"]
+                    print("New message received:", message)
+            except websockets.exceptions.ConnectionClosedError:
+                print("Connection lost. Attempting to reconnect...")
+                break
+
+    while True:
+        try:
+            async with websockets.connect(WS_URL, extra_headers={
+                'Content-Type': 'application/json',
+                'Authorization': token
+            }) as websocket:
+                # Send connection init message
+                init_msg = {
+                    "type": "connection_init"
+                }
+                await websocket.send(json.dumps(init_msg))
+
+                # Wait for connection ack
+                while True:
+                    response = await websocket.recv()
+                    response_data = json.loads(response)
+                    if response_data["type"] == "connection_ack":
+                        break
+
+                # Start subscription
+                sub_msg = {
+                    "id": "1",
+                    "type": "start",
+                    "payload": {
+                        "query": query_string,
+                        "variables": {}
+                    }
+                }
+                await websocket.send(json.dumps(sub_msg))
+
+                await handle_message(websocket)
+        except Exception as e:
+            print(f"ErrorInternetConnectionLost: {e}. Retrying websocket connection in 5 seconds...")
+            await asyncio.sleep(5)

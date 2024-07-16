@@ -1,6 +1,6 @@
 {
     "name": "fullfill_orders",
-    "skid": 69,
+    "skid": 71,
     "createdOn": "2024-05-05",
     "owner": "public",
     "price": 0,
@@ -12,7 +12,7 @@
     "app_link": "C:/Program Files/Google/Chrome/Application/chrome.exe",
     "app_args": "",
     "site_name": "amazon",
-    "site": "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1",
+    "site": "https://seller-us.tiktok.com/",
     "page": "orders",
     "procedural_skill": {
         "nameSpace": "",
@@ -24,7 +24,7 @@
     "main": "T",
     "runtime": 1,
     "cloud_skill": {
-        "path": "pubilc/win_chrome_amz_orders/fullfill_orders"
+        "path": "pubilc/win_chrome_tiktok_orders/fullfill_orders"
     },
-    "description": "this skill fullfills orders on Amazon FBS, using default amazon as the label provider."
+    "description": "this skill fullfills orders on tiktok shop, using default tiktok as the label provider."
 }
