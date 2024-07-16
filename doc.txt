@@ -1,5 +1,4 @@
 # https://www.cnblogs.com/xingyaowuhen/p/17065140.html
-"""
 
 一、requirements.txt的生成方式
 
@@ -48,18 +47,3 @@ pip install pip-upgrader
 激活你的virtualenv（很重要，因为它也将在当前virtualenv中安装新版本的升级包）。
 
 pip-upgrade
-"""
-
-import platform
-import subprocess
-
-# 获取当前操作系统
-current_os = platform.system()
-
-# 根据操作系统安装对应的依赖项
-if current_os == "Darwin":  # macOS
-    subprocess.run(["pip", "install", "-r", "requirements_macos.txt"])
-elif current_os == "Windows":
-    subprocess.run(["pip", "install", "-r", "requirements_windows.txt"])
-else:
-    print("Unsupported operating system")
