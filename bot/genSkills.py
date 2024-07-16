@@ -25,11 +25,14 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepThink, genException, genStepReportToBoss
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
-    genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill
+    genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
+    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
     genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
-    genWinChromeEtsyFullfillOrdersSkill, genWinChromeEtsyHandleMessagesSkill
+    genWinChromeEtsyFullfillOrdersSkill, genWinChromeEtsyHandleMessagesSkill, genWinADSEtsyFullfillOrdersSkill, \
+    genWinADSEtsyCollectOrderListSkill, genWinADSEtsyUpdateShipmentTrackingSkill
+
 from bot.fileSkill import genWinFileLocalOpenSaveSkill
 from bot.printLabel import genStepPrintLabels, genWinPrinterLocalReformatPrintSkill
 from bot.rarSkill import genWinRARLocalUnzipSkill
@@ -87,6 +90,9 @@ PUBLIC = {
     'genWinADSEbayFullfillOrdersSkill': genWinADSEbayFullfillOrdersSkill,
     'genWinADSEbayCollectOrderListSkill': genWinADSEbayCollectOrderListSkill,
     'genWinADSEbayUpdateShipmentTrackingSkill': genWinADSEbayUpdateShipmentTrackingSkill,
+    'genWinChromeEbayUpdateShipmentTrackingSkill': genWinChromeEbayUpdateShipmentTrackingSkill,
+    'genWinChromeEbayBuyShippingSkill': genWinChromeEbayBuyShippingSkill,
+    'genWinADSEbayBuyShippingSkill': genWinADSEbayBuyShippingSkill,
     'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
     'genStepSetupADS': genStepSetupADS,
     'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
@@ -133,10 +139,12 @@ SkillGeneratorTable = {
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
+    "win_ads_ebay_orders_buy_shipping": lambda x, y, z: genWinADSEbayBuyShippingSkill(x, y, z),
     "win_ads_ebay_orders_update_tracking": lambda x, y, z: genWinADSEbayUpdateShipmentTrackingSkill(x, y, z),
     "win_chrome_ebay_orders_fullfill_orders": lambda x, y, z: genWinChromeEbayFullfillOrdersSkill(x, y, z),
     "win_chrome_ebay_orders_collect_orders": lambda x, y, z: genWinChromeEbayCollectOrderListSkill(x, y, z),
     "win_chrome_ebay_orders_update_tracking": lambda x, y, z: genWinChromeEbayUpdateShipmentTrackingSkill(x, y, z),
+    "win_chrome_ebay_orders_buy_shipping": lambda x, y, z: genWinChromeEbayBuyShippingSkill(x, y, z),
     "win_chrome_ebay_orders_handle_messages": lambda x, y, z: genWinChromeEbayHandleMessagesSkill(x, y, z),
     "win_ads_local_open_open_profile": lambda x,y,z: genWinADSOpenProfileSkill(x, y, z),
     "win_ads_local_load_batch_import": lambda x,y,z: genWinADSBatchImportSkill(x, y, z),
@@ -368,7 +376,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "b_backup_email": bot.getBackEm(),
             "b_backup_email_pw": bot.getAcctPw(),
             "b_backup_email_site": bot.getBackEmSite(),
-            "batch_profile": works[widx]["ads_xlsx_profile"],
+            "batch_profile": works[widx]["fingerprint_profile"],
             "full_site": full_site,
             "seller": sij,
             "mid": mission_id,

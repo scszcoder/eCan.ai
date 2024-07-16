@@ -1,7 +1,7 @@
 import json
 
 from PySide6.QtCore import QEvent, QStringListModel, Qt
-from PySide6.QtGui import QStandardItemModel, QColor, QPalette, QIcon, QAction, QStandardItem
+from PySide6.QtGui import QStandardItemModel, QColor, QPalette, QIcon, QAction, QStandardItem, QScreen
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, QTabWidget, QVBoxLayout, QLineEdit, \
     QCompleter, QComboBox, QScrollArea, QHBoxLayout, QRadioButton, QFileDialog, QButtonGroup, QStyledItemDelegate, \
     QListView, QLabel, QFrame, QMenu
@@ -14,18 +14,18 @@ from utils.logger_helper import logger_helper
 
 
 class SkillListView(QListView):
-    def __init__(self, parent):
+    def __init__(self, mission_win):
         super(SkillListView, self).__init__()
         self.selected_row = None
-        self.parent = parent
-        self.homepath = parent.homepath
+        self.mission_win = mission_win
+        self.homepath = mission_win.homepath
 
     # def mousePressEvent(self, e):
     #     if e.type() == QEvent.MouseButtonPress:
     #         if e.button() == Qt.LeftButton:
-    #             self.parent.showMsg("row:"+str(self.indexAt(e.pos()).row()))
+    #             self.mission_win.showMsg("row:"+str(self.indexAt(e.pos()).row()))
     #             self.selected_row = self.indexAt(e.pos()).row()
-    #             # self.parent.updateSelectedSkill(self.selected_row)
+    #             # self.mission_win.updateSelectedSkill(self.selected_row)
 
 
 class MWORKSKILL(QStandardItem):
@@ -49,28 +49,28 @@ class MWORKSKILL(QStandardItem):
 
 
 class CustomDelegate(QStyledItemDelegate):
-    def __init__(self, parent):
-        super(CustomDelegate, self).__init__(parent)
-        self.parent = parent
+    def __init__(self, mission_win):
+        super(CustomDelegate, self).__init__(mission_win)
+        self.mission_win = mission_win
 
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
         # Check the item's text for customization
         item_text = index.data(Qt.DisplayRole)
         # if item_text == "5" or item_text == "11":
-        if self.parent.checkIsMain(item_text):
+        if self.mission_win.checkIsMain(item_text):
             option.font.setBold(True)
             option.palette.setColor(QPalette.Text, QColor(0, 0, 255))  # Blue color
 
 
 class MissionNewWin(QMainWindow):
-    def __init__(self, parent):
-        super(MissionNewWin, self).__init__(parent)
+    def __init__(self, main_win):
+        super(MissionNewWin, self).__init__(main_win)
         self.static_resource = StaticResource()
         self.text = QApplication.translate("QMainWindow", "new mission")
-        self.parent = parent
-        self.homepath = parent.homepath
-        self.newMission = EBMISSION(parent)
+        self.main_win = main_win
+        self.homepath = main_win.homepath
+        self.newMission = EBMISSION(main_win)
         self.owner = None
         self.mode = "new"
         self.selected_skill_row = None
@@ -152,8 +152,8 @@ class MissionNewWin(QMainWindow):
         self.skillActionLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Skill Action:</b>"),
                                        alignment=Qt.AlignLeft)
         self.skill_action_sel = QComboBox()
-        # self.skill_action_sel.setModel(self.parent.SkillManagerWin.skillModel)
-        self.styleDelegate = CustomDelegate(self.parent)
+        # self.skill_action_sel.setModel(self.main_win.SkillManagerWin.skillModel)
+        self.styleDelegate = CustomDelegate(self.main_win)
 
         self.buildSkillSelList()
         self.skill_action_sel.setItemDelegate(self.styleDelegate)
@@ -453,6 +453,24 @@ class MissionNewWin(QMainWindow):
         self.cus_id_edit = QLineEdit()
         self.cus_id_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Customer ID here"))
 
+        self.veriations_label = QLabel(QApplication.translate("QLabel", "Veriations:"), alignment=Qt.AlignLeft)
+        self.veriations_edit = QLineEdit()
+        self.veriations_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Veriations here"))
+
+        self.follow_price_label = QLabel(QApplication.translate("QLabel", "Follow Price:"), alignment=Qt.AlignLeft)
+        self.follow_price_edit = QLineEdit()
+        self.follow_price_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Follow Price here"))
+
+        self.follow_seller_label = QLabel(QApplication.translate("QLabel", "Follow Seller:"), alignment=Qt.AlignLeft)
+        self.follow_seller_edit = QLineEdit()
+        self.follow_seller_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Follow Seller here"))
+
+        self.fingerprint_profile_label = QLabel(QApplication.translate("QLabel", "Fingerprint Profile:"), alignment=Qt.AlignLeft)
+        self.fingerprint_profile_edit = QLineEdit()
+        self.fingerprint_profile_edit.setReadOnly(True)
+        self.fingerprint_profile_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Please select files of type Text, xls, xlsx or csv."))
+        self.fingerprint_profile_button = QPushButton("...")
+        self.fingerprint_profile_button.clicked.connect(self.fingerprint_profile_file)
         self.cus_sm_type_label = QLabel(QApplication.translate("QLabel", "Customer Messenging Type:"),
                                         alignment=Qt.AlignLeft)
         self.cus_sm_type_sel = QComboBox()
@@ -577,6 +595,21 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine10Layout.addWidget(self.op_mission_type_custome_edit)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine11Layout)
 
+        self.prvAttrLine12Layout = QHBoxLayout(self)
+        self.prvAttrLine12Layout.addWidget(self.veriations_label)
+        self.prvAttrLine12Layout.addWidget(self.veriations_edit)
+        self.prvAttrLine12Layout.addWidget(self.follow_seller_label)
+        self.prvAttrLine12Layout.addWidget(self.follow_seller_edit)
+        self.prvAttrLine12Layout.addWidget(self.follow_price_label)
+        self.prvAttrLine12Layout.addWidget(self.follow_price_edit)
+        self.prvAttrWidget.layout.addLayout(self.prvAttrLine12Layout)
+
+        self.prvAttrLine13Layout = QHBoxLayout(self)
+        self.prvAttrLine13Layout.addWidget(self.fingerprint_profile_label)
+        self.prvAttrLine13Layout.addWidget(self.fingerprint_profile_edit)
+        self.prvAttrLine13Layout.addWidget(self.fingerprint_profile_button)
+        self.prvAttrWidget.layout.addLayout(self.prvAttrLine13Layout)
+
         self.prvAttrWidget.setLayout(self.prvAttrWidget.layout)
 
         self.mission_status_label = QLabel(QApplication.translate("QLabel", "Mission Status:"), alignment=Qt.AlignLeft)
@@ -636,8 +669,21 @@ class MissionNewWin(QMainWindow):
         elif self.mode == "update":
             self.setWindowTitle('Updating a mission')
 
+    def fingerprint_profile_file(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            'Select File',
+            '',
+            '*.txt *.xls *.xlsx',
+            options=options
+        )
+        if file_name:
+            self.fingerprint_profile_edit.setText(file_name)
+
     def saveMission(self):
-        self.parent.showMsg("saving bot....")
+        self.main_win.showMsg("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
 
         if self.manual_rb.isChecked():
@@ -688,6 +734,10 @@ class MissionNewWin(QMainWindow):
                                                   self.price_edit.text())
 
         self.newMission.setCustomerID(self.cus_email_edit.text())
+        self.newMission.setFollowPrice(self.follow_price_edit.text())
+        self.newMission.setFollowSeller(self.follow_seller_edit.text())
+        self.newMission.setVariations(self.veriations_edit.text())
+        self.newMission.setFingerPrintProfile(self.fingerprint_profile_edit.text())
         self.newMission.setCustomerSMID(self.cus_sm_id_edit.text())
         self.newMission.setCustomerSMPlatform(self.cus_alt_sm_type_sel.currentText())
 
@@ -700,7 +750,7 @@ class MissionNewWin(QMainWindow):
         self.missionStatusSel_changed()
 
         platform_text = self.mission_platform_sel.currentText()
-        platform_sh = self.parent.translatePlatform(platform_text)
+        platform_sh = self.main_win.translatePlatform(platform_text)
         self.newMission.setPlatform(platform_text)
 
         if self.mission_app_sel.currentText() == 'Custom':
@@ -716,10 +766,10 @@ class MissionNewWin(QMainWindow):
         else:
             site_text = self.mission_site_sel.currentText()
 
-        site_sh = self.parent.translateSiteName(site_text)
+        site_sh = self.main_win.translateSiteName(site_text)
         self.newMission.setSite(site_text)
 
-        self.parent.showMsg("Setting CusPAS:" + platform_sh + "," + app_sh + "," + site_sh)
+        self.main_win.showMsg("Setting CusPAS:" + platform_sh + "," + app_sh + "," + site_sh)
         self.newMission.setCusPAS(platform_sh + "," + app_sh + "," + site_sh)
         self.fillSkills()
 
@@ -727,11 +777,11 @@ class MissionNewWin(QMainWindow):
         # public: type,
 
         if self.mode == "new":
-            self.parent.showMsg("adding new mission....")
-            self.parent.addNewMissions([self.newMission])
+            self.main_win.showMsg("adding new mission....")
+            self.main_win.addNewMissions([self.newMission])
         elif self.mode == "update":
-            self.parent.showMsg("update a mission....")
-            self.parent.updateMissions([self.newMission])
+            self.main_win.showMsg("update a mission....")
+            self.main_win.updateMissions([self.newMission])
 
         self.close()
 
@@ -743,7 +793,7 @@ class MissionNewWin(QMainWindow):
 
         for skidw in all_skids:
             skid = skidw.strip()
-            this_skill = next((x for x in self.parent.skills if x.getSkid() == skid), None)
+            this_skill = next((x for x in self.main_win.skills if x.getSkid() == skid), None)
 
             if this_skill:
                 self.skillModel.appendRow(this_skill)
@@ -758,14 +808,14 @@ class MissionNewWin(QMainWindow):
             skid = self.selected_skill_item.getSkid()
             sk_word = sk_word + "," + str(skid)
 
-        self.parent.showMsg("skills>>>>>" + sk_word)
+        self.main_win.showMsg("skills>>>>>" + sk_word)
 
         self.newMission.setSkills(sk_word)
 
     def selFile(self):
         # File actions
         fdir = self.fsel.getExistingDirectory()
-        self.parent.showMsg(fdir)
+        self.main_win.showMsg(fdir)
         return fdir
 
     def setOwner(self, owner):
@@ -835,6 +885,10 @@ class MissionNewWin(QMainWindow):
             self.price_edit.setText(str(self.newMission.getPrice()))
             self.cus_email_edit.setText(self.newMission.getCustomerID())
             self.cus_sm_id_edit.setText(self.newMission.getCustomerSMID())
+            self.veriations_edit.setText(self.newMission.getVariations())
+            self.follow_seller_edit.setText(self.newMission.getFollowSeller())
+            self.follow_price_edit.setText(self.newMission.getFollowPrice())
+            self.fingerprint_profile_edit.setText(self.newMission.getFingerPrintProfile())
 
             if self.newMission.getCustomerSMPlatform() in self.static_resource.SM_PLATFORMS:
                 self.cus_alt_sm_type_sel.setCurrentText(self.newMission.getCustomerSMPlatform())
@@ -860,7 +914,7 @@ class MissionNewWin(QMainWindow):
             else:
                 self.mission_site_sel.setCurrentText('Custom')
                 self.missionCustomAppNameEdit.setText(self.newMission.getSite())
-                self.missionCustomAppLinkEdit.setText(self.newMission.getSiteH())
+                self.missionCustomAppLinkEdit.setText(self.newMission.getSiteHTML())
 
             self.loadSkills(mission)
         except Exception as e:
@@ -877,7 +931,7 @@ class MissionNewWin(QMainWindow):
         self.missionCustomAppLinkEdit = self.mission_platform_sel.currentText()
 
     def missionAppSel_changed(self):
-        self.parent.showMsg("app changed....")
+        self.main_win.showMsg("app changed....")
         if self.mission_app_sel.currentText() != 'Custom':
             self.hide_mission_custom_app()
             self.selected_mission_app = self.mission_app_sel.currentText()
@@ -961,7 +1015,7 @@ class MissionNewWin(QMainWindow):
         sk_page = sk_words[3]
         sk_name = "_".join(sk_words[4:])
 
-        this_skill = next((x for x in self.parent.skills if
+        this_skill = next((x for x in self.main_win.skills if
                            x.getPlatform() == sk_platform and x.getApp() == sk_app and x.getSite() == sk_site and x.getPage() == sk_page and x.getName() == sk_name),
                           None)
         if this_skill:
@@ -972,7 +1026,7 @@ class MissionNewWin(QMainWindow):
             sk_dep = this_skill.getDependencies()
             if len(sk_dep) > 0:
                 for skid in sk_dep:
-                    dep_skill = next((x for x in self.parent.skills if x.getSkid() == skid), None)
+                    dep_skill = next((x for x in self.main_win.skills if x.getSkid() == skid), None)
                     self.skillModel.appendRow(dep_skill)
         else:
             self.skillNoteLabel.setText("Skill not available to use: " + sk_name)
@@ -988,7 +1042,7 @@ class MissionNewWin(QMainWindow):
             filter(lambda sk: sk.getIsMain() and sk.getSkid() != self.selected_skill_item.getSkid(),
                    all_mission_skills))
 
-        if self.selected_skill_item.getIsMain():
+        if self.selected_skill_item is not None and self.selected_skill_item.getIsMain():
             # first go thru its dependencies and check whether a skill is
             deps = self.selected_skill_item.getDependencies()
             for dep in deps:
@@ -1022,7 +1076,7 @@ class MissionNewWin(QMainWindow):
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.ContextMenu and source is self.skillListView:
-            # self.parent.showMsg("bot RC menu....")
+            # self.main_win.showMsg("bot RC menu....")
             self.popMenu = QMenu(self)
             self.skillUpdateAction = self._createSkillUpdateAction()
             self.skillDeleteAction = self._createSkillDeleteAction()
@@ -1041,10 +1095,10 @@ class MissionNewWin(QMainWindow):
                     self.updateSelectedSkill(self.selected_skill_row)
             return True
 
-            ##self.parent.showMsg(event.)
+            ##self.main_win.showMsg(event.)
 
         # else:
-        #     self.parent.showMsg("unknwn.... RC menu....", source, " EVENT: ", event)
+        #     self.main_win.showMsg("unknwn.... RC menu....", source, " EVENT: ", event)
         return super().eventFilter(source, event)
 
     def updateSelectedSkill(self, row):
@@ -1056,12 +1110,12 @@ class MissionNewWin(QMainWindow):
             self.mission_platform_sel.setCurrentText(platform)
 
             if self.mission_app_sel.findText(app) < 0:
-                self.parent.showMsg("set custom app")
+                self.main_win.showMsg("set custom app")
                 self.mission_app_sel.setCurrentText(QApplication.translate("QComboBox", "Custom"))
                 self.skillCustomAppNameEdit.setText(app)
                 self.skillCustomAppLinkEdit.setText(applink)
             else:
-                self.parent.showMsg("set menu app")
+                self.main_win.showMsg("set menu app")
                 self.mission_app_sel.setCurrentText(app)
                 self.skillCustomActionEdit.setText("")
 
@@ -1081,17 +1135,17 @@ class MissionNewWin(QMainWindow):
                 self.skillCustomActionEdit.setText("")
 
     def genNewTicket(self):
-        # get a new ticket using parent's DB connection.
-        self.parent.showMsg("new ticket number is: ")
+        # get a new ticket using main_win's DB connection.
+        self.main_win.showMsg("new ticket number is: ")
 
     def buildSkillSelList(self):
-        for sk in self.parent.skills:
+        for sk in self.main_win.skills:
             self.skill_action_sel.addItem(QApplication.translate("QComboBox",
                                                                  sk.getPlatform() + "_" + sk.getApp() + "_" + sk.getSiteName() + "_" + sk.getPage() + "_" + sk.getName()))
 
     def buy_rb_checked_state_changed(self):
         if self.buy_rb.isChecked():
-            self.parent.showMsg("buy mission is selected....")
+            self.main_win.showMsg("buy mission is selected....")
             self.show_buy_attributes()
             self.hide_sell_attributes()
             self.hide_op_attributes()
@@ -1100,7 +1154,7 @@ class MissionNewWin(QMainWindow):
 
     def sell_rb_checked_state_changed(self):
         if self.sell_rb.isChecked():
-            self.parent.showMsg("sell mission is selected....")
+            self.main_win.showMsg("sell mission is selected....")
             self.show_sell_attributes()
             self.hide_buy_attributes()
             self.hide_op_attributes()
@@ -1109,7 +1163,7 @@ class MissionNewWin(QMainWindow):
 
     def op_rb_checked_state_changed(self):
         if self.op_rb.isChecked():
-            self.parent.showMsg("sell mission is selected....")
+            self.main_win.showMsg("sell mission is selected....")
             self.show_op_attributes()
             self.hide_buy_attributes()
             self.hide_sell_attributes()

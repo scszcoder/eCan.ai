@@ -1,4 +1,6 @@
+import ast
 import json
+from typing import List
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QFont, QStandardItemModel, QStandardItem, QIcon, QAction
@@ -6,7 +8,9 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, Q
     QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QListView, QFrame, QMenu, QLabel, \
     QTableView, QMessageBox, QStyledItemDelegate
 from bot.ebbot import EBBOT
-from gui.tool.MainGUITool import StaticResource
+from models import VehicleModel
+from tool.MainGUITool import StaticResource
+
 
 
 class ComboBoxDelegate(QStyledItemDelegate):
@@ -39,7 +43,7 @@ class BotNewWin(QMainWindow):
         super(BotNewWin, self).__init__(main_win)
         self.main_win = main_win
         self.newBot = EBBOT(main_win)
-
+        self.vehicleArray = self.findAllVehicle()
         # def __init__(self):
         #     super().__init__()
         self.mainWidget = QWidget()
@@ -61,7 +65,7 @@ class BotNewWin(QMainWindow):
         self.selected_interest_sub_category3 = "any"
         self.selected_interest_sub_category4 = "any"
         self.selected_interest_sub_category5 = "any"
-
+        self.selected_vehicle_combo_box = 'NA'
         self.selected_role_platform = "Amazon"
         self.selected_role_level = "Green"
         self.selected_role_role = "Buyer"
@@ -152,6 +156,21 @@ class BotNewWin(QMainWindow):
         self.age_edit = QLineEdit()
         self.age_edit.setReadOnly(True)
         self.pfn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input age here"))
+        self.vehicle_label = QLabel(QApplication.translate("QLabel", "Vehicle:"), alignment=Qt.AlignLeft)
+        self.vehicle_combo_box = QComboBox()
+        self.vehicle_list = []
+        for p in self.main_win.vehicles:
+            combined_value = f"{p.getOS()}-{p.getName()}-{p.getIP()} {len(p.getBotIds())}"
+            self.vehicle_list.append(combined_value)
+            item = QApplication.translate("QComboBox", combined_value)
+            self.vehicle_combo_box.addItem(item)
+            if len(p.bot_ids) > p.CAP:
+                index = self.vehicle_combo_box.findText(item)
+                if index >= 0:
+                    self.vehicle_combo_box.model().item(index).setEnabled(False)
+        self.vehicle_combo_box.setCurrentIndex(-1)
+        self.vehicle_combo_box.currentTextChanged.connect(self.vehicle_combo_box_changed)
+
         self.mf_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Gender:</b>"),
                                alignment=Qt.AlignLeft)
 
@@ -309,6 +328,11 @@ class BotNewWin(QMainWindow):
         self.pubpflLine6Layout.addWidget(self.age_label)
         self.pubpflLine6Layout.addWidget(self.age_edit)
         self.pubpflWidget_layout.addLayout(self.pubpflLine6Layout)
+
+        self.pubpflLine6ALayout = QHBoxLayout(self)
+        self.pubpflLine6ALayout.addWidget(self.vehicle_label)
+        self.pubpflLine6ALayout.addWidget(self.vehicle_combo_box)
+        self.pubpflWidget_layout.addLayout(self.pubpflLine6ALayout)
 
         self.pubpflLine7Layout = QHBoxLayout(self)
         self.pubpflLine7Layout.addWidget(self.mf_label)
@@ -777,7 +801,11 @@ class BotNewWin(QMainWindow):
         self.shipaddr_city_edit.setText(bot.getShippingAddrCity())
         self.shipaddr_state_edit.setText(bot.getShippingAddrState())
         self.shipaddr_zip_edit.setText(bot.getShippingAddrZip())
-
+        if bot.getVehicle() == "NA" or bot.getVehicle() == "" or bot.getVehicle() is None:
+            self.vehicle_combo_box.setCurrentIndex(-1)
+        else:
+            index = self.vehicle_list.index(bot.getVehicle())
+            self.vehicle_combo_box.setCurrentIndex(index)
         self.load_role(bot)
         self.load_interests(bot)
 
@@ -841,6 +869,8 @@ class BotNewWin(QMainWindow):
 
     def saveBot(self):
         self.main_win.showMsg("saving bot....")
+
+
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
         # if self.mode == "new":
         #    self.newBot = EBBOT()
@@ -860,7 +890,6 @@ class BotNewWin(QMainWindow):
 
         self.newBot.pubProfile.setPubBirthday(self.bd_edit.text())
         self.newBot.pubProfile.setNickName(self.pnn_edit.text())
-
         self.newBot.settings.setComputer(self.os_sel.currentText(), self.machine_sel.currentText(),
                                          self.browser_sel.currentText())
 
@@ -874,12 +903,22 @@ class BotNewWin(QMainWindow):
 
         self.fillRoles()
         self.fillInterests()
-
+        self.newBot.pubProfile.setVehicle(self.selected_vehicle_combo_box)
+        # os = self.selected_vehicle_combo_box.split("-")[0]
+        # roles = self.newBot.getRoles()
+        # if os not in roles:
+        #     msg_box = QMessageBox()
+        #     msg_box.setIcon(QMessageBox.Critical)
+        #     msg_box.setText(QApplication.translate("QMessageBox", "Login Error.  Try again..."))
+        #     msg_box.setWindowTitle("Error")
+        #     msg_box.exec_()
+        # else:
         if self.mode == "new":
             self.main_win.showMsg("adding new bot....")
             self.main_win.addNewBots([self.newBot])
         elif self.mode == "update":
             self.main_win.showMsg("update a bot....")
+            print("new bot:", self.newBot.getVehicle(), self.newBot.getInterests())
             self.main_win.updateBots([self.newBot])
 
         self.close()
@@ -905,17 +944,41 @@ class BotNewWin(QMainWindow):
     def fillInterests(self):
         self.newBot.setInterests("")
         rowCount = self.interestTableModel.rowCount()
+        print("interest table rows:", rowCount)
         for i in range(rowCount):
-            platform = self.interestTableModel.item(i, 0).text()
-            main_category = self.interestTableModel.item(i, 1).text()
-            sub_category1 = self.interestTableModel.item(i, 2).text()
-            sub_category2 = self.interestTableModel.item(i, 3).text()
-            sub_category3 = self.interestTableModel.item(i, 4).text()
+            if self.interestTableModel.item(i, 0):
+                platform = self.interestTableModel.item(i, 0).text()
+            else:
+                platform = "any"
+
+            if self.interestTableModel.item(i, 1):
+                main_category = self.interestTableModel.item(i, 1).text()
+            else:
+                main_category = "any"
+
+            if self.interestTableModel.item(i, 2):
+                sub_category1 = self.interestTableModel.item(i, 2).text()
+            else:
+                sub_category1 = "any"
+
+            if self.interestTableModel.item(i, 3):
+                sub_category2 = self.interestTableModel.item(i, 3).text()
+            else:
+                sub_category2 = "any"
+
+            if self.interestTableModel.item(i, 4):
+                sub_category3 = self.interestTableModel.item(i, 4).text()
+            else:
+                sub_category3 = "any"
+
             int_words = platform + "|" + main_category + "|" + sub_category1 + "|" + sub_category2 + "|" + sub_category3
             if i == 0:
                 self.newBot.setInterests(int_words)
             else:
                 self.newBot.setInterests(self.newBot.getInterests() + "," + int_words)
+
+            if self.interestTableModel.item(i, 0):
+                break
         self.main_win.showMsg("interests>>>>>" + json.dumps(self.newBot.getInterests()))
 
     def selFile(self):
@@ -930,6 +993,9 @@ class BotNewWin(QMainWindow):
             self.setWindowTitle('Adding a new bot')
         elif self.mode == "update":
             self.setWindowTitle('Updating a new bot')
+
+    def vehicle_combo_box_changed(self):
+        self.selected_vehicle_combo_box = self.vehicle_combo_box.currentText().split("(")[0]
 
     def rolePlatformSel_changed(self):
         if self.role_platform_sel.currentText() != QApplication.translate("QComboBox", "Custom"):
@@ -1031,6 +1097,11 @@ class BotNewWin(QMainWindow):
             return True
         return super().eventFilter(obj, event)
 
+    def findAllVehicle(self) -> List[VehicleModel]:
+       return self.main_win.vehicle_service.findAllVehicle()
+
+    def findVehicleByIp(self, ip) -> VehicleModel:
+        return self.main_win.vehicle_service.find_vehicle_by_ip(ip)
     def deleteSelectedRow(self, tableView, model):
         reply = QMessageBox.question(self, '删除确认', '确定要删除这条记录吗？', QMessageBox.Yes | QMessageBox.No,
                                      QMessageBox.No)

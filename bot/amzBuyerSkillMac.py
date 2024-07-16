@@ -3,12 +3,14 @@ import json
 import random
 from datetime import datetime
 
+
 from bot.Logger import log3
 from bot.basicSkill import DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepHeader, genStepStub, genStepCreateData, genStepUseSkill, genStepWait, \
     genStepCallExtern, genStepExtractInfo, genStepSearchWordLine, genStepSearchAnchorInfo, genStepCheckCondition, \
     genStepMouseScroll, genStepMouseClick, genStepKeyInput, genStepGoToWindow, genStepTextInput, genStepLoop, \
     genScrollDownUntil, genStepFillData, genStepOpenApp, genStepRecordTxtLineLocation, genStepReadFile, genStepWriteFile
 from bot.adsPowerSkill import genADSPowerExitProfileSteps
+from bot.amzBuyerSkill import genAMZBrowseProductLists
 import re
 from difflib import SequenceMatcher
 import traceback

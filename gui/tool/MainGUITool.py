@@ -1,7 +1,3 @@
-import os
-import sqlite3
-
-
 class FileResource:
     def __init__(self, homepath):
         self.bot_icon_path = homepath + '/resource/images/icons/c_robot64_1.png'
