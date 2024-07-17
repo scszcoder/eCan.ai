@@ -1,0 +1,222 @@
+[
+  {
+    "step": 1,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step1_1720487801.533372.png",
+    "type": "move",
+    "time": 1720487801.533372,
+    "x": 1395.11328125,
+    "y": 557.71484375,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 2,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step2_1720487804.702529.png",
+    "type": "move",
+    "time": 1720487804.702529,
+    "x": 1058.69921875,
+    "y": 313.2734375,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 3,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step3_1720487805.009381.png",
+    "type": "move",
+    "time": 1720487805.009381,
+    "x": 833.4453125,
+    "y": 306.79296875,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 4,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step4_1720487805.328047.png",
+    "type": "move",
+    "time": 1720487805.328047,
+    "x": 978.11328125,
+    "y": 382.87109375,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 5,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step5_1720487805.640235.png",
+    "type": "move",
+    "time": 1720487805.640235,
+    "x": 660.46875,
+    "y": 607.95703125,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 6,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step6_1720487805.949762.png",
+    "type": "move",
+    "time": 1720487805.949762,
+    "x": 812.32421875,
+    "y": 519.91796875,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 7,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step7_1720487806.251725.png",
+    "type": "move",
+    "time": 1720487806.251725,
+    "x": 881.828125,
+    "y": 459.60546875,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 8,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step8_1720487806.562766.png",
+    "type": "move",
+    "time": 1720487806.562766,
+    "x": 890.18359375,
+    "y": 426.4765625,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 9,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/click_step9_1720487811.293888.png",
+    "type": "click",
+    "time": 1720487811.293888,
+    "x": 890.94921875,
+    "y": 420.5390625,
+    "dx": null,
+    "dy": null,
+    "button": "left"
+  },
+  {
+    "step": 10,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step10_1720487811.613676.png",
+    "type": "move",
+    "time": 1720487811.613676,
+    "x": 890.015625,
+    "y": 420.6328125,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 11,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step11_1720487812.089354.png",
+    "type": "move",
+    "time": 1720487812.089354,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": null,
+    "dy": null,
+    "button": null
+  },
+  {
+    "step": 12,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step12_1720487818.416766.png",
+    "type": "scroll",
+    "time": 1720487818.416766,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 0,
+    "dy": 2,
+    "button": null
+  },
+  {
+    "step": 13,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step13_1720487818.725018.png",
+    "type": "scroll",
+    "time": 1720487818.725018,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 0,
+    "dy": 1,
+    "button": null
+  },
+  {
+    "step": 14,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step14_1720487819.034244.png",
+    "type": "scroll",
+    "time": 1720487819.034244,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 0,
+    "dy": 1,
+    "button": null
+  },
+  {
+    "step": 15,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step15_1720487819.341996.png",
+    "type": "scroll",
+    "time": 1720487819.341996,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 0,
+    "dy": 1,
+    "button": null
+  },
+  {
+    "step": 16,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step16_1720487827.820417.png",
+    "type": "scroll",
+    "time": 1720487827.820417,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 0,
+    "dy": 4,
+    "button": null
+  },
+  {
+    "step": 17,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step17_1720487828.130563.png",
+    "type": "scroll",
+    "time": 1720487828.130563,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 1,
+    "dy": -2,
+    "button": null
+  },
+  {
+    "step": 18,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step18_1720487828.437257.png",
+    "type": "scroll",
+    "time": 1720487828.437257,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 1,
+    "dy": -2,
+    "button": null
+  },
+  {
+    "step": 19,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step19_1720487828.743832.png",
+    "type": "scroll",
+    "time": 1720487828.743832,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 0,
+    "dy": -1,
+    "button": null
+  },
+  {
+    "step": 20,
+    "file_name": "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step20_1720487839.501925.png",
+    "type": "scroll",
+    "time": 1720487839.501925,
+    "x": 515.15625,
+    "y": 796.76171875,
+    "dx": 1,
+    "dy": -1,
+    "button": null
+  }
+]
