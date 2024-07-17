@@ -689,7 +689,7 @@ class SkillGUI(QMainWindow):
         self.rects.append(rect)
 
         # rect = QGraphicsRectItem(QRectF(50, 50, 25, 25))
-        rect = BSQGraphicsRectItem(QRectF(50, 50, 25, 25), self.pbview, "imgbb")
+        rect = BSQGraphicsRectItem(QRectF(50, 50, 25, 40), self.pbview, "imgbb")
         rect.setPen(self.txtBoxPen)
         rect.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
         self.pbscene.addItem(rect)

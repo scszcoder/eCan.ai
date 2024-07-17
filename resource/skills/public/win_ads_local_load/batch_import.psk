@@ -1,0 +1,1183 @@
+
+{"header":
+{
+    "name": "win_ads_local_load_batch_import",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINADSBATCHIMPORT001",
+    "description": "Windows ADS Power Batch Import Profiles."
+},
+"step 5":
+{
+    "type": "Stub",
+    "stub_name": "start skill",
+    "func_name": "public/win_ads_local_load/batch_import",
+    "fargs": ""
+},
+"step 10":
+{
+    "type": "Create Data",
+    "data_type": "obj",
+    "data_name": "sk_work_settings",
+    "key_name": "NA",
+    "key_value": null
+},
+"step 15":
+{
+    "type": "Call Extern",
+    "file": "global in_file_op\nin_file_op = fin[0]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 20":
+{
+    "type": "Call Extern",
+    "file": "global current_profile_path\ncurrent_profile_path = fin[1]\nprint('current_profile_path', current_profile_path)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 25":
+{
+    "type": "Call Extern",
+    "file": "global current_profile_name\ncurrent_profile_name = fin[2]\nprint('current_profile_name', current_profile_name)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 30":
+{
+    "type": "Call Extern",
+    "file": "global in_bot_email\nin_bot_email = fin[3]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 35":
+{
+    "type": "Call Extern",
+    "file": "global in_bot_user_name\nin_bot_user_name = in_bot_email.split('@')[0]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 40":
+{
+    "type": "Call Extern",
+    "file": "global in_full_site\nin_full_site = fin[4]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 45":
+{
+    "type": "Call Extern",
+    "file": "global in_os\nin_os = fin[5]",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 50":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'Profiles', 'No Data']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 55":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "scrn_options",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 60":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "profiles",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        7,
+        2
+    ],
+    "post_wait": 2
+},
+"step 65":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 70":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "no_data",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "no_profiles"
+},
+"step 75":
+{
+    "type": "Check Condition",
+    "condition": "not no_profiles",
+    "if_else": "",
+    "if_end": ""
+},
+"step 80":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "checkbox",
+    "target_type": "anchor icon",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 85":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "trash0",
+    "target_type": "anchor icon",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 90":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 95":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "ok",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 100":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 105":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 110":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "new_profile",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 5
+},
+"step 115":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 120":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "batch_import",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        -3,
+        5
+    ],
+    "post_wait": 2
+},
+"step 125":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 130":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "chrome_kernel",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "sun_selected"
+},
+"step 135":
+{
+    "type": "Check Condition",
+    "condition": "not sun_selected",
+    "if_else": "",
+    "if_end": ""
+},
+"step 140":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "browser_sun",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 145":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 150":
+{
+    "type": "Check Condition",
+    "condition": "in_os == 'win'",
+    "if_else": "",
+    "if_end": ""
+},
+"step 155":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "windows_checked",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "win_selected"
+},
+"step 160":
+{
+    "type": "Check Condition",
+    "condition": "not win_selected",
+    "if_else": "",
+    "if_end": ""
+},
+"step 165":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "os_windows",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 170":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 175":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 180":
+{
+    "type": "Check Condition",
+    "condition": "in_os == 'mac'",
+    "if_else": "",
+    "if_end": ""
+},
+"step 185":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "mac_checked",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "mac_selected"
+},
+"step 190":
+{
+    "type": "Check Condition",
+    "condition": "not mac_selected",
+    "if_else": "",
+    "if_end": ""
+},
+"step 195":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "os_mac",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 200":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 205":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 210":
+{
+    "type": "Check Condition",
+    "condition": "in_os == 'linux'",
+    "if_else": "",
+    "if_end": ""
+},
+"step 215":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "linux_checked",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "linux_selected"
+},
+"step 220":
+{
+    "type": "Check Condition",
+    "condition": "not linux_selected",
+    "if_else": "",
+    "if_end": ""
+},
+"step 225":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "os_linux",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 230":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 235":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 240":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 245":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 250":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "screen"
+},
+"step 255":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 260":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "specified_url",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "left",
+    "offset_unit": "box",
+    "offset": [
+        2,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        5
+    ],
+    "post_wait": 2
+},
+"step 265":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 270":
+{
+    "type": "Search Word Line",
+    "screen": "screen_info",
+    "names": "in_full_site",
+    "name_types": "expr",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "site_found"
+},
+"step 275":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "other",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "site_list_ended"
+},
+"step 280":
+{
+    "type": "Repeat",
+    "lc_name": "search_site0",
+    "until": "not (site_found or site_list_ended)",
+    "count": "",
+    "end": ""
+},
+"step 285":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 2,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "raw"
+},
+"step 290":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 295":
+{
+    "type": "Search Word Line",
+    "screen": "screen_info",
+    "names": "in_full_site",
+    "name_types": "expr",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "site_found"
+},
+"step 300":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "other",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "site_list_ended"
+},
+"step 305":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 310":
+{
+    "type": "Check Condition",
+    "condition": "site_found",
+    "if_else": "",
+    "if_end": ""
+},
+"step 315":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "paragraph",
+    "target_type": "info",
+    "text": "in_full_site",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 320":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 325":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "other",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "left",
+    "offset_unit": "box",
+    "offset": [
+        3,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 330":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 335":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "enter_platform",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "left",
+    "offset_unit": "box",
+    "offset": [
+        3,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 340":
+{
+    "type": "Text Input",
+    "txt_ref_type": "direct",
+    "save_rb": false,
+    "text": "in_full_site",
+    "text_type": "var",
+    "speed": 0.05,
+    "key_after": "enter",
+    "wait_after": 1
+},
+"step 345":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 350":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 355":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "drag_drop",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "file_load_found"
+},
+"step 360":
+{
+    "type": "Check Condition",
+    "condition": "not file_load_found",
+    "if_else": "",
+    "if_end": ""
+},
+"step 365":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "screen"
+},
+"step 370":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 375":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 380":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "drag_drop",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 385":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 3
+},
+"step 390":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "file_open_input",
+    "key_name": "NA",
+    "key_value": "['open', current_profile_path, current_profile_name]"
+},
+"step 395":
+{
+    "type": "Use Skill",
+    "skill_name": "open_save_as",
+    "skill_path": "public/win_file_local_op",
+    "skill_args": "file_open_input",
+    "output": "fileStatus"
+},
+"step 400":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0.1, 0.5, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 405":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "scrn_options",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 410":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "ok",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 415":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 10
+},
+"step 420":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 425":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "ok",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 430":
+{
+    "type": "Call Extern",
+    "file": "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 435":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "dyn_options",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 440":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "bot_user",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "bot_loaded"
+},
+"step 445":
+{
+    "type": "Check Condition",
+    "condition": "not bot_loaded",
+    "if_else": "",
+    "if_end": ""
+},
+"step 450":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 2,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "screen"
+},
+"step 455":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "dyn_options",
+    "data_sink": "screen_info",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 460":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "bot_user",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "bot_loaded"
+},
+"step 465":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 470":
+{
+    "type": "Check Condition",
+    "condition": "bot_loaded",
+    "if_else": "",
+    "if_end": ""
+},
+"step 475":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "bot_open",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 480":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 485":
+{
+    "type": "Stub",
+    "stub_name": "end skill",
+    "func_name": "public/win_ads_local_load/batch_import",
+    "fargs": ""
+},
+"dummy" : ""}
