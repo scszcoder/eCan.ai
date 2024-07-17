@@ -2177,7 +2177,7 @@ class MainWindow(QMainWindow):
                         # if commander participate work, give the first(0th) work to self.
                         batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                         # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
-                        self.showMsg("arranged for today on this machine....")
+                        self.showMsg("arranged for today on this machine...."+vname)
                         self.add_buy_searchs(batched_tasks)
                         # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
                         self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})

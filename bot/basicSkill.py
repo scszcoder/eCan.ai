@@ -139,14 +139,16 @@ def genStepSaveHtml(html_file_name, html_file_var_name, template, settings, sink
 # sect: which section of the page is this extraction about?
 # page_data: data on the page extracted from analyzing html file contents. this info will help image analysis
 # option: in case this page has no anchor, needs extra help.....
+# window title keyword of the window to be screen captured, (default is "" which means top window)
 # example option:  "options": "{\"info\": [{\"info_name\": \"label_row\", \"info_type\": \"lines 1\", \"template\": \"2\", \"ref_method\": \"1\", \"refs\": [{\"dir\": \"right inline\", \"ref\": \"entries\", \"offset\": 0, \"offset_unit\": \"box\"}]}]}",
-def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_data, options=""):
+def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_data, options="", win_title_kw=""):
     stepjson = {
         "type": "Extract Info",
         "settings": settings,
         "template": template,
         "options": options,
         "data_sink": sink,
+        "win_title_kw": win_title_kw,
         "page": page,
         "page_data_info": page_data,
         "theme": theme,
@@ -205,7 +207,7 @@ def genStepSearchWordLine(screen, names, name_types, logic, result, flag, site, 
 # search some target content on the page, and scroll the target to the target loction on the page.
 # at_loc is a rough location, meaning the anchor closest to this location, NOT exactly at this location.
 # at_loc is also a 2 dimensional x-y coordinates
-def genStepSearchScroll(screen, dir, target, target_type, at_loc, target_loc, flag, resolution, postwait, site, stepN):
+def genStepSearchScroll(screen, dir, target, target_type, at_loc, target_loc, flag, resolution, postwait, site, adjustment, stepN):
     stepjson = {
         "type": "Search Scroll",
         "action": "Search Scroll",
@@ -217,6 +219,7 @@ def genStepSearchScroll(screen, dir, target, target_type, at_loc, target_loc, fl
         "screen": screen,
         "resolution": resolution,
         "postwait": postwait,
+        "adjustment": adjustment,
         "site": site,
         "flag": flag
     }
@@ -332,7 +335,7 @@ def genStepTextInput(txt_type, saverb, txt, txt_ref_type, speed, key_after, wait
         "txt_ref_type": txt_ref_type,
         "save_rb": saverb,
         "text": txt,
-        "text_type": txt_type,
+        "txt_type": txt_type,
         "speed": speed,
         "key_after": key_after,
         "wait_after":  wait_after
@@ -771,6 +774,17 @@ def genStepAmzDetailsCheckPosition(screen, marker_name, result_var, flag_var, st
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepAmzPLCalcNCols(sponsors_name, carts_name, options_name, fd_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "AMZ PL Calc Columns",
+        "sponsors": sponsors_name,
+        "options": options_name,
+        "carts": carts_name,
+        "free_deliveries": sponsors_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 def genException():
@@ -783,7 +797,7 @@ def genException():
     return this_step, psk_words
 
 
-def get_top_visible_window():
+def get_top_visible_window(win_title_keyword):
     if sys.platform == 'win32':
         names = []
         def winEnumHandler(hwnd, ctx):
@@ -795,13 +809,27 @@ def get_top_visible_window():
 
         win32gui.EnumWindows(winEnumHandler, None)
 
-        # log3(",".join(names))
+        log3("TOP5 WINDOWS:"+",".join(names[0:5]))
         effective_names = [nm for nm in names if "dummy" not in nm]
-        window_handle = win32gui.FindWindow(None, effective_names[0])
-        window_rect = win32gui.GetWindowRect(window_handle)
-        log3("top window: "+names[0]+" rect: "+json.dumps(window_rect))
+        found = False
+        if win_title_keyword:
+            for wi, wn in enumerate(effective_names):
+                if win_title_keyword in wn:
+                    win_title = effective_names[wi]
+                    window_handle = win32gui.FindWindow(None, effective_names[wi])
+                    win_rect = win32gui.GetWindowRect(window_handle)
+                    log3("FOUND target window: " + win_title + " rect: " + json.dumps(win_rect))
+                    found = True
+                    break
 
-        return names[0], window_rect
+        if win_title_keyword == "" or not found:
+            # set to default top window
+            win_title = effective_names[0]
+            window_handle = win32gui.FindWindow(None, effective_names[0])
+            win_rect = win32gui.GetWindowRect(window_handle)
+            log3("default top window: " + names[0] + " rect: " + json.dumps(win_rect))
+
+        return win_title, win_rect
     elif sys.platform == 'darwin':
         # 获取当前激活的应用
         active_app = NSWorkspace.sharedWorkspace().frontmostApplication()
@@ -881,11 +909,11 @@ def list_windows():
         return active_app_name, window_rect
 
 
-def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
+def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
     global screen_loc
 
-    window_name, window_rect = get_top_visible_window()
+    window_name, window_rect = get_top_visible_window(win_title_keyword)
 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
@@ -993,11 +1021,11 @@ def read_screen(site_page, page_sect, page_theme, layout, mission, sk_settings, 
             return []
 
 
-async def read_screen8(site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
+async def read_screen8(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
     global screen_loc
 
-    window_name, window_rect = get_top_visible_window()
+    window_name, window_rect = get_top_visible_window(win_title_keyword)
 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
@@ -1245,7 +1273,7 @@ def processExtractInfo(step, i, mission, skill):
         icon_names = get_csk_icon_names(found_skill, step["page"], step["section"])
         factors = findAndFormIconScaleFactors(machine_name, sk_name, step["page"], step["section"], icon_names)
 
-        result = read_screen(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
+        result = read_screen(step['win_title_kw'], step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1341,7 +1369,7 @@ async def processExtractInfo8(step, i, mission, skill):
         icon_names = get_csk_icon_names(found_skill, step["page"], step["section"])
         factors = findAndFormIconScaleFactors(machine_name, sk_name, step["page"], step["section"], icon_names)
 
-        result = await read_screen8(step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
+        result = await read_screen8(step['win_title_kw'], step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1442,15 +1470,15 @@ def processTextInput(step, i):
 
         time.sleep(2)
         # pyautogui.click()
-        if step["text_type"] == "var":
+        if step["txt_type"] == "var" and step["txt_ref_type"] == "direct":
             log3("about to TYPE in:"+symTab[txt_to_be_input])
             pyautogui.write(symTab[txt_to_be_input], interval=0.25)
         else:
-            if len(txt_to_be_input) > 0:
+            if step["txt_type"] == "list":
                 log3("direct type in:"+txt_to_be_input[0])
                 pyautogui.write(txt_to_be_input[0], interval=step["speed"])
             else:
-                pyautogui.write("Do not know", interval=step["speed"])
+                pyautogui.write(txt_to_be_input, interval=step["speed"])
 
         time.sleep(1)
         if step['key_after'] != "":
@@ -1773,7 +1801,7 @@ def processMouseClick(step, i):
 
             log3("direct calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset_x)+","+str(post_offset_y)+")"+"post_loc:"+json.dumps(post_loc))
 
-        window_name, window_rect = get_top_visible_window()
+        window_name, window_rect = get_top_visible_window("")
         log3("top windows rect:"+json.dumps(window_rect))
 
         # loc[0] = int(loc[0]) + window_rect[0]
@@ -3350,6 +3378,7 @@ def processSearchScroll(step, i):
             log3("KEEP scrolling calculated offset: "+str(offset)+"setting flag var ["+str(step["flag"])+"] to be FALSE....")
 
         mouse.scroll(0, offset)
+        symTab[step["adjustment"]] = symTab[step["adjustment"]] + offset
         time.sleep(step["postwait"])
 
 
@@ -3437,6 +3466,9 @@ def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN,
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global scroll_adjustment\nscroll_adjustment = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # condition, count, end, lc_name, stepN):
     this_step, step_words = genStepLoop("position_reached != True", "", "", "scrollDown"+str(stepN), this_step)
     psk_words = psk_words + step_words
@@ -3454,7 +3486,7 @@ def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN,
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [20, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [20, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, "scroll_adjustment", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -3487,7 +3519,7 @@ def genScrollUpUntil(target_anchor, target_type, tilpos, page, section, stepN, w
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", "up", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", "up", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, "scroll_adjustment", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -4084,6 +4116,7 @@ def processCalcObjectsDistance(step, i):
                 op2 = hsorted2[0]["loc"][1]
 
         symTab[step["result"]] = op2 - op1
+        log3("calced gap:" + str(symTab[step["result"]]))
 
     except Exception as e:
         # Get the traceback information
@@ -4140,6 +4173,82 @@ def processAmzDetailsCheckPosition(step, i):
             ex_stat = "ErrorAmzDetailsCheckPosition:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAmzDetailsCheckPosition: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+# calculate number of columns from a Amazon product list page screen shot
+# assumption: this screen shot is at the top of the page with sponsored and free delivery info as the markers.
+def processAmzPLCalcNCols(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag"]] = True
+        log3("to be check carts:" + json.dumps(symTab[step["carts"]]))
+        if len(symTab[step["sponsors"]]) > 0:
+            if len(symTab[step["carts"]]) > 0:
+                carts_vsorted = sorted(symTab[step["carts"]], key=lambda x: x["loc"][0], reverse=False)
+
+                line_height = carts_vsorted[0]["loc"][2]-carts_vsorted[0]["loc"][0]
+                last_vloc = carts_vsorted[0]["loc"][0]
+                carts_rows = []
+                carts_row = []
+                for spi, sp in enumerate(carts_vsorted):
+                    if abs(carts_vsorted[spi]["loc"][0] - last_vloc) > 6*line_height:
+                        carts_rows.append(carts_row)
+                        carts_row=[]
+
+                    last_vloc = carts_vsorted[spi]["loc"][0]
+                    carts_row.append(sp)
+
+                carts_rows.append(carts_row)      #get the final row.
+                log3("carts rows:" + json.dumps(carts_rows))
+
+                longest_carts_row = max(carts_rows, key=len)
+                log3("longest carts row:" + json.dumps(longest_carts_row))
+            else:
+                longest_carts_row = []
+
+            if len(symTab[step["options"]]) > 0:
+                ops_vsorted = sorted(symTab[step["options"]], key=lambda x: x["loc"][0], reverse=False)
+
+                line_height = ops_vsorted[0]["loc"][2] - ops_vsorted[0]["loc"][0]
+                last_vloc = ops_vsorted[0]["loc"][0]
+                ops_rows = []
+                ops_row = []
+                for spi, sp in enumerate(carts_vsorted):
+                    if abs(ops_vsorted[spi]["loc"][0] - last_vloc) > 6 * line_height:
+                        ops_rows.append(carts_row)
+                        carts_row = []
+
+                    last_vloc = ops_vsorted[spi]["loc"][0]
+                    carts_row.append(sp)
+
+                ops_rows.append(carts_row)  # get the final row.
+                log3("options rows:" + json.dumps(ops_rows))
+
+                longest_op_row = max(ops_rows, key=len)
+                log3("longest ops row:" + json.dumps(longest_op_row))
+            else:
+                longest_op_row = []
+
+        else:
+            longest_carts_row = []
+            longest_op_row = []
+            symTab[step["flag"]] = False
+
+        symTab[step["result"]] = len(longest_carts_row) + len(longest_op_row)
+        log3("num columns:" + str(symTab[step["result"]]))
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorAmzPLCalcNCols:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorAmzPLCalcNCols: traceback information not available:" + str(e)
         symTab[step["flag"]] = False
         log3(ex_stat)
 
