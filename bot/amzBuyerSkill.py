@@ -567,6 +567,9 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
     this_step, step_words = genStepCreateData("int", "this_attention_index", "NA", 0, stepN)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("int", "this_attention_count", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
@@ -1066,12 +1069,29 @@ def genAMZBrowseProductListScrollDownToNextAttention(pl, stepN, worksettings, th
     this_step, step_words = genStepCallExtern("print('BROWSING PRODUCT LISTS TO NEXT ATTENTION.....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepAMZMatchProduct("screen_info", pl, "pl_need_attention", "found_attention", this_step)
     psk_words = psk_words + step_words
 
     # condition, count, end, lc_name, stepN):
     this_step, step_words = genStepLoop("not found_attention", "", "", "scroll2Attens"+str(stepN), this_step)
     psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("scroll_adjustment > 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # first scroll back to the location before the scroll down until adjustment is actually scroll up.
+    # this ensures that we always scroll down some and avoid the possible
+    # back and forth scroll infinite loop action due to a songle FREE Delivery
+    # on top of the screen and a small screen size.
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "scroll_adjustment", "raw", "scroll_resolution", 0, 0, 2, False, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
 
     # scroll screen down for 65% of the screen height
     this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 65, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
@@ -1165,6 +1185,9 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     this_step, step_words = genStepCallExtern("print('START BROWSING DETAILS')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "top", theme, this_step, None)
     psk_words = psk_words + step_words
 
@@ -1177,7 +1200,7 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     psk_words = psk_words + step_words
 
     #now scroll back up to the beginning of the review section.
-    this_step, step_words = genScrollUpUntil("from_us", "anchor text", 20, "product_details", "top", this_step, worksettings, "amz", theme)
+    this_step, step_words = genScrollUpUntil("from_us", "anchor text", 20, "product_details", "top", "scroll_adjustment", this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
     #if there is purchase action, save the page, scrape it and confirm the title, store, ASIN, price, feedbacks, rating.
@@ -1795,6 +1818,9 @@ def genAMZBuySelectVariations(pd_var_name, stepN):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "scroll_cnt", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("string", "var_display_type", "NA", "", this_step)
@@ -3001,6 +3027,9 @@ def genWinChromeAMZBuyGiveRatingSteps(settings_string,  buy_cmd_name, buy_result
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless",
                                                     "on_page_top", "", False, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
