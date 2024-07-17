@@ -3459,7 +3459,7 @@ def processScrollToLocation(step, i):
 # for grid based layout, it's be enough to do only 1 row, for row based layout, it could be multple rows captured.
 # target_anchor: to anchor to adjust postion to
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
-def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN, worksettings, site, theme):
+def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
     log3("DEBUG", "gen_psk_for_scroll_down_until...")
@@ -3486,7 +3486,7 @@ def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN,
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [20, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, "scroll_adjustment", this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", "down", target_anchor, target_type, [20, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, adjust_val, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -3495,7 +3495,7 @@ def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, stepN,
     return this_step, psk_words
 
 
-def genScrollUpUntil(target_anchor, target_type, tilpos, page, section, stepN, worksettings, site, theme):
+def genScrollUpUntil(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
     log3("DEBUG", "gen_psk_for_scroll_down_until...")
@@ -3519,7 +3519,7 @@ def genScrollUpUntil(target_anchor, target_type, tilpos, page, section, stepN, w
     # the whole purpose is that we don't want to do stiching on information pieces to form the complete information block.
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
-    this_step, step_words = genStepSearchScroll("screen_info", "up", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, "scroll_adjustment", this_step)
+    this_step, step_words = genStepSearchScroll("screen_info", "up", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, adjust_val, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)

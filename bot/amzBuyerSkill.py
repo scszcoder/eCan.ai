@@ -611,7 +611,7 @@ def genAMZBrowseProductListToBottom(page_cfg, pl, ith, stepN, worksettings, them
     this_step, step_words = genStepCheckCondition("next_attention_index == len("+pl+"['products']['pl'])-1 and this_attention_count >= len("+pl+"['attention'])", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genScrollDownUntil(["next", "previous", "need_help"], "anchor text", 50, "product_list", "body", this_step, worksettings, "amz", theme)
+    this_step, step_words = genScrollDownUntil(["next", "previous", "need_help"], "anchor text", 50, "product_list", "body", "scroll_adjustment", this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("else", "", "", this_step)
@@ -1082,7 +1082,7 @@ def genAMZBrowseProductListScrollDownToNextAttention(pl, stepN, worksettings, th
     psk_words = psk_words + step_words
 
     # screen down until either keywords "free deliver" or "previous" reaches. 80% of the screen height from the top. or 20%from the bottom.
-    this_step, step_words = genScrollDownUntil(["free_delivery", "previous", "need_help"], "anchor text", 80, "product_list", "body",
+    this_step, step_words = genScrollDownUntil(["free_delivery", "previous", "need_help"], "anchor text", 80, "product_list", "body", "scroll_adjustment",
                                                this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
@@ -1822,7 +1822,7 @@ def genAMZBuySelectVariations(pd_var_name, stepN):
     this_step, step_words = genStepCallExtern("n_var_choices = len("+pd_var_name+"['variationValues'][var_name])", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genScrollDownUntil("var_txt", "text var", 30, "product_details", "top", this_step, settings_string, "amz", theme)
+    this_step, step_words = genScrollDownUntil("var_txt", "text var", 30, "product_details", "top", "scroll_adjustment", this_step, settings_string, "amz", theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("var_display_type == 'dropdown'", "", "", this_step)
@@ -3017,7 +3017,7 @@ def genWinChromeAMZBuyGiveRatingSteps(settings_string,  buy_cmd_name, buy_result
     this_step, step_words = genStepCreateData("expr", "order_id", "NA", buy_cmd_name+"['order_id']", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genScrollDownUntil("order_id", "text var", 90, "my_orders", "top", this_step, settings_string, "amz", theme)
+    this_step, step_words = genScrollDownUntil("order_id", "text var", 90, "my_orders", "top", "scroll_adjustment", this_step, settings_string, "amz", theme)
     psk_words = psk_words + step_words
 
     # click on the product which will lead into the product page. click on "write a product review"
