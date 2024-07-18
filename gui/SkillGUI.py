@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime
 
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog, QListView, \
     QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QRadioButton, \
     QCheckBox, QHBoxLayout, \
@@ -1344,8 +1345,11 @@ class SkillGUI(QMainWindow):
 
         # ------ main layout ------- #
         self.vsplitter1 = QSplitter(Qt.Horizontal)
-        self.vsplitter1.addWidget(self.pbrunWidget)
-        self.vsplitter1.addWidget(self.pbskWidget)
+        self.webview = QWebEngineView()
+        self.setCentralWidget(self.webview)
+        self.webview.load('http://localhost:5173/')  # 加载指定的网页
+        # self.vsplitter1.addWidget(self.pbrunWidget)
+        self.vsplitter1.addWidget(self.webview)
         self.vsplitter1.addWidget(self.skWidget)
         self.vsplitter1.setStretchFactor(0, 1)
         self.vsplitter1.setStretchFactor(1, 1)
