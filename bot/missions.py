@@ -887,7 +887,7 @@ class EBMISSION(QStandardItem):
 
     def genJson(self):
         jsd = {
-                "fingerprint_profile": self.fingerprint_profile,
+                "fingerprint_profile": self.privateAttributes.fingerprint_profile,
                 "pubAttributes": self.pubAttributes.genJson(),
                 "privateAttributes": self.privateAttributes.genJson()
                 }
@@ -903,7 +903,7 @@ class EBMISSION(QStandardItem):
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
-        self.fingerprint_profile = jd["fingerprint_profile"]
+        self.privateAttributes.fingerprint_profile = jd["fingerprint_profile"]
         # self.tasks = jd["tasks"]
         # self.main_win_settings["uid"] = jd["main_win_settings"]["uid"]
 

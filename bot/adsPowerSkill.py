@@ -524,7 +524,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global in_os\nin_os = fin[5]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'Profiles', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'NewProfile', 'Profiles', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
@@ -553,7 +553,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     #read screen for the confirmation pop up.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     # click on the confirmation popup.
@@ -561,7 +561,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now do the batch import
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -1138,7 +1138,7 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
             log3("ERROR user not found..."+one_un+"  "+un)
 
     df = pd.DataFrame(new_pfJsons)
-    log3("writing to xlsx:"+fname)
+    log3("genProfileXlsx writing to xlsx:"+fname)
     # Write DataFrame to Excel file
     df.to_excel(fname, index=False)
 
@@ -1248,10 +1248,12 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
     for bot_work in task_groups:
         bid = bot_work["bid"]
         found_bots = list(filter(lambda cbot: cbot.getBid() == bid, commander.bots))
-
+        log3("genAdsProfileBatchs found # bots:" + str(len(found_bots)))
         mid = bot_work["mid"]
 
         found_missions = list(filter(lambda cm: cm.getMid() == mid, commander.missions))
+        log3("genAdsProfileBatchs found # missions:" + str(len(found_missions)))
+
         found_mision = None
         if len(found_missions) > 0:
             found_mision = found_missions[0]
@@ -1260,7 +1262,7 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
         else:
             bot_work["fingerprint_profile"] = ""
 
-        log3("bot fingerprint_profile:" + bot_work["fingerprint_profile"])
+        log3("bot fingerprint_profile:" + bot_work["fingerprint_profile"] + " " + found_mision.getFingerPrintProfile())
 
         if len(found_bots) > 0 and found_mision:
             found_bot = found_bots[0]
