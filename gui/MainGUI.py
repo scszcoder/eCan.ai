@@ -2046,6 +2046,7 @@ class MainWindow(QMainWindow):
     def find_original_buy(self, buy_mission):
         # Construct the SQL query with a parameterized IN clause
         if buy_mission.getTicket() == 0:
+            print("original buy mission ticket")
             # this is test mode special ticket, so provide some test vector.
             original_buy_mission = EBMISSION(self)
             original_buy_mission.setMid(0)
