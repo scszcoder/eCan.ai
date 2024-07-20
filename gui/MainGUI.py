@@ -6030,3 +6030,52 @@ class MainWindow(QMainWindow):
     async def wait_forever(self):
         await asyncio.Event().wait()  # This will wait indefinitely
 
+    async def wan_ping(self, token):
+        if self.host_role == "Staff Officer":
+            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            ping_msg = {
+                "content": json.dumps({"type": "cmd", "cmd": "ping"}),
+                "chatID": self.chat_id,
+                "receiver": commander_chat_id,
+                "parameters": "",
+                "sender": ""
+            }
+            self.wan_sub_task = asyncio.create_task(wan_send_message(ping_msg, token))
+
+
+    async def wan_request_log(self, token):
+        if self.host_role == "Staff Officer":
+            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            ping_msg = {
+                "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
+                "chatID": self.chat_id,
+                "receiver": commander_chat_id,
+                "parameters": "",
+                "sender": ""
+            }
+            self.wan_sub_task = asyncio.create_task(wan_send_message(ping_msg, token))
+
+
+    async def wan_stop_log(self, token):
+        if self.host_role == "Staff Officer":
+            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            ping_msg = {
+                "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
+                "chatID": self.chat_id,
+                "receiver": commander_chat_id,
+                "parameters": "",
+                "sender": ""
+            }
+            self.wan_sub_task = asyncio.create_task(wan_send_message(ping_msg, token))
+
+    async def wan_rpa_ctrl(self, token):
+        if self.host_role == "Staff Officer":
+            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            ping_msg = {
+                "content": json.dumps({"type": "cmd", "cmd": "rpa ctrl", "settings": ["all"]}),
+                "chatID": self.chat_id,
+                "receiver": commander_chat_id,
+                "parameters": "",
+                "sender": ""
+            }
+            self.wan_sub_task = asyncio.create_task(wan_send_message(ping_msg, token))
