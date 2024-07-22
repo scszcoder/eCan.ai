@@ -9,10 +9,125 @@ from bot.Logger import log3
 from bot.ordersData import OrderedProduct, ORDER, OrderPerson, Shipping
 
 
+def extract_order_data(aj):
+    orders = []
+    products = []
+    try:
+        resultsPerPage = int(aj["_initialValue"]["pagination"]["itemsPerPage"]["model"]["selectedValue"]["value"])
+        for od in aj["_initialValue"]["orders"]["members"]:
+            order = ORDER("", "", "", "", "", "", "")
+            order.setOid(od["orderId"])
+            order.setCreationDate(od["creationDate"]["textSpans"][0]["text"])
+            order.setPaidDate(od["paidDate"]["textSpans"][0]["text"])
+            order.setTotalQuantity(int(od["totalQuantity"]["textSpans"][0]["text"]))
+            order.setTotalPrice(float(od["displayTotalPrice"]["textSpans"][0]["text"].split("$")[1]))
+
+            products = []
+            for pd in od["orderLineItems"]:
+                product = OrderedProduct("", "", "", "")
+
+                product.setPid(pd["listingSummary"]["listingId"])
+                product.setPTitle(pd["listingSummary"]["title"]["textSpans"][0]["text"])
+                product.setQuantity(int(pd["listingSummary"]["quantity"]["textSpans"][0]["text"]))
+
+                for pv in pd["__sh"]["variations"]:
+                    var_name = pv["name"]["textSpans"][0]["text"]
+                    var_val = pv["value"]["textSpans"][0]["text"]
+                    product.addVariation((var_name, var_val))
+
+                products.append(product)
+
+            order.setProducts(products)
+
+            buyer = OrderPerson("", "", "", "", "", "", "")
+            buyer.setId(od["__sh"]["buyerDetails"]["buyerid"]["textSpans"][0]["text"])
+
+            buyer.setStreet1(od["__sh"]["buyerDetails"]["toShippingAddress"]["street1"]["textSpans"][0]["text"])
+            if od["__sh"]["buyerDetails"]["toShippingAddress"]["street2"]["textSpans"][0]:
+                buyer.setStreet2(od["__sh"]["buyerDetails"]["toShippingAddress"]["street2"]["textSpans"][0]["text"])
+            else:
+                buyer.setStreet2("")
+            buyer.setCity(od["__sh"]["buyerDetails"]["toShippingAddress"]["city"]["textSpans"][0]["text"])
+            buyer.setState(od["__sh"]["buyerDetails"]["toShippingAddress"]["stateOrProvince"]["textSpans"][0]["text"])
+            buyer.setFullName(od["__sh"]["buyerDetails"]["fullName"]["textSpans"][0]["text"])
+            buyer.setZip(od["zipCode"]["textSpans"][0]["text"])
+            order.setRecipient(buyer)
+
+            shipping = Shipping("", "", "", "", "", "", "", "")
+            order.setShipping(shipping)
+
+            orders.append(order)
+    except Exception as e:
+        log3(f"Exception info:{e}")
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        if traceback_info:
+            ex_stat = "ErrorExtractOrderData:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractOrderData: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return orders
+def extract_orders_from_tokens(tokens):
+    is_variations = False
+    brace_count = 0
+    bracket_count = 0
+    json_data = []
+    variations_json = None
+
+    try:
+        for token in tokens:
+            if is_variations:
+                json_data.append(token.value)
+                if token.type == 'Punctuator':
+                    if token.value == '{':
+                        brace_count += 1
+                    elif token.value == '}':
+                        brace_count -= 1
+                    elif token.value == '[':
+                        bracket_count += 1
+                    elif token.value == ']':
+                        bracket_count -= 1
+                    if brace_count == 0 and bracket_count == 0 and token.value == ',':
+                        # End of the JSON object or array
+                        is_variations = False
+                        json_string = ''.join(json_data)[1:-1]
+                        try:
+                            # print("jstring:", json_string)
+                            variations_json = json.loads(json_string)
+                        except json.JSONDecodeError as e:
+                            print(f"Error decoding JSON: {e}")
+
+            elif token.type == 'String' and token.value == '"ordersData"':
+                # Next token should be `:`
+                print("in ordersData")
+                next_token_index = tokens.index(token) + 1
+                if next_token_index < len(tokens) and tokens[next_token_index].type == 'Punctuator' and tokens[next_token_index].value == ':':
+                    # Check if the next token is `{` or `[`
+                    next_token_index += 1
+                    if next_token_index < len(tokens) and tokens[next_token_index].type == 'Punctuator' and tokens[next_token_index].value in ['{', '[']:
+                        is_variations = True
+                        json_data = []
+                        # if tokens[next_token_index].value == '{':
+                        #     brace_count = 1
+                        # elif tokens[next_token_index].value == '[':
+                        #     bracket_count = 1
+
+    except Exception as e:
+        log3(f"Exception info:{e}")
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        if traceback_info:
+            ex_stat = "ErrorExtractOrderFromTokens:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractOrderFromTokens: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return variations_json
+
+
 def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        pagefull_of_orders = {"page": pidx, "ol": None}
+        pagefull_of_orders = {"page": pidx, "ol": None, "n_new_orders": 0, "num_pages": 0}
         orders = []
 
         # Use Esprima to parse your JavaScript code
@@ -37,109 +152,15 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
                     print("right script found....")
                     tokens = esprima.tokenize(item.text)
                     # js_tree = esprima.visitor.Visitor(item.text)
-                    print("js tree:",tokens)
 
-                    usefull = [t for i, t in enumerate(tokens) if t.type != "Identifier" and t.type != "Punctuator" and t.value != "\"textSpans\"" and t.value != "\"text\""]
-                    nindex = 0
-                    in_order = False
-                    node_stack = []
-                    products = []
-                    for node in usefull:
-                        # log3("node: "+json.dumps(node.value))
-                        # stuff we want to grab out of...
-                        # creationDate
-                        # Ship by ....Jul 12
-                        # totalQuantity
-                        # displayTotalPrice
-                        # orderLineItems -
-                        # listingId - after listingSummary line
-                        # "363861703280"
-                        # title - after listingId
-                        # "10W auto clamping car wireless charger - black"
-                        # quantity - somewhere 1st appearance after title
-                        # buyerDetails
-                        # buyerid
-                        # "caleb9190"
-                        # "orderId"
-                        # "05-10261-38305"
-                        # "toShippingAddress"
-                        # "street1"
-                        # "209 Elmer St"
-                        # "street2"
-                        # "city"
-                        # "Auburndale"
-                        # "stateOrProvince"
-                        # "FL"
-                        # "fullName"
-                        # "Gimberg Preval"
-                        # "zipCode"
-                        # "72764-7191"
+                    aj = extract_orders_from_tokens(tokens)
 
-                        # it is a sequential state machine, the start marker is: "creationDate" , the last marker is "zipCode"
-                        if node.type == "String" and node.value == "\"creationDate\"":
-                            in_order = True
-                            order = ORDER("", "", "", "", "", "", "")
-                        elif node.type == "String" and node.value == "\"displayTotalPrice\"":
-                            product = OrderedProduct("", "", "", "")
-                            product.setPrice(usefull[nindex + 1].value[2:-1])
-                            # log3("PRICE:"+usefull[nindex + 1].value[2:-1])
-                        elif node.type == "String" and node.value == "\"listingId\"":
-                            product.setPid(usefull[nindex + 1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"title\"":
-                            if in_order:
-                                if usefull[nindex-2].value == "\"listingId\"":
-                                    product.setPTitle(usefull[nindex+1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"quantity\"":
-                            product.setQuantity(usefull[nindex + 1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"buyerid\"":
-                            buyer = OrderPerson("", "", "", "", "", "", "")
-                            buyer.setId(usefull[nindex+1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"toShippingAddress\"":
-                            products.append(product)
-                        elif node.type == "String" and node.value == "\"street1\"":
-                            buyer.setStreet1(usefull[nindex+1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"street2\"":
-                            if usefull[nindex+1] != "city":
-                                buyer.setStreet2(usefull[nindex+1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"city\"":
-                            buyer.setCity(usefull[nindex + 1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"stateOrProvince\"":
-                            buyer.setState(usefull[nindex + 1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"fullName\"":
-                            buyer.setFullName(usefull[nindex + 1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"Order number:\"":
-                            order.setOid(usefull[nindex + 1].value[1:-1])
-                        elif node.type == "String" and node.value == "\"zipCode\"":
-                            buyer.setZip(usefull[nindex + 1].value[1:-1])
-                            in_order = False
-
-                            # buyer info collection completed, add buyer and products info to order data
-                            order.setProducts(products)
-                            order.setRecipient(buyer)
-                            shipping = Shipping("", "", "", "", "", "", "", "")
-                            order.setShipping(shipping)
-
-                            products = []
-
-                            # now that the order info collection is completed. added this order to the pagefull list of orders.
-                            orders.append(order)
-
-                        nindex = nindex + 1
-
-                    # log3(json.dumps(summery.toJson()))
-                    # product = OrderedProduct()
-                    # order = ORDER()
-
-                    # product.setSummery(summery)
-                    # orders.append(order)
+                    orders = extract_order_data(aj)
 
         pagefull_of_orders["ol"] = orders
         log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        # log3(json.dumps(pagefull_of_orders))
         log3("# of orders:"+str(len(orders)))
-        print(orders[0].toJson())
         print([ord.toJson() for ord in orders])
-        # print(orders)
         log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
     except Exception as e:
         log3(f"Exception info:{e}")
@@ -415,40 +436,48 @@ def extract_text(html_content):
 
 def genStepEbayScrapeOrdersHtml(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
     stepjson = {
-        "type": "EBAY Scrape Orders",
-        "pidx": pidx,
-        "html_dir": html_dir,
-        "html_dir_type": dir_name_type,
-        "html_file": html_file,
-        "result": outvar,
-        "status": statusvar
+        "type": "EBAY Scrape Orders Html",
+        "pidx": pidx,                   # page index, there could be multiple pages of orders.
+        "html_dir": html_dir,           # html file directory
+        "html_dir_type": dir_name_type, # "direct"/"var"/"expr" this directory could be a literal string or a variable.
+        "html_file": html_file,         # "file name" again this could be either a string or a variable.
+        "result": outvar,               # result variable
+        "status": statusvar             # status of the execution of this instruction.
     }
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+
+html_dir = ""
 def processEbayScrapeOrdersHtml(step, i):
+    global html_dir
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
-        pidx = step["pidx"]
-
+        pidx = symTab[step["pidx"]]
+        print("hello??????????")
         if step["html_dir_type"] == "direct":
             html_dir = step["html_dir"]
+            html_file = html_dir + "/" + step["html_file"]
         else:
-            exec("html_dir = " + step["html_dir"])
+            print("input html_dir:", step["html_dir"], symTab[step["html_file"]])
 
-        html_file = html_dir + "/" + step["html_file"]
+            # print("input html_dir:", step["html_dir"], symTab["sk_work_settings"]['log_path'], symTab[step["html_file"]])
+            # exec("global html_dir, "+step["html_dir"]+"\nhtml_dir = "+step["html_dir"]+"\nprint('html_dir',html_dir)")
+            html_file = symTab[step["html_dir"]] + "/" + symTab[step["html_file"]]
+
         pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
         orders = []
         option_tags = []
+        print("BEFORE SCRAPE:", pagefull_of_orders)
 
-        ebay_seller_fetch_page_of_order_list(html_file, pidx)
+        pagefull_of_orders = ebay_seller_fetch_page_of_order_list(html_file, pidx)
 
         symTab[step["result"]] = pagefull_of_orders
 
 
     except Exception as e:
         log3(f"Exception info:{e}")
-        ex_stat = "ErrorEtsyExtractTracking:" + str(i)
+        ex_stat = "ErrorEbayScrapeOrdersHtml:" + str(e)
         log3(ex_stat)
 
     return next_i, ex_stat

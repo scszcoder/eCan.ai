@@ -2830,14 +2830,15 @@ def processCheckExistence(step, i):
 
     return (i + 1), ex_stat
 
-
+dir_tbc = ""
 def processCreateDir(step, i):
+    global dir_tbc
     ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["name_type"] == "direct":
             dir_tbc = step["dir"]
         else:
-            exec("dir_tbc = " + step["dir"])
+            exec("global dir_tbc\ndir_tbc = " + step["dir"]+"\nprint('dir_tbc', dir_tbc)")
 
         subds = dir_tbc.split("/")
         if len(subds) == 1:
