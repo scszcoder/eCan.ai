@@ -862,7 +862,7 @@ def genWinADSRemoveProfilesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_local_open/open_profile", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_ads_local_remove/remove_profile", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
