@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget,
     QCheckBox, QHBoxLayout, \
     QVBoxLayout, QMessageBox, QGraphicsPixmapItem, QScrollArea, QCompleter, QTabWidget, QSplitter, QTextBrowser, \
     QDialogButtonBox, QMenu, QPlainTextEdit
-from PySide6.QtCore import QPointF, Qt, QEvent, QRectF
+from PySide6.QtCore import QPointF, Qt, QEvent, QRectF, QUrl
 from PySide6.QtGui import QPainterPath, QPen, QColor, QPixmap, QBrush, QPainter, QTransform, QStandardItemModel, QImage, \
     QAction, QTextCursor
 
@@ -1347,13 +1347,16 @@ class SkillGUI(QMainWindow):
         self.vsplitter1 = QSplitter(Qt.Horizontal)
         self.webview = QWebEngineView()
         self.setCentralWidget(self.webview)
-        self.webview.load('http://localhost:5173/')  # 加载指定的网页
+        path = app_info.app_home_path + "/ecbot-ui/dist/index.html/#/skill/en"
+        print(path)
+        self.webview.load(QUrl.fromLocalFile(path))
+        # self.webview.load('http://localhost:3000/#/skill/en')  # 加载指定的网页
         # self.vsplitter1.addWidget(self.pbrunWidget)
         self.vsplitter1.addWidget(self.webview)
         self.vsplitter1.addWidget(self.skWidget)
         self.vsplitter1.setStretchFactor(0, 1)
         self.vsplitter1.setStretchFactor(1, 1)
-        self.vsplitter1.setStretchFactor(2, 3)
+        # self.vsplitter1.setStretchFactor(2, 3)
         # self.vsplitter1.setChildrenCollapsible(0)
         # self.vsplitter1.setChildrenCollapsible(1)
 
