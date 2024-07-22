@@ -20,7 +20,7 @@ from bot.missions import EBMISSION
 from bot.ordersData import ORDER, OrderPerson, OrderedProduct, Shipping
 from bot.readSkill import prepRun1Skill, runAllSteps, prepRunSkill
 from bot.scraperAmz import processAmzScrapeSoldOrdersHtml, amz_buyer_scrape_product_details
-from bot.scraperEbay import ebay_seller_get_system_msg_thread
+from bot.scraperEbay import ebay_seller_get_system_msg_thread, ebay_seller_fetch_page_of_order_list
 from bot.scraperEtsy import processEtsyScrapeOrders
 
 global symTab
@@ -33,7 +33,8 @@ def test_eb_orders_scraper():
     orders = []
     html_file = "C:/temp/Orders — eBay Seller Hub.html"
     html_file = "C:/Users/songc/Downloads/Orders0eBaySellerHub.html"
-    # ebay_seller_fetch_page_of_order_list(html_file, 1)
+    html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240721/b89m789/win_ads_ebay_orders/skills/collect_orders/ebayOrders1721608436.html"
+    ebay_seller_fetch_page_of_order_list(html_file, 0)
 
     html_file = "C:/Users/songc/Downloads/MyeBay_ Messages00.html"
     # ebay_seller_get_customer_msg_list(html_file, 1)
@@ -41,8 +42,8 @@ def test_eb_orders_scraper():
     html_file = "C:/Users/songc/Downloads/MyeBay_ Messages18.html"
     # ebay_seller_get_customer_msg_thread(html_file)
 
-    html_file = "C:/Users/songc/Downloads/MyeBay_ Messages18.html"
-    ebay_seller_get_system_msg_thread(html_file)
+    #html_file = "C:/Users/songc/Downloads/MyeBay_ Messages18.html"
+    #ebay_seller_get_system_msg_thread(html_file)
 
 
 def test_etsy_label_gen():

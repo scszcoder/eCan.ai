@@ -4147,7 +4147,7 @@ class MainWindow(QMainWindow):
             "start_time": 1,            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
             "bid": amission.getBid(),
             "config": amission.getConfig(),
-            "fingerprint_profile": amission.setFingerPrintProfile()
+            "fingerprint_profile": amission.getFingerPrintProfile()
         }], "current widx":0}
 
         current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_rpa_queue, gui_monitor_queue)
@@ -5440,8 +5440,8 @@ class MainWindow(QMainWindow):
             self.todays_scheduled_task_groups[platform_os] = localworks
             self.unassigned_task_groups[platform_os] = localworks
 
-            # generate ADS loadable batch profiles
-            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self)
+            # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
+            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
 
             # clean up the reports on this vehicle....
             self.todaysReports = []
