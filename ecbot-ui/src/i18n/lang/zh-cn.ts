@@ -22,6 +22,10 @@ export default {
         bottom: '下',
         left: '左',
         right: '右',
+        textOrIcon: '文本或图标',
+        polyganShape: '多边形',
+        line: '直线',
+        anchorGroup: '锚点组',
 
         submitMessage: '提交成功',
         resetMessage: '重置成功',
