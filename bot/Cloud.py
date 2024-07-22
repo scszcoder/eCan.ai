@@ -920,10 +920,10 @@ def gen_feedback_request_string(fbReq):
     return query_string
 
 
-def gen_wan_send_chat_message_string(wan_chat_req):
+def gen_wan_send_chat_message_string():
     send_msg_mutation = """
-        mutation sendWanMessage($content: String!, $sender: String!, $receiver: String!, $parameters: String!) {
-          sendWanMessage(input: { chatID: $chatID, content: $content, sender: $sender ,receiver: $receiver, parameters: $parameters) {
+        mutation sendWanMessage($input: WanChatMessageInput!) {
+          sendWanMessage(input: $input) {
             id
             chatID
             content

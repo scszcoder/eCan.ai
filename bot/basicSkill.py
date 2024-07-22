@@ -780,7 +780,7 @@ def genStepAmzPLCalcNCols(sponsors_name, carts_name, options_name, fd_name, resu
         "sponsors": sponsors_name,
         "options": options_name,
         "carts": carts_name,
-        "free_deliveries": sponsors_name,
+        "deliveries": fd_name,
         "result": result_var,
         "flag": flag_var
     }
@@ -3095,10 +3095,14 @@ def processSearchAnchorInfo(step, i):
 
         if not (type(step["names"]) is list):
             target_names = [step["names"]]  # make it a list.
-            target_types = [step["target_types"]]
         else:
             target_names = step["names"]
+
+        if not (type(step["target_types"]) is list):
+            target_types = [step["target_types"]]*len(target_names)
+        else:
             target_types = step["target_types"]
+
 
         for idx in range(len(target_names)):
             log3("ith target:"+str(idx)+" "+target_types[idx]+" "+target_names[idx])
@@ -3349,7 +3353,7 @@ def processSearchScroll(step, i):
                 all_lines = all_lines + p["txt_struct"]
 
             if step["dir"] == "down":
-                matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"] and line["box"][1] > at_loc_top_v and line["box"][3] < target_loc_v]
+                matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"] and line["box"][1] > at_loc_top_v and line["box"][3] < at_loc_bottom_v]
             else:
                 matched_lines = [line for index, line in enumerate(all_lines) if target_txt in line["text"] and line["box"][1] > target_loc_v and line["box"][3] < at_loc_bottom_v]
 
@@ -3459,7 +3463,7 @@ def processScrollToLocation(step, i):
 # for grid based layout, it's be enough to do only 1 row, for row based layout, it could be multple rows captured.
 # target_anchor: to anchor to adjust postion to
 # tilpos: position to adjust anchor to... (+: # of scroll position till screen bottom, -: # of scroll postion from screen top)
-def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
+def genScrollDownUntilLoc(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
     log3("DEBUG", "gen_psk_for_scroll_down_until...")
@@ -3494,8 +3498,36 @@ def genScrollDownUntil(target_anchor, target_type, tilpos, page, section, adjust
 
     return this_step, psk_words
 
+def genScrollDownUntil(target_anchor, target_type, page, section, stepN, worksettings, site, theme):
+    psk_words = ""
+    ex_stat = DEFAULT_RUN_STATUS
+    log3("DEBUG", "gen_psk_for_scroll_down_until...")
+    this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
+    psk_words = psk_words + step_words
 
-def genScrollUpUntil(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
+    this_step, step_words = genStepCallExtern("global scroll_adjustment\nscroll_adjustment = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # condition, count, end, lc_name, stepN):
+    this_step, step_words = genStepLoop("position_reached != True", "", "", "scrollDown"+str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # (action, screen, smount, stepN):
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 70, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", page, section, theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", target_anchor, "direct", target_type, "any", "useless", "position_reached", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+def genScrollUpUntilLoc(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
     log3("DEBUG", "gen_psk_for_scroll_down_until...")
@@ -3520,6 +3552,36 @@ def genScrollUpUntil(target_anchor, target_type, tilpos, page, section, adjust_v
     # lateron, this will have to be done somehow with the long review comments, but at in this page anyways.
     # screen, anchor, at_loc, target_loc, flag, resolution, stepN
     this_step, step_words = genStepSearchScroll("screen_info", "up", target_anchor, target_type, [35, 100], tilpos, "position_reached", "scroll_resolution", 0.5, site, adjust_val, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
+def genScrollUpUntil(target_anchor, target_type, page, section, stepN, worksettings, site, theme):
+    psk_words = ""
+    ex_stat = DEFAULT_RUN_STATUS
+    log3("DEBUG", "gen_psk_for_scroll_down_until...")
+    this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global scroll_adjustment\nscroll_adjustment = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # condition, count, end, lc_name, stepN):
+    this_step, step_words = genStepLoop("position_reached != True", "", "", "scrollDown"+str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # (action, screen, smount, stepN):
+    this_step, step_words = genStepMouseScroll("Scroll Up", "screen_info", 70, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", page, section, theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", target_anchor, "direct", target_type, "any", "useless", "position_reached", "", False, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -4184,6 +4246,22 @@ def processAmzPLCalcNCols(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         symTab[step["flag"]] = True
+
+        # for deliveries, columnize them, and remove the in-paragrph duplicates.
+        delivery_hsorted = sorted(symTab[step["deliveries"]], key=lambda x: x["loc"][1], reverse=False)
+        prev_x = -1000
+        delivery_width = delivery_hsorted[0]["loc"][3] - delivery_hsorted[0]["loc"][1]
+        print("first delivery loc:", delivery_width, delivery_hsorted)
+
+        in_par_deliveries = []
+        for delivery in delivery_hsorted:
+            if delivery["loc"][1] - prev_x > delivery_width * 3.25:
+                in_par_deliveries.append(delivery)
+                prev_x = delivery["loc"][1]
+
+        print("delivery in paragraphs:", in_par_deliveries)
+
+        nd = len(in_par_deliveries)
         log3("to be check carts:" + json.dumps(symTab[step["carts"]]))
         if len(symTab[step["sponsors"]]) > 0:
             if len(symTab[step["carts"]]) > 0:
@@ -4216,15 +4294,15 @@ def processAmzPLCalcNCols(step, i):
                 last_vloc = ops_vsorted[0]["loc"][0]
                 ops_rows = []
                 ops_row = []
-                for spi, sp in enumerate(carts_vsorted):
+                for spi, sp in enumerate(ops_vsorted):
                     if abs(ops_vsorted[spi]["loc"][0] - last_vloc) > 6 * line_height:
-                        ops_rows.append(carts_row)
-                        carts_row = []
+                        ops_rows.append(ops_row)
+                        ops_row = []
 
                     last_vloc = ops_vsorted[spi]["loc"][0]
-                    carts_row.append(sp)
+                    ops_row.append(sp)
 
-                ops_rows.append(carts_row)  # get the final row.
+                ops_rows.append(ops_row)  # get the final row.
                 log3("options rows:" + json.dumps(ops_rows))
 
                 longest_op_row = max(ops_rows, key=len)
@@ -4232,12 +4310,17 @@ def processAmzPLCalcNCols(step, i):
             else:
                 longest_op_row = []
 
+            if len(longest_carts_row) + len(longest_op_row) < nd:
+                symTab[step["result"]] = nd
+            else:
+                symTab[step["result"]] = len(longest_carts_row) + len(longest_op_row)
+
         else:
             longest_carts_row = []
             longest_op_row = []
             symTab[step["flag"]] = False
+            symTab[step["result"]] = 0
 
-        symTab[step["result"]] = len(longest_carts_row) + len(longest_op_row)
         log3("num columns:" + str(symTab[step["result"]]))
 
 

@@ -18,9 +18,16 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "synchronizer",
+                        "anchor_type"  : "text",
+                        "template"     : "Synchronizer",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "new_profile",
                         "anchor_type"  : "text",
-                        "template"     : "New Profile",
+                        "template"     : ["New Profile", "NewProfile"],
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -130,13 +137,6 @@
                         "anchor_name"  : "drag_drop",
                         "anchor_type"  : "text",
                         "template"     : "Drag and drop",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "new_profiles",
-                        "anchor_type"  : "text",
-                        "template"     : "New Profile",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
