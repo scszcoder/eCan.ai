@@ -448,6 +448,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     if step_stat != DEFAULT_RUN_STATUS:
         log3("RUN Error!")
         run_result = "Incomplete:"+step_stat+":"+str(last_step)
+        # should close the current app here, make room for the next retry, and other tasks...
 
     return run_result
 

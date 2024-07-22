@@ -6,7 +6,7 @@ from bot.amzBuyerSkill import found_match
 from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreateData, genStepGoToWindow, \
     genStepCheckCondition, genStepUseSkill, genStepOpenApp, genStepCallExtern, genStepLoop, genStepExtractInfo, \
     genStepSearchAnchorInfo, genStepMouseClick, genStepMouseScroll, genStepCreateDir, genStepKeyInput, genStepTextInput, \
-    STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink
+    STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink, genStepSearchWordLine
 from bot.Logger import log3
 from bot.scraperEbay import ebay_seller_fetch_page_of_order_list
 from config.app_info import app_info
@@ -44,12 +44,12 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "product_book", "NA", "sk_work_settings['products']", this_step)
     psk_words = psk_words + step_words
 
-    # this_step, step_words = genStepCallExtern("global product_book\nprint('product_book:', product_book[0])", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepCallExtern("global product_book\nprint('product_book:', product_book[0])", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
     # mask out for testing purpose only....
-    # this_step, step_words = genStepCreateData("expr", "ebay_orders", "NA", "[]", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepCreateData("expr", "ebay_orders", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "dummy_in", "NA", "[]", this_step)
     psk_words = psk_words + step_words
@@ -65,95 +65,95 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    # this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "[sk_work_settings['batch_profile']]", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 250, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("int", "retry_count", "NA", 5, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("bool", "mission_failed", "NA", False, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
-    # this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepWait(1, 0, 0, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
-    # # scroll down half screen and check again if nothing found in the 1st glance.
-    # this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCheckCondition("not bot_loaded and not nothing_loaded", "", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # if not on screen, scroll down and check again.
-    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 80, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepStub("end condition", "", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # if not found, call the batch load profile subskill to load the correct profile batch.
-    # this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "profile_name_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # due to screen real-estate, some long email address might not be dispalyed in full, but usually
-    # # it can display up until @ char on screen, so only use this as the tag.
-    # this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA", "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # once the correct user profile is loaded, the open button corresponding to the user profile will be clicked to open the profile.
-    # this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input", "browser_up", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepStub("end condition", "", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # wait 9 seconds for the browser to be brought up.
-    # this_step, step_words = genStepWait(6, 1, 3, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "[sk_work_settings['batch_profile']]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 250, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "retry_count", "NA", 5, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("bool", "mission_failed", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
+    this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
+    # scroll down half screen and check again if nothing found in the 1st glance.
+    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not bot_loaded and not nothing_loaded", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # if not on screen, scroll down and check again.
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 80, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # if not found, call the batch load profile subskill to load the correct profile batch.
+    this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "profile_name_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
+    psk_words = psk_words + step_words
+
+    # due to screen real-estate, some long email address might not be dispalyed in full, but usually
+    # it can display up until @ char on screen, so only use this as the tag.
+    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA", "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]", this_step)
+    psk_words = psk_words + step_words
+
+    # once the correct user profile is loaded, the open button corresponding to the user profile will be clicked to open the profile.
+    this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input", "browser_up", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # wait 9 seconds for the browser to be brought up.
+    this_step, step_words = genStepWait(6, 1, 3, this_step)
+    psk_words = psk_words + step_words
 
     # following is for tests purpose. hijack the flow, go directly to browse....
     this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
