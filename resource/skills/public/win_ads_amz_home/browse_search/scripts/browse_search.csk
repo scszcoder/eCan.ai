@@ -697,7 +697,7 @@
                     {
                         "anchor_name"  : "free_delivery",
                         "anchor_type"  : "text",
-                        "template"     : "FREE delivery",
+                        "template"     : "delivery",
                         "ref_method"   : "0",
                         "ref_location" : []
                     }
@@ -754,9 +754,9 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "buying_options",
+                        "anchor_name"  : "options",
                         "anchor_type"  : "text",
-                        "template"     : "Buying options",
+                        "template"     : "options",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -803,16 +803,16 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "free_delivery",
+                        "anchor_name"  : "delivery",
                         "anchor_type"  : "text",
-                        "template"     : "FREE delivery",
+                        "template"     : "delivery",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "free_delivery",
+                        "anchor_name"  : "free",
                         "anchor_type"  : "text",
-                        "template"     : "FREE delivery",
+                        "template"     : "FREE",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -895,7 +895,7 @@
                     {
                         "anchor_name"  : "end_of_page",
                         "anchor_type"  : "text",
-                        "template"     : "Back to top",
+                        "template"     : "Amazon Web",
                         "ref_method"   : "0",
                         "ref_location" : []
                     }
@@ -926,7 +926,7 @@
                     {
                         "anchor_name"  : "end_of_page",
                         "anchor_type"  : "text",
-                        "template"     : "Back to top",
+                        "template"     : "Amazon Web",
                         "ref_method"   : "0",
                         "ref_location" : []
                     }

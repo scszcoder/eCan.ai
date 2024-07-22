@@ -13,7 +13,7 @@ pycognito~=2024.5.1
 aioconsole~=0.7.1
 pyqtgraph~=0.13.7
 pynput~=1.7.6
-Pillow~=10.3.0
+Pillow~=10.4.0
 qasync~=0.27.1
 py-cpuinfo~=9.0.0
 schedule==1.2.2
@@ -46,3 +46,4 @@ keyboard==0.13.5
 fuzzywuzzy==0.18.0
 websockets==12.0
 pyscreenshot==3.1
+pyscreeze==0.1.30

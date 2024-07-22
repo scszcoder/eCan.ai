@@ -55,7 +55,7 @@ if __name__ == '__main__':
     print(TimeUtil.formatted_now_with_ms() + " main function run start...")
     setproctitle('ECBot')
 
-    # test_eb_orders_scraper()
+    test_eb_orders_scraper()
     # test_etsy_label_gen()
     # test_use_func_instructions()
     # test_multi_skills()
