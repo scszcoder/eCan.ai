@@ -160,7 +160,6 @@ const relactionAnchor = ref<{
   anchor: string,
   uuid: string
 }[]>([]) //可关联锚点信息
-
 const FORM_RULES: FormProps['rules'] = {
   anchor: [
     {required: true, message: t('canvas.anchorError'), trigger: 'change', type: 'warning'},
@@ -205,8 +204,10 @@ const anchorType = [
 ]
 
 const method = [
-  {value: '0', label: t('canvas.text')},
-  {value: '1', label: t('canvas.icon')}
+  {value: '0', label: t('canvas.textOrIcon')},
+  {value: '1', label: t('canvas.polyganShape')},
+  {value: '2', label: t('canvas.line')},
+  {value: '3', label: t('canvas.anchorGroup')}
 ]
 
 const side = [

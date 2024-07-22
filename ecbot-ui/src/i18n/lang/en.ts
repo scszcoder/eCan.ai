@@ -22,6 +22,10 @@ export default {
         bottom: 'bottom',
         left: 'left',
         right: 'right',
+        textOrIcon: 'text or icon',
+        polyganShape: 'polygan shape',
+        line: 'line',
+        anchorGroup: 'anchor group',
 
         submitMessage: 'Submit successfully',
         resetMessage: 'Reset successfully',
