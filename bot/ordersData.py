@@ -165,6 +165,8 @@ class ORDER:
         self.oid = oid
         self.products = products    #[{"pid":***, "pname":****, "quantity":***, "price":***}...]
         self.total_price = 0.0
+        self.total_quantity = 0
+        self.paid_date = ""
         self.buyer = buyer
         self.recipient = recipient
         self.shipping = shipping
@@ -300,9 +302,14 @@ class ORDER:
     def setTotalPrice(self, tp):
         self.total_price = tp
 
+    def setTotalQuantity(self, tq):
+        self.total_quantity = tq
+
     def setCreationDate(self, odate):
         self.createdOn = odate
 
+    def setPaidDate(self, pd):
+        self.paid_date = pd
     def setStatus(self, status):
         self.status = status
 

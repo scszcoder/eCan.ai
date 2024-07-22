@@ -90,24 +90,27 @@ async def wan_stop_subscription(mainwin):
 
 
 
-async def wan_send_message(msg_req, sender, token):
+async def wan_send_message(msg_req, token):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     variables = {
-        "content": msg_req["content"],
-        "receiver": msg_req["receiver"],
-        "parameters": msg_req["parameters"],
-        "sender": msg_req["sender"]
+        "input": {
+            "content": msg_req["content"],
+            "chatID": msg_req["chatID"],
+            "receiver": msg_req["receiver"],
+            "parameters": msg_req["parameters"],
+            "sender": msg_req["sender"]
+        }
     }
     query_string = gen_wan_send_chat_message_string()
     headers = {
-        'Content-Type': "application/graphql",
+        'Content-Type': "application/json",
         'Authorization': token,
         'cache-control': "no-cache",
     }
     async with aiohttp.ClientSession() as session8:
         async with session8.post(
                 url=APPSYNC_API_ENDPOINT_URL,
-                timeout=aiohttp.ClientTimeout(total=300),
+                timeout=aiohttp.ClientTimeout(total=30),
                 headers=headers,
                 json={
                         'query': query_string,
@@ -216,10 +219,26 @@ async def subscribe_to_wan_chat(mainwin, tokens, chat_id="nobody"):
 
             if mainwin.get_wan_connected():
                 # now request to subscribe to the API
+                sub_data = {
+                    "query": """
+                        subscription onMessageReceived($chatID: String!) {
+                            onMessageReceived(chatID: $chatID) {
+                                id
+                                content
+                                sender
+                                receiver
+                                timestamp
+                                parameters
+                            }
+                        }
+                    """,
+                    "variables": {"chatID": chat_id}
+                }
+                sub_data_string = json.dumps(sub_data)
                 SUB_REG = {
                     "id": "1",
                     "payload": {
-                        "data": "{\"query\":\"subscription onMessageReceived($chatID: String!) {\\n onMessageReceived(chatID: $chatID) {\\n id\\n content\\n sender\\n receiver\\n timestamp\\n parameters\\n }\\n }\",\"variables\":{\"chatID\": chat_id}}",
+                        "data": sub_data_string,
                         "extensions": {
                             "authorization": {
                                 "Authorization": id_token,
@@ -254,3 +273,5 @@ async def subscribe_to_wan_chat(mainwin, tokens, chat_id="nobody"):
         mainwin.set_wan_connected(False)
         await asyncio.sleep(5)
         await subscribe_to_wan_chat()
+
+

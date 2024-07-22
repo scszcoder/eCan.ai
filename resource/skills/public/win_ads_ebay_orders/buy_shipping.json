@@ -1,6 +1,6 @@
 {
     "name": "buy_shipping",
-    "skid": 55,
+    "skid": 73,
     "createdOn": "2024-05-05",
     "owner": "public",
     "price": 0,
@@ -17,7 +17,7 @@
     "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
-        "runConfig": {
+        "runConfig": { 
             "estRunTime" : 1
         }
     },

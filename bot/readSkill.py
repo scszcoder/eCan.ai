@@ -21,7 +21,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processSellCheckShipping, processGenRespMsg, processUpdateBuyMissionResult, processGoToWindow, processReportToBoss, \
     processExtractInfo8, DEFAULT_RUN_STATUS, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
-    processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count
+    processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols
 
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
@@ -144,6 +144,7 @@ RAIS = {
     "AMZ Scrape Msg Lists": lambda x, y: processAmzScrapeMsgList(x, y),
     "AMZ Buy Check Shipping": lambda x, y: processAmzBuyCheckShipping(x, y),
     "AMZ Details Check Position": lambda x, y: processAmzDetailsCheckPosition(x, y),
+    "AMZ PL Calc Columns": lambda x, y: processAmzPLCalcNCols(x, y),
     "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
     "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
     "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
@@ -229,6 +230,7 @@ ARAIS = {
     "AMZ Scrape Msg Lists": lambda x, y: processAmzScrapeMsgList(x, y),
     "AMZ Buy Check Shipping": lambda x, y: processAmzBuyCheckShipping(x, y),
     "AMZ Details Check Position": lambda x, y: processAmzDetailsCheckPosition(x, y),
+    "AMZ PL Calc Columns": lambda x, y: processAmzPLCalcNCols(x, y),
     "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
     "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
     "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
@@ -446,6 +448,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     if step_stat != DEFAULT_RUN_STATUS:
         log3("RUN Error!")
         run_result = "Incomplete:"+step_stat+":"+str(last_step)
+        # should close the current app here, make room for the next retry, and other tasks...
 
     return run_result
 
