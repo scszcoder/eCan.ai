@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub, genStepCallExtern
 from bot.Logger import log3
+import fitz
 
 
 def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
@@ -157,25 +158,32 @@ def add_text(iimg, text, text_loc, font = cv2.FONT_HERSHEY_SIMPLEX, fontScale = 
 
 def reformat_label_pdf(working_dir, pdffile):
     print("pdf to img start....", working_dir + pdffile)
-    images = convert_from_path(working_dir + pdffile)
+    # images = convert_from_path(working_dir + pdffile)
+    document = fitz.open(working_dir + pdffile)
+
+    page = document.load_page(0)  # Assuming adding text to the first page
+    pix = page.get_pixmap()
+
+    # Convert to image using OpenCV
+    image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    pil_image = np.array(image)
+
     print("pdf to img done....", working_dir + pdffile)
-    # Assuming adding text to the first page
-    image = np.array(images[0])
-    pil_image = Image.fromarray(image)
-    # for i in range(len(images)):
-    #     # Save pages as images in the pdf
-    #     images[i].save(working_dir + 'page' + str(i) + '.jpg', 'JPEG')
 
     sub = pdffile.split('_')
+    prefix = pdffile.split(".")[0]
     # log3(json.dumps(sub))
     if len(sub) >= 5:
-        first = sub[0]
-        last = sub[1]
-        prod = sub[2]
+        site = sub[0]
+        first = sub[1]
+        last = sub[2]
+        prod = sub[3]
         num = sub[4].split('.')[0]
 
         # img = cv2.imread(working_dir + 'page0.jpg')
         result = pil_image.copy()
+        # gray = cv2.cvtColor(pil_image, cv2.COLOR_BGR2GRAY)
+        # gray = cv2.bilateralFilter(gray, 11, 17, 17)
         gray = cv2.cvtColor(pil_image, cv2.COLOR_BGR2GRAY)
         gray = cv2.bilateralFilter(gray, 11, 17, 17)
 
@@ -205,7 +213,7 @@ def reformat_label_pdf(working_dir, pdffile):
         cropped_image = pil_image[y:y + h, x:x + w]
 
         if (h > w):
-            cropped = cv2.rotate(cropped_image, cv2.cv2.ROTATE_90_CLOCKWISE).copy()
+            cropped = cv2.rotate(cropped_image, cv2.ROTATE_90_CLOCKWISE).copy()
             cropped_image = cropped.copy()
         else:
             cropped = cropped_image.copy()
@@ -237,7 +245,7 @@ def reformat_label_pdf(working_dir, pdffile):
 
         # save the result into a pdf file using PIL.
         p_image = Image.fromarray(o_image)
-        pdff_name = first + last + '_' + prod + '_x_' + num + '.pdf'
+        pdff_name = prefix + '_r2p.pdf'
         pdf_name = working_dir + pdff_name
         p_image.save(pdf_name, save_all=True)
         wpdf_name = pdf_name.replace('/', r'\\\\')
@@ -306,24 +314,19 @@ async def print_pdf(file_path, printer_name):
     with ThreadPoolExecutor() as pool:
         await loop.run_in_executor(pool, print_pdf_sync, file_path, printer_name)
 
-def add_text_to_pdf(pdf_path, text, output_path):
-    # Open the original PDF
-    document = fitz.open(pdf_path)
-    page = document.load_page(0)  # Assuming adding text to the first page
-    pix = page.get_pixmap()
+def add_text_to_pdf(in_img, text, font_path, font_name, font_size):
 
-    # Convert to image using OpenCV
-    image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-    image = np.array(image)
+    draw = ImageDraw.Draw(in_img)
+    if font_path:
+        font = ImageFont.truetype(font_path, font_size)
+    else:
+        # font = ImageFont.load_default()
+        font = ImageFont.truetype("arial.ttf", 20)
 
-    # Use PIL to add text
-    pil_image = Image.fromarray(image)
-    draw = ImageDraw.Draw(pil_image)
-    font = ImageFont.truetype("arial.ttf", 20)  # Specify your font path and size
-    draw.text((50, 50), text, font=font, fill="black")  # Adjust position and text color
+    draw.text((50, 50), text, font=font, fill="Blue")  # Adjust position and text color
 
     # Convert back to OpenCV format
-    image_with_text = np.array(pil_image)
+    image_with_text = np.array(in_img)
 
     # Convert back to PDF
     pil_image_with_text = Image.fromarray(image_with_text)
