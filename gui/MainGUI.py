@@ -1402,13 +1402,14 @@ class MainWindow(QMainWindow):
         # test_get_all_wins()
 
         # test_ads_batch(self)
-        test_sqlite3(self)
+        # test_sqlite3(self)
         # test_read_buy_req_files(self)
         # test_misc()
         # test_scrape_amz_prod_list()
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
         # run_genSchedules_test_case(self, self.session, self.tokens['AuthenticationResult']['IdToken'], 1)
         # test_run_mission(self)
+        test_save_csk(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
 

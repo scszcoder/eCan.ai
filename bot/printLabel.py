@@ -18,7 +18,7 @@ import cv2
 from pdf2image import convert_from_path
 from concurrent.futures import ThreadPoolExecutor
 
-from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub, genStepCallExtern
+from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub, genStepCallExtern, genStepCreateData
 from bot.Logger import log3
 import fitz
 
@@ -41,6 +41,30 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
 
     this_step, step_words = genStepCallExtern("global printer_name\nprinter_name = fin[2]\nprint('printer_name:', printer_name)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global orders\norders = fin[3]\nprint('orders:', orders)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global product_book\nproduct_book = fin[4]\nprint('product_book:', product_book)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepCreateData("bool", "endOfOrdersPage", "NA", False, this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "font_dir", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCreateData("int", "font_size", "NA", 28, this_step)
+    psk_words = psk_words + step_words
+
+
+    # this_step, step_words = genStepCreateData("expr", "shipToSummeries", "NA", "[]", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    # psk_words = psk_words + step_words
+
 
     #labdir, printer, ecsite, order_data, product_book, font_dir, font_size, stat_name, stepN
     this_step, step_words = genStepPrintLabels("label_path", "printer_name", "ecsite", "orders", "product_book", "font_dir", "font_size", "print_status", this_step)

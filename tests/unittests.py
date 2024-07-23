@@ -13,7 +13,7 @@ from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXl
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
-    get_top_visible_window, processExtractInfo
+    get_top_visible_window, processExtractInfo, startSaveCSK
 from bot.printLabel import processPrintLabels, sync_win_print_labels1
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
@@ -29,7 +29,7 @@ global symTab
 import shutil
 import pyautogui
 import base64
-
+import threading
 
 def test_eb_orders_scraper():
     orders = []
@@ -1226,3 +1226,7 @@ def test_printer_print_sync():
     stat = sync_win_print_labels1("C:/temp/label_print_test/", "", "ebay", order_data, product_book, font_full_path, 28)
     # win32print.SetDefaultPrinter("EPSON481B68 (ET-3750 Series)")
     # win32api.ShellExecute(0, "print", "C:/temp/label_print_test/ebay_george_pele_p1_v1_1_p2_v2_1.pdf", None, ".", 0)
+
+
+def test_save_csk(session, token):
+    threading.Thread(target=startSaveCSK, args=(loop, csk_dir, session, token), daemon=True).start()
