@@ -3,16 +3,21 @@ import json
 import os
 import subprocess
 from datetime import datetime
+import asyncio
+import win32print
+import win32api
+import traceback
 
 import numpy as np
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
-from PIL import Image
+from PIL import Image, ImageFont, ImageDraw
 import cv2
 from pdf2image import convert_from_path
+from concurrent.futures import ThreadPoolExecutor
 
-from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub
+from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub, genStepCallExtern
 from bot.Logger import log3
 
 
@@ -26,7 +31,17 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_printer_local_print/reformat_print", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global f_op\nformat = fin[0]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global label_path\nlabel_path = fin[1]\nprint('label_path:', label_path)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global printer_name\nprinter_name = fin[2]\nprint('printer_name:', printer_name)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepPrintLabels("label_path", "printer_name", "print_status", this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_printer_local_print/reformat_print", "", this_step)
     psk_words = psk_words + step_words
@@ -37,12 +52,13 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genStepPrintLabels(labdir, printer, stat_name, stepN):
+def genStepPrintLabels(labdir, printer, stat_name, ecsite, stepN):
     stepjson = {
         "type": "Print Labels",
         "action": "Print Labels",
         "label_dir": labdir,
         "printer": printer,
+        "ecsite": ecsite,
         "print_status": stat_name
     }
 
@@ -50,11 +66,11 @@ def genStepPrintLabels(labdir, printer, stat_name, stepN):
 
 
 
-def processPrintLabel(step, i):
+async def processPrintLabels(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         log3("Printing label, will do some processing before printing. .....")
-        symTab[step["print_status"]] = print_labels(step["label_dir"], step["printer"])
+        symTab[step["print_status"]] = await win_print_labels1(symTab[step["labels_dir"]], symTab[step["printer"]], symTab[step["ecsite"]])
     except:
         ex_stat = "ErrorPrintLabel:" + str(i)
         log3(ex_stat)
@@ -139,123 +155,258 @@ def add_text(iimg, text, text_loc, font = cv2.FONT_HERSHEY_SIMPLEX, fontScale = 
     return texted_img
 
 
+def reformat_label_pdf(working_dir, pdffile):
+    print("pdf to img start....", working_dir + pdffile)
+    images = convert_from_path(working_dir + pdffile)
+    print("pdf to img done....", working_dir + pdffile)
+    # Assuming adding text to the first page
+    image = np.array(images[0])
+    pil_image = Image.fromarray(image)
+    # for i in range(len(images)):
+    #     # Save pages as images in the pdf
+    #     images[i].save(working_dir + 'page' + str(i) + '.jpg', 'JPEG')
+
+    sub = pdffile.split('_')
+    # log3(json.dumps(sub))
+    if len(sub) >= 5:
+        first = sub[0]
+        last = sub[1]
+        prod = sub[2]
+        num = sub[4].split('.')[0]
+
+        # img = cv2.imread(working_dir + 'page0.jpg')
+        result = pil_image.copy()
+        gray = cv2.cvtColor(pil_image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.bilateralFilter(gray, 11, 17, 17)
+
+        kernel = np.ones((5, 5), np.uint8)
+        erosion = cv2.erode(gray, kernel, iterations=2)
+        kernel = np.ones((4, 4), np.uint8)
+        dilation = cv2.dilate(erosion, kernel, iterations=2)
+
+        edged = cv2.Canny(dilation, 30, 200)
+
+        contours = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = contours[0] if len(contours) == 2 else contours[1]
+        # print(str(len(contours)) + ' rects are found....')
+
+        for cntr in contours:
+            x, y, w, h = cv2.boundingRect(cntr)
+            cv2.rectangle(result, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            log3("x,y,w,h:" + str(x) + " " + str(y) + " " + str(w) + " " + str(h))
+
+        # save resulting image
+        # cv2.imwrite(working_dir+'rect.jpg', result)
+
+        # show thresh and result
+        # cv2.imshow("bounding_box", result)
+
+        # crop out the ROI which is bounded by the rectangle.
+        cropped_image = pil_image[y:y + h, x:x + w]
+
+        if (h > w):
+            cropped = cv2.rotate(cropped_image, cv2.cv2.ROTATE_90_CLOCKWISE).copy()
+            cropped_image = cropped.copy()
+        else:
+            cropped = cropped_image.copy()
+
+        # cv2.imshow("crop", cropped_image)
+        # cv2.imwrite(working_dir+'contour1.png', cropped_image)
+
+        # now need to scale to image to a standard 1100x550 (WxH)
+        target_width = 1100
+        target_height = 750
+        target_dim = (target_width, target_height)
+
+        # resize image
+        resized_cropped = cv2.resize(cropped, target_dim, interpolation=cv2.INTER_AREA)
+        resized_cropped_image = resized_cropped.copy()
+
+        # add some text note to the image,
+        text = prod + '_X_' + num
+        # -- coding: utf-8
+        # text = '钱包'
+        text_rel_loc = (400, 700)
+        text_image = add_text(resized_cropped_image, text, text_rel_loc, cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+        # cv2.imwrite(working_dir+'texted.png', text_image)
+
+        # put 2 image into a new image
+        # 1st image located at (150, 90)
+        o_image = gen_img(resized_cropped, text_image)
+        # cv2.imwrite(working_dir+'final.png', o_image)
+
+        # save the result into a pdf file using PIL.
+        p_image = Image.fromarray(o_image)
+        pdff_name = first + last + '_' + prod + '_x_' + num + '.pdf'
+        pdf_name = working_dir + pdff_name
+        p_image.save(pdf_name, save_all=True)
+        wpdf_name = pdf_name.replace('/', r'\\\\')
+
+    return pdf_name, wpdf_name
 # Press the green button in the gutter to run the script.
-def print_labels(label_dir, printer):
+def win_print_labels0(label_dir, printer):
 
-    today = datetime.today()
-    yesterday = today - datetime.timedelta(days=1)
-
-    today_string = yesterday.strftime("%Y%m%d")
-    working_dir = 'C:/EbayOrders/Teco/orders/' + today_string + '/'
+    working_dir = label_dir
     log3(working_dir)
     for file in os.listdir(working_dir):
         if file.startswith("ebay-label") and file.endswith(".pdf"):
             log3(file)
 
-            # convert pdf to image
-            images = convert_from_path(working_dir+file)
+            pdf_name, wpdf_name = reformat_label_pdf(working_dir, file)
 
-            for i in range(len(images)):
-                # Save pages as images in the pdf
-                images[i].save(working_dir+'page' + str(i) + '.jpg', 'JPEG')
-
-            sub = file.split('_')
-            # log3(json.dumps(sub))
-            if len(sub) >= 5:
-                first = sub[1]
-                last = sub[2]
-                prod = sub[3]
-                num = sub[4].split('.')[0]
-
-                img = cv2.imread(working_dir + 'page0.jpg')
-                result = img.copy()
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                gray = cv2.bilateralFilter(gray, 11, 17, 17)
-
-                kernel = np.ones((5, 5), np.uint8)
-                erosion = cv2.erode(gray, kernel, iterations=2)
-                kernel = np.ones((4, 4), np.uint8)
-                dilation = cv2.dilate(erosion, kernel, iterations=2)
-
-                edged = cv2.Canny(dilation, 30, 200)
-
-                contours = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                contours = contours[0] if len(contours) == 2 else contours[1]
-                # print(str(len(contours)) + ' rects are found....')
-
-                for cntr in contours:
-                    x, y, w, h = cv2.boundingRect(cntr)
-                    cv2.rectangle(result, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                    log3("x,y,w,h:"+str(x)+" "+str(y)+" "+str(w)+" "+str(h))
-
-                # save resulting image
-                # cv2.imwrite(working_dir+'rect.jpg', result)
-
-                # show thresh and result
-                # cv2.imshow("bounding_box", result)
-
-
-                # crop out the ROI which is bounded by the rectangle.
-                cropped_image = img[y:y+h, x:x+w]
-
-                if (h > w):
-                    cropped = cv2.rotate(cropped_image, cv2.cv2.ROTATE_90_CLOCKWISE).copy()
-                    cropped_image = cropped.copy()
-                else:
-                    cropped = cropped_image.copy()
-
-                # cv2.imshow("crop", cropped_image)
-                # cv2.imwrite(working_dir+'contour1.png', cropped_image)
-
-                # now need to scale to image to a standard 1100x550 (WxH)
-                target_width = 1100
-                target_height = 750
-                target_dim = (target_width, target_height)
-
-                # resize image
-                resized_cropped = cv2.resize(cropped, target_dim, interpolation=cv2.INTER_AREA)
-                resized_cropped_image = resized_cropped.copy()
-
-
-                # add some text note to the image,
-                text = prod + '_X_' + num
-                # -- coding: utf-8
-                # text = '钱包'
-                text_rel_loc = (400, 700)
-                text_image = add_text(resized_cropped_image, text, text_rel_loc, cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-                # cv2.imwrite(working_dir+'texted.png', text_image)
-
-                # put 2 image into a new image
-                # 1st image located at (150, 90)
-                o_image = gen_img(resized_cropped, text_image)
-                # cv2.imwrite(working_dir+'final.png', o_image)
-
-                # save the result into a pdf file using PIL.
-                p_image = Image.fromarray(o_image)
-                pdff_name = first+last+'_'+prod+'_x_'+num+'.pdf'
-                pdf_name = working_dir+pdff_name
-                p_image.save(pdf_name, save_all=True)
-                wpdf_name = pdf_name.replace('/', r'\\\\')
-
-                # print out the files.
-                # YOU CAN PUT HERE THE NAME OF YOUR SPECIFIC PRINTER INSTEAD OF DEFAULT
-                # currentprinter = win32print.GetDefaultPrinter()
-                # log3(currentprinter)
-
-                # the following command print silently.
-                # C:\"Program Files"\gs\gs9.54.0\bin\gswin64c.exe  -dPrinted -dNoCancel -dBATCH -dNOPAUSE -dNOSAFER -q -dNumCopies=1 -dQueryUser=3 -sDEVICE=mswinpr2  testImage.pdf
-                args = '"C:\\\\Program Files\\\\gs\\\\gs9.54.0\\\\bin\\\\gswin64c" ' \
-                       '-dPrinted ' \
-                       '-dNoCancel ' \
-                       '-dBATCH ' \
-                       '-dNOPAUSE ' \
-                       '-dNOSAFER ' \
-                       '-q ' \
-                       '-dFitPage ' \
-                       '-dNumCopies=1 ' \
-                       '-dQueryUser=3 ' \
-                       '-sDEVICE=mswinpr2 '
-                ghostscript = args + wpdf_name
-                subprocess.call(ghostscript, shell=True)
+            # print out the files.
+            # YOU CAN PUT HERE THE NAME OF YOUR SPECIFIC PRINTER INSTEAD OF DEFAULT
+            if printer == "":
+                currentprinter = win32print.GetDefaultPrinter()
             else:
-                log3('file name format error:' + file)
+                currentprinter = printer
+
+            log3(currentprinter)
+
+            # the following command print silently.
+            # C:\"Program Files"\gs\gs9.54.0\bin\gswin64c.exe  -dPrinted -dNoCancel -dBATCH -dNOPAUSE -dNOSAFER -q -dNumCopies=1 -dQueryUser=3 -sDEVICE=mswinpr2  testImage.pdf
+            args = '"C:\\\\Program Files\\\\gs\\\\gs9.54.0\\\\bin\\\\gswin64c" ' \
+                   '-dPrinted ' \
+                   '-dNoCancel ' \
+                   '-dBATCH ' \
+                   '-dNOPAUSE ' \
+                   '-dNOSAFER ' \
+                   '-q ' \
+                   '-dFitPage ' \
+                   '-dNumCopies=1 ' \
+                   '-dQueryUser=3 ' \
+                   '-sDEVICE='
+            args = args + currentprinter + ' '
+            ghostscript = args + wpdf_name
+            subprocess.call(ghostscript, shell=True)
+        else:
+            log3('file name format error:' + file)
+
+
+def get_printers():
+    return [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
+
+def print_pdf_sync(file_path, printer_name):
+    print(f"Printing {file_path} to {printer_name}")
+    hPrinter = win32print.OpenPrinter(printer_name)
+    hJob = win32print.StartDocPrinter(hPrinter, 1, (file_path, None, "RAW"))
+    win32print.StartPagePrinter(hPrinter)
+    with open(file_path, "rb") as f:
+        data = f.read()
+        win32print.WritePrinter(hPrinter, data)
+    win32print.EndPagePrinter(hPrinter)
+    win32print.EndDocPrinter(hPrinter)
+    win32print.ClosePrinter(hPrinter)
+
+def check_printer_status(printer_name):
+    return printer_name in get_printers()
+
+async def print_pdf(file_path, printer_name):
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor() as pool:
+        await loop.run_in_executor(pool, print_pdf_sync, file_path, printer_name)
+
+def add_text_to_pdf(pdf_path, text, output_path):
+    # Open the original PDF
+    document = fitz.open(pdf_path)
+    page = document.load_page(0)  # Assuming adding text to the first page
+    pix = page.get_pixmap()
+
+    # Convert to image using OpenCV
+    image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    image = np.array(image)
+
+    # Use PIL to add text
+    pil_image = Image.fromarray(image)
+    draw = ImageDraw.Draw(pil_image)
+    font = ImageFont.truetype("arial.ttf", 20)  # Specify your font path and size
+    draw.text((50, 50), text, font=font, fill="black")  # Adjust position and text color
+
+    # Convert back to OpenCV format
+    image_with_text = np.array(pil_image)
+
+    # Convert back to PDF
+    pil_image_with_text = Image.fromarray(image_with_text)
+    pil_image_with_text.save(output_path, "PDF", resolution=100.0)
+
+def process_pdf(file_path):
+    output_path = file_path.replace(".pdf", "_new.pdf")
+    add_text_to_pdf(file_path, "Your Text Here", output_path)
+    return output_path
+
+async def win_print_labels1(label_dir, printers, ecsite):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        tasks = []
+        working_dir = label_dir
+        log3("label dir:"+working_dir)
+        for pdf_file in os.listdir(working_dir):
+            if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
+                log3("working on label:"+pdf_file)
+                modified_pdf, wpdf_name = reformat_label_pdf(working_dir, pdf_file)
+                if check_printer_status(printers[0]):
+                    tasks.append(print_pdf(modified_pdf, printers[0]))
+                elif len(printers) > 1 and check_printer_status(printers[1]):
+                    tasks.append(print_pdf(modified_pdf, printers[1]))
+                elif len(printers) > 2 and check_printer_status(printers[2]):
+                    tasks.append(print_pdf(modified_pdf, printers[2]))
+                else:
+                    print(f"No available printers for {pdf_file}")
+
+        if tasks:
+            await asyncio.gather(*tasks)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorPrintLabels1:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorPrintLabels1: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return ex_stat
+
+def sync_win_print_labels1(label_dir, printer, ecsite):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        files_tbp = []
+
+        if printer=="":
+            printers = get_printers()
+        else:
+            printers = [printer]
+
+        print("printers are:", printers)
+
+        working_dir = label_dir
+        log3("label dir:"+working_dir)
+        for pdf_file in os.listdir(working_dir):
+            if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
+                log3("working on label:"+pdf_file)
+                modified_pdf, wpdf_name = reformat_label_pdf(working_dir, pdf_file)
+                files_tbp.append(modified_pdf)
+
+        if files_tbp:
+            for file_path in files_tbp:
+                if check_printer_status(printers[0]):
+                    print("printing:"+file_path+" on printer: "+printers[0])
+                    print_pdf_sync(file_path, printers[0])
+                elif len(printers) > 1 and check_printer_status(printers[1]):
+                    print("printing:" + file_path + " on printer: " + printers[1])
+                    print_pdf_sync(file_path, printers[1])
+                elif len(printers) > 2 and check_printer_status(printers[2]):
+                    print("printing:" + file_path + " on printer: " + printers[2])
+                    print_pdf_sync(file_path, printers[2])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorPrintLabels1:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorPrintLabels1: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return ex_stat

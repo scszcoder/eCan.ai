@@ -28,7 +28,7 @@ from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySet
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
     processPrepGSOrder
 from bot.labelSkill import processGSExtractZippedFileName
-from bot.printLabel import processPrintLabel
+from bot.printLabel import processPrintLabels
 from bot.scrapeGoodSupply import processGSScrapeLabels
 from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
 from bot.scraperEbay import processEbayScrapeOrdersHtml, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
@@ -130,7 +130,7 @@ RAIS = {
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),
-    "print Label": lambda x,y: processPrintLabel(x, y),
+    "print Label": lambda x,y: processPrintLabels(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
@@ -216,7 +216,7 @@ ARAIS = {
     "Read File": lambda x, y: processReadFile(x, y),
     "Write File": lambda x, y: processWriteFile(x, y),
     "Delete File": lambda x, y: processDeleteFile(x, y),
-    "print Label": lambda x,y: processPrintLabel(x, y),
+    "print Label": lambda x,y: processPrintLabels(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),

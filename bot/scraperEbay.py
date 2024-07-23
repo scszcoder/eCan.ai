@@ -15,6 +15,7 @@ def extract_order_data(aj):
     products = []
     try:
         resultsPerPage = int(aj["_initialValue"]["pagination"]["itemsPerPage"]["model"]["selectedValue"]["value"])
+        print("RESULTS PER PAGE:", resultsPerPage)
         for od in aj["_initialValue"]["orders"]["members"]:
             order = ORDER("", "", "", "", "", "", "")
             order.setOid(od["orderId"])
@@ -129,7 +130,8 @@ def get_total_num_orders(hsoup):
     btn_text = hsoup.find('span', class_='btn__text').text.strip()
 
     # Use regular expression to match "Awaiting shipment (n)" where n is any integer
-    match = re.search(r'Awaiting shipment \(\d+\)', btn_text)
+    match = re.search(r'Awaiting shipment\s*\((\d+)\)', btn_text)
+
     n_orders = -1
     if match:
         awaiting_shipment_text = match.group()
@@ -141,7 +143,8 @@ def get_total_num_orders(hsoup):
             n_orders = int(p_match.group(1))
             print("num orders:", n_orders)  # Output: 2
         else:
-            print("No parenthesis match found")
+            n_orders = 0
+            print("No parenthesis match found, i.e. 0 orders")
     else:
         print("No match found")
 
@@ -170,7 +173,8 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
             log3(str(len(scriptItems)))
 
             for item in scriptItems:
-                pattern = r'orderId.*?feedbackScore'
+                # pattern = r'orderId.*?feedbackScore'
+                pattern = r'Awaiting shipment'
                 found = re.findall(pattern, item.text)
                 if found:
                     print("right script found....")
