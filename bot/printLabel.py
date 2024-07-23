@@ -42,7 +42,8 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global printer_name\nprinter_name = fin[2]\nprint('printer_name:', printer_name)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepPrintLabels("label_path", "printer_name", "print_status", this_step)
+    #labdir, printer, ecsite, order_data, product_book, font_dir, font_size, stat_name, stepN
+    this_step, step_words = genStepPrintLabels("label_path", "printer_name", "ecsite", "orders", "product_book", "font_dir", "font_size", "print_status", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_printer_local_print/reformat_print", "", this_step)
@@ -54,13 +55,17 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genStepPrintLabels(labdir, printer, stat_name, ecsite, stepN):
+def genStepPrintLabels(labdir, printer, ecsite, order_data, product_book, font_dir, font_size, stat_name, stepN):
     stepjson = {
         "type": "Print Labels",
         "action": "Print Labels",
         "label_dir": labdir,
         "printer": printer,
         "ecsite": ecsite,
+        "order_data": order_data,
+        "product_book": product_book,
+        "font_dir": font_dir,
+        "font_size": font_size,
         "print_status": stat_name
     }
 
