@@ -1,6 +1,204 @@
 [
     {
-        "shipping": {
+        "ads_power": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "ebay_logo0",
+                        "anchor_type"  : "icon",
+                        "template"     : "ebay_logo0.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "gmail_logo0",
+                        "anchor_type"  : "icon",
+                        "template"     : "gmail_logo0.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "usa",
+                        "anchor_type"  : "text",
+                        "template"     : "USA",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "site_not_reached",
+                        "anchor_type"  : "text",
+                        "template"     : "This site can't be reached",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ],
+                "info": [
+                ]
+            }
+        }
+    },
+    {
+        "ebay_home": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "sign_in",
+                        "anchor_type"  : "text",
+                        "template"     : "Sign in",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "user_name",
+                        "anchor_type"  : "text",
+                        "template"     : "username",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "continue",
+                        "anchor_type"  : "text",
+                        "template"     : "Continue",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "password",
+                        "anchor_type"  : "text",
+                        "template"     : "Password",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "my_ebay",
+                        "anchor_type"  : "text",
+                        "template"     : "My eBay",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "selling",
+                        "anchor_type"  : "text",
+                        "template"     : "Selling",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "messages",
+                        "anchor_type"  : "text",
+                        "template"     : "Messages",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ],
+                "info": [
+                ]
+            }
+        }
+    },
+    {
+        "ebay_orders": {
+            "top" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "awaiting_shipment",
+                        "anchor_type"  : "text",
+                        "template"     : "Awaiting shipment",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "results",
+                        "anchor_type"  : "text",
+                        "template"     : "Results",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "of",
+                        "anchor_type"  : "text",
+                        "template"     : "of",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "total",
+                        "anchor_type"  : "text",
+                        "template"     : "Total",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "items_per_page",
+                        "anchor_type"  : "text",
+                        "template"     : "Items Per Page",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "previous",
+                        "anchor_type"  : "icon",
+                        "template"     : "previous.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "previous1",
+                        "anchor_type"  : "icon",
+                        "template"     : "previous1.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "next",
+                        "anchor_type"  : "icon",
+                        "template"     : "next.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "pull_down",
+                        "anchor_type"  : "icon",
+                        "template"     : "pulldown.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ship_by",
+                        "anchor_type"  : "text",
+                        "template"     : "Ship by",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "get_shipping",
+                        "anchor_type"  : "text",
+                        "template"     : "Get shipping",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "label",
+                        "anchor_type"  : "text",
+                        "template"     : "label",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "add_tracking",
+                        "anchor_type"  : "text",
+                        "template"     : "Add tracking number",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ],
+                "info": [
+                ]
+            }
+        }
+    },
+    {
+        "ebay_shipping": {
             "top" : {
                 "anchors": [
                     {
