@@ -1229,4 +1229,5 @@ def test_printer_print_sync():
 
 
 def test_save_csk(session, token):
-    threading.Thread(target=startSaveCSK, args=(loop, csk_dir, session, token), daemon=True).start()
+    csk_dir = "C:/Users/songc/PycharmProjects/ecbot/my_skills/win_chrome_goodsupply_label/bulk_buy"
+    threading.Thread(target=startSaveCSK, args=(csk_dir, session, token), daemon=True).start()
