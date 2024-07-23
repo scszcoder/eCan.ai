@@ -1,5 +1,6 @@
 import json
 import re
+import math
 import traceback
 from bs4 import BeautifulSoup
 import esprima
@@ -14,6 +15,7 @@ def extract_order_data(aj):
     products = []
     try:
         resultsPerPage = int(aj["_initialValue"]["pagination"]["itemsPerPage"]["model"]["selectedValue"]["value"])
+        print("RESULTS PER PAGE:", resultsPerPage)
         for od in aj["_initialValue"]["orders"]["members"]:
             order = ORDER("", "", "", "", "", "", "")
             order.setOid(od["orderId"])
@@ -66,7 +68,7 @@ def extract_order_data(aj):
             ex_stat = "ErrorExtractOrderData: traceback information not available:" + str(e)
         log3(ex_stat)
 
-    return orders
+    return orders, resultsPerPage
 def extract_orders_from_tokens(tokens):
     is_variations = False
     brace_count = 0
@@ -123,11 +125,35 @@ def extract_orders_from_tokens(tokens):
 
     return variations_json
 
+def get_total_num_orders(hsoup):
+    # Find the span element with class "btn__text" and extract its text
+    btn_text = hsoup.find('span', class_='btn__text').text.strip()
+
+    # Use regular expression to match "Awaiting shipment (n)" where n is any integer
+    match = re.search(r'Awaiting shipment\s*\((\d+)\)', btn_text)
+
+    n_orders = -1
+    if match:
+        awaiting_shipment_text = match.group()
+
+        # Use regular expression to find the integer within the parentheses
+        p_match = re.search(r'\((\d+)\)', awaiting_shipment_text)
+
+        if p_match:
+            n_orders = int(p_match.group(1))
+            print("num orders:", n_orders)  # Output: 2
+        else:
+            n_orders = 0
+            print("No parenthesis match found, i.e. 0 orders")
+    else:
+        print("No match found")
+
+    return n_orders
 
 def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        pagefull_of_orders = {"page": pidx, "ol": None, "n_new_orders": 0, "num_pages": 0}
+        pagefull_of_orders = {"page": pidx, "ol": None, "n_new_orders": 0, "num_pages": 0, "orders_per_page": 25}
         orders = []
 
         # Use Esprima to parse your JavaScript code
@@ -140,13 +166,15 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
             soup = BeautifulSoup(fp, 'html.parser')
 
             print("soup soup")
+            pagefull_of_orders["n_new_orders"] = get_total_num_orders(soup)
             # all useful information are here:
             # extract all div tags which contains data-index attribute which is a indication of a product in the product list.
             scriptItems = soup.findAll("script")
             log3(str(len(scriptItems)))
 
             for item in scriptItems:
-                pattern = r'orderId.*?feedbackScore'
+                # pattern = r'orderId.*?feedbackScore'
+                pattern = r'Awaiting shipment'
                 found = re.findall(pattern, item.text)
                 if found:
                     print("right script found....")
@@ -155,11 +183,13 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
 
                     aj = extract_orders_from_tokens(tokens)
 
-                    orders = extract_order_data(aj)
+                    orders, results_per_page = extract_order_data(aj)
 
         pagefull_of_orders["ol"] = orders
+        pagefull_of_orders["orders_per_page"] = results_per_page
+        pagefull_of_orders["num_pages"] = math.ceil(len(orders)/results_per_page)
         log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        log3("# of orders:"+str(len(orders)))
+        log3("# of orders:"+str(len(orders))+","+str(pagefull_of_orders["orders_per_page"])+","+str(pagefull_of_orders["num_pages"]))
         print([ord.toJson() for ord in orders])
         log3("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
     except Exception as e:

@@ -13,6 +13,7 @@ from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXl
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
     get_top_visible_window, processExtractInfo
+from bot.printLabel import processPrintLabels, sync_win_print_labels1
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
 from bot.genSkills import genWinTestSkill, genWinTestSkill1, genWinTestSkill2
@@ -34,6 +35,8 @@ def test_eb_orders_scraper():
     html_file = "C:/temp/Orders — eBay Seller Hub.html"
     html_file = "C:/Users/songc/Downloads/Orders0eBaySellerHub.html"
     html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240721/b89m789/win_ads_ebay_orders/skills/collect_orders/ebayOrders1721608436.html"
+    ebay_seller_fetch_page_of_order_list(html_file, 0)
+    html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240722/b89m789/win_ads_ebay_orders/skills/collect_orders/ebayOrders1721682022.html"
     ebay_seller_fetch_page_of_order_list(html_file, 0)
 
     html_file = "C:/Users/songc/Downloads/MyeBay_ Messages00.html"
@@ -1197,3 +1200,23 @@ def test_detect_swatch():
         "section": "top"
     }
     ni, status = processExtractInfo(step, 1, mission, skill)
+
+async def test_printer_print():
+    symTab["labels_dir"] = "C:/temp/label_print_test/"
+    symTab["default_printer"] = ""
+    symTab["ecsite"] = "ebay"
+
+    step = {
+        "type": "Print Labels",
+        "action": "Print Labels",
+        "labels_dir": "labels_dir",
+        "printer": "default_printer",
+        "ecsite": "ecsite",
+        "print_status": "print_stat"
+    }
+
+    ni, status = await processPrintLabels(step, 1)
+
+
+def test_printer_print_sync():
+    stat = sync_win_print_labels1("C:/temp/label_print_test/", "", "ebay")
