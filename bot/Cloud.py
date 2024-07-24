@@ -1602,9 +1602,10 @@ async def send_file_with_presigned_url8(session, src_file, resp):
             for key, value in resp['fields'].items():
                 form.add_field(key, value)
             form.add_field('file', f, filename=src_file)
-
             async with session.post(resp['url'], data=form) as r:
-                logger_helper.debug(str(r.status))
+                logger_helper.debug("SENDING PRESIGNED URL STATUS:"+str(r.status))
+                # print("PRESIGNED RESPONSE:",r)
+                f.close()
                 return r.status
 
 
