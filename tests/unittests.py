@@ -4,7 +4,8 @@ import re
 import subprocess
 import time
 from datetime import datetime
-
+import win32print
+import win32api
 import pytz
 
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud
@@ -12,7 +13,8 @@ from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXl
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
-    get_top_visible_window, processExtractInfo
+    get_top_visible_window, processExtractInfo, startSaveCSK
+from bot.printLabel import processPrintLabels, sync_win_print_labels1
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
 from bot.genSkills import genWinTestSkill, genWinTestSkill1, genWinTestSkill2
@@ -27,13 +29,15 @@ global symTab
 import shutil
 import pyautogui
 import base64
-
+import threading
 
 def test_eb_orders_scraper():
     orders = []
     html_file = "C:/temp/Orders — eBay Seller Hub.html"
     html_file = "C:/Users/songc/Downloads/Orders0eBaySellerHub.html"
     html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240721/b89m789/win_ads_ebay_orders/skills/collect_orders/ebayOrders1721608436.html"
+    ebay_seller_fetch_page_of_order_list(html_file, 0)
+    html_file = "C:/Users/songc/PycharmProjects/ecbot/runlogs/20240722/b89m789/win_ads_ebay_orders/skills/collect_orders/ebayOrders1721682022.html"
     ebay_seller_fetch_page_of_order_list(html_file, 0)
 
     html_file = "C:/Users/songc/Downloads/MyeBay_ Messages00.html"
@@ -1197,3 +1201,33 @@ def test_detect_swatch():
         "section": "top"
     }
     ni, status = processExtractInfo(step, 1, mission, skill)
+
+async def test_printer_print():
+    symTab["labels_dir"] = "C:/temp/label_print_test/"
+    symTab["default_printer"] = ""
+    symTab["ecsite"] = "ebay"
+
+    step = {
+        "type": "Print Labels",
+        "action": "Print Labels",
+        "labels_dir": "labels_dir",
+        "printer": "default_printer",
+        "ecsite": "ecsite",
+        "print_status": "print_stat"
+    }
+
+    ni, status = await processPrintLabels(step, 1)
+
+
+def test_printer_print_sync():
+    font_full_path = "C:/Users/songc/PycharmProjects/ecbot/resource/fonts/Noto_Serif_SC/static/NotoSerifSC-Medium.ttf"
+    order_data = []
+    product_book = []
+    stat = sync_win_print_labels1("C:/temp/label_print_test/", "", "ebay", order_data, product_book, font_full_path, 28)
+    # win32print.SetDefaultPrinter("EPSON481B68 (ET-3750 Series)")
+    # win32api.ShellExecute(0, "print", "C:/temp/label_print_test/ebay_george_pele_p1_v1_1_p2_v2_1.pdf", None, ".", 0)
+
+
+def test_save_csk(session, token):
+    csk_dir = "C:/Users/songc/PycharmProjects/ecbot/my_skills/win_chrome_goodsupply_label/bulk_buy"
+    threading.Thread(target=startSaveCSK, args=(csk_dir, session, token), daemon=True).start()
