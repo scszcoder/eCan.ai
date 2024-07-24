@@ -4342,7 +4342,7 @@ def processAmzPLCalcNCols(step, i):
 
 def startSaveCSK(csk_dir, session, token):
     print("hello????")
-    loop = asyncio.get_running_loop()
+    loop = asyncio.new_event_loop()
     print("hohohohohoh????")
     loop.run_until_complete(saveCSKToCloud(csk_dir, session, token))
 
@@ -4364,7 +4364,7 @@ async def saveCSKToCloud(csk_dir, session, token):
             (os.path.join(scripts_dir, file), "csk")
             for file in os.listdir(scripts_dir) if file.endswith('.csk')
         ]
-        print("eady to launch tasks.....")
+
         tasks = [upload_file8(session, file, token, ftype) for (file, ftype) in image_files + script_files]
 
         await asyncio.gather(*tasks)
