@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from bot.missions import EBMISSION
 from bot.envi import getECBotDataHome
+from PIL import Image
+import shutil
 
 if sys.platform == 'win32':
     import win32gui
@@ -909,22 +911,28 @@ def list_windows():
 
         return active_app_name, window_rect
 
-
-def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
-    settings = mission.main_win_settings
+# win_title_keyword == "" means capture the entire screen
+def captureScreenToFile(win_title_keyword, sfile):
     global screen_loc
-
-    window_name, window_rect = get_top_visible_window(win_title_keyword)
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+    if win_title_keyword:
+        window_name, window_rect = get_top_visible_window(win_title_keyword)
+        # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
+        im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    else:
+        im0 = pyautogui.screenshot()
 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
 
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
-
-    #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-    im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     im0.save(sfile)
     screen_loc = (window_rect[0], window_rect[1])
+    return window_rect
+
+def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
+    settings = mission.main_win_settings
+
+    window_rect = captureScreenToFile(win_title_keyword, sfile)
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1006,12 +1014,6 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
     else:
         # log3("cloud result data body: "+json.dumps(result["body"]))
         jbody = json.loads(result["body"])
-        # for p in jbody["data"]:
-        #     if p["name"] == "paragraph":
-        #         for tl in p["txt_struct"]:
-        #             log3("TXT LINE: "+tl["text"])
-
-
 
         # global var "last_screen" always contains information extracted from the last screen shot.
         if len(jbody["data"]) > 0:
@@ -1021,30 +1023,55 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
             symTab["last_screen"] = []
             return []
 
+# win_title_keyword == "" means capture the entire screen
+async def readRandomWindow8(win_title_keyword, session, token):
+    dtnow = datetime.now()
+    date_word = dtnow.strftime("%Y%m%d")
+    dt_string = str(int(dtnow.timestamp()))
+    log3("date string:" + dt_string)
+    fdir = ecb_data_homepath + "/runlogs/" + date_word + "/b0m0/any_any_any_any/skills/any/images"
+    image_file = fdir + "scrn" + "_" + dt_string + ".png"
 
-async def read_screen8(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
+    window_rect = captureScreenToFile(win_title_keyword, image_file)
+    # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
+    # shutil.copy(source_file, image_file)
+    return await cloudAnalyzeRandomImage8(image_file, session, token)
+
+async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
-    global screen_loc
 
-    window_name, window_rect = get_top_visible_window(win_title_keyword)
+    window_rect = captureScreenToFile(win_title_keyword, sfile)
 
-    if not os.path.exists(os.path.dirname(sfile)):
-        os.makedirs(os.path.dirname(sfile))
+    session = settings["session"]
+    token = settings["token"]
+    mid = mission.getMid()
+    bid = mission.getBid()
+    image_file = sfile
+    result = await cloudAnalyzeImage8(image_file, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token)
+    return result
 
-    #now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-    # im0 = await asyncio.to_thread(pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3])))
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
-    im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+#image_file *.png must be put in the following diretory
+# "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
+async def cloudAnalyzeRandomImage8(image_file, session, token):
+    sk_settings = {
+        "platform": "any",
+        "app": "any",
+        "site": "any",
+        "skname": "any",
+        "skfname": "resource/skills/public/any_any_any_any/any.psk"
+    }
+    return await cloudAnalyzeImage8(image_file, "any", "any", "", "", 0, 0, sk_settings, "", "{}", session, token)
 
-    im0.save(sfile)
-    screen_loc = (window_rect[0], window_rect[1])
+async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token):
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     #upload screen to S3
-    await upload_file8(settings["session"], sfile, settings["token"], "screen")
+    await upload_file8(session, img_file, token, "screen")
+    with Image.open(img_file) as img:
+        # Get width and height
+        full_width, full_height = img.size
 
     m_skill_names = [sk_settings["skname"]]
     m_psk_names = [sk_settings["skfname"]]
@@ -1060,8 +1087,8 @@ async def read_screen8(win_title_keyword, site_page, page_sect, page_theme, layo
     # basically let a user to modify csk file by appending some user defined way to extract certain information element.
 
     request = [{
-        "id": mission.getMid(),
-        "bid": mission.getBid(),
+        "id": mid,
+        "bid": bid,
         "os": sk_settings["platform"],
         "app": sk_settings["app"],
         "domain": sk_settings["site"],
@@ -1073,7 +1100,7 @@ async def read_screen8(win_title_keyword, site_page, page_sect, page_theme, layo
         "lastMove": page_sect,
         "options": "",
         "theme": page_theme,
-        "imageFile": sfile.replace("\\", "\\\\"),
+        "imageFile": img_file.replace("\\", "\\\\"),
         "factor": factors
     }]
 
@@ -1081,11 +1108,7 @@ async def read_screen8(win_title_keyword, site_page, page_sect, page_theme, layo
         if isinstance(symTab[options], str):
             request[0]["options"] = symTab[options]
         elif isinstance(symTab[options], dict):
-            full_width = window_rect[2] - window_rect[0]
-            full_height = window_rect[3] - window_rect[1]
             if "attention_area" in symTab[options]:
-                full_width = window_rect[2] - window_rect[0]
-                full_height = window_rect[3] - window_rect[1]
                 symTab[options]["attention_area"] = [ int(symTab[options]["attention_area"][0]*full_width),
                                                       int(symTab[options]["attention_area"][1]*full_height),
                                                       int(symTab[options]["attention_area"][2]*full_width),
@@ -1098,35 +1121,23 @@ async def read_screen8(win_title_keyword, site_page, page_sect, page_theme, layo
         # robust image to text algorithms on the cloud side to get a better reading of the results. The downside is the image process time
         # is long, so limiting only certain area of the image helps keep speed in tact. Usually we home in on right half of the screen.
         # or center half of the screen.
-        half_width = int((window_rect[2] - window_rect[0])/2)
-        half_height = int((window_rect[3] - window_rect[1]) / 2)
-        full_width = window_rect[2] - window_rect[0]
-        full_height = window_rect[3] - window_rect[1]
-        # request[0]["options"]["attention_area"] = [half_width, 0, full_width, full_height]
-        # request[0]["options"]["attention_targets"] = []
+        half_width = int(full_width/2)
+        half_height = int((full_height)/2)
         request[0]["options"] = json.dumps({"attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
-    result = await req_cloud_read_screen8(settings["session"], request, settings["token"])
-    # log3("result::: "+json.dumps(result))
+    result = await req_cloud_read_screen8(session, request, token)
     jresult = json.loads(result['body'])
     log3("cloud result data: "+json.dumps(jresult["data"]))
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     if "errors" in jresult:
-        screen_error = True
         log3("ERROR Type: "+json.dumps(jresult["errors"][0]["errorType"])+"ERROR Info: "+json.dumps(jresult["errors"][0]["errorInfo"]))
         return []
     else:
         # log3("cloud result data body: "+json.dumps(result["body"]))
         jbody = json.loads(result["body"])
-        # for p in jbody["data"]:
-        #     if p["name"] == "paragraph":
-        #         for tl in p["txt_struct"]:
-        #             log3("TXT LINE: "+tl["text"])
-
-
 
         # global var "last_screen" always contains information extracted from the last screen shot.
         if len(jbody["data"]) > 0:
@@ -1135,6 +1146,7 @@ async def read_screen8(win_title_keyword, site_page, page_sect, page_theme, layo
         else:
             symTab["last_screen"] = []
             return []
+
 
 
 # actual processing skill routines =========================================================>
@@ -1370,7 +1382,7 @@ async def processExtractInfo8(step, i, mission, skill):
         icon_names = get_csk_icon_names(found_skill, step["page"], step["section"])
         factors = findAndFormIconScaleFactors(machine_name, sk_name, step["page"], step["section"], icon_names)
 
-        result = await read_screen8(step['win_title_kw'], step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
+        result = await readScreen8(step['win_title_kw'], step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
