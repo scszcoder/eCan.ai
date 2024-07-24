@@ -50,11 +50,19 @@
 {
     "type": "Create Data",
     "data_type": "expr",
-    "data_name": "dummy_in",
+    "data_name": "ebay_orders",
     "key_name": "NA",
     "key_value": "[]"
 },
 "step 35":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "dummy_in",
+    "key_name": "NA",
+    "key_value": "[]"
+},
+"step 40":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -62,7 +70,7 @@
     "key_name": "NA",
     "key_value": 253
 },
-"step 40":
+"step 45":
 {
     "type": "Create Data",
     "data_type": "str",
@@ -70,7 +78,7 @@
     "key_name": "NA",
     "key_value": "C:/Program Files/7-Zip/7z.exe"
 },
-"step 45":
+"step 50":
 {
     "type": "Create Data",
     "data_type": "str",
@@ -78,14 +86,304 @@
     "key_name": "NA",
     "key_value": "C:/Program Files/WinRaR/WinRaR.exe"
 },
-"step 50":
+"step 55":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "open_profile_input",
+    "key_name": "NA",
+    "key_value": "[sk_work_settings['batch_profile']]"
+},
+"step 60":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "scroll_resolution",
+    "key_name": "NA",
+    "key_value": 250
+},
+"step 65":
+{
+    "type": "Create Data",
+    "data_type": "int",
+    "data_name": "retry_count",
+    "key_name": "NA",
+    "key_value": 5
+},
+"step 70":
+{
+    "type": "Create Data",
+    "data_type": "bool",
+    "data_name": "mission_failed",
+    "key_name": "NA",
+    "key_value": false
+},
+"step 75":
+{
+    "type": "Use Skill",
+    "skill_name": "open_profile",
+    "skill_path": "public/win_ads_local_open",
+    "skill_args": "open_profile_input",
+    "output": "ads_up"
+},
+"step 80":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 1
+},
+"step 85":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "bot_email",
+    "key_name": "NA",
+    "key_value": "sk_work_settings['b_email'].split('@')[0]+'@'"
+},
+"step 90":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "bemail",
+    "key_name": "NA",
+    "key_value": "sk_work_settings['b_email']"
+},
+"step 95":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "bpassword",
+    "key_name": "NA",
+    "key_value": "sk_work_settings['b_backup_email_pw']"
+},
+"step 100":
+{
+    "type": "Search Word Line",
+    "screen": "screen_info",
+    "names": "bot_email",
+    "name_types": "expr",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "bot_loaded"
+},
+"step 105":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "no_data",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "",
+    "breakpoint": false,
+    "status": "nothing_loaded"
+},
+"step 110":
+{
+    "type": "Check Condition",
+    "condition": "not bot_loaded and not nothing_loaded",
+    "if_else": "",
+    "if_end": ""
+},
+"step 115":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 80,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 2,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "screen"
+},
+"step 120":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 125":
+{
+    "type": "Search Word Line",
+    "screen": "screen_info",
+    "names": "bot_email",
+    "name_types": "expr",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "bot_loaded"
+},
+"step 130":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "no_data",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "",
+    "breakpoint": false,
+    "status": "nothing_loaded"
+},
+"step 135":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 140":
+{
+    "type": "Check Condition",
+    "condition": "not bot_loaded",
+    "if_else": "",
+    "if_end": ""
+},
+"step 145":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "profile_name",
+    "key_name": "NA",
+    "key_value": "os.path.basename(sk_work_settings['batch_profile'])"
+},
+"step 150":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "profile_name_path",
+    "key_name": "NA",
+    "key_value": "os.path.dirname(sk_work_settings['batch_profile'])"
+},
+"step 155":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "bot_email",
+    "key_name": "NA",
+    "key_value": "sk_work_settings['b_email'].split('@')[0]+'@'"
+},
+"step 160":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "full_site",
+    "key_name": "NA",
+    "key_value": "sk_work_settings['full_site'].split('www.')[1]"
+},
+"step 165":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "machine_os",
+    "key_name": "NA",
+    "key_value": "sk_work_settings['platform']"
+},
+"step 170":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "batch_import_input",
+    "key_name": "NA",
+    "key_value": "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]"
+},
+"step 175":
+{
+    "type": "Use Skill",
+    "skill_name": "batch_import",
+    "skill_path": "public/win_ads_local_load",
+    "skill_args": "batch_import_input",
+    "output": "browser_up"
+},
+"step 180":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 185":
+{
+    "type": "Call Extern",
+    "file": "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 190":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "dyn_options",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 195":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": " ",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "bot_open",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 200":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 205":
+{
+    "type": "Wait",
+    "random_min": 1,
+    "random_max": 3,
+    "time": 8
+},
+"step 210":
 {
     "type": "Go To Window",
     "win_name": "SunBrowser",
     "name_type": "",
     "result": "g2w_status"
 },
-"step 55":
+"step 215":
 {
     "type": "Key Input",
     "action": "",
@@ -94,19 +392,20 @@
     "location": "",
     "wait_after": 3
 },
-"step 60":
+"step 220":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
     "options": "",
     "data_sink": "screen_info",
+    "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
 },
-"step 65":
+"step 225":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -119,42 +418,42 @@
     "breakpoint": false,
     "status": "ip_obtained"
 },
-"step 70":
+"step 230":
 {
     "type": "Check Condition",
     "condition": "ip_obtained",
     "if_else": "",
     "if_end": ""
 },
-"step 75":
+"step 235":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
-    "names": "amazon_site",
+    "names": "ebay_logo0",
     "name_type": "direct",
-    "target_types": "anchor text",
+    "target_types": "anchor icon",
     "logic": "any",
     "result": "useless",
     "site": "",
     "breakpoint": false,
     "status": "site_loaded"
 },
-"step 80":
+"step 240":
 {
     "type": "Check Condition",
     "condition": "site_loaded",
     "if_else": "",
     "if_end": ""
 },
-"step 85":
+"step 245":
 {
     "type": "Mouse Click",
     "action": "Single Click",
     "action_args": "",
     "save_rb": true,
     "screen": "screen_info",
-    "target_name": "amazon_site",
-    "target_type": "anchor text",
+    "target_name": "ebay_logo0",
+    "target_type": "anchor icon",
     "text": "",
     "nth": [
         0,
@@ -173,14 +472,14 @@
     ],
     "post_wait": 1
 },
-"step 90":
+"step 250":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 95":
+"step 255":
 {
     "type": "Key Input",
     "action": "",
@@ -189,40 +488,40 @@
     "location": "",
     "wait_after": 3
 },
-"step 100":
+"step 260":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
     "save_rb": false,
-    "text": "www.amazon.com",
-    "text_type": "var",
+    "text": "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT",
+    "txt_type": "text",
     "speed": 0.05,
     "key_after": "enter",
     "wait_after": 1
 },
-"step 105":
+"step 265":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 110":
+"step 270":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 115":
+"step 275":
 {
     "type": "Repeat",
-    "lc_name": "connProxy55",
+    "lc_name": "connProxy215",
     "until": "retry_count > 0 and not ip_obtained",
     "count": "",
     "end": ""
 },
-"step 120":
+"step 280":
 {
     "type": "Key Input",
     "action": "",
@@ -231,53 +530,54 @@
     "location": "",
     "wait_after": 3
 },
-"step 125":
+"step 285":
 {
     "type": "Wait",
     "random_min": 5,
     "random_max": 8,
     "time": 0
 },
-"step 130":
+"step 290":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
     "options": "",
     "data_sink": "screen_info",
+    "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
 },
-"step 135":
+"step 295":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
-    "names": "amazon_site",
+    "names": "ebay_logo0",
     "name_type": "direct",
-    "target_types": "anchor text",
+    "target_types": "anchor icon",
     "logic": "any",
     "result": "useless",
     "site": "",
     "breakpoint": false,
     "status": "site_loaded"
 },
-"step 140":
+"step 300":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 145":
+"step 305":
 {
     "type": "Check Condition",
     "condition": "not ip_obtained",
     "if_else": "",
     "if_end": ""
 },
-"step 150":
+"step 310":
 {
     "type": "Call Extern",
     "file": "global mission_failed\nmission_failed = True",
@@ -285,33 +585,34 @@
     "entity": "in_line",
     "output": ""
 },
-"step 155":
+"step 315":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 160":
+"step 320":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 165":
+"step 325":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
     "options": "",
     "data_sink": "screen_info",
-    "page": "amazon_home",
+    "win_title_kw": "",
+    "page": "ebay_home",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
 },
-"step 170":
+"step 330":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -328,14 +629,14 @@
     "breakpoint": false,
     "status": "not_logged_in"
 },
-"step 175":
+"step 335":
 {
     "type": "Check Condition",
     "condition": "not_logged_in",
     "if_else": "",
     "if_end": ""
 },
-"step 180":
+"step 340":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -359,26 +660,27 @@
     ],
     "post_wait": 2
 },
-"step 185":
+"step 345":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
     "options": "",
     "data_sink": "screen_info",
-    "page": "amazon_home",
+    "win_title_kw": "",
+    "page": "ebay_home",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
 },
-"step 190":
+"step 350":
 {
     "type": "Mouse Click",
     "action": "Single Click",
     "action_args": "",
     "save_rb": true,
     "screen": "screen_info",
-    "target_name": "email",
+    "target_name": "user_name",
     "target_type": "anchor text",
     "text": "",
     "nth": 0,
@@ -395,18 +697,18 @@
     ],
     "post_wait": 2
 },
-"step 195":
+"step 355":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "bemail",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 0.05,
     "key_after": "enter",
     "wait_after": 1
 },
-"step 200":
+"step 360":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -430,19 +732,20 @@
     ],
     "post_wait": 2
 },
-"step 205":
+"step 365":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
     "options": "",
     "data_sink": "screen_info",
-    "page": "amazon_home",
+    "win_title_kw": "",
+    "page": "ebay_home",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
 },
-"step 210":
+"step 370":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -466,18 +769,18 @@
     ],
     "post_wait": 2
 },
-"step 215":
+"step 375":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "bpassword",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 0.05,
     "key_after": "enter",
     "wait_after": 1
 },
-"step 220":
+"step 380":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -501,19 +804,20 @@
     ],
     "post_wait": 2
 },
-"step 225":
+"step 385":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
     "options": "",
     "data_sink": "screen_info",
-    "page": "amazon_home",
+    "win_title_kw": "",
+    "page": "ebay_home",
     "page_data_info": null,
     "theme": "light",
     "section": "top"
 },
-"step 230":
+"step 390":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -530,21 +834,21 @@
     "breakpoint": false,
     "status": "not_logged_in"
 },
-"step 235":
+"step 395":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 240":
+"step 400":
 {
     "type": "Check Condition",
     "condition": "not_logged_in == False",
     "if_else": "",
     "if_end": ""
 },
-"step 245":
+"step 405":
 {
     "type": "Use Skill",
     "skill_name": "collect_orders",
@@ -552,7 +856,7 @@
     "skill_args": "dummy_in",
     "output": "ebay_status"
 },
-"step 250":
+"step 410":
 {
     "type": "Use Skill",
     "skill_name": "buy_shipping",
@@ -560,14 +864,14 @@
     "skill_args": "shipping_input",
     "output": "labels_dir"
 },
-"step 255":
+"step 415":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 260":
+"step 420":
 {
     "type": "Stub",
     "stub_name": "end skill",

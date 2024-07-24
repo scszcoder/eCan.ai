@@ -33,6 +33,22 @@
 },
 "step 20":
 {
+    "type": "Create Data",
+    "data_type": "obj",
+    "data_name": "sk_work_settings",
+    "key_name": "NA",
+    "key_value": null
+},
+"step 25":
+{
+    "type": "Call Extern",
+    "file": "global blurl\nblurl = 'https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT'",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 30":
+{
     "type": "Key Input",
     "action": "",
     "action_value": "ctrl,t",
@@ -40,25 +56,25 @@
     "location": "",
     "wait_after": 3
 },
-"step 25":
+"step 35":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "blurl",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 1,
     "key_after": "",
     "wait_after": 2
 },
-"step 30":
+"step 40":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 5
 },
-"step 35":
+"step 45":
 {
     "type": "Call Extern",
     "file": "global endOfOrderList\nendOfOrderList = False",
@@ -66,7 +82,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 40":
+"step 50":
 {
     "type": "Call Extern",
     "file": "global currentPage\ncurrentPage = 0",
@@ -74,7 +90,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 45":
+"step 55":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -82,7 +98,7 @@
     "key_name": "NA",
     "key_value": -1
 },
-"step 50":
+"step 60":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -90,7 +106,7 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 55":
+"step 65":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -98,7 +114,7 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 60":
+"step 70":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -106,7 +122,7 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 65":
+"step 75":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -114,15 +130,15 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 70":
+"step 80":
 {
     "type": "Repeat",
-    "lc_name": "browseEtsyOL0",
+    "lc_name": "browseEtsyOL20",
     "until": "endOfOrderList != True",
     "count": "",
     "end": ""
 },
-"step 75":
+"step 85":
 {
     "type": "Call Extern",
     "file": "global endOfOrdersPage\nendOfOrdersPage = False",
@@ -130,27 +146,28 @@
     "entity": "in_line",
     "output": ""
 },
-"step 80":
+"step 90":
 {
     "type": "Repeat",
-    "lc_name": "browseEtsyOrderPage80",
+    "lc_name": "browseEtsyOrderPage90",
     "until": "endOfOrdersPage != True",
     "count": "",
     "end": ""
 },
-"step 85":
+"step 95":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
     "options": "",
     "data_sink": "screen_info",
+    "win_title_kw": "",
     "page": "orders",
     "page_data_info": null,
     "theme": "light",
     "section": "completion"
 },
-"step 90":
+"step 100":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -167,7 +184,7 @@
     "breakpoint": false,
     "status": "useless"
 },
-"step 95":
+"step 105":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -184,7 +201,7 @@
     "breakpoint": false,
     "status": "useless"
 },
-"step 100":
+"step 110":
 {
     "type": "Call Extern",
     "file": "global numCompletions\nnumCompletions = len(orderIds)",
@@ -192,7 +209,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 105":
+"step 115":
 {
     "type": "Call Extern",
     "file": "global nthCompletion\nnthCompletion = 0",
@@ -200,15 +217,15 @@
     "entity": "in_line",
     "output": ""
 },
-"step 110":
+"step 120":
 {
     "type": "Repeat",
-    "lc_name": "dummy0",
+    "lc_name": "dummy20",
     "until": "nthCompletion < numCompletions",
     "count": "",
     "end": ""
 },
-"step 115":
+"step 125":
 {
     "type": "Etsy Find Screen Order",
     "nth_var": "nthCompletion",
@@ -218,7 +235,7 @@
     "found_index_var": "update_order_index",
     "n_more_var": "nMore2Update"
 },
-"step 120":
+"step 130":
 {
     "type": "Call Extern",
     "file": "global update_order_index\nprint('update_order_index', update_order_index)",
@@ -226,7 +243,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 125":
+"step 135":
 {
     "type": "Call Extern",
     "file": "global fin\nprint('fin', fin)",
@@ -234,14 +251,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 130":
+"step 140":
 {
     "type": "Check Condition",
     "condition": "update_order_index >= 0",
     "if_else": "",
     "if_end": ""
 },
-"step 135":
+"step 145":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -265,19 +282,20 @@
     ],
     "post_wait": 2
 },
-"step 140":
+"step 150":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
     "options": "",
     "data_sink": "screen_info",
+    "win_title_kw": "",
     "page": "orders",
     "page_data_info": null,
     "theme": "light",
     "section": "completion"
 },
-"step 145":
+"step 155":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -304,7 +322,7 @@
     ],
     "post_wait": 2
 },
-"step 150":
+"step 160":
 {
     "type": "Call Extern",
     "file": "global shipping_service\nshipping_service = fin[0][update_order_index].getShippingService()[:3]",
@@ -312,18 +330,18 @@
     "entity": "in_line",
     "output": ""
 },
-"step 155":
+"step 165":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "shipping_service",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 1,
     "key_after": "",
     "wait_after": 2
 },
-"step 160":
+"step 170":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -350,7 +368,7 @@
     ],
     "post_wait": 2
 },
-"step 165":
+"step 175":
 {
     "type": "Call Extern",
     "file": "global track_code\ntrack_code = fin[0][update_order_index].getShippingTracking()",
@@ -358,7 +376,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 170":
+"step 180":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -385,18 +403,18 @@
     ],
     "post_wait": 2
 },
-"step 175":
+"step 185":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "track_code",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 1,
     "key_after": "enter",
     "wait_after": 2
 },
-"step 180":
+"step 190":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -423,18 +441,18 @@
     ],
     "post_wait": 2
 },
-"step 185":
+"step 195":
 {
     "type": "Text Input",
     "txt_ref_type": "var",
     "save_rb": false,
     "text": "current_carrier",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 1,
     "key_after": "enter",
     "wait_after": 2
 },
-"step 190":
+"step 200":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -461,7 +479,7 @@
     ],
     "post_wait": 2
 },
-"step 195":
+"step 205":
 {
     "type": "Key Input",
     "action": "",
@@ -470,14 +488,14 @@
     "location": "",
     "wait_after": 4
 },
-"step 200":
+"step 210":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 205":
+"step 215":
 {
     "type": "Call Extern",
     "file": "global nthCompletion\nnthCompletion = nthCompletion + 1",
@@ -485,14 +503,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 210":
+"step 220":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 215":
+"step 225":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -509,7 +527,7 @@
     "breakpoint": false,
     "status": "endOfOrdersPage"
 },
-"step 220":
+"step 230":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -522,28 +540,28 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 225":
+"step 235":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 2
 },
-"step 230":
+"step 240":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 235":
+"step 245":
 {
     "type": "Check Condition",
     "condition": "nMore2Update <= 0",
     "if_else": "",
     "if_end": ""
 },
-"step 240":
+"step 250":
 {
     "type": "Call Extern",
     "file": "global endOfOrderList\nendOfOrderList = True",
@@ -551,14 +569,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 245":
+"step 255":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 250":
+"step 260":
 {
     "type": "Key Input",
     "action": "",
@@ -567,21 +585,21 @@
     "location": "",
     "wait_after": 4
 },
-"step 255":
+"step 265":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 260":
+"step 270":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 265":
+"step 275":
 {
     "type": "Stub",
     "stub_name": "end skill",

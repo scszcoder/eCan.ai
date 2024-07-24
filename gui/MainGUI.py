@@ -2,6 +2,7 @@ import ast
 import json
 
 from models import VehicleModel
+from server import HttpServer
 from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -87,7 +88,6 @@ class Expander(QWidget):
             https://stackoverflow.com/a/37119983/386398
         """
         super(Expander, self).__init__(parent=parent)
-
         self.animationDuration = animationDuration
         self.toggleAnimation = QParallelAnimationGroup()
         self.contentArea = QScrollArea()
@@ -181,7 +181,8 @@ class MainWindow(QMainWindow):
             self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
-
+        server = HttpServer(self)
+        self.server_port = server.port
         self.gui_net_msg_queue = gui_msg_queue
         self.gui_rpa_msg_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
