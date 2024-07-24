@@ -1,6 +1,6 @@
 [
     {
-        "shipping": {
+        "ebay_bulk_labels": {
             "top" : {
                 "anchors": [
                     {
@@ -11,9 +11,9 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "review purchase",
+                        "anchor_name"  : "review_purchase",
                         "anchor_type"  : "text",
-                        "template"     : "review purchase",
+                        "template"     : "Review purchase",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -27,7 +27,7 @@
                     {
                         "anchor_name"  : "priority_mail",
                         "anchor_type"  : "text",
-                        "template"     : "Priority Maill",
+                        "template"     : "Priority Mail",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -42,6 +42,27 @@
                         "anchor_name"  : "shipping",
                         "anchor_type"  : "text",
                         "template"     : "Shipping",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "oz",
+                        "anchor_type"  : "text",
+                        "template"     : "oz",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "lb",
+                        "anchor_type"  : "text",
+                        "template"     : "lb",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "in",
+                        "anchor_type"  : "text",
+                        "template"     : "in",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -102,6 +123,13 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "standard_insurance",
+                        "anchor_type"  : "text",
+                        "template"     : "Standard insurance",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "purchase_shipping",
                         "anchor_type"  : "text",
                         "template"     : "Purchase shipping",
@@ -109,7 +137,7 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "confirm_pay",
+                        "anchor_name"  : "confirm_and_pay",
                         "anchor_type"  : "text",
                         "template"     : "Confirm and pay",
                         "ref_method"   : "0",
@@ -138,152 +166,6 @@
                     }
                 ], 
                 "info": [
-                ]
-            },
-            "body" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "ship_to",
-                        "anchor_type"  : "text",
-                        "template"     : "Ship to",
-                        "ref_method"   : "0",
-                        "ref_location" : [{
-                                "dir": "<",
-                                "ref": "bottom",
-                                "offset": 90,
-                                "offset_unit": "%"
-                            }
-                        ]
-                    },                  
-                    {
-                        "anchor_name"  : "etsy_inc",
-                        "anchor_type"  : "text",
-                        "template"     : "Etsy, Inc",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "bad_request",
-                        "anchor_type"  : "text",
-                        "template"     : "Bad Request",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "complete_order",
-                        "anchor_type"  : "icon",
-                        "template"     : "complete_order.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "site_not_reached",
-                        "anchor_type"  : "text",
-                        "template"     : "unexpectedly closed the connection",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    }
-                ], 
-                "info": [
-                    {
-                        "info_name"  : "ship_to_summery",
-                        "info_type"  : "lines 5",
-                        "template"     : "",
-                        "ref_method"   : "1",
-                        "refs" : [{
-                                "dir": "below",
-                                "ref": "ship_to",
-                                "offset": 0,
-                                "offset_unit": "box"
-                            }
-                        ]
-                    }, 
-                    {
-                        "info_name"  : "order_number",
-                        "info_type"  : "lines 1",
-                        "template"     : "#[0-9]+",
-                        "ref_method"   : "2",
-                        "refs" : [{
-                                "dir": "above",
-                                "ref": "complete_order",
-                                "offset": 0,
-                                "offset_unit": "box"
-                            }
-                        ]
-                    }
-                ]
-            },
-            "completion" : {
-                "anchors": [
-                    {
-                        "anchor_name"  : "ship_to",
-                        "anchor_type"  : "text",
-                        "template"     : "Ship to",
-                        "ref_method"   : "0",
-                        "ref_location" : [{
-                                "dir": "<",
-                                "ref": "bottom",
-                                "offset": 90,
-                                "offset_unit": "%"
-                            }
-                        ]
-                    },                  
-                    {
-                        "anchor_name"  : "etsy_inc",
-                        "anchor_type"  : "text",
-                        "template"     : "Etsy, Inc",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "bad_request",
-                        "anchor_type"  : "text",
-                        "template"     : "Bad Request",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "complete_order",
-                        "anchor_type"  : "icon",
-                        "template"     : "complete_order.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "site_not_reached",
-                        "anchor_type"  : "text",
-                        "template"     : "unexpectedly closed the connection",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    }
-                ], 
-                "info": [
-                    {
-                        "info_name"  : "ship_to_summery",
-                        "info_type"  : "lines 5",
-                        "template"     : "",
-                        "ref_method"   : "1",
-                        "refs" : [{
-                                "dir": "below",
-                                "ref": "ship_to",
-                                "offset": 0,
-                                "offset_unit": "box"
-                            }
-                        ]
-                    }, 
-                    {
-                        "info_name"  : "order_number",
-                        "info_type"  : "lines 1",
-                        "template"     : "#[0-9]+",
-                        "ref_method"   : "2",
-                        "refs" : [{
-                                "dir": "above",
-                                "ref": "complete_order",
-                                "offset": 0,
-                                "offset_unit": "box"
-                            }
-                        ]
-                    } 
                 ]
             }
 	    }

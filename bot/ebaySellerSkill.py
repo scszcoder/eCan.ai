@@ -175,59 +175,16 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # skname, skfname, in-args, output, step number
-    this_step, step_words = genStepUseSkill("collect_orders", "public/win_ads_ebay_orders", "dummy_in", "ebay_status", this_step)
+    this_step, step_words = genStepUseSkill("collect_orders", "public/win_ads_ebay_orders", "dummy_in", "ebay_orders", this_step)
     psk_words = psk_words + step_words
 
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
-    # # from collected ebay orders, generate gs label purchase order files.
-    # dtnow = datetime.now()
-    # date_word = dtnow.strftime("%Y%m%d")
-    # fdir = ecb_data_homepath + "/runlogs/"
-    # fdir = fdir + date_word + "/"
-    # this_step, step_words = genStepCreateData("str", "fdir", "NA", fdir, this_step)
-    # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepCallExtern("fdir = fdir + 'b' + str(sk_work_settings['mid']) + m + str(sk_work_settings['bid']) + '/'", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern(
-    #     "fdir = fdir + sk_work_settings['platform'] + '_' + sk_work_settings['app'] + '_' + sk_work_settings['site'] + '_' + sk_work_settings['page'] + '/skills/'",
-    #     "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern("fdir = fdir + sk_work_settings['skname'] + '/'", "", "in_line", "",
-    #                                           this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("expr", "current_seller", "NA", "sk_work_settings['seller']", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # this is an app specific step.
-    # this_step, step_words = genStepPrepGSOrder("etsy_orders", "gs_orders", "product_book", "current_seller", "fdir", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # homepath = app_info.app_home_path
-    # if homepath[len(homepath) - 1] == "/":
-    #     homepath = homepath[:len(homepath) - 1]
-    # this_step, step_words = genStepCallExtern(
-    #     "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)",
-    #     "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCallExtern( "global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)", "", "in_line", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # purchase labels, gs_orders contains a list of [{"service": "usps ground", "file": xls file name}, ...]
-    # # etsy_oders: will have tracking code and filepath filled
-    # # buy_status will be "success" or "fail reason****"
-    # # at the end of this skill, the shipping service and the tracking code section of "etsy_orders" should be updated.....
-    # this_step, step_words = genStepUseSkill("bulk_buy", "public/win_chrome_goodsupply_label", "gs_input", "labels_dir", this_step)
-    # psk_words = psk_words + step_words
-    #
-    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "shipping_input", "labels_dir", this_step)
+    # using ebay to purchase shipping label will auto update tracking code..... s
+    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "ebay_orders", "labels_dir", this_step)
     psk_words = psk_words + step_words
 
     # # extract tracking code from labels and update them into etsy_orders data struture.
@@ -239,10 +196,12 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
     # psk_words = psk_words + step_words
     #
+    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'label_dir', printer_name]", this_step)
+    psk_words = psk_words + step_words
+
     # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
-    # this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_list", "",
-    #                                         this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_dir", "", this_step)
+    psk_words = psk_words + step_words
     #
     # end condition for "not_logged_in == False"
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -424,8 +383,10 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
     # now check to see whether there are more pages to visit. i.e. number of orders exceeds more than 1 page.
     # the number of pages and page index variable are already in the pageOfOrders variable.
 
+    this_step, step_words = genStepCheckCondition("pageOfOrders['n_new_orders'] > 0 and pageOfOrders['num_pages'] > 1", "", "", this_step)
+    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("pageOfOrders['num_pages'] == pageOfOrders['page']", "", "", this_step)
+    this_step, step_words = genStepCheckCondition("pageOfOrders['num_pages'] == pageOfOrders['page']+1", "", "", this_step)
     psk_words = psk_words + step_words
 
     # set the flag, we have completed collecting all orders information at this point.
@@ -441,6 +402,15 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -507,6 +477,8 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
 
     this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/buy_shipping", "", this_step)
     psk_words = psk_words + step_words
+
+
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/buy_shipping", "", this_step)
     psk_words = psk_words + step_words
