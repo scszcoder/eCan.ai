@@ -10,6 +10,7 @@ import time
 import traceback
 import webbrowser
 from datetime import datetime
+import asyncio
 
 import numpy as np
 
@@ -4337,3 +4338,43 @@ def processAmzPLCalcNCols(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+def startSaveCSK(csk_dir, session, token):
+    print("hello????")
+    loop = asyncio.new_event_loop()
+    print("hohohohohoh????")
+    loop.run_until_complete(saveCSKToCloud(csk_dir, session, token))
+
+# def on_upload_button_click(loop, csk_dir):
+#     threading.Thread(target=start_upload, args=(loop, csk_dir), daemon=True).start()
+
+
+async def saveCSKToCloud(csk_dir, session, token):
+    try:
+        images_dir = os.path.join(csk_dir, 'images')
+        scripts_dir = os.path.join(csk_dir, 'scripts')
+
+        image_files = [
+            (os.path.join(images_dir, file), "anchor")
+            for file in os.listdir(images_dir) if file.endswith('.png')
+        ]
+
+        script_files = [
+            (os.path.join(scripts_dir, file), "csk")
+            for file in os.listdir(scripts_dir) if file.endswith('.csk')
+        ]
+
+        tasks = [upload_file8(session, file, token, ftype) for (file, ftype) in image_files + script_files]
+
+        await asyncio.gather(*tasks)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSaveCSKToCloud:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSaveCSKToCloud: traceback information not available:" + str(e)
+        log3(ex_stat)

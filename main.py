@@ -76,7 +76,7 @@ if __name__ == '__main__':
     # test_scrape_amz_buy_orders()
     # list_windows()
     # test_scrape_amz_product_details()
-    test_printer_print_sync()
+    # test_printer_print_sync()
 
     try:
         main()

@@ -7,6 +7,7 @@ import asyncio
 import win32print
 import win32api
 import traceback
+import time
 
 import numpy as np
 # Press Shift+F10 to execute it or replace it with your code.
@@ -17,7 +18,7 @@ import cv2
 from pdf2image import convert_from_path
 from concurrent.futures import ThreadPoolExecutor
 
-from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub, genStepCallExtern
+from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub, genStepCallExtern, genStepCreateData
 from bot.Logger import log3
 import fitz
 
@@ -41,7 +42,32 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global printer_name\nprinter_name = fin[2]\nprint('printer_name:', printer_name)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepPrintLabels("label_path", "printer_name", "print_status", this_step)
+    this_step, step_words = genStepCallExtern("global orders\norders = fin[3]\nprint('orders:', orders)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global product_book\nproduct_book = fin[4]\nprint('product_book:', product_book)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepCreateData("bool", "endOfOrdersPage", "NA", False, this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "font_dir", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCreateData("int", "font_size", "NA", 28, this_step)
+    psk_words = psk_words + step_words
+
+
+    # this_step, step_words = genStepCreateData("expr", "shipToSummeries", "NA", "[]", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    # psk_words = psk_words + step_words
+
+
+    #labdir, printer, ecsite, order_data, product_book, font_dir, font_size, stat_name, stepN
+    this_step, step_words = genStepPrintLabels("label_path", "printer_name", "ecsite", "orders", "product_book", "font_dir", "font_size", "print_status", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_printer_local_print/reformat_print", "", this_step)
@@ -53,13 +79,17 @@ def genWinPrinterLocalReformatPrintSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genStepPrintLabels(labdir, printer, stat_name, ecsite, stepN):
+def genStepPrintLabels(labdir, printer, ecsite, order_data, product_book, font_dir, font_size, stat_name, stepN):
     stepjson = {
         "type": "Print Labels",
         "action": "Print Labels",
         "label_dir": labdir,
         "printer": printer,
         "ecsite": ecsite,
+        "order_data": order_data,
+        "product_book": product_book,
+        "font_dir": font_dir,
+        "font_size": font_size,
         "print_status": stat_name
     }
 
@@ -147,16 +177,36 @@ def gen_img(img1, img2, top_left_margin=(150, 90), padding = 40):
         current_y += h + padding
     return final_image
 
+# var is a json dictionary of var_name, var_value pairs
+def gen_variation_text(vars, found_product, site):
+    v_text = "v"
+    for var_name in vars:
+        v_text = v_text + found_product["variations"][site][var_name]["note_text"]
+        if isinstance(vars[var_name], str):
+            v_text = v_text + found_product["variations"][site][vars[var_name]]["note_text"]
+        else:
+            #this is a numerical value.
+            v_text = v_text + str(vars[var_name])
+    return v_text
 
 # add padding/margin to an image.
 # text loc is in tuple format (x, y), relative to the top left corner
-def add_text(iimg, text, text_loc, font = cv2.FONT_HERSHEY_SIMPLEX, fontScale = 1, color = (255, 0, 0), thickness = 2):
-    # Using cv2.putText() method
-    texted_img = cv2.putText(iimg, text, text_loc, font, fontScale, color, thickness, cv2.LINE_AA)
-    return texted_img
+def gen_note_text(site, order_data, product_book):
+    note_text = ""
+    for j, ord_prod in enumerate(order_data):
+        found_product = next((prod for i, prod in enumerate(product_book) if prod.getPIDBySite(site) == ord_prod.getProductId), None)
+        note_text = note_text + found_product["note_short_name"]
+        note_text = note_text + "_"
+        note_text = note_text + gen_variation_text(ord_prod.getVariations(), found_product, site)
+        note_text = note_text + "_"
+        note_text = note_text + str(ord_prod.getQuantity())
+        if j != len(order_data) - 1:
+            note_text = note_text + "_"
+
+    return note_text
 
 
-def reformat_label_pdf(working_dir, pdffile):
+def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, font_full_path, font_size):
     print("pdf to img start....", working_dir + pdffile)
     # images = convert_from_path(working_dir + pdffile)
     document = fitz.open(working_dir + pdffile)
@@ -231,11 +281,12 @@ def reformat_label_pdf(working_dir, pdffile):
         resized_cropped_image = resized_cropped.copy()
 
         # add some text note to the image,
-        text = prod + '_X_' + num
-        # -- coding: utf-8
-        # text = '钱包'
+        text = gen_note_text(site, order_data, product_book)
+
         text_rel_loc = (400, 700)
-        text_image = add_text(resized_cropped_image, text, text_rel_loc, cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+        # font_full_path = "C:/Users/songc/PycharmProjects/ecbot/resource/fonts/Noto_Serif_SC/static/NotoSerifSC-Medium.ttf"
+        default_font_name = "arial.ttf"
+        text_image = add_text_to_img(resized_cropped_image, text, text_rel_loc, font_full_path, default_font_name, font_size)
         # cv2.imwrite(working_dir+'texted.png', text_image)
 
         # put 2 image into a new image
@@ -252,15 +303,15 @@ def reformat_label_pdf(working_dir, pdffile):
 
     return pdf_name, wpdf_name
 # Press the green button in the gutter to run the script.
-def win_print_labels0(label_dir, printer):
+def win_print_labels0(label_dir, printer, site, order_data, product_book, txt_font_path, txt_font_size):
 
     working_dir = label_dir
     log3(working_dir)
     for file in os.listdir(working_dir):
-        if file.startswith("ebay-label") and file.endswith(".pdf"):
+        if file.startswith(site) and file.endswith(".pdf"):
             log3(file)
 
-            pdf_name, wpdf_name = reformat_label_pdf(working_dir, file)
+            pdf_name, wpdf_name = reformat_label_pdf(working_dir, file, site, order_data, product_book, txt_font_path, txt_font_size)
 
             # print out the files.
             # YOU CAN PUT HERE THE NAME OF YOUR SPECIFIC PRINTER INSTEAD OF DEFAULT
@@ -296,15 +347,15 @@ def get_printers():
 
 def print_pdf_sync(file_path, printer_name):
     print(f"Printing {file_path} to {printer_name}")
-    hPrinter = win32print.OpenPrinter(printer_name)
-    hJob = win32print.StartDocPrinter(hPrinter, 1, (file_path, None, "RAW"))
-    win32print.StartPagePrinter(hPrinter)
-    with open(file_path, "rb") as f:
-        data = f.read()
-        win32print.WritePrinter(hPrinter, data)
-    win32print.EndPagePrinter(hPrinter)
-    win32print.EndDocPrinter(hPrinter)
-    win32print.ClosePrinter(hPrinter)
+    if printer_name:
+        # Set the specified printer as the default printer
+        win32print.SetDefaultPrinter(printer_name)
+
+    # Use the default PDF viewer to print the file
+    win32api.ShellExecute(0, "print", file_path, None, ".", 0)
+
+    # Wait for the print job to be sent
+    time.sleep(5)
 
 def check_printer_status(printer_name):
     return printer_name in get_printers()
@@ -314,30 +365,26 @@ async def print_pdf(file_path, printer_name):
     with ThreadPoolExecutor() as pool:
         await loop.run_in_executor(pool, print_pdf_sync, file_path, printer_name)
 
-def add_text_to_pdf(in_img, text, font_path, font_name, font_size):
-
-    draw = ImageDraw.Draw(in_img)
-    if font_path:
-        font = ImageFont.truetype(font_path, font_size)
+def add_text_to_img(in_img, text, text_loc, font_full_path="", default_font_name="arial.ttf", font_size=28):
+    print("Adding Text to image:", text)
+    pil_image = Image.fromarray(in_img)
+    draw = ImageDraw.Draw(pil_image)
+    if font_full_path:
+        font = ImageFont.truetype(font_full_path, font_size)
     else:
         # font = ImageFont.load_default()
-        font = ImageFont.truetype("arial.ttf", 20)
+        font = ImageFont.truetype(default_font_name, font_size)
 
-    draw.text((50, 50), text, font=font, fill="Blue")  # Adjust position and text color
+    draw.text(text_loc, text, font=font, fill="Blue")  # Adjust position and text color
 
     # Convert back to OpenCV format
-    image_with_text = np.array(in_img)
+    image_with_text = np.array(pil_image)
 
     # Convert back to PDF
-    pil_image_with_text = Image.fromarray(image_with_text)
-    pil_image_with_text.save(output_path, "PDF", resolution=100.0)
+    return image_with_text
 
-def process_pdf(file_path):
-    output_path = file_path.replace(".pdf", "_new.pdf")
-    add_text_to_pdf(file_path, "Your Text Here", output_path)
-    return output_path
 
-async def win_print_labels1(label_dir, printers, ecsite):
+async def win_print_labels1(label_dir, printers, ecsite, order_data, product_book, txt_font_path, txt_font_size):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         tasks = []
@@ -346,7 +393,7 @@ async def win_print_labels1(label_dir, printers, ecsite):
         for pdf_file in os.listdir(working_dir):
             if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
                 log3("working on label:"+pdf_file)
-                modified_pdf, wpdf_name = reformat_label_pdf(working_dir, pdf_file)
+                modified_pdf, wpdf_name = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
                 if check_printer_status(printers[0]):
                     tasks.append(print_pdf(modified_pdf, printers[0]))
                 elif len(printers) > 1 and check_printer_status(printers[1]):
@@ -370,7 +417,7 @@ async def win_print_labels1(label_dir, printers, ecsite):
 
     return ex_stat
 
-def sync_win_print_labels1(label_dir, printer, ecsite):
+def sync_win_print_labels1(label_dir, printer, ecsite, order_data, product_book, txt_font_path, txt_font_size):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         files_tbp = []
@@ -387,14 +434,14 @@ def sync_win_print_labels1(label_dir, printer, ecsite):
         for pdf_file in os.listdir(working_dir):
             if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
                 log3("working on label:"+pdf_file)
-                modified_pdf, wpdf_name = reformat_label_pdf(working_dir, pdf_file)
+                modified_pdf, wpdf_name = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
                 files_tbp.append(modified_pdf)
 
         if files_tbp:
             for file_path in files_tbp:
                 if check_printer_status(printers[0]):
                     print("printing:"+file_path+" on printer: "+printers[0])
-                    print_pdf_sync(file_path, printers[0])
+                    # print_pdf_sync(file_path, printers[0])
                 elif len(printers) > 1 and check_printer_status(printers[1]):
                     print("printing:" + file_path + " on printer: " + printers[1])
                     print_pdf_sync(file_path, printers[1])
