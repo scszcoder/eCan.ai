@@ -4,8 +4,8 @@ export default {
         anchorType: '锚点类型',
         template: '样本',
         method: '方法',
-        side: '方向',
-        dir: '目录',
+        side: '边',
+        dir: '方向',
         offset: '偏移量',
         offsetUnit: '偏移量单位',
 
@@ -15,6 +15,9 @@ export default {
         confirmDelete: '确认删除',
         cancelDelete: '取消删除',
         tips: '提示',
+        last: '上一张',
+        save: '保存',
+        next: '下一张',
 
         text: '文本',
         icon: '图标',

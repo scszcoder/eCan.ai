@@ -130,6 +130,7 @@
     "template": "",
     "options": "",
     "data_sink": "screen_info",
+    "win_title_kw": "",
     "page": "orders",
     "page_data_info": null,
     "theme": "light",
@@ -257,6 +258,7 @@
     "template": "",
     "options": "",
     "data_sink": "screen_info",
+    "win_title_kw": "",
     "page": "orders",
     "page_data_info": null,
     "theme": "light",
@@ -303,7 +305,7 @@
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "shipping_service",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 1,
     "key_after": "",
     "wait_after": 2
@@ -349,7 +351,7 @@
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "track_code",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 1,
     "key_after": "enter",
     "wait_after": 2

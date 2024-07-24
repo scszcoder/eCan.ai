@@ -62,6 +62,7 @@
     "template": "",
     "options": "scrn_options",
     "data_sink": "screen_info",
+    "win_title_kw": "",
     "page": "op",
     "page_data_info": null,
     "theme": "light",
@@ -140,7 +141,7 @@
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "fopen_f_path",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 0.0,
     "key_after": "enter",
     "wait_after": 1
@@ -218,7 +219,7 @@
     "txt_ref_type": "direct",
     "save_rb": false,
     "text": "fopen_f_name",
-    "text_type": "var",
+    "txt_type": "var",
     "speed": 0.0,
     "key_after": "",
     "wait_after": 1

@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime
 
+from PySide6.QtWebEngineCore import QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QComboBox, QWidget, QGridLayout, QFileDialog, QListView, \
     QGraphicsRectItem, QMainWindow, QGraphicsView, QLabel, QApplication, QLineEdit, QPushButton, QRadioButton, \
@@ -1350,14 +1351,12 @@ class SkillGUI(QMainWindow):
         self.vsplitter1 = QSplitter(Qt.Horizontal)
         self.webview = QWebEngineView()
         self.setCentralWidget(self.webview)
-        path = app_info.app_home_path + "/ecbot-ui/dist/index.html/#/skill/en"
-        print(path)
-        self.webview.load(QUrl.fromLocalFile(path))
+        self.webview.load("http://localhost:" + str(parent.main_win.server_port) + "/#/skill/en")
         # self.webview.load('http://localhost:3000/#/skill/en')  # 加载指定的网页
         # self.vsplitter1.addWidget(self.pbrunWidget)
         self.vsplitter1.addWidget(self.webview)
         self.vsplitter1.addWidget(self.skWidget)
-        self.vsplitter1.setStretchFactor(0, 1)
+        self.vsplitter1.setStretchFactor(0, 3)
         self.vsplitter1.setStretchFactor(1, 1)
         # self.vsplitter1.setStretchFactor(2, 3)
         # self.vsplitter1.setChildrenCollapsible(0)
