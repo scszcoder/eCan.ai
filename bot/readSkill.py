@@ -21,12 +21,14 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processSellCheckShipping, processGenRespMsg, processUpdateBuyMissionResult, processGoToWindow, processReportToBoss, \
     processExtractInfo8, DEFAULT_RUN_STATUS, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
-    processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols
+    processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
+    processMoveDownloadedFileToDestination
 
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
     processPrepGSOrder
+from bot.ebaySellerSkill import processEbayGenShippingInfoFromOrderID
 from bot.labelSkill import processGSExtractZippedFileName
 from bot.printLabel import processPrintLabels
 from bot.scrapeGoodSupply import processGSScrapeLabels
@@ -150,6 +152,7 @@ RAIS = {
     "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
     "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
     "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
+    "Ebay Gen Shipping From Order ID": lambda x, y: processEbayGenShippingInfoFromOrderID(x, y),
     "Gen Resp Msg": lambda x, y: processGenRespMsg(x, y),
     "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
     "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
@@ -168,6 +171,7 @@ RAIS = {
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
+    "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
 
@@ -236,6 +240,7 @@ ARAIS = {
     "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
     "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
     "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
+    "Ebay Gen Shipping From Order ID": lambda x, y: processEbayGenShippingInfoFromOrderID(x, y),
     "Gen Resp Msg": lambda x, y: processGenRespMsg(x, y),
     "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
     "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
@@ -254,6 +259,7 @@ ARAIS = {
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
+    "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y)
 }
 

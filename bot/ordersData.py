@@ -73,6 +73,7 @@ class Shipping:
         self.dimension_inches = dimension                  # inches
         self.weight_lbs = weight                        # lbs
         self.status = ""
+        self.label_file = ""
 
     def setVendor(self, vendor):
         self.vendor = vendor
@@ -100,6 +101,18 @@ class Shipping:
 
     def setStatus(self, status):
         self.status = status
+
+    def setLabelFileName(self, label):
+        self.label_file = label
+
+    def getLabelFileName(self):
+        return self.label_file
+
+    def setLabelNote(self, note):
+        self.label_note = note
+
+    def getLabelNote(self):
+        return self.label_note
 
     def toJson(self):
         return {
@@ -148,6 +161,9 @@ class OrderedProduct:
 
     def addVariation(self, var):
         self.variations[var[0]] = var[1]
+
+    def getVariations(self):
+        return self.variations
 
     def toJson(self):
         return {
@@ -321,6 +337,9 @@ class ORDER:
 
     def setChecked(self, status):
         self.ui_checked = status
+
+    def getShipping(self):
+        return self.shipping
 
     def getShippingService(self):
         return self.shipping.service
