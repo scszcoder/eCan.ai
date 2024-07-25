@@ -552,7 +552,7 @@ def genWinADSEtsyBuyShippingSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
-
+# buy shipping directly on etsy
 def genWinChromeEtsyBuyShippingSkill(worksettings, stepN, theme):
     psk_words = "{"
 
