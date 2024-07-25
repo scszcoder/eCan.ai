@@ -206,14 +206,7 @@ def getWorkSettings(lieutenant, bot_works):
     bot_id = works[tz][bidx]["bid"]
     log3("bot_id: "+str(bot_id))
 
-    inventory = lieutenant.getBotsInventory(bot_id)
-    if inventory:
-        products = []
-        for p in inventory.getProducts():
-            products.append(p.genJson())
-    else:
-        log3("no inventory found")
-        products = []
+    products = lieutenant.getSellerProductCatelog()
 
     # for b in lieutenant.bots:
     #     log3("BID:", b.getBid())
@@ -311,14 +304,7 @@ def getWorkRunSettings(lieutenant, bot_works):
     bot_id = works[widx]["bid"]
     log3("bot_id: "+str(bot_id))
 
-    inventory = lieutenant.getBotsInventory(bot_id)
-    if inventory:
-        products = []
-        for p in inventory.getProducts():
-            products.append(p.genJson())
-    else:
-        log3("no inventory found")
-        products = []
+    products = lieutenant.getSellerProductCatelog()
 
     # for b in lieutenant.bots:
     #     log3("BID:"+str(b.getBid()))
