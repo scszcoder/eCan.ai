@@ -188,7 +188,6 @@ class MainWindow(QMainWindow):
         self.lang = lang
         self.tz = self.obtainTZ()
         self.file_resouce = FileResource(self.homepath)
-        self.SELLER_INVENTORY_FILE = ecb_data_homepath + "/resource/inventory.json"
         self.VEHICLES_FILE = ecb_data_homepath + "/vehicles.json"
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
@@ -287,6 +286,7 @@ class MainWindow(QMainWindow):
         self.tester = Tester()
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
+        self.product_catelog_file = ecb_data_homepath + "/resource/data/product_catelog.json"
 
         self.readSellerInventoryJsonFile("")
 
@@ -3751,25 +3751,20 @@ class MainWindow(QMainWindow):
 
     def readSellerInventoryJsonFile(self, inv_file):
         if inv_file == "":
-            inv_file_name = self.SELLER_INVENTORY_FILE
+            inv_file_name = self.product_catelog_file
         else:
             inv_file_name = inv_file
 
-        self.showMsg("INVENTORY file: "+inv_file_name)
+        self.showMsg("product catelog file: "+inv_file_name)
         if exists(inv_file_name):
             self.showMsg("Reading inventory file: "+inv_file_name)
             with open(inv_file_name, 'r') as file:
                 self.sellerInventoryJsonData = json.load(file)
-                self.translateInventoryJson()
         else:
             self.showMsg("NO inventory file found!")
 
-
-    def getBotsInventory(self, botid):
-        self.showMsg("botid type:"+str(botid)+" "+str(len(self.inventories)))
-        self.showMsg(json.dumps(self.inventories[0].products[0].genJson()))
-        found = next((x for x in self.inventories if botid in x.getAllowedBids()), None)
-        return found
+    def getSellerProductCatelog(self):
+        return self.sellerInventoryJsonData
 
     # This function translate bots data structure matching ebbot.py to Json format for file storage.
     def genMissionsJson(self):
