@@ -276,8 +276,8 @@ Info Reference Methods:
 | 1           | a piece of text adjacent to certain anchors. | for example: at most 7 lines below an anchor.                          |
 | 2           | a piece of text nearest to certain anchor    | for example: a line contains "$" on +y direction nearest to an anchor. |
 | 3           | info adjacent to info.                       |                                                                        |
-| 4           | info nearest to info.                        |                                                                        |
-| 5           | calendar                                     | need to provide template text for shorhand for Sunday to Monday        |
+| 4           | info nearest to info. (not yet implemented)  |                                                                        |
+| 5           | calendar  (not yet implemented)              | need to provide template text for shorhand for Sunday to Monday        |
 | 6           | table                                        | need to provide template text for all col titles and/or row titles     |
 
 For type 0 anchors, one can also specify certain constraints, for example, in the ref_location method, one can do something like this:
@@ -377,5 +377,5 @@ Here some default settings and assumptions:
 - for many scenarios, using ARAIS instrucitons maybe cumbersome to implement, if you know python, it would be much easier to just use python code to create a new instruction and call it in your skill code.
 - to augment the existing ARAIS with your own instruction, follow these steps:
   - create "/my_rais_extensions/my_rais_extensions.json" in $ECBOT_DATA_HOME directory
-  - an example my_rais.py
+  - when code the instruction generator function, make sure the instrution definition json's "type" starts with "My:", and the instruction execution function name starts with "processMy", and the generator function name starts with "genStepMy". The instruction execution function should take a standard three input arguments: [step, si, pubSkills] where pubSkills holds the context of the main ecbot app.
 
