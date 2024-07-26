@@ -24,7 +24,8 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepOverloadSkill, genStepCreateData, genStepCheckAppRunning, genStepBringAppToFront, genStepFillData, \
     genStepThink, genException, genStepGoToWindow, genStepReportToBoss, genStepAmzPLCalcNCols, \
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
-    genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil
+    genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
+    genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -146,6 +147,10 @@ PUBLIC = {
     'genEbayLoginInSteps': genEbayLoginInSteps,
     'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
     'log3': log3,
+    'genStepReadFile': genStepReadFile,
+    'genStepWriteFile': genStepWriteFile,
+    'genStepDeleteFile': genStepDeleteFile,
+    'genStepObtainReviews': genStepObtainReviews,
     # done exposing all methods.....now expose data structure defs.
     'OrderedProduct': OrderedProduct,
     'ORDER': ORDER,
