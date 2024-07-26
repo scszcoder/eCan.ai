@@ -46,6 +46,34 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "review_purchase",
+                        "anchor_type"  : "text",
+                        "template"     : "Review purchase",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "one_lpp",
+                        "anchor_type"  : "text",
+                        "template"     : "1 label per page",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "change_paper",
+                        "anchor_type"  : "text",
+                        "template"     : "Change paper size",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "letter",
+                        "anchor_type"  : "text",
+                        "template"     : "Letter",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "oz",
                         "anchor_type"  : "text",
                         "template"     : "oz",
@@ -116,6 +144,13 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "materials",
+                        "anchor_type"  : "text",
+                        "template"     : "materials",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "purchase",
                         "anchor_type"  : "text",
                         "template"     : "Purchase",
@@ -144,6 +179,20 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "download_labels",
+                        "anchor_type"  : "text",
+                        "template"     : "Download labels",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "successfully",
+                        "anchor_type"  : "text",
+                        "template"     : "successfully",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "total",
                         "anchor_type"  : "text",
                         "template"     : "Total",
@@ -166,6 +215,19 @@
                     }
                 ], 
                 "info": [
+                    {
+                        "info_name"  : "order_number",
+                        "info_type"  : "lines 1",
+                        "template"     : "#[0-9\-]+",
+                        "ref_method"   : "2",
+                        "refs" : [{
+                                "dir": "above",
+                                "ref": "expected",
+                                "offset": 0,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    }
                 ]
             }
 	    }

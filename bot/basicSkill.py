@@ -921,6 +921,8 @@ def captureScreenToFile(win_title_keyword, sfile):
         im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     else:
         im0 = pyautogui.screenshot()
+        width, height = im0.size
+        window_rec = [0, 0, width, height]
 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
