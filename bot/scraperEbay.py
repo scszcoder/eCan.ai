@@ -32,10 +32,11 @@ def extract_order_data(aj):
                 product.setPTitle(pd["listingSummary"]["title"]["textSpans"][0]["text"])
                 product.setQuantity(int(pd["listingSummary"]["quantity"]["textSpans"][0]["text"]))
 
-                for pv in pd["__sh"]["variations"]:
-                    var_name = pv["name"]["textSpans"][0]["text"]
-                    var_val = pv["value"]["textSpans"][0]["text"]
-                    product.addVariation((var_name, var_val))
+                if "variations" in pd["__sh"]:
+                    for pv in pd["__sh"]["variations"]:
+                        var_name = pv["name"]["textSpans"][0]["text"]
+                        var_val = pv["value"]["textSpans"][0]["text"]
+                        product.addVariation((var_name, var_val))
 
                 products.append(product)
 
@@ -55,7 +56,10 @@ def extract_order_data(aj):
             buyer.setZip(od["zipCode"]["textSpans"][0]["text"])
             order.setRecipient(buyer)
 
-            shipping = Shipping("", "", "", "", "", "", "", "")
+            buyer.setId(od["__sh"]["buyerDetails"]["buyerid"]["textSpans"][0]["text"])
+            ship_method = od["__sh"]["logistics"]["shippingMethod"]["textSpans"][0]["text"]
+            ship_carrier = od["__sh"]["logistics"]["shippingCarrier"]["textSpans"][0]["text"]
+            shipping = Shipping(ship_carrier, ship_method, "", "", "", "", "", "")
             order.setShipping(shipping)
 
             orders.append(order)
@@ -101,7 +105,7 @@ def extract_orders_from_tokens(tokens):
 
             elif token.type == 'String' and token.value == '"ordersData"':
                 # Next token should be `:`
-                print("in ordersData")
+                # print("in ordersData")
                 next_token_index = tokens.index(token) + 1
                 if next_token_index < len(tokens) and tokens[next_token_index].type == 'Punctuator' and tokens[next_token_index].value == ':':
                     # Check if the next token is `{` or `[`
@@ -165,12 +169,11 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
         with open(html_file, 'rb') as fp:
             soup = BeautifulSoup(fp, 'html.parser')
 
-            print("soup soup")
             pagefull_of_orders["n_new_orders"] = get_total_num_orders(soup)
             # all useful information are here:
             # extract all div tags which contains data-index attribute which is a indication of a product in the product list.
             scriptItems = soup.findAll("script")
-            log3(str(len(scriptItems)))
+            # log3(str(len(scriptItems)))
 
             for item in scriptItems:
                 # pattern = r'orderId.*?feedbackScore'
@@ -498,8 +501,6 @@ def processEbayScrapeOrdersHtml(step, i):
         pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
         orders = []
         option_tags = []
-        print("BEFORE SCRAPE:", pagefull_of_orders)
-
         pagefull_of_orders = ebay_seller_fetch_page_of_order_list(html_file, pidx)
 
         symTab[step["result"]] = pagefull_of_orders

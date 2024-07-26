@@ -22,11 +22,13 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepListDir, genStepCheckExistence, genStepCreateDir, genStep7z, genStepTextToNumber, genStepEndException, \
     genStepExceptionHandler, genStepWait, genStepCallExtern, genStepCallFunction, genStepReturn, genStepUseSkill, \
     genStepOverloadSkill, genStepCreateData, genStepCheckAppRunning, genStepBringAppToFront, genStepFillData, \
-    genStepThink, genException, genStepReportToBoss
+    genStepThink, genException, genStepGoToWindow, genStepReportToBoss, genStepAmzPLCalcNCols, \
+    genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
+    genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
-    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill
+    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill, genEbayLoginInSteps
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
     genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
@@ -37,7 +39,10 @@ from bot.fileSkill import genWinFileLocalOpenSaveSkill
 from bot.printLabel import genStepPrintLabels, genWinPrinterLocalReformatPrintSkill
 from bot.rarSkill import genWinRARLocalUnzipSkill
 from bot.scraperEtsy import genStepEtsyScrapeOrders
+from bot.scraperEbay import genStepEbayScrapeMsgList, genStepEbayScrapeOrdersHtml, genStepEbayScrapeCustomerMsgThread
+from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml
 from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
+from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -52,6 +57,11 @@ PUBLIC = {
     'genStepSearchScroll': genStepSearchScroll,
     'genStepRecordTxtLineLocation': genStepRecordTxtLineLocation,
     'genStepMouseClick': genStepMouseClick,
+    'genStepMouseScroll': genStepMouseScroll,
+    'genScrollDownUntilLoc': genScrollDownUntilLoc,
+    'genScrollDownUntil': genScrollDownUntil,
+    'genScrollUpUntilLoc': genScrollUpUntilLoc,
+    'genScrollUpUntil': genScrollUpUntil,
     'genStepKeyInput': genStepKeyInput,
     'genStepTextInput': genStepTextInput,
     'genStepCheckCondition': genStepCheckCondition,
@@ -123,7 +133,25 @@ PUBLIC = {
     'genStepAMZSearchProducts': genStepAMZSearchProducts,
     'genStepReportToBoss': genStepReportToBoss,
     'genStepUpdateBotADSProfileFromSavedBatchTxt': genStepUpdateBotADSProfileFromSavedBatchTxt,
-    'genWinPrinterLocalReformatPrintSkill': genWinPrinterLocalReformatPrintSkill
+    'genStepAmzPLCalcNCols': genStepAmzPLCalcNCols,
+    'genStepAmzDetailsCheckPosition': genStepAmzDetailsCheckPosition,
+    'genStepCalcObjectsDistance': genStepCalcObjectsDistance,
+    'genStepGoToWindow': genStepGoToWindow,
+    'genStepUpdateBuyMissionResult': genStepUpdateBuyMissionResult,
+    'genStepGenRespMsg': genStepGenRespMsg,
+    'genWinPrinterLocalReformatPrintSkill': genWinPrinterLocalReformatPrintSkill,
+    'genStepEbayScrapeMsgList': genStepEbayScrapeMsgList,
+    'genStepEbayScrapeCustomerMsgThread': genStepEbayScrapeCustomerMsgThread,
+    'genStepAmzScrapeBuyOrdersHtml': genStepAmzScrapeBuyOrdersHtml,
+    'genEbayLoginInSteps': genEbayLoginInSteps,
+    'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
+    'log3': log3,
+    # done exposing all methods.....now expose data structure defs.
+    'OrderedProduct': OrderedProduct,
+    'ORDER': ORDER,
+    'Shipping': Shipping,
+    'OrderPerson': OrderPerson
+
 }
 
 
@@ -206,14 +234,7 @@ def getWorkSettings(lieutenant, bot_works):
     bot_id = works[tz][bidx]["bid"]
     log3("bot_id: "+str(bot_id))
 
-    inventory = lieutenant.getBotsInventory(bot_id)
-    if inventory:
-        products = []
-        for p in inventory.getProducts():
-            products.append(p.genJson())
-    else:
-        log3("no inventory found")
-        products = []
+    products = lieutenant.getSellerProductCatelog()
 
     # for b in lieutenant.bots:
     #     log3("BID:", b.getBid())
@@ -311,14 +332,7 @@ def getWorkRunSettings(lieutenant, bot_works):
     bot_id = works[widx]["bid"]
     log3("bot_id: "+str(bot_id))
 
-    inventory = lieutenant.getBotsInventory(bot_id)
-    if inventory:
-        products = []
-        for p in inventory.getProducts():
-            products.append(p.genJson())
-    else:
-        log3("no inventory found")
-        products = []
+    products = lieutenant.getSellerProductCatelog()
 
     # for b in lieutenant.bots:
     #     log3("BID:"+str(b.getBid()))
@@ -438,7 +452,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     if privacy == "public":
         sk_file_name = root_path + "/resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
     else:
-        sk_file_name = ecb_data_homepath + "/my_skills/" + sk_prefix + "/" + sk_name + ".psk"
+        sk_file_name = root_path + "/my_skills/" + sk_prefix + "/" + sk_name + ".psk"
 
     sk_file_dir = os.path.dirname(sk_file_name)
     os.makedirs(sk_file_dir, exist_ok=True)
@@ -452,9 +466,9 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
                 # at this time, the settings is not yet known, so simply set it to None, later on in reAddrAndUpdateSteps(), we set the true value of settings there..
                 this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
             else:
-                log3("gen private.....")
+                log3("gen private....."+sk_full_name)
                 # at this time, the settings is not yet known, so simply set it to None, , later on in reAddrAndUpdateSteps(), we set the true value of settings there.
-                this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme, PUBLIC)
+                this_step, step_words = SkillGeneratorTable[sk_full_name+"_my"](None, start_step, theme, PUBLIC)
 
             with open(sk_file_name, 'w+') as skf:
                 skf.write("\n")
