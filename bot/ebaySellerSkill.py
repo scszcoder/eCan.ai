@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 from datetime import datetime
@@ -6,12 +7,18 @@ from bot.amzBuyerSkill import found_match
 from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreateData, genStepGoToWindow, \
     genStepCheckCondition, genStepUseSkill, genStepOpenApp, genStepCallExtern, genStepLoop, genStepExtractInfo, \
     genStepSearchAnchorInfo, genStepMouseClick, genStepMouseScroll, genStepCreateDir, genStepKeyInput, genStepTextInput, \
-    STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink, genStepSearchWordLine
+    STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink, genStepSearchWordLine, genStepCalcObjectsDistance, \
+    genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination
 from bot.Logger import log3
 from bot.scraperEbay import genStepEbayScrapeOrdersHtml
+from bot.ordersData import Shipping
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
 from bot.etsySellerSkill import genStepEtsyFindScreenOrder
+import traceback
+import math
+import itertools
+
 
 SAME_ROW_THRESHOLD = 16
 
@@ -135,6 +142,9 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("expr", "product_catelog", "NA", "sk_work_settings['products']", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
     psk_words = psk_words + step_words
 
@@ -182,9 +192,13 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
+
+
+    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', ebay_orders, product_catelog]", this_step)
+    psk_words = psk_words + step_words
     #
     # using ebay to purchase shipping label will auto update tracking code..... s
-    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "ebay_orders", "labels_dir", this_step)
+    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input", "labels_dir", this_step)
     psk_words = psk_words + step_words
 
     # # extract tracking code from labels and update them into etsy_orders data struture.
@@ -196,11 +210,11 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
     # psk_words = psk_words + step_words
     #
-    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'label_dir', printer_name]", this_step)
+    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]", this_step)
     psk_words = psk_words + step_words
 
     # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
-    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_dir", "", this_step)
+    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "", this_step)
     psk_words = psk_words + step_words
     #
     # end condition for "not_logged_in == False"
@@ -479,6 +493,149 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
+    # input ['sale', sender, ebay_orders, product_catelog]
+    this_step, step_words = genStepCallExtern("global ship_op\nship_op = fin[0]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global labels_dir\nlabels_dir = "+worksettings+"['log_path_prefix']+'ebay_labels'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global orders\norders = fin[1]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global catelog\ncatelog = fin[2]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_orders\nn_orders = sum(len(page['ol']) for page in orders)\nprint('n_orders:', n_orders)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("n_orders > 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now create all label in bulk here: https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt
+    this_step, step_words = genStepCallExtern("global bulkurl\nbulkurl = 'https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "bulkurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_labels_checked", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 1, "raw", "scroll_resolution", 0, 0, 2, False, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCreateData("bool", "allReviewed", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("n_labels_checked == n_orders)", "", "", "buyShipping"+str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ebay_bulk_labels", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "ground_advantage", "direct", "anchor text", "any", "ga_locs", "used_ground_advantage", "ebay", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not used_ground_advantage", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "standard_insurance", "anchor text", "", 0, "left", [1, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ebay_bulk_labels", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ground_advantage", "anchor text", "", 0, "left", [1, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_labels_checked\nn_labels_checked = n_labels_checked + 1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("n_labels_checked < n_orders", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCalcObjectsDistance("standard_insurance", "anchor text", "materials", "anchor text", "min", "vertical", "row_height", "calc_flg", this_step)
+    psk_words = psk_words + step_words
+
+    # 0.73 is a magic number based on observation and measurement.
+    this_step, step_words = genStepCallExtern("import math\nglobal row_height\nprint('row height:', row_height, scroll_resolution)\nrow_height = math.floor((row_height/0.73)/scroll_resolution)\n\nprint('row height:', row_height)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "row_height", "raw", "scroll_resolution", 0, 0, 2, False, this_step)
+    psk_words = psk_words + step_words
+    # 0.73
+    this_step, step_words = genScrollDownUntilLoc(["materials"], "anchor text", 80, "ebay_bulk_labels", "top", "scroll_adjustment",
+                                               this_step, worksettings, "amz", theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    #no need dto scroll to the top,
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ebay_bulk_labels", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+    #
+    # # use this info, as it contains the name and address, as well as the ship_to anchor location.
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", ["review_purchase"], "direct", ["anchor text"], "any", "complete_buttons", "useless", "ebay", False, this_step)
+    # psk_words = psk_words + step_words
+
+    # click on Review purchase
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "review_purchase", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ebay_bulk_labels", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # really should do checking here, such as payment method. but for now just assume default is what we want here....
+    # and also the label print setting is set at 1 label per page.
+
+    # use this info, as it contains the name and address, as well as the ship_to anchor location.
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["confirm_and_pay"], "direct", ["anchor text"], "any", "complete_buttons", "useless", "ebay", False, this_step)
+    psk_words = psk_words + step_words
+
+    # make sure your funds is selected and make sure pdf is 1 label per page.(easier for post processing)
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "confirm_and_pay", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    #now make sure labels are generated successfully by checking the word "successfully" and then click "download labels"
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ebay_bulk_labels", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "successfully", "direct", "anchor text", "any", "complete_buttons", "useless", "ebay", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "download_labels", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # now go the default download directory and fetch the most recent "ebay-bulk-labels-*.pdf"
+    this_step, step_words = genStepMoveDownloadedFileToDestination("ebay-bulk-labels", "pdf", "labels_dir", "move_done", this_step)
+    psk_words = psk_words + step_words
+
+    # end of if len(orders) > 0
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/buy_shipping", "", this_step)
     psk_words = psk_words + step_words
@@ -1414,3 +1571,123 @@ def genEbayLoginInSteps(stepN, theme):
     psk_words = psk_words + step_words
 
     return this_step, psk_words
+
+
+def genStepEbayGenShippingInfoFromOrderID(order_id, orders, catelog, result, flag, stepN):
+    stepjson = {
+        "type": "Ebay Gen Shipping From Order ID",
+        "action": "Ebay Gen Shipping",
+        "order_id": order_id,
+        "orders": orders,
+        "catelog": catelog,
+        "result": result,
+        "flag": flag
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genLabelName(oinfo, first_name, last_name):
+    label_file_name = "ebay_" + first_name + "_" + last_name + "_"
+    for pi, p in enumerate(oinfo):
+        label_file_name = label_file_name + p["short name"] + "_"
+        for vn in p["variations"]:
+            vval = p["variations"][vn]["val"]
+            cvval = vval[0].upper()+vval[1:]
+            label_file_name = label_file_name +cvval
+        label_file_name = label_file_name+"_"+str(p["quantity"])
+        if pi != len(oinfo)-1:
+            label_file_name = label_file_name + "_"
+    label_file_name = label_file_name + ".pdf"
+    return label_file_name
+
+def genLabelNote(oinfo):
+    note=""
+    for pi, p in enumerate(oinfo):
+        note = note + p["note name"] + " "
+        for vn in p["variations"]:
+            vval = p["variations"][vn]["val_note"]
+            note = note +vval+" "
+        note = note+" x "+str(p["quantity"])+p["unit note"]
+        if pi != len(oinfo)-1:
+            note = note + "\n"
+
+    return note
+
+def findMinContainerDimensions(total_volume):
+    # Generate a list of potential dimensions
+    max_dimension = math.ceil(total_volume ** (1/3) * 2)
+    dimensions = range(1, max_dimension + 1)
+
+    min_volume = float('inf')
+    best_dimensions = None
+
+    # Iterate through possible combinations of length, width, and height
+    for length, width, height in itertools.product(dimensions, repeat=3):
+        volume = length * width * height
+        if volume >= total_volume and volume < min_volume:
+            min_volume = volume
+            best_dimensions = (length, width, height)
+
+    return best_dimensions
+def processEbayGenShippingInfoFromOrderID(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        ordered_prod_shipping_info = None
+        order = next((ord for i, ord in enumerate(symTab[step["orders"]]) if ord.getOid() == symTab[step["order_id"]]), None)
+        if order:
+            ordered_products = order.getProducts()
+            ordered_prod_shipping_info = []
+            for op in ordered_products:
+                found_in_book = False
+                for p in symTab[step["catelog"]]:
+                    for l in p['listings']:
+                        if l["platform"] == "ebay":
+                            if l["title"] == op.getPTitle():
+                                #now found the product, its shipping info
+                                for p_item in l["inventories"]:
+                                    if p_item["variations"] == op.getVariations():
+                                        shipping_info = copy.deepcopy(p_item)
+                                        # grab note for variation for shipping label printing
+                                        for vname in shipping_info["variations"]:
+                                            vval = shipping_info["variations"][vname]
+                                            shipping_info["variations"][vname] = {
+                                                "note": l["variations"][vname]["note_text"],
+                                                "val": vval,
+                                                "val_note": l["variations"][vname]["vals"][vval]["note_text"]
+                                            }
+                                        found_in_book = True
+                                        break
+                if found_in_book:
+                    ordered_prod_shipping_info.append(shipping_info)
+
+            total_weight = sum(item['quantity'] * item['weight'] for item in ordered_prod_shipping_info)
+            total_volume = sum(
+                item['quantity'] * (item['size'][0] * item['size'][1] * item['size'][2]) for item in ordered_prod_shipping_info
+            )
+
+            min_container_size = findMinContainerDimensions(total_volume)
+
+            order_shipping_info = order.getShipping()
+            order_shipping_info.setWeight(total_weight)
+            order_shipping_info.setDimension(min_container_size)
+
+            first_name = order.getRecipientName().split()[0]
+            nw = len(order.getRecipientName().split())
+            last_name = order.getRecipientName().split()[nw-1]
+            order_shipping_info.setLabelFileName(genLabelName(ordered_prod_shipping_info, first_name, last_name))
+            order_shipping_info.setLabelNote(genLabelNote(ordered_prod_shipping_info))
+
+        symTab[step["result"]] = ordered_prod_shipping_info
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorAMZMatchProduct:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorAMZMatchProduct traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
