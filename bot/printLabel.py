@@ -178,26 +178,40 @@ def gen_img(img1, img2, top_left_margin=(150, 90), padding = 40):
     return final_image
 
 # var is a json dictionary of var_name, var_value pairs
-def gen_variation_text(vars, found_product, site):
+def geVariationText(vars, found_product, site):
     v_text = "v"
     for var_name in vars:
-        v_text = v_text + found_product["variations"][site][var_name]["note_text"]
+        v_text = v_text + found_product["listings"][site]["variations"][var_name]["note_text"]
         if isinstance(vars[var_name], str):
-            v_text = v_text + found_product["variations"][site][vars[var_name]]["note_text"]
+            v_text = v_text + found_product["listings"][site]["variations"]["vals"][vars[var_name]]["note_text"]
         else:
             #this is a numerical value.
             v_text = v_text + str(vars[var_name])
     return v_text
 
+
+def geVariationFName(vars, found_product, site):
+    v_text = "v"
+    for var_name in vars:
+        v_text = v_text + var_name[0].upper() + var_name[1:]
+        if isinstance(vars[var_name], str):
+            v_text = v_text + vars[var_name][0].upper()+vars[var_name][1:]
+        else:
+            #this is a numerical value.
+            v_text = v_text + str(vars[var_name])
+    return v_text
+
+
+
 # add padding/margin to an image.
 # text loc is in tuple format (x, y), relative to the top left corner
-def gen_note_text(site, order_data, product_book):
+def genNoteText(site, order_data, product_book):
     note_text = ""
-    for j, ord_prod in enumerate(order_data):
-        found_product = next((prod for i, prod in enumerate(product_book) if prod.getPIDBySite(site) == ord_prod.getProductId), None)
-        note_text = note_text + found_product["note_short_name"]
+    for j, ord_prod in enumerate(order_data.getProducts()):
+        found_product = next((prod for i, prod in enumerate(product_book) if prod["listings"][site]["asin"] == ord_prod.getPid()), None)
+        note_text = note_text + found_product["note text"]
         note_text = note_text + "_"
-        note_text = note_text + gen_variation_text(ord_prod.getVariations(), found_product, site)
+        note_text = note_text + geVariationText(ord_prod.getVariations(), found_product, site)
         note_text = note_text + "_"
         note_text = note_text + str(ord_prod.getQuantity())
         if j != len(order_data) - 1:
@@ -205,30 +219,52 @@ def gen_note_text(site, order_data, product_book):
 
     return note_text
 
+def genPVQSText(site, order_data, product_book):
+    name_text = ""
+    for j, ord_prod in enumerate(order_data.getProducts()):
+        found_product = next((prod for i, prod in enumerate(product_book) if prod["listings"][site]["asin"] == ord_prod.getPid()), None)
+        name_text = name_text + found_product["short_name"]
+        name_text = name_text + "_"
+        name_text = name_text + geVariationFName(ord_prod.getVariations(), found_product, site)
+        name_text = name_text + "_"
+        name_text = name_text + str(ord_prod.getQuantity())
+        if j != len(order_data) - 1:
+            name_text = name_text + "_"
 
+    return name_text
 def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, font_full_path, font_size):
     print("pdf to img start....", working_dir + pdffile)
     # images = convert_from_path(working_dir + pdffile)
     document = fitz.open(working_dir + pdffile)
+    pdf_names = []
+    wpdf_names = []
 
-    page = document.load_page(0)  # Assuming adding text to the first page
-    pix = page.get_pixmap()
+    all_orders = []
+    for page in order_data:
+        all_orders = all_orders + page["ol"]
 
-    # Convert to image using OpenCV
-    image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-    pil_image = np.array(image)
 
-    print("pdf to img done....", working_dir + pdffile)
+    for i in range(document.page_count):
+        page = document.load_page(i)  # Assuming adding text to the first page
+        pix = page.get_pixmap()
 
-    sub = pdffile.split('_')
-    prefix = pdffile.split(".")[0]
-    # log3(json.dumps(sub))
-    if len(sub) >= 5:
-        site = sub[0]
-        first = sub[1]
-        last = sub[2]
-        prod = sub[3]
-        num = sub[4].split('.')[0]
+        # Convert to image using OpenCV
+        image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        pil_image = np.array(image)
+
+        print("pdf to img done....", working_dir + pdffile)
+
+        # sub = pdffile.split('_')
+        name_parts = all_orders[i].getRecipientName().split()
+        fn = name_parts[0]
+        ln = name_parts[len(name_parts)-1]
+        r_name = fn+"_"+ln+"_"
+
+        pvqs_name = genPVQSText(site, all_orders[i], product_book)
+
+        prefix = "ebay_"+r_name+pvqs_name
+        # log3(json.dumps(sub))
+
 
         # img = cv2.imread(working_dir + 'page0.jpg')
         result = pil_image.copy()
@@ -281,7 +317,7 @@ def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, fon
         resized_cropped_image = resized_cropped.copy()
 
         # add some text note to the image,
-        text = gen_note_text(site, order_data, product_book)
+        text = genNoteText(site, all_orders[i], product_book)
 
         text_rel_loc = (400, 700)
         # font_full_path = "C:/Users/songc/PycharmProjects/ecbot/resource/fonts/Noto_Serif_SC/static/NotoSerifSC-Medium.ttf"
@@ -300,8 +336,10 @@ def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, fon
         pdf_name = working_dir + pdff_name
         p_image.save(pdf_name, save_all=True)
         wpdf_name = pdf_name.replace('/', r'\\\\')
+        pdf_names.append(pdf_name)
+        wpdf_names.append(wpdf_name)
 
-    return pdf_name, wpdf_name
+    return pdf_names, wpdf_names
 # Press the green button in the gutter to run the script.
 def win_print_labels0(label_dir, printer, site, order_data, product_book, txt_font_path, txt_font_size):
 
@@ -393,15 +431,16 @@ async def win_print_labels1(label_dir, printers, ecsite, order_data, product_boo
         for pdf_file in os.listdir(working_dir):
             if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
                 log3("working on label:"+pdf_file)
-                modified_pdf, wpdf_name = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
-                if check_printer_status(printers[0]):
-                    tasks.append(print_pdf(modified_pdf, printers[0]))
-                elif len(printers) > 1 and check_printer_status(printers[1]):
-                    tasks.append(print_pdf(modified_pdf, printers[1]))
-                elif len(printers) > 2 and check_printer_status(printers[2]):
-                    tasks.append(print_pdf(modified_pdf, printers[2]))
-                else:
-                    print(f"No available printers for {pdf_file}")
+                modified_pdfs, wpdf_names = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
+                for modified_pdf in modified_pdfs:
+                    if check_printer_status(printers[0]):
+                        tasks.append(print_pdf(modified_pdf, printers[0]))
+                    elif len(printers) > 1 and check_printer_status(printers[1]):
+                        tasks.append(print_pdf(modified_pdf, printers[1]))
+                    elif len(printers) > 2 and check_printer_status(printers[2]):
+                        tasks.append(print_pdf(modified_pdf, printers[2]))
+                    else:
+                        print(f"No available printers for {pdf_file}")
 
         if tasks:
             await asyncio.gather(*tasks)
@@ -434,8 +473,8 @@ def sync_win_print_labels1(label_dir, printer, ecsite, order_data, product_book,
         for pdf_file in os.listdir(working_dir):
             if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
                 log3("working on label:"+pdf_file)
-                modified_pdf, wpdf_name = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
-                files_tbp.append(modified_pdf)
+                modified_pdfs, wpdf_names = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
+                files_tbp = files_tbp + modified_pdfs
 
         if files_tbp:
             for file_path in files_tbp:

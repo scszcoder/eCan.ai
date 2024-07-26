@@ -11,6 +11,8 @@ import traceback
 import webbrowser
 from datetime import datetime
 import asyncio
+import platform
+import glob
 
 import numpy as np
 
@@ -784,6 +786,18 @@ def genStepAmzPLCalcNCols(sponsors_name, carts_name, options_name, fd_name, resu
         "options": options_name,
         "carts": carts_name,
         "deliveries": fd_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepMoveDownloadedFileToDestination(prefix, extension, destination, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Move Downloaded File",
+        "prefix": prefix,
+        "extension": extension,
+        "destination": destination,
         "result": result_var,
         "flag": flag_var
     }
@@ -4354,6 +4368,7 @@ def processAmzPLCalcNCols(step, i):
     return (i + 1), ex_stat
 
 
+
 def startSaveCSK(csk_dir, session, token):
     print("hello????")
     loop = asyncio.new_event_loop()
@@ -4392,3 +4407,52 @@ async def saveCSKToCloud(csk_dir, session, token):
         else:
             ex_stat = "ErrorSaveCSKToCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+
+
+def processMoveDownloadedFileToDestination(step, i):
+        ex_stat = DEFAULT_RUN_STATUS
+
+        try:
+            default_download_dir = getDefaultDownloadDirectory()
+
+            new_file = getMostRecentFile(default_download_dir, prefix=step["prefix"], extension=step["extension"])
+
+            destination_file = os.path.join(symTab[step["destination"]], os.path.basename(new_file))
+            shutil.move(new_file, destination_file)
+
+            symTab[step["result"]] = destination_file
+
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorMoveDownloadedFileToDestination:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorMoveDownloadedFileToDestination: traceback information not available:" + str(e)
+            symTab[step["flag"]] = False
+            log3(ex_stat)
+
+        return (i + 1), ex_stat
+
+
+def getDefaultDownloadDirectory():
+    if platform.system() == "Windows":
+        download_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
+    else:
+        download_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
+
+    return download_dir
+
+
+def getMostRecentFile(download_dir, prefix="", extension="pdf"):
+    pattern = os.path.join(download_dir, f"{prefix}*."+extension)
+    list_of_files = glob.glob(pattern)
+
+    if not list_of_files:
+        return None
+
+    most_recent_file = max(list_of_files, key=os.path.getctime)
+    return most_recent_file
+
