@@ -210,11 +210,11 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
     # psk_words = psk_words + step_words
     #
-    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'label_dir', printer_name]", this_step)
+    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]", this_step)
     psk_words = psk_words + step_words
 
     # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
-    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_dir", "", this_step)
+    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "", this_step)
     psk_words = psk_words + step_words
     #
     # end condition for "not_logged_in == False"
@@ -497,6 +497,9 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global ship_op\nship_op = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global labels_dir\nlabels_dir = "+worksettings+"['log_path_prefix']+'ebay_labels'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepCallExtern("global orders\norders = fin[1]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
@@ -627,7 +630,7 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now go the default download directory and fetch the most recent "ebay-bulk-labels-*.pdf"
-    this_step, step_words = genStepMoveDownloadedFileToDestination("ebay-bulk-labels", "pdf", "labels_dir", "labels_file", "move_done", this_step)
+    this_step, step_words = genStepMoveDownloadedFileToDestination("ebay-bulk-labels", "pdf", "labels_dir", "move_done", this_step)
     psk_words = psk_words + step_words
 
     # end of if len(orders) > 0
