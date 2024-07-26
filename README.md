@@ -361,11 +361,21 @@ Here some default settings and assumptions:
 
 
 ### Steps to Create a custom Skill with Code
-- create a directory $ECBOT_DATA_HOME/resource/skills/my/%platform_%app_%site_%page where %page, %app, %site, %page are the shorthand name of the platform, app, site, page of your skill.
+- create a directory $ECBOT_DATA_HOME/my_skills/%platform_%app_%site_%page/ where %page, %app, %site, %page are the shorthand name of the platform, app, site, page of your skill.
   - for example: win_chrome_ebay_home will be a settings directory your skill will be applied to: windows, chrome browser, ebay site, seller homepage.
 - under this directory, create a %skill_name.json file and a %skill_name diretory and inside the directory there will be two sub-directories: "images" and "scripts"
     - for example: if your skill about fullfill orders, you can name your skill directory "fullfill_orders", and also the corresponding skill defining json file.
+- an example .json file can be seen here: html link here...
+- an example generator script is shown here: html link here....
+- note in .json file, the "privacy" is set to "private", the "owner" is set to user name, the generator script must starts with "genMy", for example, if your script is to generate a chatbot skill, your generator function should be "genMyChatbot.py"
+- note in genMy*.py generator script, your generator function's input arguments must be in a standard form, i.e. (worksettings, stepN, theme, pubSkills), where pubSkills is table of public skill instruction generator functions, you may use pubSkills[public generator function name] to call readily available 
 - the "images" directory contains all the icons you expect this skill to be able to recognize on a screen captured image.
 - the "scripts" directory contains the .csk file which defines all the anchors and info elements associated on the skill
-- This whole directory will then be uploaded to the cloud side, using the "CSK Upload" button under the skill editor menu.
-- 
+- This "images" and "scrpts" directories will then be uploaded to the cloud side, using the "CSK Upload" button under the skill editor menu.
+
+### Steps to Create a custom instruction 
+- for many scenarios, using ARAIS instrucitons maybe cumbersome to implement, if you know python, it would be much easier to just use python code to create a new instruction and call it in your skill code.
+- to augment the existing ARAIS with your own instruction, follow these steps:
+  - create "/my_rais_extensions/my_rais_extensions.json" in $ECBOT_DATA_HOME directory
+  - an example my_rais.py
+

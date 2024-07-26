@@ -164,11 +164,6 @@ class PROCEDURAL_SKILL(QStandardItem):
         self.parent = parent
         self.path = "resource/skills/public/"
 
-
-    def getSteps(self):
-        self.steps = readSkillFile(self.homepath, self.runStepsFile)
-        return self.steps
-
     def getRunStepsFile(self):
         return self.runStepsFile
 
@@ -207,7 +202,7 @@ class CLOUD_SKILL(QStandardItem):
 
 
 class WORKSKILL(QStandardItem):
-    def __init__(self, parent, skname):
+    def __init__(self, parent, skname, skdir="/resource/skills/public/"):
         super().__init__()
         self.parent = parent
         self.name = skname
@@ -219,7 +214,7 @@ class WORKSKILL(QStandardItem):
         self.parent = parent
         self.homepath = parent.homepath
         self.price_model = ""
-        self.path = "/resource/skills/public/"
+        self.path = skdir
         print("skill home path::"+self.path)
         self.psk_file = ""
         self.csk_file = ""
@@ -292,7 +287,7 @@ class WORKSKILL(QStandardItem):
         self.psk_file = pskFile
 
     def getCskFileName(self):
-        return self.homepath + "/" + self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + "/scripts/" +self.name + ".csk"
+        return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + "/scripts/" +self.name + ".csk"
 
     def setCskFileName(self, cskFile):
         self.csk_file = cskFile

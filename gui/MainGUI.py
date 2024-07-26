@@ -48,7 +48,7 @@ from bot.basicSkill import STEP_GAP
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
-from bot.wanChat import subscribe_to_wan_chat, wan_handle_rx_message, wan_send_message
+from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage
 from lzstring import LZString
 import openpyxl
 from datetime import timedelta
@@ -56,7 +56,7 @@ import platform
 from pynput.mouse import Controller
 
 from bot.network import myname, fieldLinks, commanderIP
-from bot.readSkill import RAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running
+from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
@@ -682,6 +682,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Main Bot&Mission Scheduler")
         self.showMsg("================= DONE with GUI Setup ==============================")
 
+
         self.todays_scheduled_task_groups = {"win": [], "mac": [], "linux": []}
         self.unassigned_task_groups = {"win": [], "mac": [], "linux": []}
         self.checkVehicles()
@@ -719,11 +720,12 @@ class MainWindow(QMainWindow):
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
             self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
-            print("hohohohohohoho")
+            # print("hohohohohohoho")
             bots_data = self.bot_service.find_all_bots()
-            print("hahahahahahah")
+            # print("hahahahahahah")
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
+
             self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
             missions_data = self.mission_service.find_missions_by_createon()
             self.loadLocalMissions(missions_data)
@@ -736,14 +738,17 @@ class MainWindow(QMainWindow):
         rais_extensions_file = ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
         rais_extensions_dir = ecb_data_homepath + "/my_rais_extensions/"
         added_handlers=[]
+        print("rais extension file:"+rais_extensions_file)
         if os.path.isfile(rais_extensions_file):
             with open(rais_extensions_file, 'r') as rais_extensions:
                 user_rais_modules = json.load(rais_extensions)
+                print("user_rais_modules:", user_rais_modules)
                 for i, user_module in enumerate(user_rais_modules):
-                    module_file = rais_extensions_dir + user_module["file"]
+                    module_file = ecb_data_homepath + "/" + user_module["dir"] + "/"+user_module["file"]
                     added_ins = user_module['instructions']
                     module_name = os.path.splitext(user_module["file"])[0]
                     spec = importlib.util.spec_from_file_location(module_name, module_file)
+                    print("ext rais:", module_file, added_ins, module_name, spec)
                     # Create a module object from the spec
                     module = importlib.util.module_from_spec(spec)
                     # Load the module
@@ -752,7 +757,10 @@ class MainWindow(QMainWindow):
                     for ins in added_ins:
                         if hasattr(module, ins["handler"]):
                             RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
+                            ARAIS[ins["instruction name"]] = getattr(module, ins["handler"])
+                            print("EXTENDING ARAIS")
 
+        # now load experience file which will speed up icon matching
         run_experience_file = ecb_data_homepath + "/run_experience.txt"
         if os.path.exists(run_experience_file):
             try:
@@ -785,8 +793,8 @@ class MainWindow(QMainWindow):
                 self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
             else:
                 self.peer_task = asyncio.create_task(self.wait_forever())
-            self.wan_sub_task = asyncio.create_task(subscribe_to_wan_chat(self, self.tokens, self.chat_id))
-            self.wan_msg_task = asyncio.create_task(wan_handle_rx_message(self.session, self.tokens, self.websocket, self.wan_chat_msg_queue))
+            self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
+            self.wan_msg_task = asyncio.create_task(wanHandleRxMessage(self.session, self.tokens, self.websocket, self.wan_chat_msg_queue))
             self.showMsg("spawned wan chat task")
         else:
             self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
@@ -829,9 +837,11 @@ class MainWindow(QMainWindow):
         # this will handle all skill bundled into software itself.
         self.showMsg("load local private skills")
         self.loadLocalPrivateSkills()
-        cloud_skills_results = self.SkillManagerWin.fetchMySkills()
 
+        cloud_skills_results = self.SkillManagerWin.fetchMySkills()
+        print("DAILY SKILL FETCH:", cloud_skills_results)
         existing_skids = [sk.getSkid() for sk in self.skills]
+        print("EXISTING SKIDS:", existing_skids)
 
         if 'body' in cloud_skills_results:
             # self.showMsg("db_skills_results:::::"+json.dumps(db_skills_results))
@@ -851,7 +861,10 @@ class MainWindow(QMainWindow):
 
             # for sanity immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
             # when a skill is selected, its dependencies will added to mission's skills list.
+            print("SKIDS to be regenerated:", [sk.getSkid() for sk in self.skills])
             self.regenSkillPSKs()
+
+        print("after daily sync SKIDS:", [sk.getSkid() for sk in self.skills])
 
     def onScrollBarValueChanged(self, value):
         """监听滚动条变化，判断是否自动滚动"""
@@ -870,12 +883,16 @@ class MainWindow(QMainWindow):
         for ski, sk in enumerate(self.skills):
             # next_step is not used,
             sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
-            self.showMsg("PSK FILE NAME::::::::::"+str(ski)+"::::::"+sk.getPrivacy()+":::::"+sk_full_name)
-            next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
+            self.showMsg("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name)
+            if sk.getPrivacy() == "public":
+                next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
+            else:
+                next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), ecb_data_homepath, first_step, "light")
             self.showMsg("PSK FILE:::::::::::::::::::::::::"+psk_file)
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
+            print("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
 
 
     def getHomePath(self):
@@ -1492,6 +1509,7 @@ class MainWindow(QMainWindow):
                     # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                     # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                     file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
+                    file = 'C:/temp/scheduleResultTest99.json'
                     # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                     if exists(file):
                         with open(file) as test_schedule_file:
@@ -1541,7 +1559,7 @@ class MainWindow(QMainWindow):
 
     def fetchScheduleFromFile(self):
 
-        uncompressed = open(self.homepath + "/resource/testdata/testschedule.json")
+        uncompressed = open(ecb_data_homepath + "/resource/testdata/testschedule.json")
         if uncompressed != "":
             # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
             bodyobj = json.load(uncompressed)
@@ -2154,6 +2172,7 @@ class MainWindow(QMainWindow):
         #
         #     self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
         print("unassigned_task_groups: ", self.unassigned_task_groups)
+
         for vname in self.unassigned_task_groups:
             print("assignwork checking vehicle: ", vname)
             p_task_groups = self.unassigned_task_groups[vname]      # flattend per vehicle tasks.
@@ -2253,7 +2272,10 @@ class MainWindow(QMainWindow):
         for skid in skill_ids:
             found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
             if found_skill:
-                psk_file = self.homepath + found_skill.getPskFileName()
+                if found_skill.getPrivacy() == "public":
+                    psk_file = self.homepath + found_skill.getPskFileName()
+                else:
+                    psk_file = ecb_data_homepath + found_skill.getPskFileName()
                 self.showMsg("Empowering platoon with skill PSK"+psk_file)
                 self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
             else:
@@ -2426,7 +2448,7 @@ class MainWindow(QMainWindow):
         if pub:
             skill_file = self.homepath + "resource/skills/public/" + skname + "/scripts/" + skname + ".psk"
         else:
-            skill_file = self.homepath + "resource/skills/my/" + skname + "/scripts/" + skname + ".psk"
+            skill_file = ecb_data_homepath + "/my_skills/" + skname + "/scripts/" + skname + ".psk"
 
         self.showMsg("loadSKILLFILE: "+skill_file)
         stepKeys = readPSkillFile(skname, skill_file, lvl=0)
@@ -2486,6 +2508,7 @@ class MainWindow(QMainWindow):
                 self.update1WorkRunStatus(worksTBD, worksettings["midx"])
             else:
                 self.showMsg("current RUNNING MISSION: "+json.dumps(running_mission.genJson()))
+                print("RPA all skill ids:", [sk.getSkid() for sk in self.skills])
                 if running_mission.getSkills() != "":
                     rpaSkillIdWords = running_mission.getSkills().split(",")
                     self.showMsg("current RUNNING MISSION SKILL: "+json.dumps(running_mission.getSkills()))
@@ -2495,12 +2518,17 @@ class MainWindow(QMainWindow):
 
                     # get skills data structure by IDs
                     self.showMsg("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]))
+                    rpaSkillIds = list(set(rpaSkillIds))
                     relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
+                    print("N relevant skills:", len(relevant_skills))
                     relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
+                    relevant_skill_ids = list(set(relevant_skill_ids))
                     self.showMsg("relevant skills ids: "+json.dumps(relevant_skill_ids))
                     dependent_skids=[]
                     for sk in relevant_skills:
                         dependent_skids = dependent_skids + sk.getDependencies()
+
+                    dependent_skids = list(set(dependent_skids))
                     self.showMsg("all dependencies: "+json.dumps(dependent_skids))
 
                     dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
@@ -2513,6 +2541,7 @@ class MainWindow(QMainWindow):
                         self.showMsg("ERROR: Required Skills not found:"+json.dumps(missing))
 
 
+                    print("all skids involved in this skill: ", [sk.getSkid() for sk in relevant_skills])
                     all_skill_codes = []
                     step_idx = 0
                     for sk in relevant_skills:
@@ -2521,7 +2550,11 @@ class MainWindow(QMainWindow):
                         # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
 
                         # readPSkillFile will remove comments. from the file
-                        pskJson = readPSkillFile(worksettings["name_space"], self.homepath+sk.getPskFileName(), lvl=0)
+                        if sk.getPrivacy() == "public":
+                            sk_dir = self.homepath
+                        else:
+                            sk_dir = ecb_data_homepath
+                        pskJson = readPSkillFile(worksettings["name_space"], sk_dir+sk.getPskFileName(), lvl=0)
                         # self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
 
                         # now regen address and update settings, after running, pskJson will be updated.
@@ -2533,7 +2566,10 @@ class MainWindow(QMainWindow):
                         # self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
 
                         # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
-                        rskFileName = self.homepath + sk.getPskFileName().split(".")[0] + ".rsk"
+                        rskFileName = sk_dir + sk.getPskFileName().split(".")[0] + ".rsk"
+                        rskFileDir = os.path.dirname(rskFileName)
+                        if not os.path.exists(rskFileDir):
+                            os.makedirs(rskFileDir)
                         self.showMsg("rskFileName: "+rskFileName+" step_idx: "+str(step_idx))
                         with open(rskFileName, "w") as outfile:
                             json.dump(pskJson, outfile)
@@ -4679,8 +4715,12 @@ class MainWindow(QMainWindow):
                 for key in code_jsons.keys():
                     if "type" in code_jsons[key]:
                         if code_jsons[key]["type"] == "Use Skill":
+                            if "public" in code_jsons[key]["skill_path"]:
+                                dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+                            else:
+                                dependency_file = ecb_data_homepath + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
 
-                            dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+
                             if dependency_file not in dependencies:
                                 dependencies.add(dependency_file)
                                 self.find_dependencies(dependency_file, visited, dependencies)
@@ -4744,17 +4784,28 @@ class MainWindow(QMainWindow):
                 if file.endswith(".json"):
                     file_path = os.path.join(root, file)
                     skill_def_files.append(file_path)
+                    print("load private skill definition json file:" + file+"::"+file_path)
 
         # self.showMsg("local skill files: "+json.dumps(skill_def_files))
 
         # if json exists, use json to guide what to do
+        existing_skids = [sk.getSkid() for sk in self.skills]
         for file_path in skill_def_files:
+            print("working on:", file_path)
             with open(file_path) as json_file:
                 sk_data = json.load(json_file)
-                self.showMsg("loading skill f: "+str(sk_data["skid"])+" "+file_path)
-                new_skill = WORKSKILL(self, sk_data["name"])
-                new_skill.loadJson(sk_data)
-                self.skills.append(new_skill)
+                json_file.close()
+                self.showMsg("loading private skill f: "+str(sk_data["skid"])+" "+file_path)
+                if sk_data["skid"] in existing_skids:
+                    new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
+                    new_skill.loadJson(sk_data)
+                    self.skills.append(new_skill)
+                    print("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(), new_skill.getPath())
+                else:
+                    #update the existing skill or no even needed?
+                    found_skill = next((x for x in self.skills if x.getSkid()==sk_data["skid"]), None)
+                    # if found_skill:
+
 
                 this_skill_dir = skdir+sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"/"
                 gen_string = sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"_"+sk_data["name"]
@@ -4762,6 +4813,7 @@ class MainWindow(QMainWindow):
                 self.load_external_functions(this_skill_dir, sk_data["name"], gen_string, sk_data["generator"])
                 # no need to run genSkillCode, since once in table, will be generated later....
                 # genSkillCode(sk_full_name, privacy, root_path, start_step, theme)
+
         self.showMsg("Added Local Private Skills:"+str(len(self.skills)))
 
     def load_external_functions(self, sk_dir, sk_name, gen_string, generator):
@@ -4778,7 +4830,8 @@ class MainWindow(QMainWindow):
 
             if hasattr(module, generator):
                 self.showMsg("add key-val pair: "+gen_string+" "+generator)
-                SkillGeneratorTable[gen_string] = getattr(module, generator)
+                SkillGeneratorTable[gen_string+"_my"] = lambda w, x, y, z: getattr(module, generator)(w, x, y, z)
+
         elif os.path.isfile(generator_diagram):
             self.showMsg("gen psk from diagram.")
 
@@ -4807,7 +4860,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("loading products from a local file or DB...")
         api_products = []
-        uncompressed = open(self.homepath + "/resource/testdata/newproducts.json")
+        uncompressed = open(ecb_data_homepath + "/resource/testdata/newproducts.json")
         if uncompressed != None:
             # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
             fileproducts = json.load(uncompressed)
@@ -6041,7 +6094,7 @@ class MainWindow(QMainWindow):
                 "parameters": "",
                 "sender": ""
             }
-            self.wan_sub_task = asyncio.create_task(wan_send_message(ping_msg, token))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
 
 
     async def wan_request_log(self, token):
@@ -6054,7 +6107,7 @@ class MainWindow(QMainWindow):
                 "parameters": "",
                 "sender": ""
             }
-            self.wan_sub_task = asyncio.create_task(wan_send_message(ping_msg, token))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
 
 
     async def wan_stop_log(self, token):
@@ -6067,7 +6120,7 @@ class MainWindow(QMainWindow):
                 "parameters": "",
                 "sender": ""
             }
-            self.wan_sub_task = asyncio.create_task(wan_send_message(ping_msg, token))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
 
     async def wan_rpa_ctrl(self, token):
         if self.host_role == "Staff Officer":
@@ -6079,4 +6132,4 @@ class MainWindow(QMainWindow):
                 "parameters": "",
                 "sender": ""
             }
-            self.wan_sub_task = asyncio.create_task(wan_send_message(ping_msg, token))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))

@@ -6,16 +6,16 @@
     "owner": "public",
     "price": 0,
     "price_model": "free",
-    "path": "/my_skills/",
+    "path": "my_skills/",
     "privacy": "private",
     "platform": "win",
     "app": "chrome",
     "app_link": "C:/Program Files/Google/Chrome/Application/chrome.exe",
     "app_args": "",
     "site_name": "goodsupply",
-    "site": "https://goodsupply.xyz/Dashboard/UploadBulk",
+    "site": "",
     "page": "label",
-    "generator": "genWinChromeGSLabelBulkBuySkill",
+    "generator": "genMyWinChromeGSLabelBulkBuySkill",
     "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
@@ -24,7 +24,7 @@
         }
     },
     "cloud_skill": {
-        "path": "my/win_chrome_goodsupply_label/bulk_buy"
+        "path": "my_skills/win_chrome_goodsupply_label/bulk_buy"
     },
     "main": "F",
     "runtime": 1,
