@@ -38,7 +38,7 @@ options.add_experimental_option('debuggerAddress', f"{webdriver_info['ip']}:{web
 driver = webdriver.Remote(command_executor=webdriver_url, options=options)
 
 # Login to eBay and navigate to messages
-driver.get('https://www.ebay.com/')
+driver.get('https://mesg.ebay.com/mesgweb/ViewMessages/0/m2m')
 time.sleep(5)  # Adjust as needed for page load
 
 # Perform login if needed here
