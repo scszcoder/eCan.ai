@@ -52,6 +52,11 @@ def startExistingChromeDriver():
         chrome_options = Options()
         # chrome_options.add_argument('--headless')
         chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+        chrome_options.add_experimental_option('prefs', {
+            'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
+            'savefile.default_directory': os.getcwd()  # Set your download directory here
+        })
+        chrome_options.add_argument('--kiosk-printing')
 
         # Initialize the WebDriver
         service = ChromeService(executable_path=driver_path)
