@@ -24,6 +24,8 @@ from bot.readSkill import prepRun1Skill, runAllSteps, prepRunSkill
 from bot.scraperAmz import processAmzScrapeSoldOrdersHtml, amz_buyer_scrape_product_details
 from bot.scraperEbay import ebay_seller_get_system_msg_thread, ebay_seller_fetch_page_of_order_list
 from bot.scraperEtsy import processEtsyScrapeOrders
+from bot.scrape1688 import *
+from bot.adsAPISkill import *
 
 global symTab
 import shutil
@@ -1231,3 +1233,22 @@ def test_printer_print_sync():
 def test_save_csk(session, token):
     csk_dir = "C:/Users/songc/PycharmProjects/ecbot/my_skills/win_chrome_goodsupply_label/bulk_buy"
     threading.Thread(target=startSaveCSK, args=(csk_dir, session, token), daemon=True).start()
+
+def test_ebay():
+    print("test ebay")
+    msgs = []
+    adsDriver = start_adspower_profile("DESKTOP-DLLV0")
+
+
+    print('WebDriver Info:', msgs)
+
+def test_1688():
+    print("testing 1688")
+    # Perform search and extract results
+    product_list = search_and_extract_results(search_phrase)
+
+    # Close the driver
+    # stopDriver()
+
+    # Print results in JSON format
+    print(json.dumps(product_list, ensure_ascii=False, indent=4))

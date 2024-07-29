@@ -1,0 +1,22 @@
+[
+    {
+        "file": "bulk_buy.py",
+        "dir": "my_skills/win_chrome_goodsupply_label",
+        "instructions": [
+            {
+                "instruction name": "GS Extract Zipped",
+                "generator": "genStepMyGSExtractZippedFileName",
+                "handler": "processMyGSExtractZippedFileName",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "GS Scrape Labels",
+                "generator": "genStepMyGSScrapeLabels",
+                "handler": "processMyGSScrapeLabels",
+                "generator args": [],
+                "handler args": []
+            }
+        ]
+    }
+]
