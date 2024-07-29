@@ -77,7 +77,9 @@ if __name__ == '__main__':
     # list_windows()
     # test_scrape_amz_product_details()
     # test_printer_print_sync()
-    test_1688()
+    # test_selenium_amazon_shop()
+    test_selenium_GS()
+    # test_selenium_amazon()
 
     try:
         main()

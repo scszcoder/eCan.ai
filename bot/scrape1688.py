@@ -13,7 +13,7 @@ import time
 search_phrase = "手机"  # Example search phrase, you can change this
 url = "https://www.1688.com"
 
-driver = webdriver.Chrome()
+# driver = webdriver.Chrome()
 # Function to extract product details
 def extract_product_details(product):
     try:

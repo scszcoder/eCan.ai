@@ -236,6 +236,7 @@ class WORKSKILL(QStandardItem):
         self.createdOn = datetime.today().strftime('%Y-%m-%d')
         self.description = "This skill does great automation."
         self.generator = ""
+        self.version = "0.0.1"
 
         self.setText(self.name)
         self.icon = QIcon(self.homepath + '/resource/images/icons/skills_78.png')
