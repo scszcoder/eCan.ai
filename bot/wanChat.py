@@ -57,7 +57,7 @@ subscription onMessageReceived {
   }
 }
 """
-async def wan_stop_subscription(mainwin):
+async def wanStopSubscription(mainwin):
     APPSYNC_API_ENDPOINT_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     init_msg = {
         "type": "stop"
@@ -90,7 +90,7 @@ async def wan_stop_subscription(mainwin):
 
 
 
-async def wan_send_message(msg_req, token):
+async def wanSendMessage(msg_req, token):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     variables = {
         "input": {
@@ -123,7 +123,7 @@ async def wan_send_message(msg_req, token):
 
 
 
-async def wan_handle_rx_message(session, token, websocket, in_msg_queue):
+async def wanHandleRxMessage(session, token, websocket, in_msg_queue):
     while True:
         try:
             response = await websocket.recv()
@@ -151,13 +151,13 @@ async def wan_handle_rx_message(session, token, websocket, in_msg_queue):
             break
 
 
-def get_signed_headers(url, credentials):
+def getSignedHeaders(url, credentials):
     request = AWSRequest(method='GET', url=url, data='')
     SigV4Auth(credentials, 'appsync', 'us-west-2').add_auth(request)
     return dict(request.headers.items())
 
 # Function to subscribe to commands
-async def subscribe_to_wan_chat(mainwin, tokens, chat_id="nobody"):
+async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
     WS_API_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com'
     id_token = tokens['AuthenticationResult']['IdToken']

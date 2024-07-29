@@ -10,7 +10,7 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreat
     STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink, genStepSearchWordLine, genStepCalcObjectsDistance, \
     genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination
 from bot.Logger import log3
-from bot.scraperEbay import genStepEbayScrapeOrdersHtml
+from bot.scraperEbay import genStepEbayScrapeOrdersHtml, genStepEbayScrapeMsgList
 from bot.ordersData import Shipping
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
@@ -210,11 +210,11 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
     # psk_words = psk_words + step_words
     #
-    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'label_dir', printer_name]", this_step)
+    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]", this_step)
     psk_words = psk_words + step_words
 
     # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
-    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_dir", "", this_step)
+    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "", this_step)
     psk_words = psk_words + step_words
     #
     # end condition for "not_logged_in == False"
@@ -497,6 +497,9 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global ship_op\nship_op = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global labels_dir\nlabels_dir = "+worksettings+"['log_path_prefix']+'ebay_labels'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepCallExtern("global orders\norders = fin[1]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
@@ -627,7 +630,7 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now go the default download directory and fetch the most recent "ebay-bulk-labels-*.pdf"
-    this_step, step_words = genStepMoveDownloadedFileToDestination("ebay-bulk-labels", "pdf", "labels_dir", "labels_file", "move_done", this_step)
+    this_step, step_words = genStepMoveDownloadedFileToDestination("ebay-bulk-labels", "pdf", "labels_dir", "move_done", this_step)
     psk_words = psk_words + step_words
 
     # end of if len(orders) > 0
@@ -1688,3 +1691,48 @@ def processEbayGenShippingInfoFromOrderID(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+def genWinADSEbayRespondMessagesSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_respond_messages", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY005",
+                                          "Ebay Respond To Customer Messages On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/respond_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now create all label in bulk here: https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt
+    this_step, step_words = genStepCallExtern("global msgurl\nmsgurl = 'https://mesg.ebay.com/mesgweb/ViewMessages/0'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "bulkurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "hf_path", "NA", "sk_work_settings['log_path']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepEbayScrapeMsgList("hf_path", "var", "hf_name", "currentPage", "pageOfMessages", "scrape_stat", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepThink("openai", "chatgpt4o", parameters, products, setup, query, response, result, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/respond_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+
+    return this_step, psk_words
