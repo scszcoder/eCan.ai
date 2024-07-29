@@ -682,18 +682,22 @@ def genStepFillData(fill_type, src, sink, result, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-
-def genStepThink(llm_type, llm_model, parameters, products, setup, query, response, result, stepN):
+# goals: "ordered customer service"/"potential customer service"/"check system message"/"research product"/
+# options: yet to be defined, room for expansion
+# msgs_and_orders: [{ "order": {...order info....}, "msgs": [ {id, timestamp, sender, msg_text}....] (most recent at position 0)} .... ]
+# msg_reponses: [{order_id, most recent msg id, action itmes[action: , action target:, response_text:}....]]
+# action: ["return_and_refund", "full refund", "partial refund %", "full resend", "partial resend"]
+# action target would include: product id, product name, variations, quantity, weight,
+# reponse_text would be the message to send back to customer.....
+def genStepThink(goals_var, options_var, products_var, msgs_and_orders_var, msg_responses_var, flag_var, stepN):
     stepjson = {
         "type": "Think",
-        "llm_type": llm_type,
-        "llm_model": llm_model,
-        "parameters": parameters,
-        "products": products,
-        "setup": setup,
-        "query": query,
-        "response": response,
-        "result": result
+        "goals": goals_var,
+        "options": options_var,
+        "products": products_var,
+        "msgs_and_orders": msgs_and_orders_var,
+        "msg_responses": msg_responses_var,
+        "flag": flag_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -3887,9 +3891,16 @@ def processBringAppToFront(step, i):
     return (i + 1), ex_stat
 
 
+# "type"
+# "goals"
+# "options"
+# "products"
+# "msgs_and_orders"
+# "msg_responses"
+# "flag"
 def processThink(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
-    symTab[step["result"]] = True
+    symTab[step["flag"]] = True
     dtnow = datetime.now()
 
     date_word = dtnow.isoformat()
@@ -3901,8 +3912,17 @@ def processThink(step, i, mission):
         # background could the thread up to the latest message, msg is the latest message
         # background is also a json converted string. in terms of chat or messaging, the json is of the following format:
         # {"orderID": "", "thread": [{"time stamp": yyyy-mm-dd hh:mm:ss, "from": "", "msg txt": "", "attachments": ["",...], }....]}
-        qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "products": symTab[step["products"]],
-               "goals": step["setup"], "background": "", "msg": symTab[step["query"]]}]
+        user = "m"+str(mission.getMid())+"b"+str(mission.getBid())
+        qs = [{
+            "msgID": "1",
+            "user": user,
+            "timeStamp": date_word,
+            "products": json.dumps(symTab[step["products"]]).replace('"', '\\"'),
+            "goals": step["goals"],
+            "options": json.dumps(symTab[step["options"]]).replace('"', '\\"'),
+            "background": json.dumps(symTab[step["msgs_and_orders"]]).replace('"', '\\"'),
+            "msg": "provide answer"
+        }]
         settings = mission.main_win_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
 
@@ -3915,9 +3935,55 @@ def processThink(step, i, mission):
             ex_stat = "ErrorThink:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorThink: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+async def processThink8(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["flag"]] = True
+    dtnow = datetime.now()
+
+    date_word = dtnow.isoformat()
+    try:
+        # goals is a json converted string, the json is of the following format:
+        # { "pass_method": "", "total_score": 0, "passing_score": 0, goals":[{"name": "xxx", "type": "xxx", "mandatory": true/false, "score": "", "standards": number/set of string, "weight": 1, passed": true/false}....]
+        # each individual goal "name" could be "customer service", "procure web search","procure chat","sales chat", "test", if set goal name to "test", this
+        # will get a simple echo back of whatever message sent upstream.
+        # background could the thread up to the latest message, msg is the latest message
+        # background is also a json converted string. in terms of chat or messaging, the json is of the following format:
+        # {"orderID": "", "thread": [{"time stamp": yyyy-mm-dd hh:mm:ss, "from": "", "msg txt": "", "attachments": ["",...], }....]}
+        user = "m"+str(mission.getMid())+"b"+str(mission.getBid())
+        qs = [{
+            "msgID": "1",
+            "user": user,
+            "timeStamp": date_word,
+            "products": json.dumps(symTab[step["products"]]).replace('"', '\\"'),
+            "goals": step["goals"],
+            "options": json.dumps(symTab[step["options"]]).replace('"', '\\"'),
+            "background": json.dumps(symTab[step["msgs_and_orders"]]).replace('"', '\\"'),
+            "msg": "provide answer"
+        }]
+        settings = mission.main_win_settings
+        symTab[step["response"]] = await send_query_chat_request_to_cloud8(settings["session"], settings["token"], qs)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorThink:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorThink: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
 
 def processGenRespMsg(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
