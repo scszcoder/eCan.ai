@@ -140,6 +140,7 @@ def gen_query_chat_request_string(query):
         rec_string = rec_string + "timeStamp: \"" + query[i]["timeStamp"] + "\", "
         rec_string = rec_string + "products: \"" + query[i]["products"] + "\", "
         rec_string = rec_string + "goals: \"" + query[i]["goals"] + "\", "
+        rec_string = rec_string + "options: \"" + query[i]["options"] + "\", "
         rec_string = rec_string + "background: \"" + query[i]["background"] + "\", "
         rec_string = rec_string + "msg: \"" + query[i]["msg"] + "\" }"
 
@@ -1381,6 +1382,22 @@ def send_query_chat_request_to_cloud(session, token, chat_request):
     return jresponse
 
 
+async def send_query_chat_request_to_cloud8(session, token, chat_request):
+
+    queryInfo = gen_query_chat_request_string(chat_request)
+
+    jresp = await appsync_http_request8(queryInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryChats"])
+
+
+    return jresponse
+
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
@@ -1712,3 +1729,28 @@ async def wan_chat_subscribe(token):
         except Exception as e:
             print(f"ErrorInternetConnectionLost: {e}. Retrying websocket connection in 5 seconds...")
             await asyncio.sleep(5)
+
+
+
+def local_http_request(query_string, session, api_Key, url):
+
+    headers = {
+        'Content-Type': "application/graphql",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+
+    # Now we can simply post the request...
+    response = session.request(
+        url=url,
+        method='POST',
+        timeout=300,
+        headers=headers,
+        json={'query': query_string}
+    )
+    # save response to a log file. with a time stamp.
+    print(response)
+
+    jresp = response.json()
+
+    return jresp
