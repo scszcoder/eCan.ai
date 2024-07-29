@@ -12,6 +12,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
@@ -393,6 +394,125 @@ def close_popup(driver):
     except Exception as e:
         print("No pop-up ad detected or unable to close it.")
         print(e)
+
+
+
+def confirmShipment(driver, service, tracking, shipper="USPS"):
+    wait = WebDriverWait(driver, 10)
+
+    # Scroll to the confirm shipment section
+    confirm_shipment_section = wait.until(EC.presence_of_element_located((By.XPATH,
+                                                                          "//div[contains(@class, 'a-box-inner')]//div[contains(@class, 'a-row a-spacing-micro a-spacing-top-micro')]/span[contains(text(), 'Edit shipment')]")))
+    driver.execute_script("arguments[0].scrollIntoView(true);", confirm_shipment_section)
+    time.sleep(2)  # Adjust the wait time as needed
+
+
+    # check and select carrier if needed.
+    carrier_dropdown = wait.until(EC.presence_of_element_located((By.ID, "CarrierListDropdown-559556")))
+    select_carrier = Select(carrier_dropdown)
+    selected_carrier = select_carrier.first_selected_option.text
+
+    if selected_carrier != shipper:
+        select_carrier.select_by_visible_text(shipper)
+
+
+    # Select the correct shipping service from the dropdown
+    shipping_service_dropdown = wait.until(EC.presence_of_element_located((By.ID, "shipping-service-dropdown3")))
+    select = Select(shipping_service_dropdown)
+    select.select_by_visible_text("USPS Priority Mail")  # Replace with the desired shipping service
+
+    # Input the tracking code
+    tracking_input = wait.until(
+        EC.presence_of_element_located((By.XPATH, "//input[@data-test-id='text-input-tracking-id']")))
+    tracking_input.clear()
+    tracking_input.send_keys(tracking)  # Replace with the actual tracking code
+
+    # Click the confirmation button
+    confirm_button = wait.until(EC.element_to_be_clickable(
+        (By.XPATH, "//input[@value='Confirm shipment']")))  # Adjust the button's XPath if necessary
+    confirm_button.click()
+    time.sleep(2)  # Adjust the wait time as needed
+
+    # Go back to the orders page
+    driver.back()
+
+
+
+def processAmzSeleniumObtainTrackingsAndLabels(driver):
+    # tsum = scrapeTabs(driver)
+    # ohead = scrapeOrdersHeading(driver)
+    # Maximize the window (optional)
+    # driver.maximize_window()
+
+    # Define wait time
+    wait = WebDriverWait(driver, 20)
+
+    # Wait until the table is present
+    wait.until(EC.presence_of_element_located((By.ID, "orders-table")))
+
+    # Pause to ensure all content is loaded
+    time.sleep(5)
+
+    # Extract data from the table
+    orders = []
+    row_elements = driver.find_elements(By.XPATH, "//table[@id='orders-table']//tbody/tr")
+    print(f"Found {len(row_elements)} rows")
+
+    # Interact with buttons (Edit shipment, Refund order, Print packing slip)
+    for row_element in row_elements:
+        order_id = row_element.find_element(By.XPATH, ".//td[3]//a").text
+
+        # Click on Edit Shipment
+        edit_shipment_button = row_element.find_element(By.XPATH, ".//a[contains(@href, 'edit-shipment')]")
+        edit_shipment_button.click()
+        print(f"Clicked Edit shipment for Order ID: {order_id}")
+        time.sleep(2)  # Adjust the wait time as needed
+
+        # now try to scroll to the shipping section of order detils, scrape it and click on reprint labels.
+
+        driver.get(order['orderLink'])
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "a-box-group")))
+
+        # Scroll to the shipping info section
+        shipping_info_section = driver.find_element(By.XPATH,
+                                                    "//div[contains(@class, 'a-box-group')]//div[contains(@class, 'a-box') and not(contains(@class, 'a-color-alternate-background'))]")
+        actions = ActionChains(driver)
+        actions.move_to_element(shipping_info_section).perform()
+        time.sleep(2)
+
+        # Scrape the tracking code
+        tracking_code = driver.find_element(By.XPATH, "//a[@data-test-id='tracking-id-value']").text
+        print(f"Tracking Code: {tracking_code}")
+
+        # Click on the "Reprint Label" button
+        reprint_label_button = driver.find_element(By.XPATH,
+                                                   "//span[contains(@class, 'a-button')]/input[@value='Reprint Label']")
+        reprint_label_button.click()
+        print(f"Clicked Reprint Label for Order ID: {order['orderID']}")
+        time.sleep(2)  # Adjust the wait time as needed
+
+        # Go back to the orders page
+        driver.back()
+
+
+        # # Click on Refund Order
+        # refund_order_button = row_element.find_element(By.XPATH, ".//a[contains(@href, 'refund')]")
+        # refund_order_button.click()
+        # print(f"Clicked Refund order for Order ID: {order_id}")
+        # time.sleep(2)  # Adjust the wait time as needed
+        #
+        # driver.back()  # Go back to the orders page
+        # wait.until(EC.presence_of_element_located((By.ID, "orders-table")))
+        #
+        # # Click on Print Packing Slip
+        # print_packing_slip_button = row_element.find_element(By.XPATH, ".//span[@data-test-id='print-packingslip']")
+        # print_packing_slip_button.click()
+        # print(f"Clicked Print packing slip for Order ID: {order_id}")
+        # time.sleep(2)  # Adjust the wait time as needed
+        #
+        # driver.back()  # Go back to the orders page
+        # wait.until(EC.presence_of_element_located((By.ID, "orders-table")))
+
 
 def processAmzSeleniumScrapeOrders(driver):
     # tsum = scrapeTabs(driver)
