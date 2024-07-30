@@ -1043,7 +1043,7 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
             return []
 
 # win_title_keyword == "" means capture the entire screen
-async def readRandomWindow8(win_title_keyword, session, token):
+async def readRandomWindow8(win_title_keyword, session,  token):
     dtnow = datetime.now()
     date_word = dtnow.strftime("%Y%m%d")
     dt_string = str(int(dtnow.timestamp()))
