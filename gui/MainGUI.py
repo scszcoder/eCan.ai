@@ -181,8 +181,6 @@ class MainWindow(QMainWindow):
             self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
-        server = HttpServer(self)
-        self.server_port = server.port
         self.gui_net_msg_queue = gui_msg_queue
         self.gui_rpa_msg_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
@@ -581,6 +579,8 @@ class MainWindow(QMainWindow):
 
             self.skillNewFromFileAction.setDisabled(True)
 
+        server = HttpServer(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        self.server_port = server.port
 
         # centralWidget.addBot(self.botListView)
         self.centralScroll.setWidget(self.botListView)

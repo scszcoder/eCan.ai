@@ -1,5 +1,5 @@
 import axios, {AxiosInstance, AxiosError, AxiosRequestConfig, AxiosResponse} from 'axios';
-import {MessagePlugin} from 'tdesign-vue-next'; // 假设Message是一个可以导入的组件
+import {LoadingPlugin, MessagePlugin} from 'tdesign-vue-next'; // 假设Message是一个可以导入的组件
 
 // 定义请求响应参数
 interface ResponseData<T = any> {
@@ -16,7 +16,7 @@ class AppConfig {
 
     private constructor() {
         this.baseURL = 'http://localhost:8888'; // 使用环境变量
-        this.timeout = parseInt('20000', 10);
+        this.timeout = parseInt('60000', 10);
     }
 
     public static getInstance(): AppConfig {
@@ -60,32 +60,32 @@ class RequestHttp {
         );
 
         this.service.interceptors.response.use(
-            (response) => {
+            async (response) => {
                 const {data} = response;
                 if (!data) {
-                    MessagePlugin.error('请求失败');
+                    await MessagePlugin.error('请求失败');
                     return Promise.reject(data);
                 }
                 return data;
             },
-            (error: AxiosError) => {
+            async (error: AxiosError) => {
                 if (error.response) {
                     const {status} = error.response;
-                    this.handleStatusCode(status);
+                    await this.handleStatusCode(status);
                 }
-                MessagePlugin.error('请求失败');
                 return Promise.reject(error);
             }
         );
     }
 
-    private handleStatusCode(status: number) {
+    private async handleStatusCode(status: number) {
         switch (status) {
             case 401:
-                MessagePlugin.error('登录失败，请重新登录');
+                await MessagePlugin.error('登录失败，请重新登录');
                 break;
             default:
-                MessagePlugin.error('请求失败');
+                await MessagePlugin.error('请求失败');
+                LoadingPlugin(false);
                 break;
         }
     }

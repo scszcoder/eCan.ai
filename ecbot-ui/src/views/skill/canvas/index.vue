@@ -158,7 +158,7 @@
 import {fabric} from 'fabric';
 import {nextTick, onBeforeUnmount, onMounted, reactive, ref} from "vue";
 import {ArrowLeftIcon, ArrowRightIcon, CloseIcon, Icon, MenuApplicationIcon} from "tdesign-icons-vue-next";
-import {FormInstanceFunctions, FormProps, MessagePlugin} from "tdesign-vue-next";
+import {FormProps, MessagePlugin} from "tdesign-vue-next";
 import {useI18n} from 'vue-i18n';
 import _ from 'lodash';
 import {useRoute} from "vue-router";
@@ -184,7 +184,8 @@ import {
   selectionObject,
   showDeleteDialog,
   showReightTool,
-  typeChange
+  typeChange,
+  loading
 } from "@/views/skill/canvas/index";
 
 const {t, locale} = useI18n()

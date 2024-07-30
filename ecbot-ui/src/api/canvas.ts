@@ -7,6 +7,12 @@ export const getImage = (params: any): Promise<any> => {
         return convertImageToBase64(response);
     })
 }
+
+
+export const cloudAnalyzeRandomImage = (params: any): Promise<any> => {
+    // 返回的数据格式可以和服务端约定
+    return apiClient.get('/api/v1/cloudAnalyzeRandomImage', params)
+}
 async function convertImageToBase64(imageData: any) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();

@@ -290,11 +290,19 @@
 {
     "type": "Create Data",
     "data_type": "expr",
+    "data_name": "product_catelog",
+    "key_name": "NA",
+    "key_value": "sk_work_settings['products']"
+},
+"step 170":
+{
+    "type": "Create Data",
+    "data_type": "expr",
     "data_name": "machine_os",
     "key_name": "NA",
     "key_value": "sk_work_settings['platform']"
 },
-"step 170":
+"step 175":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -302,7 +310,7 @@
     "key_name": "NA",
     "key_value": "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]"
 },
-"step 175":
+"step 180":
 {
     "type": "Use Skill",
     "skill_name": "batch_import",
@@ -310,14 +318,14 @@
     "skill_args": "batch_import_input",
     "output": "browser_up"
 },
-"step 180":
+"step 185":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 185":
+"step 190":
 {
     "type": "Call Extern",
     "file": "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
@@ -325,7 +333,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 190":
+"step 195":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -338,7 +346,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 195":
+"step 200":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -362,28 +370,28 @@
     ],
     "post_wait": 2
 },
-"step 200":
+"step 205":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 205":
+"step 210":
 {
     "type": "Wait",
     "random_min": 1,
     "random_max": 3,
     "time": 8
 },
-"step 210":
+"step 215":
 {
     "type": "Go To Window",
     "win_name": "SunBrowser",
     "name_type": "",
     "result": "g2w_status"
 },
-"step 215":
+"step 220":
 {
     "type": "Key Input",
     "action": "",
@@ -392,7 +400,7 @@
     "location": "",
     "wait_after": 3
 },
-"step 220":
+"step 225":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -405,7 +413,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 225":
+"step 230":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -418,14 +426,14 @@
     "breakpoint": false,
     "status": "ip_obtained"
 },
-"step 230":
+"step 235":
 {
     "type": "Check Condition",
     "condition": "ip_obtained",
     "if_else": "",
     "if_end": ""
 },
-"step 235":
+"step 240":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -438,14 +446,14 @@
     "breakpoint": false,
     "status": "site_loaded"
 },
-"step 240":
+"step 245":
 {
     "type": "Check Condition",
     "condition": "site_loaded",
     "if_else": "",
     "if_end": ""
 },
-"step 245":
+"step 250":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -472,14 +480,14 @@
     ],
     "post_wait": 1
 },
-"step 250":
+"step 255":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 255":
+"step 260":
 {
     "type": "Key Input",
     "action": "",
@@ -488,7 +496,7 @@
     "location": "",
     "wait_after": 3
 },
-"step 260":
+"step 265":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
@@ -499,29 +507,29 @@
     "key_after": "enter",
     "wait_after": 1
 },
-"step 265":
+"step 270":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 270":
+"step 275":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 275":
+"step 280":
 {
     "type": "Repeat",
-    "lc_name": "connProxy215",
+    "lc_name": "connProxy220",
     "until": "retry_count > 0 and not ip_obtained",
     "count": "",
     "end": ""
 },
-"step 280":
+"step 285":
 {
     "type": "Key Input",
     "action": "",
@@ -530,14 +538,14 @@
     "location": "",
     "wait_after": 3
 },
-"step 285":
+"step 290":
 {
     "type": "Wait",
     "random_min": 5,
     "random_max": 8,
     "time": 0
 },
-"step 290":
+"step 295":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -550,7 +558,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 295":
+"step 300":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -563,34 +571,27 @@
     "breakpoint": false,
     "status": "site_loaded"
 },
-"step 300":
+"step 305":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 305":
+"step 310":
 {
     "type": "Check Condition",
     "condition": "not ip_obtained",
     "if_else": "",
     "if_end": ""
 },
-"step 310":
+"step 315":
 {
     "type": "Call Extern",
     "file": "global mission_failed\nmission_failed = True",
     "args": "",
     "entity": "in_line",
     "output": ""
-},
-"step 315":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
 },
 "step 320":
 {
@@ -600,6 +601,13 @@
     "fargs": ""
 },
 "step 325":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 330":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -612,7 +620,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 330":
+"step 335":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -629,14 +637,14 @@
     "breakpoint": false,
     "status": "not_logged_in"
 },
-"step 335":
+"step 340":
 {
     "type": "Check Condition",
     "condition": "not_logged_in",
     "if_else": "",
     "if_end": ""
 },
-"step 340":
+"step 345":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -660,7 +668,7 @@
     ],
     "post_wait": 2
 },
-"step 345":
+"step 350":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -673,7 +681,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 350":
+"step 355":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -697,7 +705,7 @@
     ],
     "post_wait": 2
 },
-"step 355":
+"step 360":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
@@ -708,7 +716,7 @@
     "key_after": "enter",
     "wait_after": 1
 },
-"step 360":
+"step 365":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -732,7 +740,7 @@
     ],
     "post_wait": 2
 },
-"step 365":
+"step 370":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -745,7 +753,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 370":
+"step 375":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -769,7 +777,7 @@
     ],
     "post_wait": 2
 },
-"step 375":
+"step 380":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
@@ -780,7 +788,7 @@
     "key_after": "enter",
     "wait_after": 1
 },
-"step 380":
+"step 385":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -804,7 +812,7 @@
     ],
     "post_wait": 2
 },
-"step 385":
+"step 390":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -817,7 +825,7 @@
     "theme": "light",
     "section": "top"
 },
-"step 390":
+"step 395":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -834,44 +842,68 @@
     "breakpoint": false,
     "status": "not_logged_in"
 },
-"step 395":
+"step 400":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 400":
+"step 405":
 {
     "type": "Check Condition",
     "condition": "not_logged_in == False",
     "if_else": "",
     "if_end": ""
 },
-"step 405":
+"step 410":
 {
     "type": "Use Skill",
     "skill_name": "collect_orders",
     "skill_path": "public/win_ads_ebay_orders",
     "skill_args": "dummy_in",
-    "output": "ebay_status"
+    "output": "ebay_orders"
 },
-"step 410":
+"step 415":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "buy_shipping_input",
+    "key_name": "NA",
+    "key_value": "['sale', ebay_orders, product_catelog]"
+},
+"step 420":
 {
     "type": "Use Skill",
     "skill_name": "buy_shipping",
     "skill_path": "public/win_ads_ebay_orders",
-    "skill_args": "shipping_input",
+    "skill_args": "buy_shipping_input",
     "output": "labels_dir"
 },
-"step 415":
+"step 425":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "reformat_print_input",
+    "key_name": "NA",
+    "key_value": "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]"
+},
+"step 430":
+{
+    "type": "Use Skill",
+    "skill_name": "reformat_print",
+    "skill_path": "public/win_printer_local_print",
+    "skill_args": "labels_dir",
+    "output": ""
+},
+"step 435":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 420":
+"step 440":
 {
     "type": "Stub",
     "stub_name": "end skill",
