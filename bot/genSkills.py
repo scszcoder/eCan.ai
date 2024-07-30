@@ -26,6 +26,10 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews
+from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
+    genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
+    genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
+    genStepWebdriverQuit, genStepWebdriverExecJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -65,6 +69,22 @@ PUBLIC = {
     'genScrollUpUntil': genScrollUpUntil,
     'genStepKeyInput': genStepKeyInput,
     'genStepTextInput': genStepTextInput,
+    "genStepWebdriverClick": genStepWebdriverClick,
+    "genStepWebdriverScrollTo": genStepWebdriverScrollTo,
+    "genStepWebdriverKeyIn": genStepWebdriverKeyIn,
+    "genStepWebdriverComboKeys": genStepWebdriverComboKeys,
+    "genStepWebdriverHoverTo": genStepWebdriverHoverTo,
+    "genStepWebdriverFocus": genStepWebdriverFocus,
+    "genStepWebdriverSelectDropDown": genStepWebdriverSelectDropDown,
+    "genStepWebdriverBack": genStepWebdriverBack,
+    "genStepWebdriverForward": genStepWebdriverForward,
+    "genStepWebdriverGoToTab": genStepWebdriverGoToTab,
+    "genStepWebdriverNewTab": genStepWebdriverNewTab,
+    "genStepWebdriverCloseTab": genStepWebdriverCloseTab,
+    "genStepWebdriverQuit": genStepWebdriverQuit,
+    "genStepWebdriverExecJs": genStepWebdriverExecJs,
+    "genStepWebdriverRefreshPage": genStepWebdriverRefreshPage,
+    "genStepWebdriverScreenShot": genStepWebdriverScreenShot,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGoto': genStepGoto,
     'genStepLoop': genStepLoop,
