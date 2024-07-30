@@ -26,7 +26,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
-    processWebdriverExecJs, processWebdriverRefreshPage, processWebdriverScreenShot
+    processWebdriverExecJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
+    processWebdriverStartExistingADS, processWebdriverStartNewChrome
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -191,7 +192,10 @@ RAIS = {
     "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
     "Web Driver Exec Js": lambda x, y: processWebdriverExecJs(x, y),
     "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
-    "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot
+    "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
+    "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
+    "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
+    "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y)
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
@@ -295,7 +299,10 @@ ARAIS = {
     "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
     "Web Driver Exec Js": lambda x, y: processWebdriverExecJs(x, y),
     "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
-    "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot
+    "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
+    "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
+    "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
+    "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y)
 }
 
 # read an psk fill into steps (json data structure)
