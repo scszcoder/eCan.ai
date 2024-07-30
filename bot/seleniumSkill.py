@@ -271,6 +271,35 @@ def genStepWebdriverQuit(driver_var, result_var, flag_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepWebdriverStartExistingChrome(result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Start Existing Chrome",
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepWebdriverStartNewChrome(driver_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Start New Chrome",
+        "driver_var": driver_var,  # anchor, info, text
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepWebdriverStartExistingADS(driver_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Start Existing ADS",
+        "driver_var": driver_var,  # anchor, info, text
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 def processWebdriverClick(step, i):
     log3("click....")
     ex_stat = DEFAULT_RUN_STATUS
@@ -289,7 +318,41 @@ def processWebdriverClick(step, i):
 
     return (i+1), ex_stat
 
-def processStartExistingChromeDriver():
+
+def startExistingChromeDriver():
+    try:
+        driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/chromedriver.exe'
+        absolute_path = os.path.abspath(driver_path)
+        print(f"Absolute path: {absolute_path}")
+        if not os.path.isfile(driver_path):
+            raise ValueError(f"The path is not a valid file: {driver_path}")
+
+        # Set Chrome options if needed
+        chrome_options = Options()
+        # chrome_options.add_argument('--headless')
+        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+        chrome_options.add_experimental_option('prefs', {
+            'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
+            'savefile.default_directory': os.getcwd()  # Set your download directory here
+        })
+        chrome_options.add_argument('--kiosk-printing')
+
+        # Initialize the WebDriver
+        service = ChromeService(executable_path=driver_path)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorStartExistingChromeDriver:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorStartExistingChromeDriver: traceback information not available:" + str(e)
+        print(ex_stat)
+    return driver
+
+
+def processWebdriverStartExistingChrome(step, i):
     try:
         driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/chromedriver.exe'
         absolute_path = os.path.abspath(driver_path)
@@ -311,6 +374,8 @@ def processStartExistingChromeDriver():
         service = ChromeService(executable_path=driver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
 
+        symTab[step["result"]] = driver
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -321,17 +386,42 @@ def processStartExistingChromeDriver():
             ex_stat = "ErrorStartExistingChromeDriver: traceback information not available:" + str(e)
         print(ex_stat)
 
-    return driver
+    return (i + 1), ex_stat
 
 
-def processStartNewChromeDriver():
-    wdriver = webdriver.Chrome()
-    return wdriver
+def processWebdriverStartNewChrome(step, i):
+    try:
+
+        symTab[step["result"]] = webdriver.Chrome()
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorStartExistingChromeDriver:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorStartExistingChromeDriver: traceback information not available:" + str(e)
+        print(ex_stat)
+
+    return (i + 1), ex_stat
 
 
-def processStartExistingADSDriver():
-    return startADSWebDriver
+def processWebdriverStartExistingADS(step, i):
+    try:
+        symTab[step["result"]] = webdriver.Chrome()
 
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSmoothScrollToElement:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSmoothScrollToElement: traceback information not available:" + str(e)
+        print(ex_stat)
+    return (i + 1), ex_stat
 
 
 def smoothScrollToElement(driver, element):
@@ -354,6 +444,7 @@ def smoothScrollToElement(driver, element):
         else:
             ex_stat = "ErrorSmoothScrollToElement: traceback information not available:" + str(e)
         print(ex_stat)
+
 
 def processWebdriverScrollTo(step, i):
     try:

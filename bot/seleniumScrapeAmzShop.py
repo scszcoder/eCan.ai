@@ -17,6 +17,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
+from bot.seleniumSkill import *
+
+
 import json
 import time
 import shutil
@@ -612,3 +615,27 @@ def processAmzSeleniumScrapeOrdersBuyLabels(driver=None):
     # processAmzSeleniumConfirmShipments(driver)
 
     return result
+
+
+def genWinChromeAMZWebdriverFullfillOrdersSkill(worksettings, stepN, theme):
+    print("Default fullfill using amazon labels")
+    psk_words = "{"
+    site_url = "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1"
+
+    this_step, step_words = genStepHeader("win_ads_amz_webdriver_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ005", "Amazon Webdriver Fullfill New Orders On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_orders/webdriver_fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_orders/webdriver_fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_amz_orders/webdriver_fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome webdriver amazon order fullfill..." + psk_words)
+
+    return this_step, psk_words
