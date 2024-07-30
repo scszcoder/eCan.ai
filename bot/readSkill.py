@@ -22,8 +22,11 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processExtractInfo8, DEFAULT_RUN_STATUS, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
-    processMoveDownloadedFileToDestination
-
+    processMoveDownloadedFileToDestination, processObtainReviews
+from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
+    processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
+    processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
+    processWebdriverExecJs, processWebdriverRefreshPage, processWebdriverScreenShot
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -172,7 +175,23 @@ RAIS = {
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
-    "Report To Boss": lambda x,y: processReportToBoss(x, y)
+    "Report To Boss": lambda x,y: processReportToBoss(x, y),
+    "Web Driver Click": lambda x,y: processWebdriverClick(x, y),
+    "Web Driver Scroll To": lambda x,y: processWebdriverScrollTo(x, y),
+    "Web Driver Key In": lambda x, y: processWebdriverKeyIn(x, y),
+    "Web Driver Combo Keys": lambda x, y: processWebdriverComboKeys(x, y),
+    "Web Driver Hover To": lambda x, y: processWebdriverHoverTo(x, y),
+    "Web Driver Focus": lambda x, y: processWebdriverFocus(x, y),
+    "Web Driver Select Drop Down": lambda x, y: processWebdriverSelectDropDown(x, y),
+    "Web Driver Back": lambda x, y: processWebdriverBack(x, y),
+    "Web Driver Forward": lambda x, y: processWebdriverForward(x, y),
+    "Web Driver Go To Tab": lambda x, y: processWebdriverGoToTab(x, y),
+    "Web Driver New Tab": lambda x, y: processWebdriverNewTab(x, y),
+    "Web Driver Close Tab": lambda x, y: processWebdriverCloseTab(x, y),
+    "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
+    "Web Driver Exec Js": lambda x, y: processWebdriverExecJs(x, y),
+    "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
+    "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
@@ -260,7 +279,23 @@ ARAIS = {
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
-    "Report To Boss": lambda x,y: processReportToBoss(x, y)
+    "Report To Boss": lambda x,y: processReportToBoss(x, y),
+    "Web Driver Click": lambda x,y: processWebdriverClick(x, y),
+    "Web Driver Scroll To": lambda x,y: processWebdriverScrollTo(x, y),
+    "Web Driver Key In": lambda x, y: processWebdriverKeyIn(x, y),
+    "Web Driver Combo Keys": lambda x, y: processWebdriverComboKeys(x, y),
+    "Web Driver Hover To": lambda x, y: processWebdriverHoverTo(x, y),
+    "Web Driver Focus": lambda x, y: processWebdriverFocus(x, y),
+    "Web Driver Select Drop Down": lambda x, y: processWebdriverSelectDropDown(x, y),
+    "Web Driver Back": lambda x, y: processWebdriverBack(x, y),
+    "Web Driver Forward": lambda x, y: processWebdriverForward(x, y),
+    "Web Driver Go To Tab": lambda x, y: processWebdriverGoToTab(x, y),
+    "Web Driver New Tab": lambda x, y: processWebdriverNewTab(x, y),
+    "Web Driver Close Tab": lambda x, y: processWebdriverCloseTab(x, y),
+    "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
+    "Web Driver Exec Js": lambda x, y: processWebdriverExecJs(x, y),
+    "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
+    "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot
 }
 
 # read an psk fill into steps (json data structure)

@@ -99,7 +99,6 @@ def genStepHeader(skillname, los, ver, author, skid, description, stepN):
 
 
 
-
 def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, cargs, wait, stepN):
     stepjson = {
         "type": "App Open",
@@ -2444,8 +2443,6 @@ def processSaveData(step, i):
     try:
         with open(step["file_link"], 'w') as f:
             json.dump(symTab[step["data_name"]], f)
-
-
 
     except Exception as e:
         # Get the traceback information
