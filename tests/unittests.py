@@ -363,7 +363,9 @@ def test_api(parent, session, token):
     #     "page": "ads_power",
     #     "layout": "",
     #     "skill_name": "batch_import",
-        # "csk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
+    #     # "psk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.psk", -- not working...
+    #     "psk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.psk",
+    #     # "csk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
     #     "csk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
     #     "lastMove": "top",
     #     "options": "{\\\"anchors\\\": [{\\\"anchor_name\\\": \\\"bot_user\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"TeluguOttoYuGh\\\", \\\"ref_method\\\": \\\"0\\\", \\\"ref_location\\\": []}, {\\\"anchor_name\\\": \\\"bot_open\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"Open\\\", \\\"ref_method\\\": \\\"1\\\", \\\"ref_location\\\": [{\\\"ref\\\": \\\"bot_user\\\", \\\"side\\\": \\\"right\\\", \\\"dir\\\": \\\">\\\", \\\"offset\\\": \\\"1\\\", \\\"offset_unit\\\": \\\"box\\\"}]} ]}",

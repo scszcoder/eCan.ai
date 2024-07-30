@@ -4,8 +4,8 @@ import os
 import subprocess
 from datetime import datetime
 import asyncio
-import win32print
-import win32api
+# import win32print
+# import win32api
 import traceback
 import time
 

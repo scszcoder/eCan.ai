@@ -1,0 +1,314 @@
+
+{"header":
+{
+    "name": "win_ads_local_open_profile",
+    "os": "win",
+    "version": "1.0",
+    "author": "AIPPS LLC",
+    "skid": "PUBWINADSOPEN001",
+    "description": "Windows ADS Power Open Profile."
+},
+"step 5":
+{
+    "type": "Stub",
+    "stub_name": "start skill",
+    "func_name": "public/win_ads_local_open/open_profile",
+    "fargs": ""
+},
+"step 10":
+{
+    "type": "Create Data",
+    "data_type": "obj",
+    "data_name": "sk_work_settings",
+    "key_name": "NA",
+    "key_value": null
+},
+"step 15":
+{
+    "type": "Call Extern",
+    "file": "global sk_work_settings\nprint('SK_WORK_SETTINGS:',sk_work_settings)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 20":
+{
+    "type": "App Open",
+    "action": "run",
+    "save_rb": true,
+    "target_type": "sk_work_settings['app_exe']",
+    "target_link": "",
+    "anchor_type": "",
+    "anchor_value": "",
+    "cargs_type": "expr",
+    "cargs": "sk_work_settings['cargs']",
+    "wait": 3
+},
+"step 25":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "ads_profile_fname",
+    "key_name": "NA",
+    "key_value": "fin[0]"
+},
+"step 30":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 8
+},
+"step 35":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'Profiles', 'No Data']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 40":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "scrn_options",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 45":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "login",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "loginwin"
+},
+"step 50":
+{
+    "type": "Check Condition",
+    "condition": "loginwin == True",
+    "if_else": "",
+    "if_end": ""
+},
+"step 55":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "forget_password",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 1,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        3
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 60":
+{
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 8
+},
+"step 65":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 70":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "scrn_options",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 75":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "login",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "loginwin"
+},
+"step 80":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 85":
+{
+    "type": "Check Condition",
+    "condition": "loginwin != True",
+    "if_else": "",
+    "if_end": ""
+},
+"step 90":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": [
+        "limited",
+        "rights",
+        "reward"
+    ],
+    "name_type": "direct",
+    "target_types": [
+        "anchor text",
+        "anchor text",
+        "anchor text"
+    ],
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "ad_shown"
+},
+"step 95":
+{
+    "type": "Repeat",
+    "lc_name": "ADSPowerLaunch95",
+    "until": "ad_shown",
+    "count": "  ",
+    "end": ""
+},
+"step 100":
+{
+    "type": "Key Input",
+    "action": "",
+    "action_value": "shift,esc",
+    "save_rb": true,
+    "location": "",
+    "wait_after": 3
+},
+"step 105":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 110":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "scrn_options",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "page_data_info": null,
+    "theme": "light",
+    "section": "top"
+},
+"step 115":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "subscription",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "ad_shown"
+},
+"step 120":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 125":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "profiles",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 1,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        7,
+        2
+    ],
+    "post_wait": 2
+},
+"step 130":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 135":
+{
+    "type": "Call Extern",
+    "file": "global fout\nfout = 'ERROR: Unable To Log Into ADS Power!'",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 140":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 145":
+{
+    "type": "Stub",
+    "stub_name": "end skill",
+    "func_name": "public/win_ads_local_open/open_profile",
+    "fargs": ""
+},
+"dummy" : ""}
