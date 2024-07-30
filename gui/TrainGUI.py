@@ -265,17 +265,33 @@ class TrainNewWin(QMainWindow):
     def stop_record(self):
         self.record_over = True
         self.main_win.reminderWin.hide()
-        msgBox = QMessageBox()
-        msgBox.setText(
-            QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
-        # msgBox.setInformativeText("Do you want to save your changes?")
-        msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        # msgBox.setDefaultButton(QMessageBox.Save)
-        ret = msgBox.exec()
-        if ret == QMessageBox.Yes:
-            print("done with demo...")
+        yes_button = QMessageBox.Yes
+        cancel_button = QMessageBox.Cancel
+
+        # 显示带有自定义按钮的信息提示框
+        reply = QMessageBox.information(None, "",
+                                        QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"),
+                                        yes_button | cancel_button)
+        # 根据用户点击的按钮进行不同的处理
+        if reply == QMessageBox.Yes:
+            print("用户点击了 Yes 按钮")
             self.saveRecordFile()
             return False
+        elif reply == QMessageBox.Cancel:
+            QMessageBox.close()
+            print("用户点击了 Cancel 按钮")
+
+        # msgBox = QMessageBox()
+        # msgBox.setText(
+        #     QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
+        # # msgBox.setInformativeText("Do you want to save your changes?")
+        # msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        # # msgBox.setDefaultButton(QMessageBox.Save)
+        # ret = msgBox.exec()
+        # if ret == QMessageBox.Yes:
+        #     print("done with demo...")
+        #     self.saveRecordFile()
+        #     return False
 
     async def _start_listener(self, listener_class, callback_dict):
         """通用监听器启动函数"""

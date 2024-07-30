@@ -2,10 +2,11 @@ import {nextTick, reactive, ref} from "vue";
 import {fabric} from "fabric";
 import {IEvent} from "fabric/fabric-impl";
 import {v4 as uuidv4} from "uuid";
-import {FormInstanceFunctions, FormProps, MessagePlugin} from "tdesign-vue-next";
-import {getImage} from "@/api/canvas";
+import {FormInstanceFunctions, FormProps, LoadingPlugin, MessagePlugin} from "tdesign-vue-next";
+import {cloudAnalyzeRandomImage, getImage} from "@/api/canvas";
 import _ from "lodash";
 
+export const loading = ref(false)
 export const canvas = ref<fabric.Canvas>() // 画板对象
 export const currentRect = ref<fabric.Rect>() // 当前正在绘制的矩形
 export const downPoint = ref() // 按下鼠标的点
@@ -84,17 +85,27 @@ export const init = async () => {
     document.addEventListener('keydown', handleKeyDown);
 }
 export const initEvent = () => {
+    // 鼠标点击时事件
     canvas.value?.on('mouse:down', canvasMouseDown)
+    // 鼠标移动时事件
     canvas.value?.on('mouse:move', canvasMouseMove)
+    // 鼠标抬起时事件
     canvas.value?.on('mouse:up', canvasMouseUp)
+    // 鼠标双击时事件
     canvas.value?.on('mouse:dblclick', canvasMouseDblclick)
+    // 鼠标滚轮事件
     // canvas.value?.on('mouse:wheel', canvasMouseWheel)
+    // 鼠标选中时事件
     canvas.value?.on('selection:created', canvasSelectionCreated)
+    // 鼠标选中时事件
     canvas.value?.on('selection:updated', canvasSelectionUpdated)
+    // 删除对象时事件
     canvas.value?.on('object:removed', (e) => {
         canvas.value?.discardActiveObject().renderAll();
     });
+    // 图层移动事件
     canvas.value?.on("object:moving", canvasObjectMoving)
+    // 删除所有图层事件
     canvas.value?.on('selection:cleared', canvasSelectionCleared)
 }
 
@@ -118,7 +129,7 @@ const canvasObjectMoving = (e: fabric.IEvent<MouseEvent>) => {
 const textBoxCalc = (rect: fabric.Rect, type: string = 'anchor') => {
     if (type === 'anchor') {
         return {
-            left: rect.left + rect.width + 5,
+            left: rect.left + 5,
             top: rect.top + rect.height / 2 - 10,
         }
     }
@@ -139,7 +150,6 @@ const findTextBoxByRect = (rect: fabric.Rect): fabric.Textbox[] => {
 const canvasMouseDblclick = (e: fabric.IEvent<MouseEvent>) => {
     downPoint.value = e.pointer
     const all = findObject(fabric.Rect)
-    console.log(all)
     all.forEach((obj: fabric.Rect) => {
         if (isPointInRect(obj)) {
             canvas.value?.setActiveObject(obj);
@@ -174,54 +184,48 @@ const canvasSelectionCleared = (e: fabric.IEvent<MouseEvent>) => {
  * @param e
  */
 const canvasSelectionUpdated = (e: fabric.IEvent<MouseEvent>) => {
+    const all = findObject(fabric.Rect)
+    console.log('canvasSelectionUpdated', e, all)
     if (e.selected?.length === 1) {
         formReset()
-        selectionObject.value = e.selected
-        showReightTool.value = 1
-        // @ts-ignore
-        const data = selectionObject.value![0].get('formData')
-        if (data) {
-            formData.anchor = data.anchor
-            formData.type = data.type
-            formData.template = data.template
-            formData.method = data.method
-            formData.location = data.location
-        }
+        updateFormData(e)
     }
 }
+/**
+ * 选中创建
+ * @param e
+ */
 const canvasSelectionCreated = (e: fabric.IEvent<MouseEvent>) => {
+    const all = findObject(fabric.Rect)
+    console.log('canvasSelectionCreated', e, all)
     if (e.selected?.length === 1) {
         form.value?.reset()
-        selectionObject.value = e.selected
-        showReightTool.value = 1
-        // @ts-ignore
-        const data = selectionObject.value![0].get('formData')
-        if (data) {
-            formData.anchor = data.anchor
-            formData.type = data.type
-            formData.template = data.template
-            formData.method = data.method
-            formData.location = data.location
-        }
+        updateFormData(e)
+    }
+}
+
+/**
+ * 更新表单数据
+ * @param e
+ */
+const updateFormData = (e: fabric.IEvent<MouseEvent>) => {
+    selectionObject.value = e.selected
+    showReightTool.value = 1
+    // @ts-ignore
+    const data = selectionObject.value![0].get('formData')
+    if (data) {
+        formData.anchor = data.anchor
+        formData.type = data.type
+        formData.template = data.template
+        formData.method = data.method
+        formData.location = data.location
     }
 }
 
 const canvasMouseDown = (e: IEvent<MouseEvent>) => {
     downPoint.value = e.pointer
     if (currentType.value === 'rect') {
-        currentRect.value = new fabric.Rect({
-            left: downPoint.value.x,
-            top: downPoint.value.y,
-            width: 0,
-            height: 0,
-            fill: 'transparent',
-            stroke: 'red',
-            lockRotation: true, // 禁止旋转
-            strokeUniform: true, // 矩形尺寸变化线条大小不变
-            strokeWidth: 1, // 矩形边框宽度
-            // @ts-ignore
-            uuid: uuidv4(),
-        })
+        currentRect.value = createRect(downPoint.value.x, downPoint.value.y, 0, 0)
         canvas.value?.add(currentRect.value)
     } else if (currentType.value === 'drag') {
         canvas.value?.calcOffset();
@@ -229,6 +233,7 @@ const canvasMouseDown = (e: IEvent<MouseEvent>) => {
         const all = findObject(fabric.Rect)
         all.forEach((obj: fabric.Rect) => {
             if (isPointInRect(obj)) {
+                console.log(obj)
                 canvas.value?.setActiveObject(obj);
                 canvas.value?.renderAll();
             }
@@ -351,6 +356,7 @@ export const formReset = () => {
 }
 // 画布操作类型切换
 export const typeChange = (opt: string) => {
+    console.log(opt)
     switch (opt) {
         case 'select': // 默认框选模式
             canvas.value!.selection = true; // 允许框选
@@ -369,7 +375,7 @@ export const typeChange = (opt: string) => {
             if (image!.length == 0) {
                 openUpload()
             } else {
-                MessagePlugin.warning("已存在图片，请先删除图片再上传")
+                MessagePlugin.warning("已存在图片，请先删除图片再上传").finally()
             }
             break;
         case 'clear':
@@ -388,7 +394,7 @@ export const clearObject = () => {
 }
 
 const deleteObject = () => {
-    if (selectionObject.value && showReightTool.value !== 1) {
+    if (selectionObject.value) {
         selectionObject.value.forEach(obj => {
             canvas.value?.remove(obj)
         })
@@ -396,13 +402,13 @@ const deleteObject = () => {
 }
 
 
-export const addRectLabel = (obj: fabric.Object, text: string) => {
+export const addRectLabel = (obj: fabric.Object, text: string, color: string = 'red') => {
     const type = 'anchor'
     const textBox = new fabric.Textbox(text, {
         // @ts-ignore
         ...textBoxCalc(obj, type),
         fontSize: 16,
-        fill: 'red',
+        fill: color,
         selectable: false,
         evented: false,
         width: 100,
@@ -424,9 +430,53 @@ export const addRectLabel = (obj: fabric.Object, text: string) => {
     canvas.value?.renderAll();
 }
 
+const createRect = (left: number, top: number, right: number, bottom: number, color: string = 'red', formData?: any) => {
+    const newWidth = right == 0 ? 0 : Math.abs((left - right));
+    const newHeight = bottom == 0 ? 0 : Math.abs((top - bottom));
+    const rect = new fabric.Rect({
+        left: left,
+        top: top,
+        width: newWidth,
+        height: newHeight,
+        fill: 'transparent',
+        stroke: color,
+        lockRotation: true, // 禁止旋转
+        strokeUniform: true, // 矩形尺寸变化线条大小不变
+        strokeWidth: 2, // 矩形边框宽度
+        // @ts-ignore
+        uuid: uuidv4(),
+        // @ts-ignore
+        formData: formData
+    })
+    canvas.value?.add(rect)
+    return rect
+}
+
+const addFormData = (rect: fabric.Rect, data: any) => {
+    let method = '0'
+    if (data.type == 'info') {
+        method = '0'
+    } else if (data.type == 'polygan') {
+        method = '1'
+    } else if (data.type == 'h line') {
+        method = '2'
+    }
+    const formData = {
+        anchor: data.text,
+        type: 'text',
+        template: data.text,
+        method: method,
+        location: [],
+    }
+    console.log(formData)
+    // @ts-ignore
+    rect.set('formData', formData)
+}
 
 const changeImage = async (index: number) => {
     const all = findObject(fabric.Rect)
+    loading.value = true
+    LoadingPlugin(true);
     if (all) {
         playBackData.value[imageIndex.value] = {
             index: imageIndex.value,
@@ -440,6 +490,9 @@ const changeImage = async (index: number) => {
     imageIndex.value = imageIndex.value + index
     const path = image[imageIndex.value]
     const data = await getImage({file: path})
+    const cloud_data = await cloudAnalyzeRandomImage({file: path})
+    const data_message = cloud_data.data
+
     fabric.Image.fromURL(data, (img) => {
         img.scaleToWidth(img.width!); // 保持图片原始宽度
         img.scaleToHeight(img.height!); // 保持图片原始高度
@@ -457,7 +510,36 @@ const changeImage = async (index: number) => {
             })
             canvas.value?.renderAll();
         }
+
+        data_message.forEach((item: any) => {
+            if (item.type === 'info') {
+                const rect = createRect(item.loc[1], item.loc[0], item.loc[3], item.loc[2], '#ff2fa9')
+                addFormData(rect, item)
+                if (item.type === 'info') {
+                    const txtStruct = item.txt_struct
+                    if (txtStruct) {
+                        txtStruct.forEach((item1) => {
+                            const rect = createRect(item1.box[0], item1.box[1], item1.box[2], item1.box[3], '#35b5ff')
+                            addFormData(rect, item1)
+                            const words = item1.words
+                            if (words) {
+                                words.forEach((item2) => {
+                                    const rect = createRect(item2.box[0], item2.box[1], item2.box[2], item2.box[3], '#00ff3f')
+                                    addFormData(rect, item2)
+                                    addRectLabel(rect, item2.text, '#00ff3f')
+                                })
+                            } else {
+                                addRectLabel(rect, item1.text, '#35b5ff')
+                            }
+                        })
+                    }
+                } else {
+                    addRectLabel(rect, item.text, '#ff2fa9')
+                }
+            }
+        })
     });
+    LoadingPlugin(false);
 }
 
 export const handleKeyDown = async (e: KeyboardEvent) => {
@@ -493,6 +575,7 @@ export const save = () => {
         data.top = rect.top
         data.width = rect.width
         data.height = rect.height
+        data.stroke = rect.stroke
         allData.push(data)
     })
 }

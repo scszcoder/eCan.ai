@@ -4,8 +4,8 @@ import re
 import subprocess
 import time
 from datetime import datetime
-import win32print
-import win32api
+# import win32print
+# import win32api
 import pytz
 
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud
@@ -1237,7 +1237,7 @@ def test_save_csk(session, token):
 def test_ebay():
     print("test ebay")
     msgs = []
-    adsDriver = start_adspower_profile("DESKTOP-DLLV0")
+    # adsDriver = start_adspower_profile("DESKTOP-DLLV0")
 
 
     print('WebDriver Info:', msgs)
