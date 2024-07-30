@@ -1,3 +1,11 @@
+cd C:\Users\songc\PycharmProjects\ecbot\ecbot-ui
+
+call yarn
+
+call yarn build
+
+cd C:\Users\songc\PycharmProjects\ecbot
+
 C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --onedir --windowed ^
 --icon "C:/Users/songc/ECBot.ico" ^
 --name "ECBot" ^
@@ -26,6 +34,7 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/envs;envs/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/requests;requests/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/charset_normalizer;charset_normalizer/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/h11;h11/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/idna;idna/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/certifi;certifi/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/pynput;pynput/" ^
@@ -50,6 +59,9 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/pyqtgraph;pyqtgraph/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/aioconsole;aioconsole/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/schedule;schedule/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/gevent;gevent/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/greenlet;greenlet/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/Levenshtein;Levenshtein/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/fuzzywuzzy;fuzzywuzzy/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/tzlocal;tzlocal/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/qasync;qasync/" ^
@@ -70,7 +82,17 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/pyscreeze;pyscreeze/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/sqlalchemy;sqlalchemy/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/keyboard;keyboard/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/mouseinfo;mouseinfo/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/multidict;multidict/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/mss;mss/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/pymupdf;pymupdf/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv//Lib/site-packages/pymsgbox;pymsgbox/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/importlib_metadata;importlib_metadata/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/selenium;selenium/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/webdriver_manager;webdriver_manager/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/watchdog;watchdog/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/sniffio;sniffio/" ^
+--add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/sortedcontainers;sortedcontainers/" ^
 --add-data "C:/Users/songc/PycharmProjects/ecbot/venv/Lib/site-packages/six.py;." ^
 --hiddenimport "__future__" ^
 --hiddenimport "xml.etree.ElementTree" ^
@@ -85,11 +107,15 @@ C:\Users\songc\PycharmProjects\ecbot\venv\Scripts\pyinstaller.exe --noconfirm --
 --hiddenimport "cProfile" ^
 --paths "C:/Users/songc/PycharmProjects/ecbot" ^
 --paths "C:/Users/songc/PycharmProjects/ecbot/bot" ^
---paths "C:/Users/songc/PycharmProjects/ecbot/gui" ^
---paths "C:/Users/songc/PycharmProjects/ecbot/tests" ^
+--paths "C:/Users/songc/PycharmProjects/ecbot/chromedriver-win64" ^
 --paths "C:/Users/songc/PycharmProjects/ecbot/common" ^
---paths "C:/Users/songc/PycharmProjects/ecbot/globals" ^
 --paths "C:/Users/songc/PycharmProjects/ecbot/config" ^
+--paths "C:/Users/songc/PycharmProjects/ecbot/ecbot-ui" ^
+--paths "C:/Users/songc/PycharmProjects/ecbot/globals" ^
+--paths "C:/Users/songc/PycharmProjects/ecbot/gui" ^
+--paths "C:/Users/songc/PycharmProjects/ecbot/hooks" ^
+--paths "C:/Users/songc/PycharmProjects/ecbot/my_rais_extensions" ^
+--paths "C:/Users/songc/PycharmProjects/ecbot/tests" ^
 --paths "C:/Users/songc/PycharmProjects/ecbot/utils" ^
 --paths "C:/Python310/Lib" ^
 --workpath "C:/Users/songc/ECBot_build" ^
