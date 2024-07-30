@@ -25,7 +25,9 @@ from bot.scraperAmz import processAmzScrapeSoldOrdersHtml, amz_buyer_scrape_prod
 from bot.scraperEbay import ebay_seller_get_system_msg_thread, ebay_seller_fetch_page_of_order_list
 from bot.scraperEtsy import processEtsyScrapeOrders
 from bot.scrape1688 import *
-from bot.adsAPISkill import *
+from bot.seleniumScrapeAmzShop import processAmzSeleniumScrapeOrdersBuyLabels, processAmzSeleniumScrapeOrders, processAmzSeleniumConfirmShipments
+from my_skills.win_chrome_goodsupply_label.webdriver_buy_gs_labels import processMySeleniumBuyBulkGSLabels
+from bot.seleniumScrapeAmz import processAmzSeleniumScrapeSearchResults
 
 global symTab
 import shutil
@@ -1234,13 +1236,8 @@ def test_save_csk(session, token):
     csk_dir = "C:/Users/songc/PycharmProjects/ecbot/my_skills/win_chrome_goodsupply_label/bulk_buy"
     threading.Thread(target=startSaveCSK, args=(csk_dir, session, token), daemon=True).start()
 
-def test_ebay():
+def test_ebay(session, token):
     print("test ebay")
-    msgs = []
-    adsDriver = start_adspower_profile("DESKTOP-DLLV0")
-
-
-    print('WebDriver Info:', msgs)
 
 def test_1688():
     print("testing 1688")
@@ -1252,3 +1249,47 @@ def test_1688():
 
     # Print results in JSON format
     print(json.dumps(product_list, ensure_ascii=False, indent=4))
+
+def test_selenium_amazon_shop():
+    processAmzSeleniumScrapeOrdersBuyLabels()
+    # processAmzSeleniumScrapeOrders()
+    # processAmzSeleniumConfirmShipments()
+
+def test_selenium_GS():
+    #
+    # "UPS 2nd Day Air"
+    # "UPS Next Day Air Early"
+    # "UPS Next Day Air"
+    # "UPS Standard"
+    # "UPS Expedited"
+    # "UPS Express"
+    # "UPS Express Early "
+    # "USPS Ground Advantage (1-15oz)"
+    # "UPS Express Saver"
+    # "USPS Priority V4"
+    # "USPS Express v4"
+    # "USPS Priority Signature v4"
+    # "USPS Express Signature v4"
+    # "USPS Ground Advantage Signature (1-15oz)"
+    # "Ups Next Day Air Saver"
+    # "USPS Ground Advantage (1-70lb)"
+    # "USPS Ground Advantage Signature (1-70lb)"
+    # "UPS Next Day Air Early Saturday"
+    # "UPS Next Day Air Saturday"
+    # "UPS 2nd Day Air Saturday"
+    #
+    gs_request = {
+        "bulk request form": "C:/temp/etsyOrdersGroundTest916.xlsx",
+        "shipping service": "USPS Ground Advantage (1-15oz)",
+        "orders": [
+            {
+
+            }
+        ]
+    }
+    processMySeleniumBuyBulkGSLabels(gs_request)
+
+
+def test_selenium_amazon():
+    print("running test selenium amazon")
+    processAmzSeleniumScrapeSearchResults()
