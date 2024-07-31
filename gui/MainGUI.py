@@ -285,7 +285,9 @@ class MainWindow(QMainWindow):
         self.wifis = []
         self.dbfile = self.homepath + "/resource/data/myecb.db"
         self.product_catelog_file = ecb_data_homepath + "/resource/data/product_catelog.json"
-
+        self.general_settings_file = self.homepath + "/resource/data/settings.json"
+        self.general_settings = {}
+        self.debug_mode = False
         self.readSellerInventoryJsonFile("")
 
         self.showMsg("main window ip:" + self.ip)
@@ -298,6 +300,12 @@ class MainWindow(QMainWindow):
             self.commanderIP = commanderIP
             self.tcpServer = None
 
+        if os.path.exists(self.general_settings_file):
+            with open(self.general_settings_file, 'r') as gen_settings_f:
+                self.general_settings = json.load(gen_settings_f)
+                if "debug_mode" in self.general_settings:
+                    self.debug_mode = self.general_settings["debug_mode"]
+        self.showMsg("Debug Mode:" + str(self.debug_mode))
         self.showMsg("self.platform==================================================>" + self.platform)
         if os.path.exists(self.ads_settings_file):
             with open(self.ads_settings_file, 'r') as ads_settings_f:
@@ -1485,17 +1493,22 @@ class MainWindow(QMainWindow):
             self.showMsg("Done handling today's new Buy orders...")
 
             # next line commented out for testing purpose....
-            # jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
-            jresp = {}
+            if not self.debug_mode:
+                jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+                print("schedule JRESP:", jresp)
+            else:
+                jresp = {}
+
             if "errorType" in jresp:
                 screen_error = True
                 self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
-
-                # uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
-                uncompressed = "{}"
+                if not self.debug_mode:
+                    uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
+                else:
+                    uncompressed = "{}"
 
                 # for testing purpose, short circuit the cloud fetch schedule and load a tests schedule from a tests
                 # json file instead.
@@ -1503,36 +1516,39 @@ class MainWindow(QMainWindow):
                 # uncompressed = jresp["body"]
                 self.showMsg("decomppressed response:"+uncompressed+"!")
                 if uncompressed != "":
-                    # self.showMsg("body string:", uncompressed, "!", len(uncompressed), "::")
-                    # bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
-                    # file = 'C:/software/scheduleResultTest7.json'
-                    # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
-                    # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                    file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                    file = 'C:/temp/scheduleResultTest99.json'
-                    # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
-                    if exists(file):
-                        with open(file) as test_schedule_file:
-                            bodyobj = json.load(test_schedule_file)
-                            for nm in bodyobj["added_missions"]:
-                                today = datetime.today()
-                                formatted_today = today.strftime('%Y-%m-%d')
-                                bd_parts = nm["createon"].split()
-                                nm["createon"] = formatted_today + " " + bd_parts[1]
+                    self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+                    if not self.debug_mode:
+                        bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
+                    else:
+                        # file = 'C:/software/scheduleResultTest7.json'
+                        # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
+                        # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
+                        file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
+                        file = 'C:/temp/scheduleResultTest99.json'
+                        # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
+                        if exists(file):
+                            with open(file) as test_schedule_file:
+                                bodyobj = json.load(test_schedule_file)
 
-                        self.showMsg("bodyobj: " + json.dumps(bodyobj))
-                        if len(bodyobj) > 0:
-                            self.addNewlyAddedMissions(bodyobj)
-                            # now that todays' newly added missions are in place, generate the cookie site list for the run.
-                            self.build_cookie_site_lists()
-                            self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
-                            # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
-                            self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
-                            self.unassigned_task_groups = self.todays_scheduled_task_groups
-                            self.assignWork()
-                            self.logDailySchedule(uncompressed)
-                        else:
-                            self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
+                    for nm in bodyobj["added_missions"]:
+                        today = datetime.today()
+                        formatted_today = today.strftime('%Y-%m-%d')
+                        bd_parts = nm["createon"].split()
+                        nm["createon"] = formatted_today + " " + bd_parts[1]
+
+                    self.showMsg("bodyobj: " + json.dumps(bodyobj))
+                    if len(bodyobj) > 0:
+                        self.addNewlyAddedMissions(bodyobj)
+                        # now that todays' newly added missions are in place, generate the cookie site list for the run.
+                        self.build_cookie_site_lists()
+                        self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
+                        # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+                        self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
+                        self.unassigned_task_groups = self.todays_scheduled_task_groups
+                        self.assignWork()
+                        self.logDailySchedule(uncompressed)
+                    else:
+                        self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 

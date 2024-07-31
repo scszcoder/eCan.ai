@@ -19,7 +19,7 @@ import numpy as np
 from ping3 import ping
 
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
-    send_query_chat_request_to_cloud
+    send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle
 from bot.Logger import log3
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -4518,4 +4518,66 @@ def getMostRecentFile(download_dir, prefix="", extension="pdf"):
 
     most_recent_file = max(list_of_files, key=os.path.getctime)
     return most_recent_file
+
+
+global hil_queue
+WAIT_HIL_RESPONSE = "Waiting For Human"
+async def processReqHumanInLoop(step, i, mission, hq):
+        ex_stat = DEFAULT_RUN_STATUS
+
+        try:
+            # send request to cloud
+            settings = mission.main_win_settings
+            response = wanSendRequestSolvePuzzle(msg, settings["token"])
+
+            # put request into queue
+            # add time stamp to
+            asyncio.create_task(hq.put(self.peername[0] + "!net data!" + message))
+
+            # starts a time
+
+
+            #setting the state here will suspend.
+            ex_stat = WAIT_HIL_RESPONSE
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorMoveDownloadedFileToDestination:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorMoveDownloadedFileToDestination: traceback information not available:" + str(e)
+            symTab[step["flag"]] = False
+            log3(ex_stat)
+
+        return (i + 1), ex_stat
+
+
+
+async def processCloseHumanInLoop(step, i, mission, hq):
+        ex_stat = DEFAULT_RUN_STATUS
+
+        try:
+            # dequeue the HIL item
+            settings = mission.main_win_settings
+            log3("Close the HIL Loop")
+            #
+            # put back the program counter.
+            response = wanSendRequestConfirmPuzzle(msg, settings["token"])
+            #
+
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorMoveDownloadedFileToDestination:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorMoveDownloadedFileToDestination: traceback information not available:" + str(e)
+            symTab[step["flag"]] = False
+            log3(ex_stat)
+
+        return (i + 1), ex_stat
 
