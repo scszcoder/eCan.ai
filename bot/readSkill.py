@@ -19,10 +19,11 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processExceptionHandler, processEndException, processSearchAnchorInfo, processSearchWordLine, processThink, \
     processFillRecipients, processSearchScroll, processScrollToLocation, process7z, processListDir, processCheckExistence, processCreateDir, \
     processSellCheckShipping, processGenRespMsg, processUpdateBuyMissionResult, processGoToWindow, processReportToBoss, \
-    processExtractInfo8, DEFAULT_RUN_STATUS, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
+    processExtractInfo8, DEFAULT_RUN_STATUS, WAIT_HIL_RESPONSE, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
-    processMoveDownloadedFileToDestination, processObtainReviews
+    processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop
+
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
@@ -67,6 +68,7 @@ skill_table = {"nothing": ""}
 function_table = {"nothing": ""}
 skill_stack = []
 
+hil_queue = asyncio.Queue()
 
 # SC - 2023-03-07 files and dirs orgnization structure:
 #
@@ -195,7 +197,9 @@ RAIS = {
     "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
-    "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y)
+    "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
+    "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
+    "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
@@ -302,7 +306,9 @@ ARAIS = {
     "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
-    "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y)
+    "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
+    "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
+    "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v)
 }
 
 # read an psk fill into steps (json data structure)
@@ -456,6 +462,9 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
                     input("hit any key to continue")
 
                 log3("next_step_index: "+str(next_step_index)+"len(stepKeys)-1: "+str(len(stepKeys)-1))
+            elif step_stat == WAIT_HIL_RESPONSE:
+                # suspend the run if we're waiting for human to help
+                running = False
             else:
                 last_error_stat = step_stat+":"+stepKeys[last_step]
 
@@ -476,6 +485,13 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
             elif msg["cmd"] == "reqHaltMissions":
                 print("RPA HALTed", next_step_index, len(stepKeys), step_stat)
                 running = False
+            elif msg["cmd"] == "HILResponse":           # real time human in the loop response.
+                print("Human Response Received.")
+                result = processFollowHumanInLoop(msg, mission, -1)
+                if result == DEFAULT_RUN_STATUS:
+                    running = True
+                else:
+                    running = False
             elif msg["cmd"] == "reqResumeMissions":
                 print("RPA RESUMEd")
                 running = True
@@ -499,6 +515,8 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
         # should close the current app here, make room for the next retry, and other tasks...
 
     return run_result
+
+def handleHILResponse(msg):
 
 def sendGUIMessage(msg_queue, msg_data):
     asyncio.create_task(msg_queue.put(msg_data))
@@ -612,6 +630,12 @@ async def run1step8(steps, si, mission, skill, stack):
                 si,isat = await ARAIS[step["type"]](step, si, stack, function_table, stepKeys)
             else:
                 si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, function_table, stepKeys)
+
+        elif step["type"] == "Request Human In Loop" or step["type"] == "Close Human In Loop":
+            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                si,isat = await ARAIS[step["type"]](step, si, mission, hil_queue)
+            else:
+                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, hil_queue)
 
         elif "EXT:" in step["type"]:
             if step["type"].index("EXT:") == 0:
@@ -1101,135 +1125,6 @@ def genNextStepNumber(currentN, steps=1):
 
 
 
-# for the detail config:
-# #   { level: 1~5, seeAll : true/false, allPos: true/false, allNeg: true/false, nExpand: ,nPosPages: , nNegPages: }
-# seeAll: whether to click on seeAll
-# allPos: whether to click on all positive review link.
-# allNeg: whether to click on all negative review link
-# nPosExpand: max number of times to expand to see a very long positive reviews
-# nNegExpand: max number of times to expand to see a very long negative reviews
-# nPosPages: number of positive review pages to browse thru.
-# nPosPages: number of negative review pages to browse thru.
-# pseudo code:
-#    if seeAll:
-#       click on seeAll which will take us to the all review page.
-#       if allPos:
-#           click on all positive reviews, this will take us to the all positive review page.
-#           for i in range(nPosPages):
-#               while not reached bottom:
-#                   view all review, (tricky, could have long reviews which span multiple screen without images)
-#                   scroll down
-#                   check whether reached bottom
-#           whether we have reached the last page
-#               if so:
-#                   go back. there are two strategy here, A: browse previous page. B: scroll to top and click on the product again.
-#               else:
-#                   click on "Next page"
-#
-#    else:
-#        while not reached bottom:
-#            extract screen info.
-#            if there is expand mark,
-#                if  nPosExand > 0:
-#                   click on "read more",
-#                   view expanded review, (tricky, could span multiple screen without images)
-#                   scroll till the end of this review.
-#                   nPosExand = nPosExand - 1
-#            are we at the bottom of the page.
-#
-#  SC - 20230506 - this routine is kind of useless for now..............
-
-def genStepAMZBrowseReviews(screen, detail_cfg, stepN, worksettings, page, sect, theme):
-    psk_words = ""
-    # grab location of the title of the "matchedProducts" and put it into variable "product_title"
-    #(action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], stepN)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", worksettings, "screen_info", "amazon_home", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    if detail_cfg.seeAll:
-        #(action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "See All Reviews", "anchor text", "See All Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepWait(3, 0, 0, this_step)
-        psk_words = psk_words + step_words
-
-        if detail_cfg.allPos:
-            # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All positive Reviews", "anchor text", "All positive Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
-            psk_words = psk_words + step_words
-
-            this_step, step_words = genStepWait(3, 0, 0, this_step)
-            psk_words = psk_words + step_words
-
-            # screen, np, nn, stepN, root, page, sect):
-            this_step, step_words = genBrowseAllReviewsPage("screen_info", 1, 1, this_step, worksettings, "all reviews", "top")
-
-        if detail_cfg.allNeg:
-            # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "All negative Reviews", "anchor text", "All negative Reviews", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
-            psk_words = psk_words + step_words
-
-            this_step, step_words = genStepWait(3, 0, 0, this_step)
-            psk_words = psk_words + step_words
-
-            this_step, step_words = genBrowseAllReviewsPage("screen_info", 1, 1, this_step, worksettings, "all reviews", "top")
-
-    else:
-        # now simply scroll down
-        this_step, step_words = genStepCreateData("bool", "endOfReviews", "NA", False, this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepLoop("endOfReviews != True", "", "", "browseReviews"+str(stepN), this_step)
-        psk_words = psk_words + step_words
-
-        # (action, screen, amount, unit, stepN):
-        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
-        psk_words = psk_words + step_words
-
-        # check whether there is any match of this page's product, if matched, click into it.
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", detail_cfg.products, "direct", "text", "any", "matchedProducts", "expandable", False, this_step)
-        psk_words = psk_words + step_words
-
-        if detail_cfg.nExpand > 0:
-            # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-            this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "read more", "anchor text", "read more", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
-            psk_words = psk_words + step_words
-
-            #now scroll until the end of this review.
-
-            detail_cfg.nExpand = detail_cfg.nExpand-1
-
-        this_step, step_words = genStepStub("end loop", "", "", this_step)
-        psk_words = psk_words + step_words
-
-    # click into the product title.
-    # (action, action_args, screen, target, target_type, nth, offset_from, offset, offset_unit, stepN):
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "1 star", "anchor text", "1 star", [0, 0], "center", [0, 0], "pixel", 2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    ## browse all the way down, until seeing "No customer reviews" or "See all reviews"
-    this_step, step_words = genStepLoop("reviews_eop != True", "", "", "browseListOfDetails"+str(stepN), this_step)
-    psk_words = psk_words + step_words
-
-    # (action, screen, amount, unit, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", "50", "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepAMZSearchReviews("screen_info", "prod_details", "atbottom", this_step)
-    psk_words = psk_words + step_words
-
-    # here, if need to click open half hidden long reviews.....
-    this_step, step_words = genStepSearchAnchorInfo("screen_info","See all details", "direct", "screen_info", "any", "eop_review", "reviews_eop", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    return this_step, psk_words
 
 
 def get_printable_datetime():
