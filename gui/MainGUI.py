@@ -6175,8 +6175,9 @@ class MainWindow(QMainWindow):
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
 
-    def wan_chat_test(self, token):
+    def wan_chat_test(self):
+        token = self.tokens["AuthenticationResult"]["IdToken"]
         if self.host_role == "Staff Officer":
-            self.wan_ping(self, token)
+            self.wan_ping(token)
         elif self.host_role != "Platoon":
-            self.wan_pong(self, token)
+            self.wan_pong(token)
