@@ -487,7 +487,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
                 running = False
             elif msg["cmd"] == "HILResponse":           # real time human in the loop response.
                 print("Human Response Received.")
-                result = processFollowHumanInLoop(msg, mission, -1)
+                result, next_i  = processCloseHumanInLoop(msg, mission, -1)
                 if result == DEFAULT_RUN_STATUS:
                     running = True
                 else:
@@ -516,7 +516,6 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
     return run_result
 
-def handleHILResponse(msg):
 
 def sendGUIMessage(msg_queue, msg_data):
     asyncio.create_task(msg_queue.put(msg_data))
