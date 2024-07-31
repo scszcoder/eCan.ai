@@ -10,6 +10,7 @@ from botocore.awsrequest import AWSRequest
 from Cloud import gen_wan_send_chat_message_string
 import base64
 from datetime import datetime
+from Logger import log3
 
 # Wan Chat Logic
 # Commander will connect to websocket and subscribe, and wan logging is default off, then sit in a loop
@@ -128,6 +129,7 @@ async def wanHandleRxMessage(session, token, websocket, in_msg_queue):
         try:
             response = await websocket.recv()
             response_data = json.loads(response)
+            log3("WAN RECEIVED SOMETHING:"+response)
             if response_data["type"] == "data":
                 command = response_data["payload"]["data"]["onMessageReceived"]
                 print("Wan Chat Message received:", command)

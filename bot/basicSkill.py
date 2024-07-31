@@ -807,6 +807,25 @@ def genStepMoveDownloadedFileToDestination(prefix, extension, destination, resul
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepReqHumanInLoop(qvar, img_var, type_var, time_var, retry_var, req_id_var, site_var, site_key_var, expected_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Request Human In Loop",
+        "question": qvar,
+        "img_file": img_var,
+        "type": type_var,
+        "time_limit": time_var,
+        "retry_limit": time_var,
+        "req_id": req_id_var,
+        "web_site": site_var,
+        "web_site_ey": site_key_var,
+        "expected_after": expected_var,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 def genException():
     psk_words = ""
     this_step, step_words = genStepExceptionHandler("", "", 8000000)
@@ -4526,13 +4545,14 @@ async def processReqHumanInLoop(step, i, mission, hq):
         ex_stat = DEFAULT_RUN_STATUS
 
         try:
+            msg = {}
             # send request to cloud
             settings = mission.main_win_settings
             response = wanSendRequestSolvePuzzle(msg, settings["token"])
 
             # put request into queue
             # add time stamp to
-            asyncio.create_task(hq.put(self.peername[0] + "!net data!" + message))
+            asyncio.create_task(hq.put(msg))
 
             # starts a time
 
@@ -4555,29 +4575,45 @@ async def processReqHumanInLoop(step, i, mission, hq):
 
 
 
-async def processCloseHumanInLoop(step, i, mission, hq):
-        ex_stat = DEFAULT_RUN_STATUS
 
-        try:
-            # dequeue the HIL item
-            settings = mission.main_win_settings
-            log3("Close the HIL Loop")
-            #
-            # put back the program counter.
-            response = wanSendRequestConfirmPuzzle(msg, settings["token"])
-            #
+# this is not really a step, some kind of internal step in the sense, it will
+# 1) execute human suggested action in the message,
+# 2) run an extract info step, the result of it will be picked up by actual skill step instructions.
+# 3) find corresponding queued HIL request message, and compare i) time limit ii) expected after effect
+#    if successful, then:
+#      a) send the confirmation out to cloud side
+#      b) dequeue the HIL request,
+#      c) resume instruction execution
+#    else:
+#      a) still send confimration out to cloud (with failure status)
+#      b) retry -
+#
+#
+# msg{} format:
+#   {  "action": "key"/"clicks"/"drags", "key": "text", "clicks": [{"loc": [], "wait": 1},...], "drags": [{"loc":[], "wait":0}...] }
+def processCloseHumanInLoop(step, i, mission, hq):
+    ex_stat = DEFAULT_RUN_STATUS
+
+    try:
+        # dequeue the HIL item
+        settings = mission.main_win_settings
+        log3("Close the HIL Loop")
+        msg = {}
+        #
+        # put back the program counter.
+        response = wanSendConfirmSolvePuzzle(msg, settings["token"])
+        #
 
 
-        except Exception as e:
-            # Get the traceback information
-            traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
-            if traceback_info:
-                ex_stat = "ErrorMoveDownloadedFileToDestination:" + traceback.format_exc() + " " + str(e)
-            else:
-                ex_stat = "ErrorMoveDownloadedFileToDestination: traceback information not available:" + str(e)
-            symTab[step["flag"]] = False
-            log3(ex_stat)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorMoveDownloadedFileToDestination:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorMoveDownloadedFileToDestination: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
 
-        return (i + 1), ex_stat
-
+    return (i + 1), ex_stat

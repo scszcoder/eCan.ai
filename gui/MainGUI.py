@@ -203,7 +203,10 @@ class MainWindow(QMainWindow):
         self.cog = None
         self.cog_client = None
         self.host_role = machine_role
-        self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
+        if "Only" in self.host_role:
+            self.chat_id = self.chat_id + "_Commander"
+        else:
+            self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
         self.staff_officer_on_line = False
         self.workingState = "Idle"
         usrparts = self.user.split("@")
@@ -493,6 +496,7 @@ class MainWindow(QMainWindow):
 
         self.toolsADSProfileConverterAction = self._createToolsADSProfileConverterAction()
         self.toolsADSProfileBatchToSinglesAction = self._createToolsADSProfileBatchToSinglesAction()
+        self.toolsWanChatTestAction = self._createToolsWanChatTestAction()
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
@@ -1090,6 +1094,7 @@ class MainWindow(QMainWindow):
         tools_menu.setFont(self.main_menu_font)
         tools_menu.addAction(self.toolsADSProfileConverterAction)
         tools_menu.addAction(self.toolsADSProfileBatchToSinglesAction)
+        tools_menu.addAction(self.toolsWanChatTestAction)
 
         menu_bar.addMenu(tools_menu)
 
@@ -1371,6 +1376,15 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&ADS Profile Batch To Singles"))
         new_action.triggered.connect(self.runADSProfileBatchToSingles)
         return new_action
+
+
+    def _createToolsWanChatTestAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Wan Chat Test"))
+        new_action.triggered.connect(self.wan_chat_test)
+        return new_action
+
 
     def _createHelpCommunityAction(self):
         # File actions
@@ -3112,6 +3126,7 @@ class MainWindow(QMainWindow):
         except IOError:
             QMessageBox.information(self, "Unable to open/save file: %s" % filename)
 
+
     def runADSProfileBatchToSingles(self):
         filename, _ = QFileDialog.getOpenFileName(
             self,
@@ -3127,6 +3142,8 @@ class MainWindow(QMainWindow):
 
         except IOError:
             QMessageBox.information(self, "Unable to open/save file: %s" % filename)
+
+
 
 
     def showAbout(self):
@@ -6108,6 +6125,19 @@ class MainWindow(QMainWindow):
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
 
 
+    async def wan_pong(self, token):
+        if "Commander" in self.host_role:
+            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            ping_msg = {
+                "content": json.dumps({"type": "cmd", "cmd": "pong"}),
+                "chatID": self.chat_id,
+                "receiver": sa_chat_id,
+                "parameters": "",
+                "sender": ""
+            }
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
+
+
     async def wan_request_log(self, token):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
@@ -6133,7 +6163,7 @@ class MainWindow(QMainWindow):
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
 
-    async def wan_rpa_ctrl(self, token):
+    def wan_rpa_ctrl(self, token):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
@@ -6144,3 +6174,9 @@ class MainWindow(QMainWindow):
                 "sender": ""
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
+
+    def wan_chat_test(self, token):
+        if self.host_role == "Staff Officer":
+            self.wan_ping(self, token)
+        elif self.host_role != "Platoon":
+            self.wan_pong(self, token)
