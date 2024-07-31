@@ -363,8 +363,6 @@ def test_api(parent, session, token):
     #     "page": "ads_power",
     #     "layout": "",
     #     "skill_name": "batch_import",
-    #     # "psk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.psk", -- not working...
-    #     "psk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.psk",
     #     # "csk": "C:\\Users\\songc\\PycharmProjects\\ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
     #     "csk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
     #     "lastMove": "top",
