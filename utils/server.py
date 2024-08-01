@@ -10,7 +10,7 @@ from threading import Thread
 
 from config.app_info import AppInfo
 from bot.basicSkill import cloudAnalyzeRandomImage8
-
+from utils.logger_helper import logger_helper
 global cloud_session
 global cloud_token
 
@@ -116,8 +116,11 @@ class HttpServer:
     def __init__(self, main_window, session, token):
         self.port = self.find_free_port()
         self.port = 8888
-        print("Server started on port:", self.port)
         app_info = AppInfo()
+        logger_helper.debug("====================================================================")
+        logger_helper.debug("Server started on port:" + str(self.port))
+        logger_helper.debug("Resource file path：" + app_info.app_resources_path)
+        logger_helper.debug("====================================================================")
         self.httpd = self.start_http_server(app_info.app_resources_path + '/ui', self.port)
         global cloud_session
         cloud_session = session
