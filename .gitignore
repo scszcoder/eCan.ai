@@ -6,3 +6,5 @@
 /dist
 *.spec
 test.py
+*.psk
+*.pyc

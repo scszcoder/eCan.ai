@@ -26,6 +26,11 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews
+from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
+    genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
+    genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
+    genStepWebdriverQuit, genStepWebdriverExecJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
+    genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -44,6 +49,8 @@ from bot.scraperEbay import genStepEbayScrapeMsgList, genStepEbayScrapeOrdersHtm
 from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml
 from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
+from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
+from bot.seleniumScrapeEBayShop import genWinADSEbayWebdriverFullfillOrdersSkill
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -65,6 +72,25 @@ PUBLIC = {
     'genScrollUpUntil': genScrollUpUntil,
     'genStepKeyInput': genStepKeyInput,
     'genStepTextInput': genStepTextInput,
+    "genStepWebdriverClick": genStepWebdriverClick,
+    "genStepWebdriverScrollTo": genStepWebdriverScrollTo,
+    "genStepWebdriverKeyIn": genStepWebdriverKeyIn,
+    "genStepWebdriverComboKeys": genStepWebdriverComboKeys,
+    "genStepWebdriverHoverTo": genStepWebdriverHoverTo,
+    "genStepWebdriverFocus": genStepWebdriverFocus,
+    "genStepWebdriverSelectDropDown": genStepWebdriverSelectDropDown,
+    "genStepWebdriverBack": genStepWebdriverBack,
+    "genStepWebdriverForward": genStepWebdriverForward,
+    "genStepWebdriverGoToTab": genStepWebdriverGoToTab,
+    "genStepWebdriverNewTab": genStepWebdriverNewTab,
+    "genStepWebdriverCloseTab": genStepWebdriverCloseTab,
+    "genStepWebdriverQuit": genStepWebdriverQuit,
+    "genStepWebdriverExecJs": genStepWebdriverExecJs,
+    "genStepWebdriverRefreshPage": genStepWebdriverRefreshPage,
+    "genStepWebdriverScreenShot": genStepWebdriverScreenShot,
+    "genStepWebdriverStartExistingChrome": genStepWebdriverStartExistingChrome,
+    "genStepWebdriverStartExistingADS": genStepWebdriverStartExistingADS,
+    "genStepWebdriverStartNewChrome": genStepWebdriverStartNewChrome,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGoto': genStepGoto,
     'genStepLoop': genStepLoop,
@@ -164,6 +190,7 @@ SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
     "mac_chrome_amz_home_browse_search": lambda x, y, z: genMacChromeAMZWalkSkill(x, y, z),
     "win_chrome_amz_orders_fullfill_orders": lambda x,y,z: genWinChromeAMZFullfillOrdersSkill(x, y, z),
+    "win_chrome_amz_orders_webdriver_fullfill_orders": lambda x,y,z: genWinChromeAMZWebdriverFullfillOrdersSkill(x, y, z),
     "win_chrome_amz_orders_collect_orders": lambda x,y,z: genWinChromeAMZCollectOrdersSkill(x, y, z),
     "win_chrome_amz_orders_update_tracking": lambda x,y,z: genWinChromeAMZUpdateShipmentTrackingSkill(x, y, z),
     "win_chrome_amz_orders_handle_messages": lambda x,y,z: genWinChromeAMZHandleMessagesSkill(x, y, z),
@@ -171,6 +198,7 @@ SkillGeneratorTable = {
     "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
+    "win_ads_ebay_orders_webdriver_fullfill_orders": lambda x,y,z: genWinADSEbayWebdriverFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
     "win_ads_ebay_orders_buy_shipping": lambda x, y, z: genWinADSEbayBuyShippingSkill(x, y, z),
     "win_ads_ebay_orders_update_tracking": lambda x, y, z: genWinADSEbayUpdateShipmentTrackingSkill(x, y, z),
@@ -192,7 +220,7 @@ SkillGeneratorTable = {
     "win_printer_local_print_reformat_print": lambda x,y,z: genWinPrinterLocalReformatPrintSkill(x, y, z),
     "win_rar_local_unzip_unzip_archive": lambda x,y,z: genWinRARLocalUnzipSkill(x, y, z),
     "win_wifi_local_list_reconnect_lan": lambda x,y,z: genWinWiFiLocalReconnectLanSkill(x, y, z),
-    "win_test_local_loop_run_simple_loop": lambda x,y,z: genTestRunSimpleLoopSkill(x, y, z)
+    "win_test_local_loop_run_simple_loop": lambda x,y,z: genTestRunSimpleLoopSkill(x, y, z),
 }
 
 

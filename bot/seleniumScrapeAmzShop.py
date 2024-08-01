@@ -17,6 +17,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
+from bot.seleniumSkill import *
+
+
 import json
 import time
 import shutil
@@ -400,6 +403,48 @@ def close_popup(driver):
 def confirmShipment(driver, service, tracking, shipper="USPS"):
     wait = WebDriverWait(driver, 10)
 
+    # Click on the "Confirm shipment" button
+    confirm_shipment_button = table_row.find_element(By.XPATH, './/a[@data-test-id="ab-confirm-shipment"]')
+    confirm_shipment_button.click()
+
+    # Wait for the page to load and scroll to the required section
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, "//span[@data-test-id='confirm-shipment-heading']"))
+    )
+
+    # Scroll to the Confirm shipment section
+    confirm_shipment_section = driver.find_element(By.XPATH, "//span[@data-test-id='confirm-shipment-heading']")
+    driver.execute_script("arguments[0].scrollIntoView();", confirm_shipment_section)
+
+    # Select Carrier
+    carrier_dropdown = Select(driver.find_element(By.ID, "CarrierListDropdown-76524"))
+    selected_carrier = carrier_dropdown.first_selected_option.text
+    desired_carrier = "USPS"  # Change as needed
+    if selected_carrier != desired_carrier:
+        carrier_dropdown.select_by_visible_text(desired_carrier)
+
+    # Select Shipping Service
+    service_dropdown = Select(driver.find_element(By.ID, "shipping-service-dropdown1"))
+    desired_service = "USPS Priority Mail"  # Change as needed
+    service_dropdown.select_by_visible_text(desired_service)
+
+    # Enter Tracking ID
+    tracking_id_input = driver.find_element(By.XPATH, "//input[@data-test-id='text-input-tracking-id']")
+    tracking_id = "YOUR_TRACKING_ID_HERE"  # Replace with actual tracking ID
+    tracking_id_input.send_keys(tracking_id)
+
+    # Submit the form (assuming there's a button to submit)
+    submit_button = driver.find_element(By.XPATH, "//input[@value='Confirm shipment']")
+    submit_button.click()
+
+    # Optionally, add a wait here for the next page to load before continuing
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, "//span[@data-test-id='some-element-on-next-page']"))
+    )
+
+
+
+
     # Scroll to the confirm shipment section
     confirm_shipment_section = wait.until(EC.presence_of_element_located((By.XPATH,
                                                                           "//div[contains(@class, 'a-box-inner')]//div[contains(@class, 'a-row a-spacing-micro a-spacing-top-micro')]/span[contains(text(), 'Edit shipment')]")))
@@ -571,5 +616,26 @@ def processAmzSeleniumScrapeOrdersBuyLabels(driver=None):
 
     return result
 
-def stopDriver():
-    driver.quit()
+
+def genWinChromeAMZWebdriverFullfillOrdersSkill(worksettings, stepN, theme):
+    print("Default fullfill using amazon labels")
+    psk_words = "{"
+    site_url = "https://sellercentral.amazon.com/orders-v3/mfn/unshipped?page=1"
+
+    this_step, step_words = genStepHeader("win_ads_amz_webdriver_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINADSAMZ005", "Amazon Webdriver Fullfill New Orders On Windows Chrome.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_orders/webdriver_fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_orders/webdriver_fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_amz_orders/webdriver_fullfill_orders", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows chrome webdriver amazon order fullfill..." + psk_words)
+
+    return this_step, psk_words

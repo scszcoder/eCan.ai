@@ -45,7 +45,26 @@ class StopRecordDialog(QDialog):
 
         self.setLayout(main_layout)
 
+# 使用 QDialog 实现自定义提示弹窗
+class CustomDialog(QDialog):
+    def __init__(self, parent=None):
+        super(CustomDialog, self).__init__(parent)
 
+        self.setWindowTitle(QApplication.translate("QLabel", "Tips"))
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)  # 使弹窗始终在最前端
+
+        layout = QVBoxLayout()
+        self.label = QLabel(QApplication.translate("QLabel", "Are you done with showing the process to be automated?"))
+        layout.addWidget(self.label)
+
+        self.ok_button = QPushButton(QApplication.translate("QPushButton", "Ok"))
+        self.ok_button.clicked.connect(self.submitData)
+        layout.addWidget(self.ok_button)
+
+        self.setLayout(layout)
+
+    def submitData(self):
+        self.close()
 
 class TrainDialogWin(QMainWindow):
     def __init__(self, train_win):
@@ -265,17 +284,15 @@ class TrainNewWin(QMainWindow):
     def stop_record(self):
         self.record_over = True
         self.main_win.reminderWin.hide()
+        # dialog = CustomDialog(self)
+        # dialog.exec()
         msgBox = QMessageBox()
-        msgBox.setText(
-            QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
-        # msgBox.setInformativeText("Do you want to save your changes?")
+        msgBox.setText(QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
         msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        # msgBox.setDefaultButton(QMessageBox.Save)
         ret = msgBox.exec()
         if ret == QMessageBox.Yes:
             print("done with demo...")
             self.saveRecordFile()
-            return False
 
     async def _start_listener(self, listener_class, callback_dict):
         """通用监听器启动函数"""

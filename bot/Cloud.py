@@ -1754,3 +1754,68 @@ def local_http_request(query_string, session, api_Key, url):
     jresp = response.json()
 
     return jresp
+
+
+
+async def wanSendRequestSolvePuzzle(msg_req, token):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    variables = {
+        "input": {
+            "content": msg_req["content"],
+            "chatID": msg_req["chatID"],
+            "receiver": msg_req["receiver"],
+            "parameters": msg_req["parameters"],
+            "sender": msg_req["sender"]
+        }
+    }
+    query_string = gen_wan_send_chat_message_string()
+    headers = {
+        'Content-Type': "application/json",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+    async with aiohttp.ClientSession() as session8:
+        async with session8.post(
+                url=APPSYNC_API_ENDPOINT_URL,
+                timeout=aiohttp.ClientTimeout(total=30),
+                headers=headers,
+                json={
+                        'query': query_string,
+                        'variables': variables
+                }
+        ) as response:
+            jresp = await response.json()
+            print(jresp)
+            return jresp
+
+async def wanSendConfirmSolvePuzzle(msg_req, token):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    variables = {
+        "input": {
+            "content": msg_req["content"],
+            "chatID": msg_req["chatID"],
+            "receiver": msg_req["receiver"],
+            "parameters": msg_req["parameters"],
+            "sender": msg_req["sender"]
+        }
+    }
+    query_string = gen_wan_send_chat_message_string()
+    headers = {
+        'Content-Type': "application/json",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+    async with aiohttp.ClientSession() as session8:
+        async with session8.post(
+                url=APPSYNC_API_ENDPOINT_URL,
+                timeout=aiohttp.ClientTimeout(total=30),
+                headers=headers,
+                json={
+                        'query': query_string,
+                        'variables': variables
+                }
+        ) as response:
+            jresp = await response.json()
+            print(jresp)
+            return jresp
+
