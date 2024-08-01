@@ -6,3 +6,4 @@
 /dist
 *.spec
 test.py
+/resource/skills/temp/

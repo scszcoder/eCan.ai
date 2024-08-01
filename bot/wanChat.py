@@ -1,13 +1,10 @@
-import Cloud
 import json
-import ssl
 import websockets
 import asyncio
 import aiohttp
-import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
-from Cloud import gen_wan_send_chat_message_string
+from bot.Cloud import gen_wan_send_chat_message_string
 import base64
 from datetime import datetime
 

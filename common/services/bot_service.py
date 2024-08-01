@@ -3,7 +3,7 @@ import json
 import sqlalchemy.sql.sqltypes
 from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, INTEGER, Integer, String, REAL, TEXT, Text, text
 
-from Cloud import send_query_bots_request_to_cloud
+from bot.Cloud import send_query_bots_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.bot import BotModel
 from utils.logger_helper import logger_helper

@@ -8,7 +8,7 @@ import urllib
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
 
-from basicSkill import cloudAnalyzeRandomImage8
+from bot.basicSkill import cloudAnalyzeRandomImage8
 
 global cloud_session
 global cloud_token

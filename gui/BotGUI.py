@@ -8,8 +8,8 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, Q
     QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QListView, QFrame, QMenu, QLabel, \
     QTableView, QMessageBox, QStyledItemDelegate
 from bot.ebbot import EBBOT
-from models import VehicleModel
-from tool.MainGUITool import StaticResource
+from common.models import VehicleModel
+from gui.tool.MainGUITool import StaticResource
 
 
 
