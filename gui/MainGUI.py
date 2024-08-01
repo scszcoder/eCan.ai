@@ -1,8 +1,6 @@
 import ast
-import json
 
-from models import VehicleModel
-from server import HttpServer
+from utils.server import HttpServer
 from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -25,7 +23,7 @@ from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButto
 
 import importlib
 import importlib.util
-from common.models import BotModel, MissionModel
+from common.models import BotModel, MissionModel, VehicleModel
 from common.db_init import init_db, get_session
 from common.services import MissionService, ProductService, SkillService, BotService, VehicleService
 from tests.TestAll import Tester
@@ -50,7 +48,7 @@ from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
 from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage
-from lzstring import LZString
+from bot.lzstring import LZString
 import openpyxl
 from datetime import timedelta
 import platform

@@ -31,6 +31,7 @@ export default defineConfig({
             }
         },
         rollupOptions: {
+
             output: {
                 manualChunks: {
                     // 将 Vue 相关的库打包到一个名为 'vue-chunk' 的 chunk 中

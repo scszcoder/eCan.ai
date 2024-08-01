@@ -3,7 +3,6 @@ import json
 import os
 import platform
 import queue
-import threading
 import time
 from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime
@@ -14,7 +13,6 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QLabel, QApplication, QPushB
 from pynput import keyboard, mouse
 
 import pyautogui
-import pyscreenshot as ImageGrab
 
 from gui.SkillGUI import SkillGUI
 from utils.logger_helper import logger_helper
@@ -22,49 +20,6 @@ from utils.logger_helper import logger_helper
 counter = 0
 record_over = False
 
-
-class StopRecordDialog(QDialog):
-    def __init__(self):
-        super(StopRecordDialog, self).__init__()
-        # 创建提示标签
-        self.prompt_label = QLabel(self.tr("Are you done with showing the process to be automated?"))
-
-        # 创建带有翻译文本的“是”和“否”按钮
-        self.yes_button = QPushButton(self.tr("Yes"))
-        self.no_button = QPushButton(self.tr("No"))
-
-        # 连接按钮点击信号与槽函数
-        self.yes_button.clicked.connect(self.accept)
-        self.no_button.clicked.connect(self.reject)
-
-        # 创建一个垂直布局用于对话框
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(self.prompt_label)
-        main_layout.addWidget(self.yes_button)
-        main_layout.addWidget(self.no_button)
-
-        self.setLayout(main_layout)
-
-# 使用 QDialog 实现自定义提示弹窗
-class CustomDialog(QDialog):
-    def __init__(self, parent=None):
-        super(CustomDialog, self).__init__(parent)
-
-        self.setWindowTitle(QApplication.translate("QLabel", "Tips"))
-        self.setWindowFlags(Qt.WindowStaysOnTopHint)  # 使弹窗始终在最前端
-
-        layout = QVBoxLayout()
-        self.label = QLabel(QApplication.translate("QLabel", "Are you done with showing the process to be automated?"))
-        layout.addWidget(self.label)
-
-        self.ok_button = QPushButton(QApplication.translate("QPushButton", "Ok"))
-        self.ok_button.clicked.connect(self.submitData)
-        layout.addWidget(self.ok_button)
-
-        self.setLayout(layout)
-
-    def submitData(self):
-        self.close()
 
 class TrainDialogWin(QMainWindow):
     def __init__(self, train_win):
@@ -99,6 +54,7 @@ class ReminderWin(QMainWindow):
         self.mainWidget.setLayout(self.rLayout)
         self.setCentralWidget(self.mainWidget)
         self.setWindowFlags(Qt.Window | Qt.CustomizeWindowHint | Qt.WindowStaysOnTopHint)
+
 
 class TrainNewWin(QMainWindow):
     def __init__(self, main_win):
@@ -153,6 +109,8 @@ class TrainNewWin(QMainWindow):
         self.listeners_running = False
         # 创建一个队列来存储事件
         self.event_queue = queue.Queue()
+
+        self.listener_list = []
 
     def mousePressEvent(self, event):
         self.oldPos = event.globalPos()
@@ -241,7 +199,6 @@ class TrainNewWin(QMainWindow):
         }
         self.actionRecord.append(action)
 
-
     def on_click(self, x, y, button, pressed):
 
         if self.record_over:
@@ -284,8 +241,9 @@ class TrainNewWin(QMainWindow):
     def stop_record(self):
         self.record_over = True
         self.main_win.reminderWin.hide()
-        # dialog = CustomDialog(self)
-        # dialog.exec()
+        if self.listener_list is not None:
+            for listener in self.listener_list:
+                self._stop_listener(listener)
         msgBox = QMessageBox()
         msgBox.setText(QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
         msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
@@ -301,14 +259,23 @@ class TrainNewWin(QMainWindow):
             with listener_class(**callback_dict) as listener:
                 listener.join()
 
-        self.loop.run_in_executor(self.executor, run_listener)
+        return self.loop.create_task(self.loop.run_in_executor(self.executor, run_listener))
+
+    async def _stop_listener(self, listener_task):
+        """停止监听器"""
+        if listener_task is not None and not listener_task.done():
+            listener_task.cancel()
+            try:
+                await listener_task
+            except asyncio.CancelledError:
+                pass
 
     async def start_listeners(self):
         """启动鼠标和键盘监听器"""
         if self.listeners_running:
             print("Listeners are already running.")
             return
-        listener_list = []
+
         self.listeners_running = True
 
         mouse_listener = self._start_listener(mouse.Listener, {
@@ -316,18 +283,18 @@ class TrainNewWin(QMainWindow):
             'on_click': self.on_click,
             'on_scroll': self.on_scroll,
         })
-        listener_list.append(mouse_listener)
+        self.listener_list.append(mouse_listener)
         if platform.system() != 'Darwin':
             keyboard_listener = self._start_listener(keyboard.Listener, {
                 'on_press': self.on_press,
                 'on_release': self.on_release,
             })
-            listener_list.append(keyboard_listener)
+            self.listener_list.append(keyboard_listener)
         process_events = self.process_events()
-        listener_list.append(process_events)
+        self.listener_list.append(process_events)
         save_screenshot = self.save_screenshot()
-        listener_list.append(save_screenshot)
-        await asyncio.gather(*listener_list)
+        self.listener_list.append(save_screenshot)
+        await asyncio.gather(*self.listener_list)
 
     def start_listening(self):
         try:

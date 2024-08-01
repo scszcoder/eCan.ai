@@ -27,6 +27,7 @@ def build_app():
         # --strip, # 选项去除可执行文件中的符号表和调试信息，减小文件大小
         '--icon=ECBot.ico',
         # '--add-data=resource:resource'
+        pathsep.join(['--add-data=ecbot-ui/dist', 'resource/ui']),
         pathsep.join(['--add-data=resource/images', 'resource/images']),
         pathsep.join(['--add-data=resource/languages', 'resource/languages']),
         pathsep.join(['--add-data=resource/translation', 'resource/translation']),
