@@ -5,6 +5,7 @@ import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
     plugins: [vue(), svgLoader(),],
+    base: './',
     server: {
         open: true,
         proxy: {
@@ -24,6 +25,7 @@ export default defineConfig({
         },
         extensions: ['.js', '.json', '.ts'] // 使用路径别名时想要省略的后缀名，可以根据需要自行增减
     }, build: {
+        outDir: '../resource/ui',
         terserOptions: {
             compress: {
                 drop_debugger: true,

@@ -39,7 +39,7 @@ export const image = [
     "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step10_1720487811.613676.png",
     "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/move_step11_1720487812.089354.png",
     "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step12_1720487818.416766.png",
-    "/Users/tangyu/Projects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step13_1720487818.725018.png",
+    "/Users/tangyvrojects/Tanyo/ecbot/ecbot/resource/skills/temp/20240709-091641/scroll_step13_1720487818.725018.png",
 ]
 export const formData: FormProps['data'] = reactive({
     anchor: '',
