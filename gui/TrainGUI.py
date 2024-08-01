@@ -4,6 +4,7 @@ import os
 import platform
 import queue
 import time
+from asyncio import Event
 from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime
 
@@ -107,6 +108,7 @@ class TrainNewWin(QMainWindow):
         self.last_screenshot_time = time.time()
         self.frame_count = 0
         self.listeners_running = False
+        self.stop_event = Event()
         # 创建一个队列来存储事件
         self.event_queue = queue.Queue()
 
@@ -241,9 +243,7 @@ class TrainNewWin(QMainWindow):
     def stop_record(self):
         self.record_over = True
         self.main_win.reminderWin.hide()
-        if self.listener_list is not None:
-            for listener in self.listener_list:
-                self._stop_listener(listener)
+        self.stop_event.set()
         msgBox = QMessageBox()
         msgBox.setText(QApplication.translate("QMessageBox", "Are you done with showing the process to be automated?"))
         msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
@@ -251,15 +251,25 @@ class TrainNewWin(QMainWindow):
         if ret == QMessageBox.Yes:
             print("done with demo...")
             self.saveRecordFile()
+            self.main_win.show()
+            self.show()
+        return False
 
-    async def _start_listener(self, listener_class, callback_dict):
+    def _start_listener(self, listener_class, callback_dict, stop_event):
         """通用监听器启动函数"""
 
-        def run_listener():
+        def run_listener(stop_event):
             with listener_class(**callback_dict) as listener:
-                listener.join()
+                while not stop_event.is_set():
+                    listener.join(0.1)  # 使用 join 的超时参数，使监听器可以检查停止信号
 
-        return self.loop.create_task(self.loop.run_in_executor(self.executor, run_listener))
+        # 创建一个协程
+        async def start_listener_coroutine():
+            # 使用 run_in_executor 在线程池中运行 run_listener
+            return await self.loop.run_in_executor(self.executor, run_listener, stop_event)
+
+        # 返回协程任务
+        return self.loop.create_task(start_listener_coroutine())
 
     async def _stop_listener(self, listener_task):
         """停止监听器"""
@@ -277,24 +287,29 @@ class TrainNewWin(QMainWindow):
             return
 
         self.listeners_running = True
-
+        # 启动鼠标监听器
         mouse_listener = self._start_listener(mouse.Listener, {
             'on_move': self.on_move,
             'on_click': self.on_click,
             'on_scroll': self.on_scroll,
-        })
-        self.listener_list.append(mouse_listener)
+        }, self.stop_event)
+
+        # 如果不是 macOS，则启动键盘监听器
         if platform.system() != 'Darwin':
             keyboard_listener = self._start_listener(keyboard.Listener, {
                 'on_press': self.on_press,
                 'on_release': self.on_release,
-            })
-            self.listener_list.append(keyboard_listener)
-        process_events = self.process_events()
-        self.listener_list.append(process_events)
-        save_screenshot = self.save_screenshot()
-        self.listener_list.append(save_screenshot)
-        await asyncio.gather(*self.listener_list)
+            }, self.stop_event)
+
+        # 启动其他异步任务
+        process_events_task = self.loop.create_task(self.process_events())
+        save_screenshot_task = self.loop.create_task(self.save_screenshot())
+
+        await mouse_listener
+        if platform.system() != 'Darwin':
+            await keyboard_listener
+        await process_events_task
+        await save_screenshot_task
 
     def start_listening(self):
         try:
