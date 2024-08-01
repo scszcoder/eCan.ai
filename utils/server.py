@@ -8,6 +8,7 @@ import urllib
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
 
+from config.app_info import AppInfo
 from bot.basicSkill import cloudAnalyzeRandomImage8
 
 global cloud_session
@@ -116,7 +117,8 @@ class HttpServer:
         self.port = self.find_free_port()
         self.port = 8888
         print("Server started on port:", self.port)
-        self.httpd = self.start_http_server(main_window.homepath + '/ecbot-ui/dist', self.port)
+        app_info = AppInfo()
+        self.httpd = self.start_http_server(app_info.app_resources_path + '/ui', self.port)
         global cloud_session
         cloud_session = session
         global cloud_token
