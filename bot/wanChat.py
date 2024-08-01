@@ -7,7 +7,7 @@ import aiohttp
 import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
-from Cloud import gen_wan_send_chat_message_string
+from Cloud import gen_wan_send_chat_message_string, gen_wan_subscription_connection_string
 import base64
 from datetime import datetime
 from Logger import log3
@@ -91,16 +91,26 @@ async def wanStopSubscription(mainwin):
 
 
 
-async def wanSendMessage(msg_req, token):
+async def wanSendMessage(msg_req, token, websocket):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    APPSYNC_API_ENDPOINT_URL2 = 'https://575fvfaoefe3rbzzthexbx76r4.appsync-api.us-east-1.amazonaws.com/graphql'
+    WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
+    WS_URL2 = "wss://575fvfaoefe3rbzzthexbx76r4.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
+
+    # variables = {
+    #     "input": {
+    #         # "id": msg_req["id"],
+    #         "chatID": msg_req["chatID"]
+    #         # "content": msg_req["content"],
+    #         # "sender": msg_req["sender"],
+    #         # "receiver": msg_req["receiver"],
+    #         # "parameters": msg_req["parameters"],
+    #         # "timestamp": msg_req["timestamp"]
+    #     }
+    # }
     variables = {
-        "input": {
-            "content": msg_req["content"],
-            "chatID": msg_req["chatID"],
-            "receiver": msg_req["receiver"],
-            "parameters": msg_req["parameters"],
-            "sender": msg_req["sender"]
-        }
+        "name": msg_req["name"],
+        "data": msg_req["data"]
     }
     query_string = gen_wan_send_chat_message_string()
     headers = {
@@ -108,9 +118,11 @@ async def wanSendMessage(msg_req, token):
         'Authorization': token,
         'cache-control': "no-cache",
     }
+    print("about to send wan msg:", variables, query_string, headers)
+    print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
     async with aiohttp.ClientSession() as session8:
         async with session8.post(
-                url=APPSYNC_API_ENDPOINT_URL,
+                url=APPSYNC_API_ENDPOINT_URL2,
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers=headers,
                 json={
@@ -119,9 +131,20 @@ async def wanSendMessage(msg_req, token):
                 }
         ) as response:
             jresp = await response.json()
-            print(jresp)
+            print("send JRESP:", jresp)
             return jresp
 
+    while True:
+        try:
+            response = await websocket.recv()
+            response_data = json.loads(response)
+            print(f"ACK RECEIVED: {response_data}")
+        except websockets.exceptions.ConnectionClosedError as e:
+            print(f"Connection closed with error: {e}")
+            break
+        except json.JSONDecodeError as e:
+            print(f"Failed to decode JSON: {e}")
+            break
 
 
 async def wanHandleRxMessage(session, token, websocket, in_msg_queue):
@@ -155,18 +178,20 @@ async def wanHandleRxMessage(session, token, websocket, in_msg_queue):
 
 def getSignedHeaders(url, credentials):
     request = AWSRequest(method='GET', url=url, data='')
-    SigV4Auth(credentials, 'appsync', 'us-west-2').add_auth(request)
+    SigV4Auth(credentials, 'appsync', 'us-east-1').add_auth(request)
     return dict(request.headers.items())
 
 # Function to subscribe to commands
 async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
+    WS_URL2 = "wss://575fvfaoefe3rbzzthexbx76r4.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
     WS_API_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com'
+    WS_API_HOST2 = '575fvfaoefe3rbzzthexbx76r4.appsync-api.us-east-1.amazonaws.com'
     id_token = tokens['AuthenticationResult']['IdToken']
     try:
         api_headers = {
             'Content-Type': 'application/json',
-            'Host': WS_API_HOST,
+            'Host': WS_API_HOST2,
             "Authorization": id_token
         }
         # Convert the dictionary to a JSON string
@@ -181,7 +206,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
         # Convert the Base64 bytes back to a string
         base64_str = base64_bytes.decode('utf-8')
 
-        ws_url = f"{WS_URL}?header={base64_str}&payload=e30="
+        ws_url = f"{WS_URL2}?header={base64_str}&payload=e30="
 
         headers = {
             "Sec-WebSocket-Protocol": "graphql-ws"
@@ -223,18 +248,17 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                 # now request to subscribe to the API
                 sub_data = {
                     "query": """
-                        subscription onMessageReceived($chatID: String!) {
-                            onMessageReceived(chatID: $chatID) {
-                                id
-                                content
-                                sender
-                                receiver
-                                timestamp
-                                parameters
+                        subscription onMessageReceived {
+                            onMessageReceived {
+                                chatID
                             }
                         }
                     """,
-                    "variables": {"chatID": chat_id}
+                    "variables": {}
+                }
+                sub_data = {
+                    "query": gen_wan_subscription_connection_string(),
+                    "variables": {"name": "default"}
                 }
                 sub_data_string = json.dumps(sub_data)
                 SUB_REG = {
@@ -244,7 +268,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         "extensions": {
                             "authorization": {
                                 "Authorization": id_token,
-                                "host": WS_API_HOST
+                                "host": WS_API_HOST2
                             }
                         }
                     },

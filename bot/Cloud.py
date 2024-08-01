@@ -922,35 +922,48 @@ def gen_feedback_request_string(fbReq):
 
 
 def gen_wan_send_chat_message_string():
+    # send_msg_mutation = """
+    #     mutation publish($input: WanChatMessageInput!) {
+    #       publish(input: $input) {
+    #         chatID
+    #       }
+    #     }
+    #     """
     send_msg_mutation = """
-        mutation sendWanMessage($input: WanChatMessageInput!) {
-          sendWanMessage(input: $input) {
-            id
-            chatID
-            content
-            sender
-            receiver
-            parameters
-            timestamp
-          }
+        mutation publish($name: String!, $data: AWSJSON!) {
+            publish(name: $name, data: $data) {
+                name
+                data
+            }
         }
-        """
+    """
     return send_msg_mutation
 
-
-def gen_wan_subscription_connection_string(wan_chat_req):
-    sub_conn_string = """
-        subscription onMessageSent {
-          onMessageSent {
-            id
-            content
-            sender
-            timestamp
-          }
+def gen_wan_subscription_connection_string():
+    subscription_query = """
+        subscription subscribe($name: String!) {
+            subscribe(name: $name) {
+                name
+                data
+            }
         }
-        """
+    """
+    return subscription_query
 
-    return sub_conn_string
+#
+# def gen_wan_subscription_connection_string(wan_chat_req):
+#     sub_conn_string = """
+#         subscription onMessageSent {
+#           onMessageSent {
+#             id
+#             content
+#             sender
+#             timestamp
+#           }
+#         }
+#         """
+#
+#     return sub_conn_string
 
 
 def set_up_cloud():
