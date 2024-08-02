@@ -134,25 +134,21 @@ async def wanSendMessage(msg_req, token, websocket):
             print("send JRESP:", jresp)
             return jresp
 
+
+async def wanHandleRxMessage(mainwin):
+    print("START WAN RX TASK")
+    while not mainwin.get_wan_msg_subscribed():
+        print("WAITING FOR WEBSOCKET")
+        await asyncio.sleep(1)
+
+    print("finally ready to receive....")
+    websocket = mainwin.get_websocket()
+    in_msg_queue = mainwin.get_wan_msg_queue()
     while True:
         try:
             response = await websocket.recv()
+            log3("WAN RECEIVED SOMETHING:" + response)
             response_data = json.loads(response)
-            print(f"ACK RECEIVED: {response_data}")
-        except websockets.exceptions.ConnectionClosedError as e:
-            print(f"Connection closed with error: {e}")
-            break
-        except json.JSONDecodeError as e:
-            print(f"Failed to decode JSON: {e}")
-            break
-
-
-async def wanHandleRxMessage(session, token, websocket, in_msg_queue):
-    while True:
-        try:
-            response = await websocket.recv()
-            response_data = json.loads(response)
-            log3("WAN RECEIVED SOMETHING:"+response)
             if response_data["type"] == "data":
                 command = response_data["payload"]["data"]["onMessageReceived"]
                 print("Wan Chat Message received:", command)
@@ -292,6 +288,14 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         break
                     except json.JSONDecodeError as e:
                         print(f"Failed to decode JSON: {e}")
+                        break
+
+                while True:
+                    try:
+                        message = await websocket.recv()
+                        print(f"SUBSCRIBE Received message: {message}")
+                    except websockets.exceptions.ConnectionClosed:
+                        print("WebSocket connection closed.")
                         break
 
     except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.InvalidStatusCode) as e:

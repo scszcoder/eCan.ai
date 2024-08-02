@@ -691,6 +691,7 @@ class MainWindow(QMainWindow):
         self.mainWidget.setLayout(layout)
         self.setCentralWidget(self.mainWidget)
         self.wan_connected = False
+        self.wan_msg_subscribed = False
         self.websocket = None
         self.setWindowTitle("Main Bot&Mission Scheduler")
         self.showMsg("================= DONE with GUI Setup ==============================")
@@ -799,7 +800,12 @@ class MainWindow(QMainWindow):
             # point to the 1st task to run for the day.
             # self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
 
+        # loop = asyncio.get_event_loop()
+        # loop.run_until_complete(self.setupAsyncTasks())
         # self.async_interface = AsyncInterface()
+
+
+    # async def setupAsyncTasks(self):
         self.showMsg("ready to spawn mesg server task")
         if not self.host_role == "Platoon":
             if not self.host_role == "Staff Officer":
@@ -807,12 +813,12 @@ class MainWindow(QMainWindow):
             else:
                 self.peer_task = asyncio.create_task(self.wait_forever())
             self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
-            self.wan_msg_task = asyncio.create_task(wanHandleRxMessage(self.session, self.tokens, self.websocket, self.wan_chat_msg_queue))
+            # self.wan_msg_task = asyncio.create_task(wanHandleRxMessage(self))
             self.showMsg("spawned wan chat task")
         else:
             self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
             self.wan_sub_task = asyncio.create_task(self.wait_forever())
-            self.wan_sub_task = asyncio.create_task(self.wait_forever())
+            # self.wan_msg_task = asyncio.create_task(self.wait_forever())
 
         # the message queue are
         self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
@@ -838,13 +844,16 @@ class MainWindow(QMainWindow):
 
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
+
+
     async def run_async_tasks(self):
         if self.host_role != "Staff Officer":
             self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
         else:
             self.rpa_task = asyncio.create_task(self.wait_forever())
 
-        await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task)
+        # await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task)
+        await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task)
 
     def dailySkillsetUpdate(self):
         # this will handle all skill bundled into software itself.
@@ -5722,7 +5731,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.showMsg('Main window close....')
-        for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task):
+        # for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task):
+        for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task):
+
             if not task.done():
                 task.cancel()
         if self.loginout_gui:
@@ -6095,6 +6106,9 @@ class MainWindow(QMainWindow):
 
     def get_websocket(self):
         return self.websocket
+
+    def get_wan_msg_queue(self):
+        return self.wan_chat_msg_queue
 
     def set_wan_msg_subscribed(self, ss):
         self.wan_msg_subscribed = ss
