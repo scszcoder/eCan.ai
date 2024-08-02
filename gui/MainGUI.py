@@ -207,6 +207,7 @@ class MainWindow(QMainWindow):
             self.chat_id = self.chat_id + "_Commander"
         else:
             self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
+        print("my chatId:", self.chat_id)
         self.staff_officer_on_line = False
         self.workingState = "Idle"
         usrparts = self.user.split("@")
@@ -5863,7 +5864,6 @@ class MainWindow(QMainWindow):
             if ticks % 8 == 0:
                 self.showMsg(f"Access Internet Here with Websocket...")
 
-
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
                 self.showMsg(f"RPA Monitor message: {message}")
@@ -6116,26 +6116,34 @@ class MainWindow(QMainWindow):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
-                "content": json.dumps({"type": "cmd", "cmd": "ping"}),
-                "chatID": self.chat_id,
-                "receiver": commander_chat_id,
-                "parameters": "",
-                "sender": ""
+                # "id": 0,
+                "chatID": self.chat_id
+                # # "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
+                # "content": "hello????",
+                # "sender": "",
+                # "receiver": commander_chat_id,
+                # "parameters": "",
+                # "timestamp": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
+            ping_msg = {
+                "name": "default",
+                # "data": json.dumps({"contents": "hello"}).replace('"', '\\"')
+                "data": json.dumps({"contents": "hello"})
+            }
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token, self.websocket))
 
 
     async def wan_pong(self, token):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
             ping_msg = {
-                "content": json.dumps({"type": "cmd", "cmd": "pong"}),
-                "chatID": self.chat_id,
-                "receiver": sa_chat_id,
-                "parameters": "",
-                "sender": ""
+                # "content": json.dumps({"type": "cmd", "cmd": "pong"}),
+                "chatID": self.chat_id
+                # "receiver": sa_chat_id,
+                # "parameters": "",
+                # "sender": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token, self.websocket))
 
 
     async def wan_request_log(self, token):
@@ -6155,11 +6163,13 @@ class MainWindow(QMainWindow):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
-                "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
+                "id": 0,
                 "chatID": self.chat_id,
+                "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
+                "sender": "",
                 "receiver": commander_chat_id,
                 "parameters": "",
-                "sender": ""
+                "timestamp": ""
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
 
@@ -6178,6 +6188,6 @@ class MainWindow(QMainWindow):
     def wan_chat_test(self):
         token = self.tokens["AuthenticationResult"]["IdToken"]
         if self.host_role == "Staff Officer":
-            self.wan_ping(token)
+            asyncio.ensure_future(self.wan_ping(token))
         elif self.host_role != "Platoon":
-            self.wan_pong(token)
+            asyncio.ensure_future(self.wan_pong(token))
