@@ -941,7 +941,7 @@ def gen_wan_send_chat_message_string():
 
 def gen_wan_subscription_connection_string():
     subscription_query = """
-        subscription subscribe($name: String!) {
+        subscription csubscribe($name: String!) {
             subscribe(name: $name) {
                 name
                 data
