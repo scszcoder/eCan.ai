@@ -20,44 +20,6 @@ from Logger import log3
 #
 
 
-STATUS_UPDATE_SUBSCRIPTION = """
-subscription onStatusUpdate {
-  onStatusUpdate {
-    id
-    content
-    sender
-    receiver
-    timestamp
-    parameters
-  }
-}
-"""
-
-COMMAND_RECEIVED_SUBSCRIPTION = """
-subscription onCommandReceived {
-  onCommandReceived {
-    id
-    content
-    sender
-    receiver
-    timestamp
-    parameters
-  }
-}
-"""
-
-MESSAGE_RECEIVED_SUBSCRIPTION = """
-subscription onMessageReceived {
-  onMessageReceived {
-    id
-    content
-    sender
-    receiver
-    timestamp
-    parameters
-  }
-}
-"""
 async def wanStopSubscription(mainwin):
     APPSYNC_API_ENDPOINT_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     init_msg = {
@@ -93,24 +55,21 @@ async def wanStopSubscription(mainwin):
 
 async def wanSendMessage(msg_req, token, websocket):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    APPSYNC_API_ENDPOINT_URL2 = 'https://575fvfaoefe3rbzzthexbx76r4.appsync-api.us-east-1.amazonaws.com/graphql'
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
-    WS_URL2 = "wss://575fvfaoefe3rbzzthexbx76r4.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
 
-    # variables = {
-    #     "input": {
-    #         # "id": msg_req["id"],
-    #         "chatID": msg_req["chatID"]
-    #         # "content": msg_req["content"],
-    #         # "sender": msg_req["sender"],
-    #         # "receiver": msg_req["receiver"],
-    #         # "parameters": msg_req["parameters"],
-    #         # "timestamp": msg_req["timestamp"]
-    #     }
-    # }
     variables = {
-        "name": msg_req["name"],
-        "data": msg_req["data"]
+        "input": {
+            "id": str(msg_req.get("id", "unique-message-id")),  # Ensure ID is a string
+            "chatID": msg_req["chatID"],
+            "sender": msg_req["sender"],
+            "receiver": msg_req["receiver"],
+            "contents": msg_req["contents"],
+            # "content": {
+            #     "text": msg_req["contents"]
+            # },
+            "parameters": msg_req["parameters"],
+            "timestamp": datetime.now().isoformat() if not msg_req["timestamp"] else msg_req["timestamp"]
+        }
     }
     query_string = gen_wan_send_chat_message_string()
     headers = {
@@ -122,7 +81,7 @@ async def wanSendMessage(msg_req, token, websocket):
     print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
     async with aiohttp.ClientSession() as session8:
         async with session8.post(
-                url=APPSYNC_API_ENDPOINT_URL2,
+                url=APPSYNC_API_ENDPOINT_URL,
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers=headers,
                 json={
@@ -134,25 +93,21 @@ async def wanSendMessage(msg_req, token, websocket):
             print("send JRESP:", jresp)
             return jresp
 
+
+async def wanHandleRxMessage(mainwin):
+    print("START WAN RX TASK")
+    while not mainwin.get_wan_msg_subscribed():
+        print("WAITING FOR WEBSOCKET")
+        await asyncio.sleep(1)
+
+    print("finally ready to receive....")
+    websocket = mainwin.get_websocket()
+    in_msg_queue = mainwin.get_wan_msg_queue()
     while True:
         try:
             response = await websocket.recv()
+            log3("WAN RECEIVED SOMETHING:" + response)
             response_data = json.loads(response)
-            print(f"ACK RECEIVED: {response_data}")
-        except websockets.exceptions.ConnectionClosedError as e:
-            print(f"Connection closed with error: {e}")
-            break
-        except json.JSONDecodeError as e:
-            print(f"Failed to decode JSON: {e}")
-            break
-
-
-async def wanHandleRxMessage(session, token, websocket, in_msg_queue):
-    while True:
-        try:
-            response = await websocket.recv()
-            response_data = json.loads(response)
-            log3("WAN RECEIVED SOMETHING:"+response)
             if response_data["type"] == "data":
                 command = response_data["payload"]["data"]["onMessageReceived"]
                 print("Wan Chat Message received:", command)
@@ -184,14 +139,12 @@ def getSignedHeaders(url, credentials):
 # Function to subscribe to commands
 async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
-    WS_URL2 = "wss://575fvfaoefe3rbzzthexbx76r4.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
     WS_API_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com'
-    WS_API_HOST2 = '575fvfaoefe3rbzzthexbx76r4.appsync-api.us-east-1.amazonaws.com'
     id_token = tokens['AuthenticationResult']['IdToken']
     try:
         api_headers = {
             'Content-Type': 'application/json',
-            'Host': WS_API_HOST2,
+            'Host': WS_API_HOST,
             "Authorization": id_token
         }
         # Convert the dictionary to a JSON string
@@ -206,7 +159,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
         # Convert the Base64 bytes back to a string
         base64_str = base64_bytes.decode('utf-8')
 
-        ws_url = f"{WS_URL2}?header={base64_str}&payload=e30="
+        ws_url = f"{WS_URL}?header={base64_str}&payload=e30="
 
         headers = {
             "Sec-WebSocket-Protocol": "graphql-ws"
@@ -246,21 +199,16 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
 
             if mainwin.get_wan_connected():
                 # now request to subscribe to the API
-                sub_data = {
-                    "query": """
-                        subscription onMessageReceived {
-                            onMessageReceived {
-                                chatID
-                            }
-                        }
-                    """,
-                    "variables": {}
-                }
+                print("NOW start to subscribe1")
                 sub_data = {
                     "query": gen_wan_subscription_connection_string(),
-                    "variables": {"name": "default"}
+                    "variables": {"chatID": chat_id}
                 }
+                print("NOW start to subscribe2")
+
                 sub_data_string = json.dumps(sub_data)
+                print("NOW start to subscribe3")
+
                 SUB_REG = {
                     "id": "1",
                     "payload": {
@@ -268,12 +216,14 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         "extensions": {
                             "authorization": {
                                 "Authorization": id_token,
-                                "host": WS_API_HOST2
+                                "host": WS_API_HOST
                             }
                         }
                     },
                     "type": "start"
                 }
+                print("SENDING WEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!")
+
                 await websocket.send(json.dumps(SUB_REG))
 
                 while True:
@@ -282,7 +232,9 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         response_data = json.loads(response)
                         print(f"ACK RECEIVED: {response_data}")
                         if response_data.get("type") == "start_ack":
-                            print("MESSAGE SUBSCRIPTION SUCCEEDED!!!!")
+                            print("MESSAGE SUBSCRIPTION TO "+"SUCCEEDED!!!!")
+                            print(chat_id)
+
                             mainwin.set_wan_msg_subscribed(True)
                             last_subscribed_ts = datetime.now()
                             break
@@ -292,6 +244,14 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         break
                     except json.JSONDecodeError as e:
                         print(f"Failed to decode JSON: {e}")
+                        break
+
+                while True:
+                    try:
+                        message = await websocket.recv()
+                        print(f"SUBSCRIBE Received message: {message}")
+                    except websockets.exceptions.ConnectionClosed:
+                        print("WebSocket connection closed.")
                         break
 
     except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.InvalidStatusCode) as e:
