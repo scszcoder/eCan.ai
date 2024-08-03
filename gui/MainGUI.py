@@ -6130,20 +6130,17 @@ class MainWindow(QMainWindow):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
-                # "id": 0,
-                "chatID": self.chat_id
-                # # "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
-                # "content": "hello????",
-                # "sender": "",
-                # "receiver": commander_chat_id,
-                # "parameters": "",
-                # "timestamp": ""
+                "id": 0,
+                "chatID": self.chat_id,
+                "sender": self.chat_id,
+                "receiver": commander_chat_id,
+                # "contents": json.dumps({"type": "cmd", "cmd": "start log"}).replace('"', '\\"'),
+                # "contents": "{\"key\": \"value\"}",
+                "contents": "hello????",
+                "parameters": "",
+                "timestamp": ""
             }
-            ping_msg = {
-                "name": "default",
-                # "data": json.dumps({"contents": "hello"}).replace('"', '\\"')
-                "data": json.dumps({"contents": "hello"})
-            }
+
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token, self.websocket))
 
 
@@ -6151,11 +6148,14 @@ class MainWindow(QMainWindow):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
             ping_msg = {
-                # "content": json.dumps({"type": "cmd", "cmd": "pong"}),
-                "chatID": self.chat_id
-                # "receiver": sa_chat_id,
-                # "parameters": "",
-                # "sender": ""
+                "id": 0,
+                "chatID": self.chat_id,
+                "sender": "",
+                "receiver": sa_chat_id,
+                "contents": json.dumps({"type": "cmd", "cmd": "pong"}),
+                "parameters": "",
+                "timestamp": ""
+
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token, self.websocket))
 
