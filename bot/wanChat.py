@@ -59,7 +59,6 @@ async def wanSendMessage(msg_req, token, websocket):
 
     variables = {
         "input": {
-            "id": str(msg_req.get("id", "unique-message-id")),  # Ensure ID is a string
             "chatID": msg_req["chatID"],
             "sender": msg_req["sender"],
             "receiver": msg_req["receiver"],
@@ -67,8 +66,7 @@ async def wanSendMessage(msg_req, token, websocket):
             # "content": {
             #     "text": msg_req["contents"]
             # },
-            "parameters": msg_req["parameters"],
-            "timestamp": datetime.now().isoformat() if not msg_req["timestamp"] else msg_req["timestamp"]
+            "parameters": msg_req["parameters"]
         }
     }
     query_string = gen_wan_send_chat_message_string()
