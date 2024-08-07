@@ -7,3 +7,4 @@
 *.spec
 test.py
 /resource/skills/temp/
+*/__pycache__/*
