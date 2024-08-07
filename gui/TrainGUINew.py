@@ -5,6 +5,7 @@ import platform
 import queue
 import threading
 import time
+from asyncio import Event
 from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime
 
@@ -19,7 +20,7 @@ from gui.SkillGUI import SkillGUI
 from utils.logger_helper import logger_helper
 
 counter = 0
-listeners_running = False
+record_over = False
 
 
 class TrainDialogWin(QMainWindow):
@@ -60,40 +61,21 @@ class ReminderWin(QMainWindow):
 class TrainNewWin(QMainWindow):
     def __init__(self, main_win):
         super(TrainNewWin, self).__init__(main_win)
+        self.mouse_listener = None
+        self.keyboard_listener = None
 
-        self.temp_dir = None
-        self.skillGUI = None
-        self.rLayout = None
-        self.bLayout = None
-        self.cancel_button = None
-        self.start_skill_button = None
-        self.start_demo_button = None
-        self.start_tutor_button = None
-
+        self.record_over = False
+        self.oldPos = None
+        # self.temp_dir = None
         self.root_temp_dir = main_win.homepath + "/resource/skills/temp/"
+        self.temp_dir = ''
+        self.newSkill = None
         self.main_win = main_win
         self.mainWidget = QWidget()
         self.trainDialog = TrainDialogWin(self)
         self.session = None
         self.cog = None
-        self.screen_image_stream = []
-        self.steps = 0
-        self.actionRecord = []
-        self.executor = ThreadPoolExecutor()
-        self.loop_listener = None
-        self.loop_screenshot = None
-        self.thread_listener = None
-        self.thread_screenshot = None
-        self.stop_event = threading.Event()
-        self.last_screenshot_time = time.time()
-        self.listeners_running = False
-        # 创建一个队列来存储事件
-        self.event_queue = queue.Queue()
-        self.listener_list = []
-        self.screenshot_list = []
-        self.init_gui()
 
-    def init_gui(self):
         self.start_tutor_button = QPushButton(QApplication.translate("QPushButton", "Tutorial"))
         self.start_demo_button = QPushButton(QApplication.translate("QPushButton", "Start Demo"))
         self.start_skill_button = QPushButton(QApplication.translate("QPushButton", "Define Skill"))
@@ -118,15 +100,33 @@ class TrainNewWin(QMainWindow):
 
         self.skillGUI = SkillGUI(self)
 
-    async def _start_listener(self, listener_class, callback_dict):
-        def run_listener():
-            with listener_class(**callback_dict) as listener:
-                listener.join()
+        self.screen_image_stream = []
+        self.record = []
+        self.steps = 0
+        self.actionRecord = []
+        self.executor = ThreadPoolExecutor()
+        self.loop = None
+        self.thread = None
+        self.stop_event = threading.Event()
+        self.last_screenshot_time = time.time()
+        self.frame_count = 0
+        self.listeners_running = False
+        # 创建一个队列来存储事件
+        self.event_queue = queue.Queue()
 
-        self.loop_listener.run_in_executor(self.executor, run_listener)
+        self.listener_list = []
+
+    def mousePressEvent(self, event):
+        self.oldPos = event.globalPos()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.showMinimized()
 
     def on_move(self, x, y):
-        if not self.listeners_running:
+        print("监听到的坐标： ", x, y)
+        if self.record_over:
+            self.record_over = False
             return False
         else:
             current_time = time.time()
@@ -137,35 +137,35 @@ class TrainNewWin(QMainWindow):
                 self.last_screenshot_time = current_time
 
     async def process_events(self):
-        while self.listeners_running:
+        """
+        todo 单独线程 需要修改
+        """
+        while not self.record_over:
             # 从队列中获取事件
-            try:
-                if not self.event_queue.empty():
-                    event_type, x, y, dx, dy, button = self.event_queue.get()
-                    self.screenshot(event_type, x, y, dx, dy, button)
-                    # 处理完事件后通知队列
-                    self.event_queue.task_done()
-            except queue.Empty:
-                pass
-            finally:
-                await asyncio.sleep(0.01)
+            event_type, x, y, dx, dy, button = self.event_queue.get()
+            if event_type is not None:
+                await self.screenshot(event_type, x, y, dx, dy, button)
+            # 处理完事件后通知队列
+            self.event_queue.task_done()
+            await asyncio.sleep(0.01)
 
     async def save_screenshot(self):
-        while self.listeners_running:
-            try:
-                if len(self.screen_image_stream) >= 5:
-                    for stream in self.screen_image_stream:
-                        stream['stream'].save(stream['file_name'])
-            finally:
-                await asyncio.sleep(1)
+        """
+        todo 单独线程 需要修改
+        """
+        while not self.record_over:
+            if len(self.screen_image_stream) >= 5:
+                for stream in self.screen_image_stream:
+                    stream['stream'].save(stream['file_name'])
+            await asyncio.sleep(1)
 
-        if not self.listeners_running:
+        if self.record_over:
             if len(self.screen_image_stream) > 0:
                 for stream in self.screen_image_stream:
                     stream['stream'].save(stream['file_name'])
 
-    def screenshot(self, option: str, x: int = None, y: int = None, dx: any = None, dy: any = None,
-                   button: any = None):
+    async def screenshot(self, option: str, x: int = None, y: int = None, dx: any = None, dy: any = None,
+                         button: any = None):
         self.steps += 1
         now = datetime.now()
         fname = self.temp_dir + option + "_step" + str(self.steps) + '_' + str(now.timestamp()) + ".png"
@@ -189,14 +189,20 @@ class TrainNewWin(QMainWindow):
         self.actionRecord.append(action)
 
     def on_click(self, x, y, button, pressed):
-        if not self.listeners_running:
+
+        if self.record_over:
             return False
         print('{0} at {1}'.format('Pressed' if pressed else 'Released', (x, y)))
-        if pressed:
-            self.event_queue.put(('click', x, y, None, None, button))
+        if self.record_over:
+            return False
+        else:
+            #  当按键松了后才进行记录事件
+            if not pressed:
+                self.event_queue.put(('click', x, y, None, None, button))
 
     def on_scroll(self, x, y, dx, dy):
-        if not self.listeners_running:
+        print("scroll:", x, y, dx, dy)
+        if self.record_over:
             return False
         else:
             current_time = time.time()
@@ -209,16 +215,12 @@ class TrainNewWin(QMainWindow):
                 self.last_screenshot_time = current_time
 
     def on_press(self, key):
-        if not self.listeners_running:
-            return False
         try:
             print('alphanumeric key {0} pressed'.format(key.char))
         except AttributeError:
             print('special key {0} pressed'.format(key))
 
     def on_release(self, key):
-        if not self.listeners_running:
-            return False
         print('{0} released'.format(key))
         if key == keyboard.Key.esc:
             # Stop listener
@@ -226,6 +228,7 @@ class TrainNewWin(QMainWindow):
             return False
 
     def stop_record(self):
+        self.record_over = True
         self.main_win.reminderWin.hide()
         self.listeners_running = False
         msgBox = QMessageBox()
@@ -240,31 +243,48 @@ class TrainNewWin(QMainWindow):
         self.show()
         self.stop_thread_listeners()
 
-    async def start_screenshot(self):
-        save_screenshot = asyncio.create_task(self.save_screenshot())
-        self.screenshot_list.append(save_screenshot)
-        await asyncio.gather(*self.screenshot_list)
+    async def _start_listener(self, listener_class, callback_dict):
+        """通用监听器启动函数"""
+
+        async def run_listener():
+            with listener_class(**callback_dict) as listener:
+                await asyncio.sleep(0)  # 确保异步上下文切换
+                listener.join()
+
+        return asyncio.create_task(run_listener())
 
     async def start_listeners(self):
+        """启动鼠标和键盘监听器"""
+        if self.listeners_running:
+            print("Listeners are already running.")
+            return
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
         self.listeners_running = True
-        process_events = asyncio.create_task(self.process_events())
-        self.listener_list.append(process_events)
-        mouse_listener = self._start_listener(mouse.Listener, {
+        # 启动鼠标监听器
+        mouse_listener = await self._start_listener(mouse.Listener, {
             'on_move': self.on_move,
             'on_click': self.on_click,
             'on_scroll': self.on_scroll,
         })
+
+        # 如果不是 macOS，则启动键盘监听器
         if platform.system() != 'Darwin':
-            keyboard_listener = self._start_listener(keyboard.Listener, {
+            keyboard_listener = await self._start_listener(keyboard.Listener, {
                 'on_press': self.on_press,
                 'on_release': self.on_release,
             })
-            self.listener_list.append(asyncio.create_task(keyboard_listener))
-        self.listener_list.append(asyncio.create_task(mouse_listener))
+            self.listener_list.append(keyboard_listener)
+        self.listener_list.append(mouse_listener)
+        process_events = self.process_events()
+        self.listener_list.append(process_events)
+        save_screenshot = self.save_screenshot()
+        self.listener_list.append(save_screenshot)
         await asyncio.gather(*self.listener_list)
 
     def start_listening(self):
         try:
+            self.record_over = False
             self.main_win.reminderWin.show()
             self.main_win.reminderWin.setGeometry(800, 0, 100, 50)
             print("Starting input event listeners...")
@@ -272,59 +292,29 @@ class TrainNewWin(QMainWindow):
             if not os.path.exists(self.temp_dir):
                 os.makedirs(self.temp_dir)
             # 创建任务
-            self.hide()
             self.main_win.hide()
+            self.hide()
             self.start_thread_listeners()
         except Exception as e:
             logger_helper.error(f"Failed to start listeners: {e}")
 
     def stop_thread_listeners(self):
-        for task in self.screenshot_list:
-            task.cancel()
-        try:
-            self.loop_screenshot.run_until_complete(asyncio.gather(*self.screenshot_list))
-        except Exception as e:
-            print(f"Error during task cancellation: {e}")
-        # 取消所有异步任务
-        for task in self.listener_list:
-            task.cancel()
-        try:
-            self.loop_listener.run_until_complete(asyncio.gather(*self.listener_list))
-        except Exception as e:
-            print(f"Error during task cancellation: {e}")
-        self.steps = 0
-        self.listener_list.clear()
         self.stop_event.set()  # 设置停止标志
-        if self.thread_listener and self.thread_listener.is_alive():
-            self.thread_listener.join()
-        if self.thread_screenshot and self.thread_screenshot.is_alive():
-            self.thread_screenshot.join()
+        if self.thread and self.thread.is_alive():
+            # 等待线程结束，或者你可以尝试加入超时机制
+            self.thread.join()
 
     def start_thread_listeners(self):
-        self.thread_listener = threading.Thread(target=self.run_listeners)
-        self.thread_listener.start()
-        self.thread_screenshot = threading.Thread(target=self.run_screenshot)
-        self.thread_screenshot.start()
-
-    def run_screenshot(self):
-        if self.loop_screenshot is None or self.loop_screenshot.is_closed():
-            self.loop_screenshot = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop_screenshot)
-        try:
-            self.loop_screenshot.run_until_complete(self.start_screenshot())
-        finally:
-            self.loop_screenshot.close()
+        self.stop_event.clear()  # 清除停止标志
+        self.thread = threading.Thread(target=self.run_listeners)
+        self.thread.start()
 
     def run_listeners(self):
-        if self.loop_listener is None or self.loop_listener.is_closed():
-            self.loop_listener = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop_listener)
-        try:
-            self.loop_listener.run_until_complete(self.start_listeners())
-        finally:
-            self.loop_listener.close()
+        asyncio.run(self.start_listeners())
 
     def cancel_recording(self):
+        self.record_over = True
+        # self.showMinimized()
         self.hide()
 
     def saveRecordFile(self):
