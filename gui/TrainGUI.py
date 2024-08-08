@@ -162,7 +162,8 @@ class TrainNewWin(QMainWindow):
         if not self.listeners_running:
             if len(self.screen_image_stream) > 0:
                 for stream in self.screen_image_stream:
-                    stream['stream'].save(stream['file_name'])
+                    if not self.loop_screenshot.is_closed():
+                        stream['stream'].save(stream['file_name'])
 
     def screenshot(self, option: str, x: int = None, y: int = None, dx: any = None, dy: any = None,
                    button: any = None):
@@ -282,14 +283,16 @@ class TrainNewWin(QMainWindow):
         for task in self.screenshot_list:
             task.cancel()
         try:
-            self.loop_screenshot.run_until_complete(asyncio.gather(*self.screenshot_list))
+            if not self.loop_screenshot.is_closed():
+                self.loop_screenshot.run_until_complete(asyncio.gather(*self.screenshot_list))
         except Exception as e:
             print(f"Error during task cancellation: {e}")
         # 取消所有异步任务
         for task in self.listener_list:
             task.cancel()
         try:
-            self.loop_listener.run_until_complete(asyncio.gather(*self.listener_list))
+            if not self.loop_listener.is_closed():
+                self.loop_listener.run_until_complete(asyncio.gather(*self.listener_list))
         except Exception as e:
             print(f"Error during task cancellation: {e}")
         self.steps = 0
