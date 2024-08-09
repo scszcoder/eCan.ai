@@ -56,7 +56,7 @@ from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml
 from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
-from bot.seleniumScrapeEBayShop import genWinADSEbayWebdriverFullfillOrdersSkill
+# from bot.seleniumScrapeEBayShop import genWinADSEbayWebdriverFullfillOrdersSkill
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -178,7 +178,7 @@ PUBLIC = {
     'genStepEbayScrapeCustomerMsgThread': genStepEbayScrapeCustomerMsgThread,
     'genStepAmzScrapeBuyOrdersHtml': genStepAmzScrapeBuyOrdersHtml,
     'genEbayLoginInSteps': genEbayLoginInSteps,
-    'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
+    'genStepEbayScrapeOrdersFromHtml': genStepEbayScrapeOrdersFromHtml,
     'log3': log3,
     'genStepReadFile': genStepReadFile,
     'genStepWriteFile': genStepWriteFile,
