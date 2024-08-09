@@ -385,7 +385,7 @@ def genWinADSEbayCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN
-    this_step, step_words = genStepEbayScrapeOrdersHtml("hf_path", "var", "hf_name", "currentPage", "pageOfOrders", "scrape_stat", this_step)
+    this_step, step_words = genStepEbayScrapeOrdersFromHtml("hf_path", "var", "hf_name", "currentPage", "pageOfOrders", "scrape_stat", this_step)
     psk_words = psk_words + step_words
 
 
@@ -497,7 +497,7 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global ship_op\nship_op = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global labels_dir\nlabels_dir = "+worksettings+"['log_path_prefix']+'ebay_labels'", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global labels_dir\nlabels_dir = sk_work_settings['log_path_prefix']+'ebay_labels'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -630,7 +630,8 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now go the default download directory and fetch the most recent "ebay-bulk-labels-*.pdf"
-    this_step, step_words = genStepMoveDownloadedFileToDestination("ebay-bulk-labels", "pdf", "labels_dir", "move_done", this_step)
+    # prefix, extension, destination, result_var, flag_var, stepN):
+    this_step, step_words = genStepMoveDownloadedFileToDestination("ebay-bulk-labels", "pdf", "labels_dir", "move_result", "move_done", this_step)
     psk_words = psk_words + step_words
 
     # end of if len(orders) > 0
