@@ -38,7 +38,7 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step)
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -108,7 +108,7 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN):
+def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, theme):
     print("fullfill using ebay labels")
     psk_words = "{"
 
@@ -124,7 +124,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step)
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -199,7 +199,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN):
 
     return this_step, psk_words
 
-def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN):
+def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
     print("fullfill using ebay labels")
     psk_words = "{"
 
@@ -215,7 +215,7 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step)
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -290,7 +290,7 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN):
 
     return this_step, psk_words
 
-def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN):
+def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     print("fullfill using ebay labels")
     psk_words = "{"
 
@@ -306,7 +306,7 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step)
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -378,7 +378,7 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN):
 
     return this_step, psk_words
 
-def genWinADSEbayBrowserInitializeSetup(worksettings, stepN):
+def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     psk_words = ""
 
     this_step, step_words = genStepCreateData("string", "ebay_status", "NA", "", stepN)

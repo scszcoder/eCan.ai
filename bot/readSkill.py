@@ -22,7 +22,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processExtractInfo8, DEFAULT_RUN_STATUS, WAIT_HIL_RESPONSE, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
-    processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop
+    processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
+    processUseExternalSkill, processReportExternalSkillRunStatus
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -124,6 +125,8 @@ RAIS = {
     "Return": lambda x,y,z,w: processReturn(x, y, z, w),
     "Use Skill": lambda x,y,z,u,v,w: processUseSkill(x, y, z, u, v, w),
     "Overload Skill": lambda x,y,z,w: processOverloadSkill(x, y, z, w),
+    "Use External Skill": lambda x,y,z: processUseExternalSkill(x, y, z),
+    "Report External Skill Run Status": lambda x,y,z: processReportExternalSkillRunStatus(x, y, z),
     "Stub": lambda x,y,z,u,v,w: processStub(x, y, z, u, v, w),
     "Call Extern": lambda x,y: processCallExtern(x, y),
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
@@ -156,7 +159,8 @@ RAIS = {
     "AMZ PL Calc Columns": lambda x, y: processAmzPLCalcNCols(x, y),
     "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
     "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
-    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
+    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersFromHtml(x, y),
+    "EBAY Scrape Orders Javascript": lambda x, y: processEbayScrapeOrdersFromJss(x, y),
     "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
     "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
     "Ebay Gen Shipping From Order ID": lambda x, y: processEbayGenShippingInfoFromOrderID(x, y),
@@ -230,6 +234,8 @@ ARAIS = {
     "Return": lambda x,y,z,w: processReturn(x, y, z, w),
     "Use Skill": lambda x,y,z,u,v,w: processUseSkill(x, y, z, u, v, w),
     "Overload Skill": lambda x,y,z,w: processOverloadSkill(x, y, z, w),
+    "Use External Skill": lambda x, y, z: processUseExternalSkill(x, y, z),
+    "Report External Skill Run Status": lambda x, y, z: processReportExternalSkillRunStatus(x, y, z),
     "Stub": lambda x,y,z,u,v,w: processStub(x, y, z, u, v, w),
     "Call Extern": lambda x,y: processCallExtern(x, y),
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
@@ -265,7 +271,8 @@ ARAIS = {
     "AMZ PL Calc Columns": lambda x, y: processAmzPLCalcNCols(x, y),
     "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
     "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
-    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
+    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersFromHtml(x, y),
+    "EBAY Scrape Orders Javascript": lambda x, y: processEbayScrapeOrdersFromJss(x, y),
     "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
     "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
     "Ebay Gen Shipping From Order ID": lambda x, y: processEbayGenShippingInfoFromOrderID(x, y),
@@ -552,7 +559,8 @@ def run1step(steps, si, mission, skill, stack):
             si,isat = RAIS[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = RAIS[step["type"]](step, si, mission, skill)
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM" or \
+                step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status":
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si,isat = RAIS[step["type"]](step, si, stack, stepKeys)
@@ -607,7 +615,9 @@ async def run1step8(steps, si, mission, skill, stack):
             else:
                 si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Obtain Reviews" or step["type"] == "Ask LLM":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
+                step["type"] == "Obtain Reviews" or step["type"] == "Ask LLM"  or \
+                step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status":
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)
             else:

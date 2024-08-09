@@ -489,7 +489,7 @@ def genStepEbayScrapeOrdersFromHtml(html_dir, dir_name_type, html_file, pidx, ou
 
 def genStepEbayScrapeOrdersFromJss(jss_var, jss_var_type, pidx, outvar, statusvar, stepN):
     stepjson = {
-        "type": "EBAY Scrape Orders Html",
+        "type": "EBAY Scrape Orders Javascript",
         "pidx": pidx,                   # page index, there could be multiple pages of orders.
         "jss_var": jss_var,             # java scripts pointer
         "jss_var_type": jss_var_type,   # "direct"/"var"/"expr" this directory could be a literal string or a variable.
