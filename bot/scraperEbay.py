@@ -73,6 +73,8 @@ def extract_order_data(aj):
         log3(ex_stat)
 
     return orders, resultsPerPage
+
+
 def extract_orders_from_tokens(tokens):
     is_variations = False
     brace_count = 0
@@ -154,6 +156,25 @@ def get_total_num_orders(hsoup):
 
     return n_orders
 
+def ebaySellerJS2Orders(scriptItems, pagefull_of_orders):
+    for item in scriptItems:
+        # pattern = r'orderId.*?feedbackScore'
+        pattern = r'Awaiting shipment'
+        found = re.findall(pattern, item.text)
+        if found:
+            print("right script found....")
+            tokens = esprima.tokenize(item.text)
+            # js_tree = esprima.visitor.Visitor(item.text)
+
+            aj = extract_orders_from_tokens(tokens)
+
+            orders, results_per_page = extract_order_data(aj)
+
+    pagefull_of_orders["ol"] = orders
+    pagefull_of_orders["orders_per_page"] = results_per_page
+    pagefull_of_orders["num_pages"] = math.ceil(len(orders) / results_per_page)
+
+
 def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -175,22 +196,8 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
             scriptItems = soup.findAll("script")
             # log3(str(len(scriptItems)))
 
-            for item in scriptItems:
-                # pattern = r'orderId.*?feedbackScore'
-                pattern = r'Awaiting shipment'
-                found = re.findall(pattern, item.text)
-                if found:
-                    print("right script found....")
-                    tokens = esprima.tokenize(item.text)
-                    # js_tree = esprima.visitor.Visitor(item.text)
+            ebaySellerJS2Orders(scriptItems, pagefull_of_orders)
 
-                    aj = extract_orders_from_tokens(tokens)
-
-                    orders, results_per_page = extract_order_data(aj)
-
-        pagefull_of_orders["ol"] = orders
-        pagefull_of_orders["orders_per_page"] = results_per_page
-        pagefull_of_orders["num_pages"] = math.ceil(len(orders)/results_per_page)
         log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
         log3("# of orders:"+str(len(orders))+","+str(pagefull_of_orders["orders_per_page"])+","+str(pagefull_of_orders["num_pages"]))
         print([ord.toJson() for ord in orders])
@@ -467,7 +474,7 @@ def extract_text(html_content):
 
 
 
-def genStepEbayScrapeOrdersHtml(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+def genStepEbayScrapeOrdersFromHtml(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
     stepjson = {
         "type": "EBAY Scrape Orders Html",
         "pidx": pidx,                   # page index, there could be multiple pages of orders.
@@ -480,8 +487,20 @@ def genStepEbayScrapeOrdersHtml(html_dir, dir_name_type, html_file, pidx, outvar
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepEbayScrapeOrdersFromJss(jss_var, jss_var_type, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "EBAY Scrape Orders Html",
+        "pidx": pidx,                   # page index, there could be multiple pages of orders.
+        "jss_var": jss_var,             # java scripts pointer
+        "jss_var_type": jss_var_type,   # "direct"/"var"/"expr" this directory could be a literal string or a variable.
+        "result": outvar,               # result variable
+        "status": statusvar             # status of the execution of this instruction.
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 html_dir = ""
-def processEbayScrapeOrdersHtml(step, i):
+def processEbayScrapeOrdersFromHtml(step, i):
     global html_dir
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -512,3 +531,37 @@ def processEbayScrapeOrdersHtml(step, i):
         log3(ex_stat)
 
     return next_i, ex_stat
+
+
+
+
+def processEbayScrapeOrdersFromJss(step, i):
+    global html_dir
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        next_i = i + 1
+        pidx = symTab[step["pidx"]]
+        print("hello??????????")
+        if step["html_dir_type"] == "direct":
+            jss = step["jss_var"]
+        else:
+            print("input html_dir:", step["html_dir"], symTab[step["html_file"]])
+
+        pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
+        orders = []
+        option_tags = []
+        ebaySellerJS2Orders(jss, pagefull_of_orders)
+
+        symTab[step["result"]] = pagefull_of_orders
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorEbayScrapeOrdersJss:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorEbayScrapeOrdersJss traceback information not available:" + str(e)
+        log3(ex_stat)
+
+        return (i + 1), ex_stat

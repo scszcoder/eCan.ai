@@ -22,9 +22,10 @@ ads_api_conns = [
 # Replace with your actual Adspower API key and profile ID
 API_KEY = 'your_adspower_api_key'
 PROFILE_ID = 'your_adspower_profile_id'
+PORT = 50325
 
-def startAdspowerProfile(api_key, profile_id):
-    url = f'http://localhost:50325/api/v1/browser/start?user_id={profile_id}'
+def startAdspowerProfile(api_key, profile_id, port):
+    url = f'http://localhost:{port}/api/v1/browser/start?user_id={profile_id}'
     headers = {
         'Authorization': f'Bearer {api_key}'
     }
@@ -35,8 +36,9 @@ def startAdspowerProfile(api_key, profile_id):
     else:
         raise Exception('Failed to start Adspower profile', response.text)
 
-def startADSWebDriver():
-    webdriver_info = startAdspowerProfile(API_KEY, PROFILE_ID)
+def startADSWebDriver(local_api_key, port_string, profile_id, options):
+    # webdriver_info = startAdspowerProfile(API_KEY, PROFILE_ID)
+    webdriver_info = startAdspowerProfile(local_api_key, profile_id, port_string)
     print('WebDriver Info:', webdriver_info)
 
     webdriver_url = webdriver_info['url']
@@ -52,3 +54,4 @@ def startADSWebDriver():
     driver = webdriver.Remote(command_executor=webdriver_url, desired_capabilities=DesiredCapabilities.CHROME, options=options)
 
     return driver
+

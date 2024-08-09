@@ -2598,10 +2598,12 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         # start execuation on the function, find the function name's address, and set next pointer to it.
         # the function name address key value pair was created in gen_addresses
         skname = step["skill_path"] + "/" + step["skill_name"]
-        log3("skname:"+skname+"  "+sk_table[skname])
-        idx = step_keys.index(sk_table[skname])
-        log3("idx:"+str(idx))
-        # log3("step_keys:"+json.dumps(step_keys))
+        if skname in sk_table:
+            log3("skname:"+skname+"  "+sk_table[skname])
+            idx = step_keys.index(sk_table[skname])
+            log3("idx:"+str(idx))
+        else:
+            log3("ERROR: LOCAL SKILL NOT FOUND, TRYING CLOUD")
 
 
     except Exception as e:
