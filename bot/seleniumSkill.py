@@ -171,12 +171,12 @@ def genStepWebdriverCloseTab(driver_var, target_var, text_var, result_var, flag_
 
 
 
-def genStepWebdriverGoToTab(driver_var, target_var, text_var, result_var, flag_var, stepN):
+def genStepWebdriverGoToTab(driver_var, text_var, site_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Go To Tab",
-        "target_var": target_var,
         "driver_var": driver_var,  # anchor, info, text
         "text_var": text_var,  # anchor, info, text
+        "site": site_var,
         "result": result_var,
         "flag": flag_var
     }
@@ -289,17 +289,39 @@ def genStepWebdriverStartNewChrome(driver_var, result_var, flag_var, stepN):
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-
-def genStepWebdriverStartExistingADS(driver_var, result_var, flag_var, stepN):
+# local_api_key, port_var, profile_id_var, options):
+def genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var, port_var, options_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Start Existing ADS",
         "driver_var": driver_var,  # anchor, info, text
+        "ads_api_key_var": ads_api_key_var,
+        "profile_id_var": profile_id_var,
+        "port_var": port_var,
+        "options_var": options_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepWebdriverExtractInfo(driver_var, source_var_type, source_var, wait_var, info_type_var, element_type_var, element_var, result_type, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Extract Info",
+        "driver_var": driver_var,  # anchor, info, text
+        "wait": wait_var,
+        "source_var_type": source_var_type,
+        "source_var": source_var,
+        "info_type_var": info_type_var,
+        "element_type_var": element_type_var,
+        "element_var": element_var,
+        "result_type": result_type,
         "result": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+
+# ====== now the processing routines for the step instructions.
 def processWebdriverClick(step, i):
     log3("click....")
     ex_stat = DEFAULT_RUN_STATUS
@@ -354,6 +376,8 @@ def startExistingChromeDriver():
 
 def processWebdriverStartExistingChrome(step, i):
     try:
+        ex_stat = DEFAULT_RUN_STATUS
+
         driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/chromedriver.exe'
         absolute_path = os.path.abspath(driver_path)
         print(f"Absolute path: {absolute_path}")
@@ -409,17 +433,22 @@ def processWebdriverStartNewChrome(step, i):
 
 def processWebdriverStartExistingADS(step, i):
     try:
-        symTab[step["result"]] = webdriver.Chrome()
+        ex_stat = DEFAULT_RUN_STATUS
 
+        api_key = symTab[step["ads_api_key_var"]]
+        profile_id = symTab[step["profile_id_var"]]
+        port = symTab[step["port_var"]]
+        options = symTab[step["options_var"]]
+        symTab[step["driver_var"]] = startADSWebDriver(api_key, profile_id, port, options)
 
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorSmoothScrollToElement:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorWebdriverStartExistingADS:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorSmoothScrollToElement: traceback information not available:" + str(e)
+            ex_stat = "ErrorWebdriverStartExistingADS: traceback information not available:" + str(e)
         print(ex_stat)
     return (i + 1), ex_stat
 
@@ -635,19 +664,31 @@ def processWebdriverCloseTab(step, i):
 
     return (i + 1), ex_stat
 
-
+# this step goes to a designated tab, if not found start a new tab.
 def processWebdriverGoToTab(step, i):
     try:
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
-        tab_title_txt = symTab[step["tab_title_var"]]
+        tab_title_txt = symTab[step["text_var"]]
+        url = symTab[step["site_var"]]
 
         log3("swtich to tab")
-
+        found = False
         for handle in driver.window_handles:
             driver.switch_to.window(handle)
             if tab_title_txt in driver.current_url:
+                found = True
                 break
+
+        if not found:
+            driver.execute_script("window.open('');")
+
+            # Switch to the new tab
+            driver.switch_to.window(driver.window_handles[-1])
+
+            # Navigate to the new URL in the new tab
+            if url:
+                driver.get(url)  # Replace with the new URL
 
     except Exception as e:
         # Get the traceback information
@@ -845,6 +886,62 @@ def processWebdriverExecJs(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+
+def processWebdriverExtractInfo(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = True
+
+        if type(step["wait"]) == int:
+            wait_time = step["wait"]
+        else:
+            wait_time = symTab[step["wait"]]
+
+        info_type = symTab[step["info_type_var"]]
+        element_type = symTab[step["element_type_var"]]
+        element_name = symTab[step["element_var"]]
+
+        if wait_time != 0:
+            wait = WebDriverWait(driver, wait_time)
+            web_element = wait.until(EC.presence_of_element_located((element_type, element_name)))
+        else:
+            if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
+                web_element = driver.find_element(element_type, element_name)
+            elif step["source_var_type"] == "var":
+                web_element = symTab[step["source_var"]].find_element(element_type, element_name)
+
+        if info_type == "text":
+            if step["result_type"] == "var":
+                    symTab[step["result"]] = web_element.text
+
+            elif step["result_type"] == "expr":
+                to_words = re.split(r'\[|\(|\{', step["result"])
+                sink = to_words[0]
+                if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
+                    exec(f"global {sink}\n{step['result']} = web_element.text\nprint('element text', web_element.text)")
+        elif info_type == "web element":
+            if step["result_type"] == "var":
+                symTab[step["result"]] = driver.find_element(element_type, element_name)
+            elif step["result_type"] == "expr":
+                to_words = re.split(r'\[|\(|\{', step["result"])
+                sink = to_words[0]
+                exec(f"global {sink}\n{step['result']} = web_element\nprint('element text', web_element)")
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverQuit:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverQuit: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
 
 def processWebdriverQuit(step, i):
     try:
