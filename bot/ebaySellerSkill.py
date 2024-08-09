@@ -10,7 +10,7 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreat
     STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink, genStepSearchWordLine, genStepCalcObjectsDistance, \
     genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination
 from bot.Logger import log3
-from bot.scraperEbay import genStepEbayScrapeOrdersHtml, genStepEbayScrapeMsgList
+from bot.scraperEbay import genStepEbayScrapeOrdersFromHtml, genStepEbayScrapeOrdersFromJss, genStepEbayScrapeMsgList
 from bot.ordersData import Shipping
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath

@@ -25,16 +25,22 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepThink, genException, genStepGoToWindow, genStepReportToBoss, genStepAmzPLCalcNCols, \
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
-    genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews
+    genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
+    genStepUseExternalSkill
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
     genStepWebdriverQuit, genStepWebdriverExecJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
-    genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
+    genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersFromHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
-    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill, genEbayLoginInSteps
+    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill, genEbayLoginInSteps,\
+    genStepEbayScrapeOrdersFromJss
+from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, genWinADSEbayBrowserRespondMessagesSkill, \
+    genWinADSEbayBrowserCollectOrdersSkill, genWinADSEbayBrowserUpdateTrackingSkill, \
+    genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill, genWinADSEbayBrowserBuyShippingSkill, \
+    genWinADSEbayBrowserBuyECBLabelsSkill
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
     genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
@@ -45,7 +51,7 @@ from bot.fileSkill import genWinFileLocalOpenSaveSkill
 from bot.printLabel import genStepPrintLabels, genWinPrinterLocalReformatPrintSkill
 from bot.rarSkill import genWinRARLocalUnzipSkill
 from bot.scraperEtsy import genStepEtsyScrapeOrders
-from bot.scraperEbay import genStepEbayScrapeMsgList, genStepEbayScrapeOrdersHtml, genStepEbayScrapeCustomerMsgThread
+from bot.scraperEbay import genStepEbayScrapeMsgList, genStepEbayScrapeOrdersFromHtml, genStepEbayScrapeOrdersFromJss, genStepEbayScrapeCustomerMsgThread
 from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml
 from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
@@ -130,7 +136,8 @@ PUBLIC = {
     'genWinChromeEbayUpdateShipmentTrackingSkill': genWinChromeEbayUpdateShipmentTrackingSkill,
     'genWinChromeEbayBuyShippingSkill': genWinChromeEbayBuyShippingSkill,
     'genWinADSEbayBuyShippingSkill': genWinADSEbayBuyShippingSkill,
-    'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
+    'genStepEbayScrapeOrdersFromHtml': genStepEbayScrapeOrdersFromHtml,
+    'genStepEbayScrapeOrdersFromJss': genStepEbayScrapeOrdersFromJss,
     'genStepSetupADS': genStepSetupADS,
     'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
     'genWinADSRemoveProfilesSkill': genWinADSRemoveProfilesSkill,
@@ -202,6 +209,20 @@ SkillGeneratorTable = {
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
     "win_ads_ebay_orders_buy_shipping": lambda x, y, z: genWinADSEbayBuyShippingSkill(x, y, z),
     "win_ads_ebay_orders_update_tracking": lambda x, y, z: genWinADSEbayUpdateShipmentTrackingSkill(x, y, z),
+
+    "win_ads_ebay_orders_browser_fullfill_orders": lambda x, y, z: genWinADSEbayBrowserFullfillOrdersSkill(x, y, z),
+    "win_ads_ebay_orders_browser_fullfill_orders_with_ecb_labels": lambda x, y, z: genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(x, y, z),
+    "win_ads_ebay_orders_browser_collect_orders": lambda x, y, z: genWinADSEbayBrowserCollectOrdersSkill(x, y, z),
+    "win_ads_ebay_orders_browser_buy_shipping": lambda x, y, z: genWinADSEbayBrowserBuyShippingSkill(x, y, z),
+    "win_ads_ebay_orders_browser_buy_ecb_labels": lambda x, y, z: genWinADSEbayBrowserBuyECBLabelsSkill(x, y, z),
+    "win_ads_ebay_orders_browser_update_tracking": lambda x, y, z: genWinADSEbayBrowserUpdateTrackingSkill(x, y, z),
+    "win_ads_ebay_orders_browser_respond_messages": lambda x, y, z: genWinADSEbayBrowserRespondMessagesSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_offers": lambda x, y, z: genWinADSEbayBrowserHandleOffersSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_return": lambda x, y, z: genWinADSEbayBrowserHandleReturnSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_return_with_ecb_labels": lambda x, y, z: genWinADSEbayBrowserHandleReturnWithECBLabelsSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_replacement": lambda x, y, z: genWinADSEbayBrowserHandleReplacementSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_refund": lambda x, y, z: genWinADSEbayBrowserHandleRefundSkill(x, y, z),
+
     "win_chrome_ebay_orders_fullfill_orders": lambda x, y, z: genWinChromeEbayFullfillOrdersSkill(x, y, z),
     "win_chrome_ebay_orders_collect_orders": lambda x, y, z: genWinChromeEbayCollectOrderListSkill(x, y, z),
     "win_chrome_ebay_orders_update_tracking": lambda x, y, z: genWinChromeEbayUpdateShipmentTrackingSkill(x, y, z),

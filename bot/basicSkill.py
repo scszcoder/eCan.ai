@@ -19,7 +19,8 @@ import numpy as np
 from ping3 import ping
 
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
-    send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle
+    send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
+    send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud
 from bot.Logger import log3
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -619,6 +620,40 @@ def genStepUseSkill(skname, skpath, skargs, output, stepN):
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepUseExternalSkill(skid, skname, owner, skargs, start_time, verbose, output, stepN):
+    stepjson = {
+        "type": "Use External Skill",
+        "skid": skid,
+        "skname": skname,
+        "owner": owner,
+        "skill_args": skargs,
+        "start_time": start_time,
+        "verbose": verbose,
+        "output": output
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepReportExternalSkillRunStatus(run_id, skid, skname, start_time, end_time, mid, bid, status, output, stepN):
+    stepjson = {
+        "type": "Report External Skill Run Status",
+        "run_id": run_id,
+        "skill_id": skid,
+        "skill_name": skname,
+        "start_time": start_time,
+        "end_time": end_time,
+        "status": status,
+        "mid": mid,
+        "bid": bid,
+        "output": output
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 # fname: function name.
 # args: function arguments
@@ -2617,6 +2652,74 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         log3(ex_stat)
 
     return idx, ex_stat
+
+
+# this is essentially an AppSync mutation API call to request running external skill.
+# the cloud side will check permission, and then create a mission for a bot with this
+# skill to run by the skill provider.
+def processUseExternalSkill(step, i, mission):
+    global skill_code
+
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        settings = mission.main_win_settings
+
+        req = {
+            "skid": step["skid"],
+            "owner": step["owner"],
+            "start": step["start_time"],
+            "name": step["skname"],
+            "in_data": json.dumps(symTab[step["skill_args"]]),
+            "verbose": step["verbose"],
+        }
+        reqs = [req]
+
+        symTab[step["output"]] = send_run_ext_skill_request_to_cloud(settings["session"], reqs, settings["token"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorUseExternalSkill:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorUseExternalSkill: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return i+1, ex_stat
+
+
+def processReportExternalSkillRunStatus(step, i, mission):
+    global skill_code
+
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        settings = mission.main_win_settings
+
+        req = {
+            "skid": step["skid"],
+            "owner": step["owner"],
+            "start": step["start_time"],
+            "name": step["skname"],
+            "in_data": json.dumps(symTab[step["skill_args"]]),
+            "verbose": step["verbose"],
+        }
+        reqs = [req]
+
+        symTab[step["output"]] = send_run_ext_skill_request_to_cloud(settings["session"], reqs, settings["token"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReportExternalSkillRunStatus:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReportExternalSkillRunStatus: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return i+1, ex_stat
+
 
 # this is for call a skill function.
 # fname: function name.
