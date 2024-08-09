@@ -38,157 +38,7 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "ebay_status", "NA", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "web_driver", "NA", None, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "product_book", "NA", "sk_work_settings['products']", this_step)
-    psk_words = psk_words + step_words
-
-    # mask out for testing purpose only....
-    this_step, step_words = genStepCreateData("expr", "ebay_orders", "NA", "[]", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "dummy_in", "NA", "[]", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 253, this_step)
-    psk_words = psk_words + step_words
-
-     # hard default exe path code here just for testing purpose, eventually will be from input or settings....
-    this_step, step_words = genStepCreateData("str", "sevenZExe", "NA", 'C:/Program Files/7-Zip/7z.exe', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("str", "rarExe", "NA", 'C:/Program Files/WinRaR/WinRaR.exe', this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "[sk_work_settings['batch_profile']]", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "ads_port", "NA", "sk_work_settings['batch_profile']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "ads_profile_id", "NA", "sk_work_settings['batch_profile']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "ads_api_key", "NA", "sk_work_settings['batch_profile']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 250, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "retry_count", "NA", 5, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("bool", "mission_failed", "NA", False, this_step)
-    psk_words = psk_words + step_words
-
-    # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
-    this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
-    # scroll down half screen and check again if nothing found in the 1st glance.
-    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("not bot_loaded and not nothing_loaded", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # if not on screen, scroll down and check again.
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 80, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # if not found, call the batch load profile subskill to load the correct profile batch.
-    this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "profile_name_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
-    psk_words = psk_words + step_words
-
-    # due to screen real-estate, some long email address might not be dispalyed in full, but usually
-    # it can display up until @ char on screen, so only use this as the tag.
-    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "product_catelog", "NA", "sk_work_settings['products']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA", "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]", this_step)
-    psk_words = psk_words + step_words
-
-    # once the correct user profile is loaded, the open button corresponding to the user profile will be clicked to open the profile.
-    this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input", "browser_up", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # wait 9 seconds for the browser to be brought up.
-    this_step, step_words = genStepWait(8, 1, 3, this_step)
-    psk_words = psk_words + step_words
-
-    # use web driver to open the profile.
-    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port", "web_driver_options", "web_driver_successful", this_step)
-    psk_words = psk_words + step_words
-
-
-    # now open the target web site.
-    this_step, step_words = genStepWebdriverGoToTab("web_driver", "tab_text", "site", "site_result", "site_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genEbayLoginInSteps(this_step, theme)
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -254,6 +104,458 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     print("generating win ads ebay skill")
     psk_words = psk_words + "\"dummy\" : \"\"}"
     log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN):
+    print("fullfill using ebay labels")
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_fullfill_orders", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINADSEBAY011",
+                                          "Selenium Ebay Fullfill New Orders On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+                                        this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # skname, skfname, in-args, output, step number
+    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in",
+                                            "ebay_orders", this_step)
+    psk_words = psk_words + step_words
+
+    # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
+    # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
+    # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
+
+    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA",
+                                              "['sale', ebay_orders, product_catelog]", this_step)
+    psk_words = psk_words + step_words
+    #
+    # using ebay to purchase shipping label will auto update tracking code..... s
+    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input",
+                                            "labels_dir", this_step)
+    psk_words = psk_words + step_words
+
+    # # extract tracking code from labels and update them into etsy_orders data struture.
+    #
+    # # gen_etsy_test_data()
+    #
+    # # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
+    # # now update tracking coded back to the orderlist
+    # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
+    # psk_words = psk_words + step_words
+    #
+    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA",
+                                              "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
+    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "",
+                                            this_step)
+    psk_words = psk_words + step_words
+    #
+    # end condition for "not_logged_in == False"
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+    #
+    # # close the browser and exit the skill, assuming at the end of genWinChromeEBAYWalkSteps, the browser tab
+    # # should return to top of the ebay home page with the search text box cleared.
+    # this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCheckCondition("mission_failed == False", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
+    # this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
+    # psk_words = psk_words + step_words
+    #
+    # # end condition for "not_logged_in == False"
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+                                        this_step)
+    psk_words = psk_words + step_words
+    print("generating win ads ebay skill")
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN):
+    print("fullfill using ebay labels")
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_fullfill_orders", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINADSEBAY011",
+                                          "Selenium Ebay Fullfill New Orders On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+                                        this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # skname, skfname, in-args, output, step number
+    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in",
+                                            "ebay_orders", this_step)
+    psk_words = psk_words + step_words
+
+    # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
+    # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
+    # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
+
+    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA",
+                                              "['sale', ebay_orders, product_catelog]", this_step)
+    psk_words = psk_words + step_words
+    #
+    # using ebay to purchase shipping label will auto update tracking code..... s
+    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input",
+                                            "labels_dir", this_step)
+    psk_words = psk_words + step_words
+
+    # # extract tracking code from labels and update them into etsy_orders data struture.
+    #
+    # # gen_etsy_test_data()
+    #
+    # # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
+    # # now update tracking coded back to the orderlist
+    # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
+    # psk_words = psk_words + step_words
+    #
+    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA",
+                                              "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
+    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "",
+                                            this_step)
+    psk_words = psk_words + step_words
+    #
+    # end condition for "not_logged_in == False"
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+    #
+    # # close the browser and exit the skill, assuming at the end of genWinChromeEBAYWalkSteps, the browser tab
+    # # should return to top of the ebay home page with the search text box cleared.
+    # this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCheckCondition("mission_failed == False", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
+    # this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
+    # psk_words = psk_words + step_words
+    #
+    # # end condition for "not_logged_in == False"
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+                                        this_step)
+    psk_words = psk_words + step_words
+    print("generating win ads ebay skill")
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN):
+    print("fullfill using ebay labels")
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_buy_ecb_labels", "win", "1.0", "AIPPS LLC",
+                                          "PUBWINADSEBAY031",
+                                          "In-Browser Ebay Buy ECB labels using external skill.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+                                        this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # skname, skfname, in-args, output, step number
+    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in",
+                                            "ebay_orders", this_step)
+    psk_words = psk_words + step_words
+
+    # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
+    # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
+    # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
+
+    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA",
+                                              "['sale', ebay_orders, product_catelog]", this_step)
+    psk_words = psk_words + step_words
+    #
+    # using ebay to purchase shipping label will auto update tracking code..... s
+    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input",
+                                            "labels_dir", this_step)
+    psk_words = psk_words + step_words
+
+    # # extract tracking code from labels and update them into etsy_orders data struture.
+    #
+    # # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
+    # # now update tracking coded back to the orderlist
+    # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
+    # psk_words = psk_words + step_words
+    #
+    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA",
+                                              "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
+    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "", this_step)
+    psk_words = psk_words + step_words
+    #
+    # end condition for "not_logged_in == False"
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+    #
+    # # close the browser and exit the skill, assuming at the end of genWinChromeEBAYWalkSteps, the browser tab
+    # # should return to top of the ebay home page with the search text box cleared.
+    # this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCheckCondition("mission_failed == False", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
+    # this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
+    # psk_words = psk_words + step_words
+    #
+    # # end condition for "not_logged_in == False"
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+                                        this_step)
+    psk_words = psk_words + step_words
+    print("generating win ads ebay skill")
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEbayBrowserInitializeSetup(worksettings, stepN):
+    psk_words = ""
+
+    this_step, step_words = genStepCreateData("string", "ebay_status", "NA", "", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "web_driver", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "product_book", "NA", "sk_work_settings['products']", this_step)
+    psk_words = psk_words + step_words
+
+    # mask out for testing purpose only....
+    this_step, step_words = genStepCreateData("expr", "ebay_orders", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "dummy_in", "NA", "[]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 253, this_step)
+    psk_words = psk_words + step_words
+
+    # hard default exe path code here just for testing purpose, eventually will be from input or settings....
+    this_step, step_words = genStepCreateData("str", "sevenZExe", "NA", 'C:/Program Files/7-Zip/7z.exe', this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("str", "rarExe", "NA", 'C:/Program Files/WinRaR/WinRaR.exe', this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "[sk_work_settings['batch_profile']]",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "ads_port", "NA", "sk_work_settings['batch_profile']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "ads_profile_id", "NA", "sk_work_settings['batch_profile']",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "ads_api_key", "NA", "sk_work_settings['batch_profile']",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 250, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "retry_count", "NA", 5, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("bool", "mission_failed", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
+    this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up",
+                                            this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
+    # scroll down half screen and check again if nothing found in the 1st glance.
+    this_step, step_words = genStepCreateData("expr", "bot_email", "NA",
+                                              "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded",
+                                                  "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless",
+                                                    "nothing_loaded", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not bot_loaded and not nothing_loaded", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # if not on screen, scroll down and check again.
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 80, "screen", "scroll_resolution", 0, 2,
+                                               0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                               this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded",
+                                                  "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless",
+                                                    "nothing_loaded", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # if not found, call the batch load profile subskill to load the correct profile batch.
+    this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "profile_name", "NA",
+                                              "os.path.basename(sk_work_settings['batch_profile'])", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "profile_name_path", "NA",
+                                              "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
+    psk_words = psk_words + step_words
+
+    # due to screen real-estate, some long email address might not be dispalyed in full, but usually
+    # it can display up until @ char on screen, so only use this as the tag.
+    this_step, step_words = genStepCreateData("expr", "bot_email", "NA",
+                                              "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "full_site", "NA",
+                                              "sk_work_settings['full_site'].split('www.')[1]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "product_catelog", "NA", "sk_work_settings['products']",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA",
+                                              "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    # once the correct user profile is loaded, the open button corresponding to the user profile will be clicked to open the profile.
+    this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input",
+                                            "browser_up", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                               this_step, None, "dyn_options")
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # wait 9 seconds for the browser to be brought up.
+    this_step, step_words = genStepWait(8, 1, 3, this_step)
+    psk_words = psk_words + step_words
+
+    # use web driver to open the profile.
+    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port",
+                                                             "web_driver_options", "web_driver_successful", this_step)
+    psk_words = psk_words + step_words
+
+    # now open the target web site.
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "tab_text", "site", "site_result", "site_flag",
+                                                    this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genEbayLoginInSteps(this_step, theme)
+    psk_words = psk_words + step_words
 
     return this_step, psk_words
 
@@ -1890,5 +2192,212 @@ def genWinADSEbayRespondMessagesSkill(worksettings, stepN, theme):
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
     log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEbayBrowserHandleOffersSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_handle_offers", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY015",
+                                          "In-Browser Ebay Respond To Customer Offers On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_handle_offers", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now create all label in bulk here: https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt
+    this_step, step_words = genStepCallExtern("global msgurl\nmsgurl = 'https://mesg.ebay.com/mesgweb/ViewMessages/0'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "bulkurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "hf_path", "NA", "sk_work_settings['log_path']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepEbayScrapeMsgList("hf_path", "var", "hf_name", "currentPage", "pageOfMessages", "scrape_stat", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_handle_offers", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay handle respoding to offers using in-browser automation skills...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEbayBrowserHandleReturnSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_handle_return", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY005",
+                                          "Ebay Respond To Customer Messages On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_handle_return", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now create all label in bulk here: https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt
+    this_step, step_words = genStepCallExtern("global msgurl\nmsgurl = 'https://mesg.ebay.com/mesgweb/ViewMessages/0'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "bulkurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "hf_path", "NA", "sk_work_settings['log_path']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepEbayScrapeMsgList("hf_path", "var", "hf_name", "currentPage", "pageOfMessages", "scrape_stat", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_handle_return", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay handle return with ebay labels using in-browser automation skills...." + psk_words)
+
+    return this_step, psk_words
+
+
+
+def genWinADSEbayBrowserHandleReturnWithECBLabelsSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_handle_return_with_ecb_labels", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY005",
+                                          "In-Browser Ebay handles return with ecb labels On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_handle_return_with_ecb_labels", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now create all label in bulk here: https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt
+    this_step, step_words = genStepCallExtern("global msgurl\nmsgurl = 'https://mesg.ebay.com/mesgweb/ViewMessages/0'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "bulkurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "hf_path", "NA", "sk_work_settings['log_path']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepEbayScrapeMsgList("hf_path", "var", "hf_name", "currentPage", "pageOfMessages", "scrape_stat", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_handle_return_with_ecb_labels", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay handle return with ECB generated labels using in-browser automation skills...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEbayBrowserHandleReplacementSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_handle_replacement", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY005",
+                                          "Ebay Respond To Customer Messages On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_handle_replacement", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now create all label in bulk here: https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt
+    this_step, step_words = genStepCallExtern("global msgurl\nmsgurl = 'https://mesg.ebay.com/mesgweb/ViewMessages/0'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "bulkurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "hf_path", "NA", "sk_work_settings['log_path']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepEbayScrapeMsgList("hf_path", "var", "hf_name", "currentPage", "pageOfMessages", "scrape_stat", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_handle_replacement", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay handle sending replacement using in-browser automation skills...." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSEbayBrowserHandleRefundSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_handle_refund", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY005",
+                                          "Ebay Respond To Customer Messages On Windows ADS.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_handle_refund", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now create all label in bulk here: https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt
+    this_step, step_words = genStepCallExtern("global msgurl\nmsgurl = 'https://mesg.ebay.com/mesgweb/ViewMessages/0'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # hit ctrl-t to open a new tab.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # type in bulk buy label URL address.
+    this_step, step_words = genStepTextInput("var", False, "bulkurl", "direct", 1, "", 2, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(3, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "hf_path", "NA", "sk_work_settings['log_path']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepEbayScrapeMsgList("hf_path", "var", "hf_name", "currentPage", "pageOfMessages", "scrape_stat", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_handle_refund", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay handle refund using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words

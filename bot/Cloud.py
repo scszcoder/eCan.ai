@@ -126,6 +126,68 @@ def get_file_with_presigned_url(dest_file, url):
             f.close()
 
 
+#	requestRunExtSkill(input: [SkillRun]): AWSJSON!
+# 	skid: ID!
+# 	owner: String
+# 	name: String
+# 	start: AWSDateTime
+# 	in_data: AWSJSON!
+# 	verbose: Boolean
+def gen_query_reqest_run_ext_skill_string(query):
+    logger_helper.debug("in query:"+json.dumps(query))
+    query_string = """
+        query MyQuery {
+      requestRunExtSkill (input:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ skid: \"" + query[i]["skid"] + "\", "
+        rec_string = rec_string + "owner: \"" + query[i]["owner"] + "\", "
+        rec_string = rec_string + "start: \"" + query[i]["start"] + "\", "
+        rec_string = rec_string + "name: \"" + query[i]["name"] + "\", "
+        rec_string = rec_string + "in_data: \"" + query[i]["in_data"] + "\", "
+        rec_string = rec_string + "verbose: \"" + query[i]["verbose"] + "\" }"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+    ]) 
+    }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+#
+def gen_query_report_run_ext_skill_status_string(query):
+    logger_helper.debug("in query:"+json.dumps(query))
+    query_string = """
+        query MyQuery {
+      reportRunExtSkillStatus (input:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ run_id: \"" + query[i]["run_id"] + "\", "
+        rec_string = rec_string + "skid: \"" + query[i]["skid"] + "\", "
+        rec_string = rec_string + "timeStamp: \"" + query[i]["timeStamp"] + "\", "
+        rec_string = rec_string + "status: \"" + query[i]["status"] + "\", "
+        rec_string = rec_string + "result_data: \"" + query[i]["result_data"] + "\" }"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+    ]) 
+    }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
+
+
 def gen_query_chat_request_string(query):
     logger_helper.debug("in query:"+json.dumps(query))
     query_string = """
@@ -1076,6 +1138,55 @@ def send_completion_status_to_cloud(session, missionStats, token):
     else:
         logger_helper.error("ERROR Type: EMPTY DAILY REPORTS")
         jresponse = "ERROR: EMPTY REPORTS"
+    return jresponse
+
+async def send_run_ext_skill_request_to_cloud8(session, reqs, token):
+
+    mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
+
+    jresp = await appsync_http_request8(mutationInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["requestRunExtSkill"])
+
+    return jresponse
+
+def send_run_ext_skill_request_to_cloud(session, reqs, token):
+
+    mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
+
+    jresp = appsync_http_request8(mutationInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["requestRunExtSkill"])
+
+    return jresponse
+
+
+def send_report_run_ext_skill_status_request_to_cloud(session, reps, token):
+
+    mutationInfo = gen_query_report_run_ext_skill_status_string(reps)
+
+    jresp = appsync_http_request(mutationInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reportRunExtSkillStatus"])
+
     return jresponse
 
 

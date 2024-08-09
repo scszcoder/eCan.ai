@@ -34,11 +34,12 @@ from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySet
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
     processPrepGSOrder
 from bot.ebaySellerSkill import processEbayGenShippingInfoFromOrderID
+# from bot.browserEbaySellerSkill import process
 from bot.labelSkill import processGSExtractZippedFileName
 from bot.printLabel import processPrintLabels
 from bot.scrapeGoodSupply import processGSScrapeLabels
 from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
-from bot.scraperEbay import processEbayScrapeOrdersHtml, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
+from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOrdersFromJss, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
 from bot.envi import getECBotDataHome
 
