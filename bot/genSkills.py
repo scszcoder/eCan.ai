@@ -425,6 +425,7 @@ def getWorkRunSettings(lieutenant, bot_works):
 
     scroll_resolution = 250     # default scroll resolution.
     scroll_resolution_file = ecb_data_homepath + "/scroll_resolution.json"
+    fp_browser_settings = lieutenant.getADSSettings()
     if os.path.exists(scroll_resolution_file):
         with open(scroll_resolution_file, 'r') as fileTBR:
             scroll_resolution_json = json.load(fileTBR)
@@ -467,7 +468,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "root_path": root_path,
             "log_path_prefix": log_path_prefix,
             "log_path": "",
-            # "settings": settings,
+            "fp_browser_settings": fp_browser_settings,
             "platform": platform,
             "site": site,
             "app": app,
