@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         self.ads_profile_dir = ecb_data_homepath + "/ads_profiles/"
 
         self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
-        self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2}
+        self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "ads_port": 0, "ads_api_key": ""}
 
         # self.readBotJsonFile()
         self.vehicles = []                      # computers on LAN that can carry out bots's tasks.， basically tcp transports
@@ -313,7 +313,7 @@ class MainWindow(QMainWindow):
         self.showMsg("self.platform==================================================>" + self.platform)
         if os.path.exists(self.ads_settings_file):
             with open(self.ads_settings_file, 'r') as ads_settings_f:
-                ads_settings = json.load(ads_settings_f)
+                self.ads_settings = json.load(ads_settings_f)
 
             ads_settings_f.close()
         self.showMsg("=========Done With Network Setup, Start Local DB Setup =========")
@@ -5829,6 +5829,9 @@ class MainWindow(QMainWindow):
 
     def getADSBatchSize(self):
         return self.ads_settings["batch_size"]
+
+    def getADSSettings(self):
+        return self.ads_settings
 
     def getIP(self):
         return self.ip
