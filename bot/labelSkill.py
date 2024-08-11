@@ -1,9 +1,12 @@
 import json
 import re
+import os
+import copy
 from datetime import timedelta, datetime
 
 import pandas as pd
 from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 from PyPDF2 import PdfReader
 
 from bot.basicSkill import genStepHeader, genStepStub, genStepOpenApp, genStepCreateData, genStepCheckCondition, \
@@ -12,6 +15,7 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepOpenApp, genStepCr
     genStepCreateDir, genStep7z, genStepUseSkill
 from bot.scrapeGoodSupply import genStepGSScrapeLabels
 from bot.Logger import log3
+import traceback
 
 global symTab
 global STEP_GAP
@@ -737,4 +741,185 @@ def searchTrackingCodeFromPdf(pdffile):
     tc = tc.join(words)
     log3("tracking code:["+tc+"]")
     return tc
+
+
+def genStepPrepareGSOrder(order_var_name, gs_order_var_name, prod_book_var_name, seller, fpath, stepN):
+
+    stepjson = {
+        "type": "Prepare GS Order",
+        "ec_order": order_var_name,
+        "gs_order": gs_order_var_name,
+        "prod_book": prod_book_var_name,
+        "file_path": fpath,
+        "seller": seller
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def processPrepareGSOrder(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        next_i = i + 1
+        gs_label_orders = []
+
+        seller = symTab[step["seller"]]
+        file_path = symTab[step["file_path"]]
+        new_orders = symTab[step["ec_order"]]
+        # collaps all pages of order list into a single list or orders.
+        flatlist=[element for sublist in new_orders for element in sublist["ol"]]
+
+        log3("FLAT LIST: "+json.dumps(flatlist))
+
+        # combine orders into same person and address into 1 order.
+        combined = combine_duplicates(flatlist)
+
+        # filter out Non-USA orders. International Orders such as canadian and mexican should be treatly separately at this time.
+        us_orders = [o for o in combined if o.getRecipientAddrState() != "Canada" and o.getRecipientAddrState() != "Mexico"]
+
+        # don't put in the order that's not going to be fullfilled by the seller him/her self.
+        fbs_orders = [o for o in us_orders if order_is_for_fbs(o, symTab[step["prod_book"]])]
+
+        # group orders into two categories: weights less than 1lb and weights more than 1lb
+        light_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) < 1.0 ]
+        regular_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
+
+        # ofname is the order file name, should be etsy_orders+Date.xls
+        dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
+
+        if len(light_orders) > 0:
+            ofname1 = file_path+"/etsyOrdersGround"+dt_string+".xls"
+            ofname1_unzipped = file_path + "/etsyOrdersGround" + dt_string
+            createLabelOrderFile(seller, "ozs", light_orders, symTab[step["prod_book"]], ofname1)
+            gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.5, "num_orders": len(light_orders), "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1), "unzipped_dir": ofname1_unzipped})
+
+            #create unziped label dir ahead of time.
+            if not os.path.exists(ofname1_unzipped):
+                os.makedirs(ofname1_unzipped)
+
+        if len(regular_orders) > 0:
+            ofname2 = file_path+"/etsyOrdersPriority"+dt_string+".xls"
+            ofname2_unzipped =  file_path+"/etsyOrdersPriority"+dt_string
+
+            createLabelOrderFile(seller, "lbs", regular_orders, symTab[step["prod_book"]], ofname2)
+            gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*4.5, "num_orders": len(regular_orders), "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
+
+            #create unziped label dir ahead of time.
+            if not os.path.exists(ofname2_unzipped):
+                os.makedirs(ofname2_unzipped)
+
+        symTab[step["gs_order"]] = gs_label_orders
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorPrepareGSOrder:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorPrepareGSOrder: traceback information not available:" + str(e)
+
+        log3(ex_stat)
+
+    return next_i, ex_stat
+
+
+def combine_duplicates(orders):
+    merged_dict = {}
+    for order in orders:
+        key = (order.getRecipientName(), order.getRecipientAddrStreet1(), order.getRecipientAddrStreet2(), order.getRecipientAddrCity(), order.getRecipientAddrState())
+        if key in merged_dict:
+            merged_dict[key].products.extend(order.products)
+        else:
+            merged_dict[key] = copy.deepcopy(order)
+
+    return list(merged_dict.values())
+
+# ofname is the order file name, should be etsy_orders+Date.xls
+def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
+    if weight_unit == "ozs":
+        allorders = [{
+            "No": "1",
+            "FromName": seller["FromName"],
+            "PhoneFrom": seller["PhoneFrom"],
+            "Address1From": seller["Address1From"],
+            "CompanyFrom": "",
+            "Address2From": seller["Address2From"],
+            "CityFrom": seller["CityFrom"],
+            "StateFrom": seller["StateFrom"],
+            "ZipCodeFrom": seller["ZipCodeFrom"],
+            "NameTo": o.getRecipientName(),
+            "PhoneTo": o.getRecipientPhone(),
+            "Address1To": o.getRecipientAddrStreet1(),
+            "CompanyTo": "",
+            "Address2To": o.getRecipientAddrStreet2(),
+            "CityTo": o.getRecipientAddrCity(),
+            "StateTo": o.getRecipientAddrState(),
+            "ZipTo": o.getRecipientAddrZip(),
+            "Weight": o.getOrderWeightInOzs(book),
+            "length": o.getOrderLengthInInches(book),
+            "width": o.getOrderWidthInInches(book),
+            "height": o.getOrderHeightInInches(book),
+            "description": ""
+        } for o in orders]
+    else:
+        allorders = [{
+            "No": "1",
+            "FromName": seller["FromName"],
+            "PhoneFrom": seller["PhoneFrom"],
+            "Address1From": seller["Address1From"],
+            "CompanyFrom": "",
+            "Address2From": seller["Address2From"],
+            "CityFrom": seller["CityFrom"],
+            "StateFrom": seller["StateFrom"],
+            "ZipCodeFrom": seller["ZipCodeFrom"],
+            "NameTo": o.getRecipientName(),
+            "PhoneTo": o.getRecipientPhone(),
+            "Address1To": o.getRecipientAddrStreet1(),
+            "CompanyTo": "",
+            "Address2To": o.getRecipientAddrStreet2(),
+            "CityTo": o.getRecipientAddrCity(),
+            "StateTo": o.getRecipientAddrState(),
+            "ZipTo": o.getRecipientAddrZip(),
+            "Weight": o.getOrderWeightInLbs(book),
+            "length": o.getOrderLengthInInches(book),
+            "width": o.getOrderWidthInInches(book),
+            "height": o.getOrderHeightInInches(book),
+            "description": ""
+        } for o in orders]
+
+    df = pd.DataFrame(allorders)
+
+    # Save to .xls file
+    # Create a new workbook and select the active worksheet
+    wb = Workbook()
+    ws = wb.active
+
+    # Write data to worksheet
+    for r in dataframe_to_rows(df, index=False, header=True):
+        ws.append(r)
+
+    # Iterate through rows in column 2 (the 'age' column)
+    for row in ws.iter_rows(min_row=2, min_col=2, max_col=2):
+        for cell in row:
+            cell.number_format = '@'  # text format
+
+    log3("saving to file: "+ofname)
+    ofdir = os.path.dirname(ofname)
+    if not os.path.exists(ofdir):
+        os.makedirs(ofdir)
+    # Save workbook
+    wb.save(ofname)
+
+# if 1 product is not FBS, then the whole order is FBS... requires manual work.....
+def order_is_for_fbs(order, pbook):
+    fbs = True
+    for op in order.getProducts():
+        prod = next((p for i, p in enumerate(pbook[0]["products"]) if p["title"] == op.getPTitle()), None)
+        if prod:
+            if prod["fullfiller"] != "self":
+                fbs = False
+                break
+    return fbs
 

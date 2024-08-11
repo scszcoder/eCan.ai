@@ -13,7 +13,8 @@ from datetime import datetime
 import asyncio
 import platform
 import glob
-
+import chardet
+import pandas as pd
 import numpy as np
 
 from ping3 import ping
@@ -836,6 +837,30 @@ def genStepMoveDownloadedFileToDestination(prefix, extension, destination, resul
         "prefix": prefix,
         "extension": extension,
         "destination": destination,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepReadJsonFile(file_name_type, file_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Read Json File",
+        "file_name_type": file_name_type,
+        "file_name": file_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepReadXlsxFile(file_name_type, file_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Read Xlsx File",
+        "file_name_type": file_name_type,
+        "file_name": file_name,
         "result": result_var,
         "flag": flag_var
     }
@@ -4718,6 +4743,85 @@ def processCloseHumanInLoop(step, i, mission, hq):
             ex_stat = "ErrorMoveDownloadedFileToDestination:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorMoveDownloadedFileToDestination: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+#         "file_name_type": file_name_type,
+#         "file_name": file_name,
+#         "result": result_var,
+#         "flag": flag_var
+def processReadJsonFile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global json_file
+    try:
+        if step["file_name_type"] == "direct":
+            json_file = step["file_name"]
+        elif step["file_name_type"] == "var":
+            json_file = symTab[step["file_name"]]
+        elif step["file_name_type"] == "expr":
+            exec("global json_file\njson_file = "+step["file_name"]+"\nprint('json_file',json_file)")
+            # exec("json_file = "+step["file_name"]+"\nprint('json_file',json_file)")
+
+        print("reading json file:", json_file)
+
+        if os.path.exists(json_file):
+            with open(json_file, 'rb') as jf:
+                raw_data = jf.read()
+                encoding_result = chardet.detect(raw_data)
+                detected_encoding = encoding_result['encoding']
+
+            with open(json_file, 'r', encoding=detected_encoding) as jf:
+                symTab[step["result"]] = json.load(jf)
+                jf.close()
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReadJsonFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReadJsonFile: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processReadXlsxFile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global json_file
+    try:
+        if step["file_name_type"] == "direct":
+            json_file = step["file_name"]
+        elif step["file_name_type"] == "var":
+            json_file = symTab[step["file_name"]]
+        elif step["file_name_type"] == "expr":
+            exec("global json_file\njson_file = "+step["file_name"]+"\nprint('json_file',json_file)")
+            # exec("json_file = "+step["file_name"]+"\nprint('json_file',json_file)")
+
+        print("reading xlsx file:", json_file)
+
+        if os.path.exists(json_file):
+            # with open(json_file, 'rb') as jf:
+            df = pd.read_excel(json_file, engine='openpyxl')
+
+            # Convert the DataFrame to a list of dictionaries (JSON objects)
+            symTab[step["result"]] = df.to_dict(orient='records')
+
+            print("read xlsx reslt data", symTab[step["result"]])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReadXlsxFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
         symTab[step["flag"]] = False
         log3(ex_stat)
 

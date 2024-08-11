@@ -23,20 +23,20 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
     processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
-    processUseExternalSkill, processReportExternalSkillRunStatus
+    processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
     processWebdriverExecJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
-    processWebdriverStartExistingADS, processWebdriverStartNewChrome
+    processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
     processPrepGSOrder
 from bot.ebaySellerSkill import processEbayGenShippingInfoFromOrderID
 # from bot.browserEbaySellerSkill import process
-from bot.labelSkill import processGSExtractZippedFileName
+from bot.labelSkill import processGSExtractZippedFileName, processPrepareGSOrder
 from bot.printLabel import processPrintLabels
 from bot.scrapeGoodSupply import processGSScrapeLabels
 from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
@@ -142,7 +142,12 @@ RAIS = {
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),
-    "print Label": lambda x,y: processPrintLabels(x, y),
+    "Read File": lambda x, y: processReadFile(x, y),
+    "Write File": lambda x, y: processWriteFile(x, y),
+    "Delete File": lambda x, y: processDeleteFile(x, y),
+    "print Label": lambda x, y: processPrintLabels(x, y),
+    "Read Json File": lambda x, y: processReadJsonFile(x, y),
+    "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
@@ -179,6 +184,7 @@ RAIS = {
     "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
+    "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
@@ -203,6 +209,7 @@ RAIS = {
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
+    "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
 }
@@ -255,6 +262,8 @@ ARAIS = {
     "Write File": lambda x, y: processWriteFile(x, y),
     "Delete File": lambda x, y: processDeleteFile(x, y),
     "print Label": lambda x,y: processPrintLabels(x, y),
+    "Read Json File": lambda x,y: processReadJsonFile(x, y),
+    "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
@@ -291,6 +300,7 @@ ARAIS = {
     "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
+    "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
@@ -315,6 +325,7 @@ ARAIS = {
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
+    "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v)
 }
@@ -341,7 +352,7 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
                 # Call this as a recursive function if your json is highly nested
 
                 # get rid of comments.
-                lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+                lines = [re.sub("^\s*#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
                 json_as_string.close()
 
                 # get rid of empty lines.

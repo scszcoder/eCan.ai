@@ -1547,9 +1547,9 @@ class MainWindow(QMainWindow):
                         # file = 'C:/software/scheduleResultTest7.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                        file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        # file = 'C:/temp/scheduleResultTest99.json'
-                        file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
+                        # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
+                        file = 'C:/temp/scheduleResultTest99.json'
+                        # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
                                 bodyobj = json.load(test_schedule_file)
@@ -2349,6 +2349,11 @@ class MainWindow(QMainWindow):
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
+        ten_hours = timedelta(hours=10)
+
+        # Add 10 hours to the current date and time
+        pt = pt + ten_hours
+
         if len(self.todays_work["tbd"]) > 0:
             if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
@@ -2382,9 +2387,14 @@ class MainWindow(QMainWindow):
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
+        ten_hours = timedelta(hours=10)
+
+        # Add 10 hours to the current date and time
+        pt = pt + ten_hours
         if len(self.todays_work["tbd"]) > 0:
             if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
+                print("checking fetch time")
                 if self.ts2time(int(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]/1)) < pt:
                     nextrun = self.todays_work["tbd"][0]
             elif "Completed" not in self.todays_work["tbd"][0]["status"]:

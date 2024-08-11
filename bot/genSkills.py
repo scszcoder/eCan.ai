@@ -26,7 +26,7 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
-    genStepUseExternalSkill
+    genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
