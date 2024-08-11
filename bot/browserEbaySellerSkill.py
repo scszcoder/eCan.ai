@@ -7,8 +7,9 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreat
     genStepCheckCondition, genStepUseSkill, genStepOpenApp, genStepCallExtern, genStepLoop, genStepExtractInfo, \
     genStepSearchAnchorInfo, genStepMouseClick, genStepMouseScroll, genStepCreateDir, genStepKeyInput, genStepTextInput, \
     STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink, genStepSearchWordLine, genStepCalcObjectsDistance, \
-    genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination
+    genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination, genStepReadXlsxFile, genStepReadJsonFile
 from bot.Logger import log3
+from bot.etsySellerSkill import genStepPrepGSOrder
 from bot.scraperEbay import genStepEbayScrapeOrdersFromHtml, genStepEbayScrapeMsgList, genStepEbayScrapeOrdersFromJss
 from bot.seleniumSkill import *
 from bot.seleniumScrapeEBayShop import *
@@ -51,7 +52,35 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
+    dtnow = datetime.now()
+    date_word = dtnow.strftime("%Y%m%d")
+    fdir = ecb_data_homepath + "/runlogs/"
+    fdir = fdir + date_word + "/"
+    this_step, step_words = genStepCreateData("str", "fdir", "NA", fdir, this_step)
+    psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern(
+        "fdir = fdir + 'b' + str(sk_work_settings['mid']) + m + str(sk_work_settings['bid']) + '/'", "", "in_line", "",
+        this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "fdir = fdir + sk_work_settings['platform'] + '_' + sk_work_settings['app'] + '_' + sk_work_settings['site'] + '_' + sk_work_settings['page'] + '/skills/'",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("fdir = fdir + sk_work_settings['skname'] + '/'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "current_seller", "NA", "sk_work_settings['seller']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "product_book", "NA", "sk_work_settings['products']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepPrepGSOrder("ebay_orders", "gs_orders", "product_book", "current_seller", "fdir", this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', ebay_orders, product_catelog]", this_step)
     psk_words = psk_words + step_words
@@ -117,7 +146,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
                                           "Selenium Ebay Fullfill New Orders On Windows ADS.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders_with_ecb_labels", "",
                                         this_step)
     psk_words = psk_words + step_words
 
@@ -127,18 +156,20 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
-    # this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # skname, skfname, in-args, output, step number
-    # this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in",
-    #                                         "ebay_orders", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
-    # # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
-    # # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
-    #
+    this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "dummy_in", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    # skname, skfname, in-args, output, step number
+    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in", "ebay_orders", this_step)
+    psk_words = psk_words + step_words
+
+    # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
+    # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
+    # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
+
     # this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA",
     #                                           "['sale', ebay_orders, product_catelog]", this_step)
     # psk_words = psk_words + step_words
@@ -190,7 +221,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     # this_step, step_words = genStepStub("end condition", "", "", this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_fullfill_orders_with_ecb_labels", "",
                                         this_step)
     psk_words = psk_words + step_words
     print("generating win ads ebay skill")
@@ -218,13 +249,6 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
     this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # skname, skfname, in-args, output, step number
-    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in",
-                                            "ebay_orders", this_step)
-    psk_words = psk_words + step_words
 
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
@@ -258,9 +282,7 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
                                             this_step)
     psk_words = psk_words + step_words
     #
-    # end condition for "not_logged_in == False"
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
+
     #
     # # close the browser and exit the skill, assuming at the end of genWinChromeEBAYWalkSteps, the browser tab
     # # should return to top of the ebay home page with the search text box cleared.
@@ -309,13 +331,6 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # skname, skfname, in-args, output, step number
-    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in",
-                                            "ebay_orders", this_step)
-    psk_words = psk_words + step_words
 
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
@@ -345,10 +360,7 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
     this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "", this_step)
     psk_words = psk_words + step_words
-    #
-    # end condition for "not_logged_in == False"
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
+
     #
     # # close the browser and exit the skill, assuming at the end of genWinChromeEBAYWalkSteps, the browser tab
     # # should return to top of the ebay home page with the search text box cleared.
@@ -410,17 +422,25 @@ def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("str", "rarExe", "NA", 'C:/Program Files/WinRaR/WinRaR.exe', this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("str", "web_driver_options", "NA", '', this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "[sk_work_settings['batch_profile']]", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "ads_port", "NA", "sk_work_settings['batch_profile']", this_step)
+    this_step, step_words = genStepReadXlsxFile("expr", "sk_work_settings['batch_profile']", "pfjs", "read_file_flag",  this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "ads_profile_id", "NA", "sk_work_settings['batch_profile']", this_step)
+    this_step, step_words = genStepCallExtern( "global ads_profile_id\nads_profile_id = next((pfjson for pfjson in pfjs if pfjson['username']==sk_work_settings['b_email']), None)['id']", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "ads_api_key", "NA", "sk_work_settings['batch_profile']",
-                                              this_step)
+    this_step, step_words = genStepCallExtern( "global ads_profile_id\nprint('ads_profile_id =', ads_profile_id)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "ads_port", "NA", "sk_work_settings['fp_browser_settings']['ads_port']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "ads_api_key", "NA", "sk_work_settings['fp_browser_settings']['ads_api_key']", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 250, this_step)
@@ -432,109 +452,115 @@ def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("bool", "mission_failed", "NA", False, this_step)
     psk_words = psk_words + step_words
 
-    # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
-    this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up",
-                                            this_step)
+    this_step, step_words = genStepCreateData("bool", "web_driver_successful", "NA", False, this_step)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
-    # scroll down half screen and check again if nothing found in the 1st glance.
-    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("not bot_loaded and not nothing_loaded", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # if not on screen, scroll down and check again.
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 80, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # if not found, call the batch load profile subskill to load the correct profile batch.
-    this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "profile_name_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
-    psk_words = psk_words + step_words
-
-    # due to screen real-estate, some long email address might not be dispalyed in full, but usually
-    # it can display up until @ char on screen, so only use this as the tag.
-    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "product_catelog", "NA", "sk_work_settings['products']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA", "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]", this_step)
-    psk_words = psk_words + step_words
-
-    # once the correct user profile is loaded, the open button corresponding to the user profile will be clicked to open the profile.
-    this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input",
-                                            "browser_up", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern( "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
+    #
+    # # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
+    # this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWait(1, 0, 0, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
+    # # scroll down half screen and check again if nothing found in the 1st glance.
+    # this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCheckCondition("not bot_loaded and not nothing_loaded", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # if not on screen, scroll down and check again.
+    # this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 80, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "nothing_loaded", "", False, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # if not found, call the batch load profile subskill to load the correct profile batch.
+    # this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "profile_name_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # due to screen real-estate, some long email address might not be dispalyed in full, but usually
+    # # it can display up until @ char on screen, so only use this as the tag.
+    # this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "full_site", "NA", "sk_work_settings['full_site'].split('www.')[1]", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "product_catelog", "NA", "sk_work_settings['products']", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "machine_os", "NA", "sk_work_settings['platform']", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "batch_import_input", "NA", "['open', profile_name_path, profile_name, bot_email, full_site, machine_os]", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # once the correct user profile is loaded, the open button corresponding to the user profile will be clicked to open the profile.
+    # this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input",
+    #                                         "browser_up", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("else", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern( "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
 
     # wait 9 seconds for the browser to be brought up.
     this_step, step_words = genStepWait(8, 1, 3, this_step)
     psk_words = psk_words + step_words
 
     # use web driver to open the profile.
-    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port",
-                                                             "web_driver_options", "web_driver_successful", this_step)
+    # genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var, port_var, options_var, flag_var, stepN):
+    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port", "web_driver_options", "web_driver_successful", this_step)
     psk_words = psk_words + step_words
 
     # now open the target web site.
-    this_step, step_words = genStepWebdriverGoToTab("web_driver", "tab_text", "site", "site_result", "site_flag", this_step)
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT", "site_result", "site_flag", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genEbayLoginInSteps(this_step, theme)
+    # this_step, step_words = genEbayLoginInSteps(this_step, theme)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("bool", "not_logged_in", "NA", False, this_step)
     psk_words = psk_words + step_words
+
 
     return this_step, psk_words
 
@@ -629,196 +655,167 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateDir("sk_work_settings['log_path']", "expr", "fileStatus", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", 'table-grid-component', this_step)
-    psk_words = psk_words + step_words
-
     this_step, step_words = genStepCreateData("string", "src_type", "NA", 'var', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "result_type", "NA", 'var', this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("string", "info_type", "NA", 'web element', this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "ele_type", "NA", By.CLASS_NAME, this_step)
+    this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.CLASS_NAME, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "ele_type", "NA", By.CLASS_NAME, this_step)
+    this_step, step_words = genStepCreateData("expr", "order_table", "NA", "None", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "order_table", "NA", None, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "order_summary", "NA", None, this_step)
+    this_step, step_words = genStepCreateData("expr", "order_summary", "NA", "None", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("bool", "extract_flag", "NA", True, this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", "ele_type", "ele_name", "result_type", "order_table", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", "ele_type", 'table-grid-component', False, "var", "order_table", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "ele_type", "NA", By.CSS_SELECTOR, this_step)
+    this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.CSS_SELECTOR, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '.summary-h2 .summary-content', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", "ele_type", "ele_name", "result_type", "order_summary", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", "ele_type", '.summary-h2 .summary-content', False, "var", "order_summary", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "n_orders", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    # Get the order summary details
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '#totalOrdersCount', this_step)
+    this_step, step_words = genStepCreateData("int", "pidx", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", "ele_type", "ele_name", "result_type", "n_orders", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", "ele_type", '#totalOrdersCount', False, "var", "n_orders", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "order_rows", "NA", "None", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", 'tr.order-info', this_step)
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_table", 0, "info_type", "ele_type", "ele_name", "result_type", "order_rows", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_table", 0, "info_type", "ele_type", 'tr.order-info', True, "var", "order_rows", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "n_orders_collected", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global order_rows\nprint('ORDER ROWS', order_rows, len(order_rows))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepLoop("n_orders_collected < len(order_rows)", "", "", "BrCollectOrd" + str(stepN), this_step)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global order_row, order_rows, n_orders_collected\norder_row = order_rows[n_orders_collected]", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "order_id", "NA", "None", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '.order-details a', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", "ele_name", "result_type", "order_id", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepCreateData("expr", "customer_name", "NA", "None", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '.user-name', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", "ele_name", "result_type", "customer_name", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "addr_zip", "NA", "None", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '.zip-code', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", "ele_name", "result_type", "addr_zip", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    #        # Find the corresponding item details row
-    #         item_info_row = driver.find_element(By.ID, f'orderid_{order_number}__item-info_0')
-    #         product_name = item_info_row.find_element(By.CSS_SELECTOR, '.item-title a').text
-    #         product_id = item_info_row.find_element(By.CSS_SELECTOR, '.item-itemID').text
-    #         quantity = order_row.find_element(By.CSS_SELECTOR, '.quantity strong').text
-    #         date_sold = order_row.find_element(By.CSS_SELECTOR, '.date-column .sh-default').text
-
-    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "ele_type", "NA", By.ID, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "item_info_row", "NA", "None", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "ele_name", "NA", "'orderid_'+order_id+'__item-info_0'", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", "ele_type", "ele_name", "result_type", "item_info_row", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "ele_type", "NA", By.CSS_SELECTOR, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "product_name", "NA", "None", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '.item-title a', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", "ele_name", "result_type", "product_name", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "product_id", "NA", "None", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '.item-itemID', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", "ele_name", "result_type", "product_id", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "quantity", "NA", "None", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '.quantity strong', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", "ele_name", "result_type", "quantity", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "date_sold", "NA", "None", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", '.date-column .sh-default', this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", "ele_name", "result_type", "date_sold", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global n_orders_collected\nn_orders_collected = n_orders_collected + 1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global n_orders_collected\nn_orders_collected = n_orders_collected + 1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # wait = WebDriverWait(driver, 10)
-    #     wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'script')))
-    # Step 2: Extract JavaScript Source Code
-    # Locate the script tags and extract their content. You need to find the script that contains the order details.
     #
-    # python
-    # 复制代码
-    #     # Extract all script elements
-    #     scripts = driver.find_elements(By.TAG_NAME, 'script')
-
+    # this_step, step_words = genStepCallExtern("global order_row, order_rows, n_orders_collected\norder_row = order_rows[n_orders_collected]", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "order_id", "NA", "None", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", '.order-details a', "var", "order_id", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepCreateData("expr", "customer_name", "NA", "None", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", '.user-name', "var", "customer_name", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "addr_zip", "NA", "None", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", '.zip-code', "var", "addr_zip", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # #        # Find the corresponding item details row
+    # #         item_info_row = driver.find_element(By.ID, f'orderid_{order_number}__item-info_0')
+    # #         product_name = item_info_row.find_element(By.CSS_SELECTOR, '.item-title a').text
+    # #         product_id = item_info_row.find_element(By.CSS_SELECTOR, '.item-itemID').text
+    # #         quantity = order_row.find_element(By.CSS_SELECTOR, '.quantity strong').text
+    # #         date_sold = order_row.find_element(By.CSS_SELECTOR, '.date-column .sh-default').text
+    #
+    # this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.ID, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "item_info_row", "NA", "None", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", "ele_type", 'orderid_'+order_id+'__item-info_0', "var", "item_info_row", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.CSS_SELECTOR, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "product_name", "NA", "None", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", '.item-title a', "var", "product_name", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "product_id", "NA", "None", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", '.item-itemID', "var", "product_id", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "quantity", "NA", "None", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", '.quantity strong', "var", "quantity", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("expr", "date_sold", "NA", "None", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", '.date-column .sh-default', "var", "date_sold", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern("global n_orders_collected\nn_orders_collected = n_orders_collected + 1", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern("global n_orders_collected\nn_orders_collected = n_orders_collected + 1", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # wait = WebDriverWait(driver, 10)
+    # #     wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'script')))
+    # # Step 2: Extract JavaScript Source Code
+    # # Locate the script tags and extract their content. You need to find the script that contains the order details.
+    # #
+    # # python
+    # # 复制代码
+    # #     # Extract all script elements
+    # #     scripts = driver.find_elements(By.TAG_NAME, 'script')
+    #
     this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "ele_type", "NA", By.TAG_NAME, this_step)
+    this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.TAG_NAME, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "ele_name", "NA", 'script', this_step)
-    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", "ele_type", "ele_name", "result_type", "jss", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", "ele_type", 'script', True, "var", "jss", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepEbayScrapeOrdersFromJss("jss", "var", "pidx", "page_of_orders", "scrape_flag", this_step)
@@ -827,42 +824,42 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-
-    #########################end of re-scrape html to obtain recipient address details. ######################
-    # now check to see whether there are more pages to visit. i.e. number of orders exceeds more than 1 page.
-    # the number of pages and page index variable are already in the pageOfOrders variable.
-
-    this_step, step_words = genStepCheckCondition("pageOfOrders['n_new_orders'] > 0 and pageOfOrders['num_pages'] > 1", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("pageOfOrders['num_pages'] == pageOfOrders['page']+1", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # set the flag, we have completed collecting all orders information at this point.
+    #
+    # #########################end of re-scrape html to obtain recipient address details. ######################
+    # # now check to see whether there are more pages to visit. i.e. number of orders exceeds more than 1 page.
+    # # the number of pages and page index variable are already in the pageOfOrders variable.
+    #
+    # this_step, step_words = genStepCheckCondition("pageOfOrders['n_new_orders'] > 0 and pageOfOrders['num_pages'] > 1", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCheckCondition("pageOfOrders['num_pages'] == pageOfOrders['page']+1", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # set the flag, we have completed collecting all orders information at this point.
+    # this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # else stub
+    # this_step, step_words = genStepStub("else", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # go to the next page.
+    # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "next_page", "anchor icon", "", [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("else", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
     this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
-
-    # else stub
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # go to the next page.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "next_page", "anchor icon", "", [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
+    #
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
 
     # end of loop for while (endOfOrderList != True)
     this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -1811,11 +1808,9 @@ def genWinADSEbayHandleMsgsSkill(worksettings, stepN, theme):
     this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "label_list", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/handle_returns", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepThink("end skill", "public/win_ads_ebay_orders/handle_returns", "", this_step)
-    psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepThink("end skill", "public/win_ads_ebay_orders/handle_returns", "", this_step)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepTextInput("var", False, "blurl", "direct", 1, "", 2, this_step)
     psk_words = psk_words + step_words
@@ -1823,6 +1818,9 @@ def genWinADSEbayHandleMsgsSkill(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "shipping_carrier",
                                               "anchor text", "", [0, 0], "bottom", [0, 2], "box", 2, 2, [0, 0],
                                               this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/handle_returns", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"

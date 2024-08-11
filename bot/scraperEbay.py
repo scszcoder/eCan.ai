@@ -72,6 +72,10 @@ def extract_order_data(aj):
             ex_stat = "ErrorExtractOrderData: traceback information not available:" + str(e)
         log3(ex_stat)
 
+    print("++++++++++++++++++++++++")
+    for o in orders:
+        print(o.toJson())
+        print("++++++++++++++++++++++++")
     return orders, resultsPerPage
 
 
@@ -157,22 +161,29 @@ def get_total_num_orders(hsoup):
     return n_orders
 
 def ebaySellerJS2Orders(scriptItems, pagefull_of_orders):
-    for item in scriptItems:
+    print("scrip items#", len(scriptItems))
+    scount = 0
+    for script in scriptItems:
         # pattern = r'orderId.*?feedbackScore'
         pattern = r'Awaiting shipment'
-        found = re.findall(pattern, item.text)
+        script_text = script.get_attribute('innerHTML')
+        found = re.findall(pattern, script_text)
         if found:
-            print("right script found....")
-            tokens = esprima.tokenize(item.text)
+            print("right script found....", scount)
+            tokens = esprima.tokenize(script_text)
             # js_tree = esprima.visitor.Visitor(item.text)
 
             aj = extract_orders_from_tokens(tokens)
 
             orders, results_per_page = extract_order_data(aj)
+        # else:
+        #     print("wrong script", scount)
+        # scount = scount + 1
 
     pagefull_of_orders["ol"] = orders
     pagefull_of_orders["orders_per_page"] = results_per_page
     pagefull_of_orders["num_pages"] = math.ceil(len(orders) / results_per_page)
+    print("ORDERS:", orders)
 
 
 def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
@@ -542,10 +553,10 @@ def processEbayScrapeOrdersFromJss(step, i):
         next_i = i + 1
         pidx = symTab[step["pidx"]]
         print("hello??????????")
-        if step["html_dir_type"] == "direct":
+        if step["jss_var_type"] == "direct":
             jss = step["jss_var"]
         else:
-            print("input html_dir:", step["html_dir"], symTab[step["html_file"]])
+            jss = symTab[step["jss_var"]]
 
         pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
         orders = []
