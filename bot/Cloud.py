@@ -1223,7 +1223,6 @@ def send_update_bots_request_to_cloud(session, bots, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateBots"])
-        logger_helper.error("updateBots Response: " + jresp["data"]["updateBots"])
 
     return jresponse
 
@@ -1243,7 +1242,6 @@ def send_remove_bots_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeBots"])
-        logger_helper.error("removeBots Response: " + jresp["data"]["removeBots"])
     return jresponse
 
 
@@ -1263,7 +1261,6 @@ def send_add_missions_request_to_cloud(session, missions, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addMissions"])
-        logger_helper.error("addMissions Response: " + jresp["data"]["addMissions"])
 
     return jresponse
 
@@ -1282,7 +1279,6 @@ def send_update_missions_request_to_cloud(session, missions, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateMissions"])
-        logger_helper.error("updateMissions Response: " + jresp["data"]["updateMissions"])
     return jresponse
 
 
@@ -1301,7 +1297,6 @@ def send_remove_missions_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeMissions"])
-        logger_helper.error("removeMissions Response: " + jresp["data"]["removeMissions"])
 
     return jresponse
 
@@ -1320,7 +1315,6 @@ def send_add_skills_request_to_cloud(session, skills, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addSkills"])
-        logger_helper.error("addSkills Response: " + jresp["data"]["addSkills"])
 
     return jresponse
 
@@ -1339,7 +1333,6 @@ def send_update_skills_request_to_cloud(session, bots, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateSkills"])
-        logger_helper.error("updateSkills Response: " + jresp["data"]["updateSkills"])
 
     return jresponse
 
@@ -1359,7 +1352,6 @@ def send_remove_skills_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeSkills"])
-        logger_helper.error("removeSkills Response: " + jresp["data"]["removeSkills"])
 
     return jresponse
 

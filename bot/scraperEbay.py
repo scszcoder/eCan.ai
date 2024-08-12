@@ -550,7 +550,6 @@ def processEbayScrapeOrdersFromJss(step, i):
     global html_dir
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        next_i = i + 1
         pidx = symTab[step["pidx"]]
         print("hello??????????")
         if step["jss_var_type"] == "direct":
@@ -575,4 +574,4 @@ def processEbayScrapeOrdersFromJss(step, i):
             ex_stat = "ErrorEbayScrapeOrdersJss traceback information not available:" + str(e)
         log3(ex_stat)
 
-        return (i + 1), ex_stat
+    return (i + 1), ex_stat

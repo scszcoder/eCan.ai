@@ -3302,8 +3302,8 @@ class MainWindow(QMainWindow):
                 "name": abot.getName(),
                 "pseudoname": abot.getPseudoName(),
                 "nickname": abot.getNickName(),
-                "addr": abot.getInterests(),
-                "shipaddr": abot.getInterests(),
+                "addr": abot.getAddr(),
+                "shipaddr": abot.getShippingAddr(),
                 "phone": abot.getPhone(),
                 "email": abot.getEmail(),
                 "epw": abot.getEmPW(),
@@ -3811,7 +3811,7 @@ class MainWindow(QMainWindow):
         self.showMsg("product catelog file: "+inv_file_name)
         if exists(inv_file_name):
             self.showMsg("Reading inventory file: "+inv_file_name)
-            with open(inv_file_name, 'r') as file:
+            with open(inv_file_name, 'r', encoding='utf-8') as file:
                 self.sellerInventoryJsonData = json.load(file)
         else:
             self.showMsg("NO inventory file found!")
@@ -4932,6 +4932,7 @@ class MainWindow(QMainWindow):
                 self.showMsg("loading a bot: "+json.dumps(row.to_dict()))
                 new_bot = EBBOT(self)
                 new_bot.loadDBData(row)
+                print("hello????")
                 new_bot.updateDisplay()
                 self.bots.append(new_bot)
                 self.botModel.appendRow(new_bot)

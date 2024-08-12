@@ -81,6 +81,7 @@ class BotService:
         return results
 
     def update_bots_batch(self, api_bots):
+        print("api bots:", api_bots)
         for i, api_bot in enumerate(api_bots):
             result = self.session.query(BotModel).filter(BotModel.botid == api_bot["bid"]).first()
             if result is not None:

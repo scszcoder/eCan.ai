@@ -793,14 +793,20 @@ class BotNewWin(QMainWindow):
         self.addr_zip_edit.setText(bot.getAddrZip())
         if bot.getAddrShippingAddrSame():
             self.shipaddr_same_checkbox.setChecked(True)
+            self.shipaddr_l1_edit.setText(self.addr_l1_edit.text())
+            self.shipaddr_l2_edit.setText(self.addr_l2_edit.text())
+            self.shipaddr_city_edit.setText(self.addr_city_edit.text())
+            self.shipaddr_state_edit.setText(self.addr_state_edit.text())
+            self.shipaddr_zip_edit.setText(self.addr_zip_edit.text())
         else:
             self.shipaddr_same_checkbox.setChecked(False)
 
-        self.shipaddr_l1_edit.setText(bot.getShippingAddrStreet1())
-        self.shipaddr_l2_edit.setText(bot.getShippingAddrStreet2())
-        self.shipaddr_city_edit.setText(bot.getShippingAddrCity())
-        self.shipaddr_state_edit.setText(bot.getShippingAddrState())
-        self.shipaddr_zip_edit.setText(bot.getShippingAddrZip())
+            self.shipaddr_l1_edit.setText(bot.getShippingAddrStreet1())
+            self.shipaddr_l2_edit.setText(bot.getShippingAddrStreet2())
+            self.shipaddr_city_edit.setText(bot.getShippingAddrCity())
+            self.shipaddr_state_edit.setText(bot.getShippingAddrState())
+            self.shipaddr_zip_edit.setText(bot.getShippingAddrZip())
+
         if bot.getVehicle() == "NA" or bot.getVehicle() == "" or bot.getVehicle() is None:
             self.vehicle_combo_box.setCurrentIndex(-1)
         else:
@@ -896,7 +902,20 @@ class BotNewWin(QMainWindow):
         self.newBot.privateProfile.setAddr(self.addr_l1_edit.text(), self.addr_l2_edit.text(),
                                            self.addr_city_edit.text(), self.addr_state_edit.text(),
                                            self.addr_zip_edit.text())
+        if self.shipaddr_same_checkbox.isChecked():
+            self.shipaddr_l1_edit.setText(self.addr_l1_edit.text())
+            self.shipaddr_l2_edit.setText(self.addr_l2_edit.text())
+            self.shipaddr_city_edit.setText(self.addr_city_edit.text())
+            self.shipaddr_state_edit.setText(self.addr_state_edit.text())
+            self.shipaddr_zip_edit.setText(self.addr_zip_edit.text())
+
         self.newBot.privateProfile.setShippingAddr(self.shipaddr_l1_edit.text(), self.shipaddr_l2_edit.text(),
+                                                   self.shipaddr_city_edit.text(), self.shipaddr_state_edit.text(),
+                                                   self.shipaddr_zip_edit.text())
+        print("set private addr:", self.addr_l1_edit.text(), self.addr_l2_edit.text(),
+                                           self.addr_city_edit.text(), self.addr_state_edit.text(),
+                                           self.addr_zip_edit.text())
+        print("set shipping addr:", self.shipaddr_l1_edit.text(), self.shipaddr_l2_edit.text(),
                                                    self.shipaddr_city_edit.text(), self.shipaddr_state_edit.text(),
                                                    self.shipaddr_zip_edit.text())
         self.newBot.updateDisplay()
