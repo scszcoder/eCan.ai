@@ -10,6 +10,7 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreat
     genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination, genStepReadXlsxFile, genStepReadJsonFile
 from bot.Logger import log3
 from bot.etsySellerSkill import genStepPrepGSOrder
+from bot.labelSkill import genStepPrepareGSOrder
 from bot.scraperEbay import genStepEbayScrapeOrdersFromHtml, genStepEbayScrapeMsgList, genStepEbayScrapeOrdersFromJss
 from bot.seleniumSkill import *
 from bot.seleniumScrapeEBayShop import *
@@ -36,6 +37,9 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
@@ -52,25 +56,8 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
-    dtnow = datetime.now()
-    date_word = dtnow.strftime("%Y%m%d")
-    fdir = ecb_data_homepath + "/runlogs/"
-    fdir = fdir + date_word + "/"
-    this_step, step_words = genStepCreateData("str", "fdir", "NA", fdir, this_step)
-    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern(
-        "fdir = fdir + 'b' + str(sk_work_settings['mid']) + m + str(sk_work_settings['bid']) + '/'", "", "in_line", "",
-        this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern(
-        "fdir = fdir + sk_work_settings['platform'] + '_' + sk_work_settings['app'] + '_' + sk_work_settings['site'] + '_' + sk_work_settings['page'] + '/skills/'",
-        "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("fdir = fdir + sk_work_settings['skname'] + '/'", "", "in_line", "",
-                                              this_step)
+    this_step, step_words = genStepCallExtern("global fdir\nfdir = sk_work_settings['log_path'] + '/ecb_labels'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "current_seller", "NA", "sk_work_settings['seller']", this_step)
@@ -79,7 +66,7 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "product_book", "NA", "sk_work_settings['products']", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepPrepGSOrder("ebay_orders", "gs_orders", "product_book", "current_seller", "fdir", this_step)
+    this_step, step_words = genStepPrepareGSOrder("ebay_orders", "gs_orders", "product_book", "current_seller", "ebay", "fdir", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', ebay_orders, product_catelog]", this_step)
@@ -146,8 +133,10 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
                                           "Selenium Ebay Fullfill New Orders On Windows ADS.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders_with_ecb_labels", "",
-                                        this_step)
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders_with_ecb_labels", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -162,8 +151,23 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCreateData("obj", "dummy_in", "NA", None, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "dummy_out", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
     # skname, skfname, in-args, output, step number
-    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in", "ebay_orders", this_step)
+    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in", "dummy_out", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fdir\nfdir = sk_work_settings['log_path'] + '/ecb_labels'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "current_seller", "NA", "sk_work_settings['seller']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "product_book", "NA", "sk_work_settings['products']", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepPrepareGSOrder("ebay_orders", "gs_orders", "product_book", "current_seller", "ebay", "fdir", this_step)
     psk_words = psk_words + step_words
 
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
@@ -406,7 +410,7 @@ def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # mask out for testing purpose only....
-    this_step, step_words = genStepCreateData("expr", "ebay_orders", "NA", "[]", this_step)
+    this_step, step_words = genStepCreateData("obj", "ebay_orders", "NA", [], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "dummy_in", "NA", "[]", this_step)
@@ -582,6 +586,7 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
 
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
+
 
     # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
     # psk_words = psk_words + step_words
@@ -820,6 +825,11 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
 
     this_step, step_words = genStepEbayScrapeOrdersFromJss("jss", "var", "pidx", "page_of_orders", "scrape_flag", this_step)
     psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global ebay_orders, n_orders_collected\nebay_orders.append(page_of_orders)\nn_orders_collected = n_orders_collected + len(page_of_orders)\nprint('n_orders_collected', n_orders_collected, len(ebay_orders))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words

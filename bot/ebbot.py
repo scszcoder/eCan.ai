@@ -144,12 +144,22 @@ class BOT_PRIVATE_PROFILE():
 
     def setAddr1(self, addr):
         self.addr = addr
+        addr_lines = addr.split("\n")
+        print("addr:", addr)
+        print("addr lines#", len(addr_lines))
+        if len(addr_lines) == 3:
+            self.addrl1 = addr_lines[0]
+            self.addrl2 = addr_lines[1]
+            fields = addr_lines[2].split(",")
+            self.addrcity = fields[0].strip()
+            self.addrstate = fields[1].split()[0].strip()
+            self.addrzip = fields[1].split()[1].strip()
 
     def setShippingAddr(self, l1, l2, city, state, zip):
         self.shipping_addrl1 = l1
         if not l2:
             l2 = ""
-        self.shipping_addrl1 = l2
+        self.shipping_addrl2 = l2
         self.shipping_addrcity = city
         self.shipping_addrstate = state
         self.shipping_addrzip = zip
@@ -157,6 +167,18 @@ class BOT_PRIVATE_PROFILE():
 
     def setShippingAddr1(self, addr):
         self.shipping_addr = addr
+
+        addr_lines = addr.split("\n")
+        print("saddr:", addr)
+        print("saddr lines#", len(addr_lines))
+
+        if len(addr_lines) == 3:
+            self.shipping_addrl1 = addr_lines[0]
+            self.shipping_addrl2 = addr_lines[1]
+            fields = addr_lines[2].split(",")
+            self.shipping_addrcity = fields[0].strip()
+            self.shipping_addrstate = fields[1].split()[0].strip()
+            self.shipping_addrzip = fields[1].split()[1].strip()
 
     def setPhone(self, phone):
         self.phone = phone
@@ -593,6 +615,12 @@ class EBBOT(QStandardItem):
 
     def getAddrZip(self):
         return self.privateProfile.shipping_addrzip
+
+    def getAddr(self):
+        return self.privateProfile.addr
+
+    def getShippingAddr(self):
+        return self.privateProfile.shipping_addr
 
     def getShippingAddrStreet1(self):
         return self.privateProfile.shipping_addrl1

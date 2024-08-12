@@ -12,13 +12,11 @@ from PyPDF2 import PdfReader
 from bot.basicSkill import genStepHeader, genStepStub, genStepOpenApp, genStepCreateData, genStepCheckCondition, \
     genStepTextToNumber, genStepSearchAnchorInfo, genStepLoop, genStepCallExtern, DEFAULT_RUN_STATUS, genStepMouseClick, \
     genStepExtractInfo, genStepKeyInput, get_default_download_dir, genStepWait, genStepCheckExistence, genStepTextInput, \
-    genStepCreateDir, genStep7z, genStepUseSkill
+    genStepCreateDir, genStep7z, genStepUseSkill, STEP_GAP
 from bot.scrapeGoodSupply import genStepGSScrapeLabels
 from bot.Logger import log3
 import traceback
-
-global symTab
-global STEP_GAP
+from bot.readSkill import symTab
 
 # https://www.onlinebarcodereader.com/
 # https://online-barcode-reader.inliteresearch.com/
@@ -638,58 +636,6 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, stepN, theme):
 
 
 
-# ofname is the order file name, should be etsy_orders+Date.xls
-def createLabelOrderFile(orders, ofname):
-    orderTable = {"colNames": ("No", "FromName", "PhoneFrom", "Address1From", "CompanyFrom", "Address2From", "CityFrom", "StateFrom", "ZipCodeFrom", "NameTo", "PhoneTo", "Address1To",  "CompanyTo", "Address2To", "CityTo", "StateTo", "ZipTo",  "Weight", "length", "width", "height", "description"),
-                  "rows": [
-                      ("1", "Sam C", "9256222995", "2610 Laramie Gate Cir", "", "", "Pleasanton", "CA", "94566", "Annelise Salomon", "PhoneTo", "3628 Victoria Ln",  "", "", "CINCINNATI", "OH", "45208",  "5", "16", "12", "2", "")
-                  ]}
-
-    allorders = [{
-        "No": "1",
-        "FromName": "Sam C",
-        "PhoneFrom": "9256222995",
-        "Address1From": "2610 Laramie Gate Cir",
-        "CompanyFrom": "",
-        "Address2From": "",
-        "CityFrom": "Pleasanton",
-        "StateFrom": "CA",
-        "ZipCodeFrom": "94566",
-        "NameTo": "Annelise Salomon",
-        "PhoneTo": "6930205545",
-        "Address1To": "3628 Victoria Ln",
-        "CompanyTo": "",
-        "Address2To": "",
-        "CityTo": "CINCINNATI",
-        "StateTo": "OH",
-        "ZipTo": "45208",
-        "Weight": "5",
-        "length": "16",
-        "width": "12",
-        "height": "2",
-        "description": ""
-    }]
-
-    df = pd.DataFrame(allorders)
-
-    # Save to .xls file
-    # Create a new workbook and select the active worksheet
-    wb = Workbook()
-    ws = wb.active
-
-    # Write data to worksheet
-    for r in dataframe_to_rows(df, index=False, header=True):
-        ws.append(r)
-
-    # Iterate through rows in column 2 (the 'age' column)
-    for row in ws.iter_rows(min_row=2, min_col=2, max_col=2):
-        for cell in row:
-            cell.number_format = '@'  # text format
-
-    # Save workbook
-    wb.save(ofname)
-
-
 def genStepGSExtractZippedFileName(screen_txt_var, outvar, statusvar, stepN):
     stepjson = {
         "type": "GS Extract Zipped",
@@ -743,13 +689,14 @@ def searchTrackingCodeFromPdf(pdffile):
     return tc
 
 
-def genStepPrepareGSOrder(order_var_name, gs_order_var_name, prod_book_var_name, seller, fpath, stepN):
+def genStepPrepareGSOrder(order_var_name, gs_order_var_name, prod_book_var_name, seller, ec_platform, fpath, stepN):
 
     stepjson = {
         "type": "Prepare GS Order",
         "ec_order": order_var_name,
         "gs_order": gs_order_var_name,
         "prod_book": prod_book_var_name,
+        "ec_platform": ec_platform,
         "file_path": fpath,
         "seller": seller
     }
@@ -763,14 +710,16 @@ def processPrepareGSOrder(step, i):
     try:
         next_i = i + 1
         gs_label_orders = []
-
+        ec_platform = step["ec_platform"]
         seller = symTab[step["seller"]]
         file_path = symTab[step["file_path"]]
         new_orders = symTab[step["ec_order"]]
+        print("ec_order: # new_orders", step["ec_order"], len(new_orders))
+        print("ec_platform, seller, file_path", ec_platform, seller, file_path)
         # collaps all pages of order list into a single list or orders.
         flatlist=[element for sublist in new_orders for element in sublist["ol"]]
 
-        log3("FLAT LIST: "+json.dumps(flatlist))
+        log3("FLAT LIST: "+str(len(flatlist)))
 
         # combine orders into same person and address into 1 order.
         combined = combine_duplicates(flatlist)
@@ -779,31 +728,31 @@ def processPrepareGSOrder(step, i):
         us_orders = [o for o in combined if o.getRecipientAddrState() != "Canada" and o.getRecipientAddrState() != "Mexico"]
 
         # don't put in the order that's not going to be fullfilled by the seller him/her self.
-        fbs_orders = [o for o in us_orders if order_is_for_fbs(o, symTab[step["prod_book"]])]
+        fbs_orders = [o for o in us_orders if orderIsForFBS(o, ec_platform, symTab[step["prod_book"]])]
 
         # group orders into two categories: weights less than 1lb and weights more than 1lb
-        light_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) < 1.0 ]
-        regular_orders = [o for o in fbs_orders if o.getOrderWeightInLbs(symTab[step["prod_book"]]) >= 1.0]
+        light_orders = [o for o in fbs_orders if calcOrderWeight(o, ec_platform, symTab[step["prod_book"]]) < 16 ]
+        regular_orders = [o for o in fbs_orders if calcOrderWeight(o, ec_platform, symTab[step["prod_book"]]) >= 16]
 
         # ofname is the order file name, should be etsy_orders+Date.xls
         dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
 
         if len(light_orders) > 0:
-            ofname1 = file_path+"/etsyOrdersGround"+dt_string+".xls"
-            ofname1_unzipped = file_path + "/etsyOrdersGround" + dt_string
-            createLabelOrderFile(seller, "ozs", light_orders, symTab[step["prod_book"]], ofname1)
-            gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.5, "num_orders": len(light_orders), "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1), "unzipped_dir": ofname1_unzipped})
+            ofname1 = file_path+"/"+ec_platform+"OrdersGround"+dt_string+".xls"
+            ofname1_unzipped = file_path + "/"+ec_platform+"OrdersGround" + dt_string
+            createLabelOrderFile(seller, "ozs", light_orders, ec_platform, symTab[step["prod_book"]], ofname1)
+            gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.25, "num_orders": len(light_orders), "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1), "unzipped_dir": ofname1_unzipped})
 
             #create unziped label dir ahead of time.
             if not os.path.exists(ofname1_unzipped):
                 os.makedirs(ofname1_unzipped)
 
         if len(regular_orders) > 0:
-            ofname2 = file_path+"/etsyOrdersPriority"+dt_string+".xls"
-            ofname2_unzipped =  file_path+"/etsyOrdersPriority"+dt_string
+            ofname2 = file_path+"/"+ec_platform+"OrdersPriority"+dt_string+".xls"
+            ofname2_unzipped =  file_path+"/"+ec_platform+"OrdersPriority"+dt_string
 
-            createLabelOrderFile(seller, "lbs", regular_orders, symTab[step["prod_book"]], ofname2)
-            gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*4.5, "num_orders": len(regular_orders), "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
+            createLabelOrderFile(seller, "lbs", regular_orders, ec_platform, symTab[step["prod_book"]], ofname2)
+            gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*3, "num_orders": len(regular_orders), "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
 
             #create unziped label dir ahead of time.
             if not os.path.exists(ofname2_unzipped):
@@ -837,7 +786,7 @@ def combine_duplicates(orders):
     return list(merged_dict.values())
 
 # ofname is the order file name, should be etsy_orders+Date.xls
-def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
+def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname):
     if weight_unit == "ozs":
         allorders = [{
             "No": "1",
@@ -857,10 +806,10 @@ def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
             "CityTo": o.getRecipientAddrCity(),
             "StateTo": o.getRecipientAddrState(),
             "ZipTo": o.getRecipientAddrZip(),
-            "Weight": o.getOrderWeightInOzs(book),
-            "length": o.getOrderLengthInInches(book),
-            "width": o.getOrderWidthInInches(book),
-            "height": o.getOrderHeightInInches(book),
+            "Weight": calcOrderWeight(o, ec_platform, book, "ozs"),
+            "length": calcOrderLength(o, ec_platform, book, "inches"),
+            "width": calcOrderWidth(o, ec_platform, book, "inches"),
+            "height": calcOrderHeight(o, ec_platform, book, "inches"),
             "description": ""
         } for o in orders]
     else:
@@ -882,10 +831,10 @@ def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
             "CityTo": o.getRecipientAddrCity(),
             "StateTo": o.getRecipientAddrState(),
             "ZipTo": o.getRecipientAddrZip(),
-            "Weight": o.getOrderWeightInLbs(book),
-            "length": o.getOrderLengthInInches(book),
-            "width": o.getOrderWidthInInches(book),
-            "height": o.getOrderHeightInInches(book),
+            "Weight": calcOrderWeight(o, ec_platform, book, "lbs"),
+            "length": calcOrderLength(o, ec_platform, book, "inches"),
+            "width": calcOrderWidth(o, ec_platform, book, "inches"),
+            "height": calcOrderHeight(o, ec_platform, book, "inches"),
             "description": ""
         } for o in orders]
 
@@ -913,13 +862,100 @@ def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
     wb.save(ofname)
 
 # if 1 product is not FBS, then the whole order is FBS... requires manual work.....
-def order_is_for_fbs(order, pbook):
+def orderIsForFBS(order, ec_platform, pbook):
     fbs = True
     for op in order.getProducts():
-        prod = next((p for i, p in enumerate(pbook[0]["products"]) if p["title"] == op.getPTitle()), None)
+        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])), None)
         if prod:
-            if prod["fullfiller"] != "self":
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            if listing["fullfiller"] != "self":
                 fbs = False
                 break
     return fbs
+
+def calcOrderWeight(order, ec_platform, pbook, unit="ozs"):
+    total_weight = 0
+    for op in order.getProducts():
+        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])), None)
+        if prod:
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            if listing["variations"]:
+                pv = op.getVariations()
+                vweight = next((vw for i, vw in enumerate(listing["weight"]) if all(pv[pvn] == vw[pvn] for pvn in pv)), None)
+                print("adding variation weight:", vweight, int(op.getQuantity()))
+                total_weight = total_weight + vweight["weight"] * int(op.getQuantity())
+            else:
+                print("adding weight:", listing["weight"], int(op.getQuantity()))
+                total_weight = total_weight + listing["weight"] * int(op.getQuantity())
+
+    if unit == "lbs":
+        total_weight = total_weight/16
+        print("calculated weight in lbs", total_weight)
+    else:
+        print("calculated weight in inches", total_weight)
+
+    return total_weight
+
+
+
+def calcOrderLength(order, ec_platform, pbook, unit="inches"):
+    total_length = 0
+    for op in order.getProducts():
+        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])), None)
+        if prod:
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            if listing["variations"]:
+                pv = op.getVariations()
+                vsize = next((vw for i, vw in enumerate(listing["size"]) if all(pv[pvn] == vw[pvn] for pvn in pv)), None)
+                print("adding variation weight:", vsize, int(op.getQuantity()))
+                if vsize["dimension"][0] > total_length:
+                    total_length = vsize["dimension"][0]
+            else:
+                print("adding size:", listing["size"], int(op.getQuantity()))
+                if listing["size"][0] > total_length:
+                    total_length = listing["size"][0]
+
+    print("calculated length", total_length)
+    return total_length
+
+def calcOrderWidth(order, ec_platform, pbook, unit):
+    total_width = 0
+    for op in order.getProducts():
+        prod = next((p for i, p in enumerate(pbook) if any(
+            listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])),
+                    None)
+        if prod:
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            if listing["variations"]:
+                pv = op.getVariations()
+                vsize = next((vw for i, vw in enumerate(listing["size"]) if all(pv[pvn] == vw[pvn] for pvn in pv)), None)
+                print("adding variation weight:", vsize, int(op.getQuantity()))
+                if vsize["dimension"][1] > total_width:
+                    total_width = vsize["dimension"][1]
+            else:
+                print("adding size:", listing["size"], int(op.getQuantity()))
+                if listing["size"][1] > total_width:
+                    total_width = listing["size"][1]
+
+    print("calculated length", total_width)
+    return total_width
+
+def calcOrderHeight(order, ec_platform, pbook, unit):
+    total_height = 0
+    for op in order.getProducts():
+        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])), None)
+        if prod:
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            if listing["variations"]:
+                pv = op.getVariations()
+                vsize = next((vw for i, vw in enumerate(listing["size"]) if all(pv[pvn] == vw[pvn] for pvn in pv)), None)
+                print("adding variation height:", vsize, int(op.getQuantity()))
+                total_height = total_height + vsize["dimension"][2] * int(op.getQuantity())
+            else:
+                print("adding height:", listing["size"], int(op.getQuantity()))
+                total_height = total_height + listing["size"][2] * int(op.getQuantity())
+
+    print("calculated height", total_height)
+    return total_height
+
 
