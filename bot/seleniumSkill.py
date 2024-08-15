@@ -390,6 +390,8 @@ def processWebdriverStartExistingChrome(step, i):
         # Set Chrome options if needed
         chrome_options = Options()
         # chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox --disable-gpu')
+        chrome_options.add_argument("--disable-features=SharedStorage,InterestCohort")
         chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9228")
         # chrome_options.add_experimental_option('prefs', {
         #     'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
@@ -620,16 +622,25 @@ def processWebdriverNewTab(step, i):
         driver = symTab[step["driver_var"]]
         url = step["url_var"]
         log3("opening a new tab")
-        wait = WebDriverWait(driver, 10)
 
         driver.execute_script("window.open('');")
 
         # Switch to the new tab
         driver.switch_to.window(driver.window_handles[-1])
-
+        time.sleep(3)
         # Navigate to the new URL in the new tab
         if url:
             driver.get(url)  # Replace with the new URL
+            log3("with URL: "+url)
+            # home_page_loaded = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//a[@href='/Dashboard/UploadBulk' and @data='UploadBulk']")))
+            # if home_page_loaded:
+            #     # Wait until the "Create Bulk" button is clickable
+            #     create_bulk_button = WebDriverWait(driver, 10).until(
+            #         EC.element_to_be_clickable((By.XPATH, "//a[@href='/Dashboard/UploadBulk' and @data='UploadBulk']"))
+            #     )
+            #     print(" bulk upload button found")
+            #     # Click the "Create Bulk" button
+            #     create_bulk_button.click()
 
     except Exception as e:
         # Get the traceback information
@@ -907,7 +918,8 @@ def processWebdriverExtractInfo(step, i):
             wait_time = symTab[step["wait"]]
 
         info_type = symTab[step["info_type_var"]]
-        element_type = symTab[step["element_type_var"]]
+
+        element_type = step["element_type_var"]
         element_name = step["element_var"]
         print("element type:", element_type)
         print("element name:", element_name)
@@ -956,6 +968,8 @@ def processWebdriverExtractInfo(step, i):
                     exec(f"global {sink}\n{step['result']} = web_element\nprint('element text', web_element)")
                 else:
                     exec(f"global {sink}\n{step['result']} = web_elements\nprint('element text', web_elements)")
+
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -965,6 +979,7 @@ def processWebdriverExtractInfo(step, i):
         else:
             ex_stat = "ErrorWebdriverQuit: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
 
@@ -1000,6 +1015,7 @@ def processWebdriverWaitUntilClickable(step, i):
         else:
             ex_stat = "ErrorWebdriverWaitUntilClickable: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = True
 
     return (i + 1), ex_stat
 

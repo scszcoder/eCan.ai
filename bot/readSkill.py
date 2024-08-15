@@ -29,7 +29,7 @@ from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, proce
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
     processWebdriverExecJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
-    processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo
+    processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, processWebdriverWaitUntilClickable
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -210,6 +210,7 @@ RAIS = {
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
     "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
+    "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
 }
@@ -326,6 +327,7 @@ ARAIS = {
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
     "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
+    "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v)
 }

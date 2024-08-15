@@ -681,9 +681,6 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("string", "info_type", "NA", 'web element', this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.CLASS_NAME, this_step)
-    psk_words = psk_words + step_words
-
     this_step, step_words = genStepCreateData("expr", "order_table", "NA", "None", this_step)
     psk_words = psk_words + step_words
 
@@ -694,16 +691,13 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", "ele_type", 'table-grid-component', False, "var", "order_table", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CLASS_NAME, 'table-grid-component', False, "var", "order_table", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.CSS_SELECTOR, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", "ele_type", '.summary-h2 .summary-content', False, "var", "order_summary", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, '.summary-h2 .summary-content', False, "var", "order_summary", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "n_orders", "NA", 0, this_step)
@@ -712,7 +706,7 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("int", "pidx", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", "ele_type", '#totalOrdersCount', False, "var", "n_orders", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, '#totalOrdersCount', False, "var", "n_orders", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "order_rows", "NA", "None", this_step)
@@ -721,7 +715,7 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_table", 0, "info_type", "ele_type", 'tr.order-info', True, "var", "order_rows", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_table", 0, "info_type", By.CSS_SELECTOR, 'tr.order-info', True, "var", "order_rows", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "n_orders_collected", "NA", 0, this_step)
@@ -771,45 +765,39 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.ID, this_step)
-    # psk_words = psk_words + step_words
-    #
     # this_step, step_words = genStepCreateData("expr", "item_info_row", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", "ele_type", 'orderid_'+order_id+'__item-info_0', "var", "item_info_row", "extract_flag", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.CSS_SELECTOR, this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", By.ID, 'orderid_'+order_id+'__item-info_0', "var", "item_info_row", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "product_name", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", '.item-title a', "var", "product_name", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.item-title a', "var", "product_name", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "product_id", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", '.item-itemID', "var", "product_id", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.item-itemID', "var", "product_id", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "quantity", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", '.quantity strong', "var", "quantity", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.quantity strong', "var", "quantity", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "date_sold", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", "ele_type", '.date-column .sh-default', "var", "date_sold", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.date-column .sh-default', "var", "date_sold", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCallExtern("global n_orders_collected\nn_orders_collected = n_orders_collected + 1", "", "in_line", "", this_step)
@@ -831,11 +819,8 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("obj", "ele_type", "NA", By.TAG_NAME, this_step)
-    psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", "ele_type", 'script', True, "var", "jss", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.TAG_NAME, 'script', True, "var", "jss", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepEbayScrapeOrdersFromJss("jss", "var", "pidx", "page_of_orders", "scrape_flag", this_step)
