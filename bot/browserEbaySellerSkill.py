@@ -123,6 +123,9 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+def genTestGSOrdersData():
+    return {}
+
 
 def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, theme):
     print("fullfill using ebay labels")
@@ -170,18 +173,25 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepPrepareGSOrder("ebay_orders", "gs_orders", "product_book", "current_seller", "ebay", "fdir", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("expr", "gs_orders", "NA", "sk_work_settings['products']", this_step)
+    psk_words = psk_words + step_words
+
+    # below is for quick unit test....
+    this_step, step_words = genStepCreateData("obj", "gs_orders", "NA", genTestGSOrdersData(), this_step)
+    psk_words = psk_words + step_words
+
+
+
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
-    # this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA",
-    #                                           "['sale', ebay_orders, product_catelog]", this_step)
-    # psk_words = psk_words + step_words
-    # #
-    # # using ebay to purchase shipping label will auto update tracking code..... s
-    # this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input",
-    #                                         "labels_dir", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', gs_orders, product_book]", this_step)
+    psk_words = psk_words + step_words
+    #
+    # using ebay to purchase shipping label will auto update tracking code..... s
+    this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "buy_shipping_input", "labels_dir", this_step)
+    psk_words = psk_words + step_words
     #
     # # # extract tracking code from labels and update them into etsy_orders data struture.
     # #
@@ -325,37 +335,37 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
                                           "In-Browser Ebay Buy ECB labels using external skill.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_buy_ecb_labels", "",
                                         this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
-    psk_words = psk_words + step_words
-
-
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
-    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA",
-                                              "['sale', ebay_orders, product_catelog]", this_step)
+    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', ebay_orders, product_catelog]", this_step)
     psk_words = psk_words + step_words
     #
     # using ebay to purchase shipping label will auto update tracking code..... s
-    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input",
-                                            "labels_dir", this_step)
+    # this_step, step_words = genStepUseExternalSkill(87, "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "skill_input", "start_time", True,"label_results", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "gs_input", "label_results", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCheckCondition("label_results", "", "", this_step)
     psk_words = psk_words + step_words
 
     # # extract tracking code from labels and update them into etsy_orders data struture.
-    #
-    # # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
-    # # now update tracking coded back to the orderlist
-    # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
-    # psk_words = psk_words + step_words
-    #
+    # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
+    # now update tracking coded back to the orderlist
+    this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA",
                                               "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]",
                                               this_step)
@@ -363,6 +373,12 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
 
     # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
     this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+    # end condition for "not_logged_in == False"
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     #
@@ -385,8 +401,7 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepStub("end condition", "", "", this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
-                                        this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_buy_ecb_labels", "", this_step)
     psk_words = psk_words + step_words
     print("generating win ads ebay skill")
     psk_words = psk_words + "\"dummy\" : \"\"}"

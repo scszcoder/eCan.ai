@@ -31,7 +31,8 @@ from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, g
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
     genStepWebdriverQuit, genStepWebdriverExecJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
-    genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome
+    genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
+    genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersFromHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -98,6 +99,8 @@ PUBLIC = {
     "genStepWebdriverStartExistingChrome": genStepWebdriverStartExistingChrome,
     "genStepWebdriverStartExistingADS": genStepWebdriverStartExistingADS,
     "genStepWebdriverStartNewChrome": genStepWebdriverStartNewChrome,
+    "genStepWebdriverExtractInfo": genStepWebdriverExtractInfo,
+    "genStepWebdriverWaitUntilClickable": genStepWebdriverWaitUntilClickable,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGoto': genStepGoto,
     'genStepLoop': genStepLoop,
@@ -520,8 +523,11 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     log3("sk_prefix"+" "+sk_prefix+" "+"sk_name: "+sk_name)
     if privacy == "public":
         sk_file_name = root_path + "/resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
+        my_sk_full_name = sk_full_name
     else:
         sk_file_name = root_path + "/my_skills/" + sk_prefix + "/" + sk_name + ".psk"
+        log3("gen private skill: " + sk_file_name)
+        my_sk_full_name = sk_full_name + "_my"
 
     sk_file_dir = os.path.dirname(sk_file_name)
     os.makedirs(sk_file_dir, exist_ok=True)
@@ -530,14 +536,14 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     log3("opening skill file: "+sk_file_name+" start_step: "+json.dumps(start_step))
 
     try:
-        if sk_full_name in SkillGeneratorTable.keys():
+        if my_sk_full_name in SkillGeneratorTable.keys():
             if privacy == "public":
                 # at this time, the settings is not yet known, so simply set it to None, later on in reAddrAndUpdateSteps(), we set the true value of settings there..
                 this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
             else:
                 log3("gen private....."+sk_full_name)
                 # at this time, the settings is not yet known, so simply set it to None, , later on in reAddrAndUpdateSteps(), we set the true value of settings there.
-                this_step, step_words = SkillGeneratorTable[sk_full_name+"_my"](None, start_step, theme, PUBLIC)
+                this_step, step_words = SkillGeneratorTable[my_sk_full_name](None, start_step, theme, PUBLIC)
 
             with open(sk_file_name, 'w+') as skf:
                 skf.write("\n")

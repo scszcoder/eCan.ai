@@ -909,6 +909,7 @@ class MainWindow(QMainWindow):
             if sk.getPrivacy() == "public":
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
             else:
+                self.showMsg("GEN PRIVATE SKILL PSK::::::" + sk_full_name)
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), ecb_data_homepath, first_step, "light")
             self.showMsg("PSK FILE:::::::::::::::::::::::::"+psk_file)
             sk.setPskFileName(psk_file)
