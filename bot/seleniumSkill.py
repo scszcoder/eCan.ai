@@ -81,11 +81,14 @@ def genStepWebdriverClick(driver, clickable_var, result_var, flag_var, stepN):
 
 
 
-def genStepWebdriverClick(driver, clickable_var, result_var, flag_var, stepN):
+def genStepWebdriverWaitUntilClickable(driver_var, wait_var, element_type_var, element_var, result_type, result_var, flag_var, stepN):
     stepjson = {
-        "type": "Web Driver Click",
-        "clickable": clickable_var,
-        "driver_var": driver,  # anchor, info, text
+        "type": "Web Driver Wait Until Clickable",
+        "driver_var": driver_var,  # anchor, info, text
+        "wait": wait_var,
+        "element_type_var": element_type_var,
+        "element_var": element_var,
+        "result_type": result_type,
         "result": result_var,
         "flag": flag_var
     }
@@ -145,12 +148,11 @@ def genStepWebdriverSelectDropDown(driver_var, target_var, text_var, result_var,
 
 
 
-def genStepWebdriverNewTab(driver_var, target_var, text_var, result_var, flag_var, stepN):
+def genStepWebdriverNewTab(driver_var, url_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver New Tab",
-        "target_var": target_var,
         "driver_var": driver_var,  # anchor, info, text
-        "text_var": text_var,  # anchor, info, text
+        "url_var": url_var,  # anchor, info, text
         "result": result_var,
         "flag": flag_var
     }
@@ -388,12 +390,12 @@ def processWebdriverStartExistingChrome(step, i):
         # Set Chrome options if needed
         chrome_options = Options()
         # chrome_options.add_argument('--headless')
-        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
-        chrome_options.add_experimental_option('prefs', {
-            'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
-            'savefile.default_directory': os.getcwd()  # Set your download directory here
-        })
-        chrome_options.add_argument('--kiosk-printing')
+        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9228")
+        # chrome_options.add_experimental_option('prefs', {
+        #     'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
+        #     'savefile.default_directory': os.getcwd()  # Set your download directory here
+        # })
+        # chrome_options.add_argument('--kiosk-printing')
 
         # Initialize the WebDriver
         service = ChromeService(executable_path=driver_path)
@@ -529,7 +531,7 @@ def processWebdriverKeyIn(step, i):
         wait = WebDriverWait(driver, 10)
 
         wait.until(EC.presence_of_element_located(target))
-
+        target.clear()
         target.send_keys(text)
 
 
@@ -616,7 +618,7 @@ def processWebdriverNewTab(step, i):
     try:
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
-        url = symTab[step["url_var"]]
+        url = step["url_var"]
         log3("opening a new tab")
         wait = WebDriverWait(driver, 10)
 
@@ -962,6 +964,41 @@ def processWebdriverExtractInfo(step, i):
             ex_stat = "ErrorWebdriverQuit:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverQuit: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processWebdriverWaitUntilClickable(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = True
+
+        if type(step["wait"]) == int:
+            wait_time = step["wait"]
+        else:
+            wait_time = symTab[step["wait"]]
+
+        element_type = step["element_type_var"]
+        element_name = step["element_var"]
+        print("element type:", element_type)
+        print("element name:", element_name)
+
+
+        print("wait until:", wait_time)
+        wait = WebDriverWait(driver, wait_time)
+
+        symTab[step["result"]] = wait.until(EC.element_to_be_clickable((element_type, element_name)))
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverWaitUntilClickable:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverWaitUntilClickable: traceback information not available:" + str(e)
         log3(ex_stat)
 
     return (i + 1), ex_stat
