@@ -32,7 +32,7 @@ from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, g
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
     genStepWebdriverQuit, genStepWebdriverExecJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
-    genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable
+    genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersFromHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -101,7 +101,9 @@ PUBLIC = {
     "genStepWebdriverStartNewChrome": genStepWebdriverStartNewChrome,
     "genStepWebdriverExtractInfo": genStepWebdriverExtractInfo,
     "genStepWebdriverWaitUntilClickable": genStepWebdriverWaitUntilClickable,
+    "genStepWebdriverWaitDownloadDoneAndTransfer": genStepWebdriverWaitDownloadDoneAndTransfer,
     'genStepCheckCondition': genStepCheckCondition,
+    'genStepGetDefault': genStepGetDefault,
     'genStepGoto': genStepGoto,
     'genStepLoop': genStepLoop,
     'genStepStub': genStepStub,
@@ -142,7 +144,6 @@ PUBLIC = {
     'genWinADSEbayBuyShippingSkill': genWinADSEbayBuyShippingSkill,
     'genStepEbayScrapeOrdersFromHtml': genStepEbayScrapeOrdersFromHtml,
     'genStepEbayScrapeOrdersFromJss': genStepEbayScrapeOrdersFromJss,
-
     'genWinADSEbayBrowserFullfillOrdersSkill': genWinADSEbayBrowserFullfillOrdersSkill,
     'genWinADSEbayBrowserRespondMessagesSkill': genWinADSEbayBrowserRespondMessagesSkill,
     'genWinADSEbayBrowserCollectOrdersSkill': genWinADSEbayBrowserCollectOrdersSkill,
@@ -196,6 +197,7 @@ PUBLIC = {
     'genStepEbayScrapeCustomerMsgThread': genStepEbayScrapeCustomerMsgThread,
     'genStepAmzScrapeBuyOrdersHtml': genStepAmzScrapeBuyOrdersHtml,
     'genEbayLoginInSteps': genEbayLoginInSteps,
+    'genStepEbayScrapeOrdersFromJss': genStepEbayScrapeOrdersFromJss,
     'genStepEbayScrapeOrdersFromHtml': genStepEbayScrapeOrdersFromHtml,
     'log3': log3,
     'genStepReadFile': genStepReadFile,

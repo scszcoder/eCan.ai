@@ -9,7 +9,7 @@ import sys
 import time
 import traceback
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 import platform
 import glob
@@ -87,6 +87,7 @@ def get_default_download_dir():
     home = os.path.expanduser("~").replace("\\", "/")
     return home+"/Downloads/"
 
+
 def genStepHeader(skillname, los, ver, author, skid, description, stepN):
     header = {
         "name": skillname,
@@ -113,6 +114,16 @@ def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor
         "cargs_type": cargs_type,
         "cargs": cargs,
         "wait":wait
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepGetDefault(var_name, result_var, stepN):
+    stepjson = {
+        "type": "Get Default",
+        "var_name": var_name,
+        "result": result_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -417,11 +428,14 @@ def genStepStub(sname, fname, fargs, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepListDir(dirname, fargs, result_var, stepN):
+def genStepListDir(dirname, extension, sort_by, sort_order, most_recent, result_var, stepN):
     stepjson = {
         "type": "List Dir",
         "dir": dirname,
-        "fargs": fargs,
+        "extension": extension,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+        "most_recent": most_recent,
         "result": result_var
     }
 
@@ -2964,10 +2978,36 @@ def processGoto(step, i,  step_keys):
 def processListDir(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
+        current_time = datetime.now()
+        hours = step["most_recent"]
+        cutoff_time = current_time - timedelta(hours=hours)
+
+        all_files = []
         lof = os.listdir(step["dir"])
-        symTab[step["result"]] = [f for f in lof if f.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
+        for filename in lof:
+            file_path = os.path.join(step["dir"], filename)
+            if os.path.isfile(file_path):
+                file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                if file_mod_time > cutoff_time:
+                    all_files.append((file_path, file_mod_time))
 
+        if step["extension"]:
+            file_list = [f for f in all_files if f[0].endswith(step["extension"])]  # fargs contains extension such as ".pdf"
+        else:
+            file_list = all_files
 
+        if step["sort_by"] == "time":
+            if step["sort_order"] == "min-max":
+                sorted_list = sorted(file_list, key=lambda x: x[1], reverse=False)
+            else:
+                sorted_list =sorted(file_list, key=lambda x: x[1], reverse=True)
+        elif step["sort_by"] == "name":
+            if step["sort_order"] == "min-max":
+                sorted_list = sorted(file_list, key=lambda x: x[0], reverse=False)
+            else:
+                sorted_list =sorted(file_list, key=lambda x: x[0], reverse=True)
+
+        symTab[step["result"]] = [f[0] for f in sorted_list]
 
     except Exception as e:
         # Get the traceback information
@@ -4825,6 +4865,27 @@ def processReadXlsxFile(step, i):
         else:
             ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
         symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processGetDefault(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global json_file
+    try:
+        if step["var_name"] == "download dir":
+            symTab[step["result"]] = get_default_download_dir()
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReadXlsxFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
+        # symTab[step["flag"]] = False
         log3(ex_stat)
 
     return (i + 1), ex_stat

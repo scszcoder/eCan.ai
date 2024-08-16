@@ -738,7 +738,7 @@ def processPrepareGSOrder(step, i):
         dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
 
         if len(light_orders) > 0:
-            ofname1 = file_path+"/"+ec_platform+"OrdersGround"+dt_string+".xls"
+            ofname1 = file_path+"/"+ec_platform+"OrdersGround"+dt_string+".xlsx"
             ofname1_unzipped = file_path + "/"+ec_platform+"OrdersGround" + dt_string
             createLabelOrderFile(seller, "ozs", light_orders, ec_platform, symTab[step["prod_book"]], ofname1)
             gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.25, "num_orders": len(light_orders), "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1), "unzipped_dir": ofname1_unzipped})
@@ -748,7 +748,7 @@ def processPrepareGSOrder(step, i):
                 os.makedirs(ofname1_unzipped)
 
         if len(regular_orders) > 0:
-            ofname2 = file_path+"/"+ec_platform+"OrdersPriority"+dt_string+".xls"
+            ofname2 = file_path+"/"+ec_platform+"OrdersPriority"+dt_string+".xlsx"
             ofname2_unzipped =  file_path+"/"+ec_platform+"OrdersPriority"+dt_string
 
             createLabelOrderFile(seller, "lbs", regular_orders, ec_platform, symTab[step["prod_book"]], ofname2)
@@ -758,6 +758,7 @@ def processPrepareGSOrder(step, i):
             if not os.path.exists(ofname2_unzipped):
                 os.makedirs(ofname2_unzipped)
 
+        print("GS labels orders:", gs_label_orders)
         symTab[step["gs_order"]] = gs_label_orders
 
     except Exception as e:
@@ -789,7 +790,7 @@ def combine_duplicates(orders):
 def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname):
     if weight_unit == "ozs":
         allorders = [{
-            "No": "1",
+            "No": str(oi+1),
             "FromName": seller["FromName"],
             "PhoneFrom": seller["PhoneFrom"],
             "Address1From": seller["Address1From"],
@@ -811,10 +812,10 @@ def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname)
             "width": calcOrderWidth(o, ec_platform, book, "inches"),
             "height": calcOrderHeight(o, ec_platform, book, "inches"),
             "description": ""
-        } for o in orders]
+        } for oi, o in enumerate(orders)]
     else:
         allorders = [{
-            "No": "1",
+            "No": str(oi+1),
             "FromName": seller["FromName"],
             "PhoneFrom": seller["PhoneFrom"],
             "Address1From": seller["Address1From"],
@@ -836,7 +837,7 @@ def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname)
             "width": calcOrderWidth(o, ec_platform, book, "inches"),
             "height": calcOrderHeight(o, ec_platform, book, "inches"),
             "description": ""
-        } for o in orders]
+        } for oi, o in enumerate(orders)]
 
     df = pd.DataFrame(allorders)
 

@@ -57,7 +57,7 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
-    this_step, step_words = genStepCallExtern("global fdir\nfdir = sk_work_settings['log_path'] + '/ecb_labels'", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global fdir\nfdir = sk_work_settings['log_path'] + 'ecb_labels'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "current_seller", "NA", "sk_work_settings['seller']", this_step)
@@ -124,7 +124,14 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 def genTestGSOrdersData():
-    return {}
+    return [
+        {'service': 'USPS Ground Advantage (1-15oz)',
+         'price': 4.5, 'num_orders': 2,
+         'dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels',
+         'file': 'ebayOrdersGround20240815122835.xls',
+         'unzipped_dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240815122835'
+         }
+    ]
 
 
 def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, theme):
@@ -161,7 +168,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in", "dummy_out", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global fdir\nfdir = sk_work_settings['log_path'] + '/ecb_labels'", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global fdir\nfdir = sk_work_settings['log_path'] + 'ecb_labels'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "current_seller", "NA", "sk_work_settings['seller']", this_step)
@@ -173,12 +180,10 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepPrepareGSOrder("ebay_orders", "gs_orders", "product_book", "current_seller", "ebay", "fdir", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "gs_orders", "NA", "sk_work_settings['products']", this_step)
-    psk_words = psk_words + step_words
 
     # below is for quick unit test....
-    this_step, step_words = genStepCreateData("obj", "gs_orders", "NA", genTestGSOrdersData(), this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepCreateData("obj", "gs_orders", "NA", genTestGSOrdersData(), this_step)
+    # psk_words = psk_words + step_words
 
 
 

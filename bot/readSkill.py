@@ -23,13 +23,15 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
     processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
-    processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile
+    processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
+    processGetDefault
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
     processWebdriverExecJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
-    processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, processWebdriverWaitUntilClickable
+    processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, \
+    processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -118,6 +120,7 @@ RAIS = {
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
     "Save Data": lambda x,y: processSaveData(x, y),
+    "Get Default": lambda x,y: processGetDefault(x, y),
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
     "Goto": lambda x,y,z: processGoto(x, y, z),
@@ -211,6 +214,7 @@ RAIS = {
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
     "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
     "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
+    "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
 }
@@ -235,6 +239,7 @@ ARAIS = {
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
     "Save Data": lambda x,y: processSaveData(x, y),
+    "Get Default": lambda x,y: processGetDefault(x, y),
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
     "Goto": lambda x,y,z: processGoto(x, y, z),
@@ -328,6 +333,7 @@ ARAIS = {
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
     "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
     "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
+    "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v)
 }
