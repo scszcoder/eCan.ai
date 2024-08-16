@@ -10,6 +10,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 import requests
 import time
+from datetime import datetime, timedelta
 import traceback
 import os
 from bot.adsAPISkill import startADSWebDriver
@@ -324,6 +325,24 @@ def genStepWebdriverExtractInfo(driver_var, source_var_type, source_var, wait_va
 
 
 
+def genStepWebdriverWaitDownloadDoneAndTransfer(driver_var, dl_dir_var, dl_file_var, current_dir_list_var, wait_var, target_file_var, dl_platform_var, temp_file_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Wait Download Done And Transfer",
+        "driver_var": driver_var,  # anchor, info, text
+        "wait": wait_var,
+        "dl_dir_var": dl_dir_var,
+        "dl_file_var": dl_file_var,
+        "current_dir_list_var": current_dir_list_var,
+        "target_file_var": target_file_var,
+        "dl_platform_var": dl_platform_var,             # chrome, firfox, etc.
+        "temp_file_var": temp_file_var,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 # ====== now the processing routines for the step instructions.
 def processWebdriverClick(step, i):
     log3("click....")
@@ -532,7 +551,7 @@ def processWebdriverKeyIn(step, i):
         log3("wait for target to load")
         wait = WebDriverWait(driver, 10)
 
-        wait.until(EC.presence_of_element_located(target))
+        # wait.until(EC.presence_of_element_located(target))
         target.clear()
         target.send_keys(text)
 
@@ -589,12 +608,13 @@ def processWebdriverSelectDropDown(step, i):
     try:
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
-        target = symTab[step["target_var"]]
+        # target_type = symTab[step["target_type_var"]]
+        dropdown = symTab[step["target_var"]]
         text = symTab[step["text_var"]]
         log3("wait for target to load")
         wait = WebDriverWait(driver, 10)
 
-        dropdown = wait.until(EC.presence_of_element_located(target))
+        # dropdown = wait.until(EC.presence_of_element_located((target_type, target)))
         select_menu = Select(dropdown)
         selected = select_menu.first_selected_option.text
 
@@ -958,12 +978,15 @@ def processWebdriverExtractInfo(step, i):
         elif info_type == "web element":
             if step["result_type"] == "var":
                 if not step["multi"]:
+                    print("found web element.")
                     symTab[step["result"]] = driver.find_element(element_type, element_name)
                 else:
                     symTab[step["result"]] = driver.find_elements(element_type, element_name)
+                    print("found n elements:", len(symTab[step["result"]]))
             elif step["result_type"] == "expr":
                 to_words = re.split(r'\[|\(|\{', step["result"])
                 sink = to_words[0]
+                print("result in expression format", sink)
                 if not step["multi"]:
                     exec(f"global {sink}\n{step['result']} = web_element\nprint('element text', web_element)")
                 else:
@@ -1015,7 +1038,7 @@ def processWebdriverWaitUntilClickable(step, i):
         else:
             ex_stat = "ErrorWebdriverWaitUntilClickable: traceback information not available:" + str(e)
         log3(ex_stat)
-        symTab[step["flag"]] = True
+        symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
 
@@ -1040,3 +1063,151 @@ def processWebdriverQuit(step, i):
 
     return (i + 1), ex_stat
 
+def is_download_complete(file_path, check_interval=1, stable_checks=2):
+    """
+    Check if the download is complete by verifying that the file size remains stable
+    for a specified number of consecutive checks.
+
+    :param file_path: Path to the file being downloaded
+    :param check_interval: Time interval (in seconds) between consecutive checks
+    :param stable_checks: Number of consecutive checks with stable file size required
+                          to consider the download complete
+    :return: True if the download is complete, False otherwise
+    """
+    previous_size = -1
+    stable_count = 0
+
+    while True:
+        if not os.path.exists(file_path):
+            return False
+
+        current_size = os.path.getsize(file_path)
+
+        if current_size == previous_size:
+            stable_count += 1
+        else:
+            stable_count = 0  # Reset counter if file size changes
+
+        if stable_count >= stable_checks:
+            return True
+
+        previous_size = current_size
+        time.sleep(check_interval)
+
+def get_most_recent_files(directory, n=1, hours=24):
+    """
+    Get the most recently modified file within the last `hours` in the given directory.
+
+    :param directory: Directory to search for files
+    :param hours: Time window in hours to look back for recent files
+    :return: The path to the most recent file found, or None if no file is found
+    """
+    current_time = datetime.now()
+    cutoff_time = current_time - timedelta(hours=hours)
+
+    recent_files = []
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+        if os.path.isfile(file_path):
+            file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+            if file_mod_time > cutoff_time:
+                recent_files.append((file_path, file_mod_time))
+
+    if recent_files:
+        # Return the most recently modified file
+        sorted_time_files = sorted(recent_files, key=lambda f: f[1], reverse=True)
+        if n == 1:
+            return max(recent_files, key=lambda x: x[1])[0]
+        else:
+            return [f[0] for f in sorted_time_files]
+    return None
+
+def wait_for_download_completion(download_dir, prev_most_recent, download_file="", timeout=60, check_interval=1, stable_checks=2):
+    """
+    Wait for the most recent file download to complete by checking for the absence of temporary file extensions,
+    ensuring the file exists, monitoring file size stability, and enforcing an overall timeout.
+
+    :param download_dir: The directory where the file is being downloaded
+    :param download_file: The file name of the file being downloaded
+    :param timeout: Overall timeout in seconds to wait for the download to complete
+    :param check_interval: Time interval (in seconds) between consecutive checks
+    :param stable_checks: Number of consecutive checks with stable file size required
+                          to consider the download complete
+    :return: Path to the completed file if the download is successful, None otherwise
+    """
+    temp_extensions = ['.crdownload', '.part']
+    start_time = time.time()
+
+    while True:
+        # Check for timeout
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout:
+            print(f"Download timed out after {timeout} seconds.")
+            return None
+
+        # Get the most recent file in the directory within the last 24 hours
+        if download_file:
+            # os.listdir(download_dir)
+            # recent_file = os.path.join(download_dir, download_file)
+            recent_files = get_most_recent_files(download_dir,2)
+            if any(download_file in fn for fn in recent_files):
+                recent_file = get_most_recent_files(download_dir)
+        else:
+            recent_file = get_most_recent_files(download_dir)
+
+        if recent_file != prev_most_recent:
+            # Check if the file does not have a temporary extension
+            if not any(recent_file.endswith(ext) for ext in temp_extensions):
+                # File exists and no temp files; check for stability
+                if is_download_complete(recent_file, check_interval, stable_checks):
+                    return recent_file
+            else:
+                print(f"Temporary file detected: {recent_file}")
+        else:
+            print(f"No recent files found in the last 24 hours.")
+
+        time.sleep(check_interval)
+
+
+def processWebdriverWaitDownloadDoneAndTransfer(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = False
+
+        if type(step["wait"]) == int:
+            wait_time = step["wait"]
+        else:
+            wait_time = symTab[step["wait"]]
+
+        dl_dir = step["dl_dir_var"]
+        dl_file = step["dl_file_var"]
+        target_file = step["target_file_var"]
+        dl_platform = step["dl_platform_var"]
+        temp_file  = step["temp_file_var"]
+        current_dir_list = symTab[step['current_dir_list_var']]
+        prev_most_recent_file = current_dir_list[0]
+        symTab[step["result"]] = None
+        # wait for download to start.
+        time.sleep(1)
+        print("dl_dir, dl_file, target_file, dl_platform, temp_file:", dl_dir, dl_file, target_file, dl_platform, temp_file)
+        completed_file = wait_for_download_completion(dl_dir, prev_most_recent_file, dl_file, timeout=60, check_interval=1, stable_checks=2)
+        if os.path.exists(completed_file):
+            print(f"Download completed: {completed_file}")
+            symTab[step["flag"]] = True
+            symTab[step["result"]] = completed_file
+            os.rename(completed_file, target_file)
+            print(f"file moved to:{target_file}")
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverWaitDownloadDoneAndTransfer:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverWaitDownloadDoneAndTransfer: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
