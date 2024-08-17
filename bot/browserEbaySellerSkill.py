@@ -125,11 +125,21 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
 
 def genTestGSOrdersData():
     return [
-        {'service': 'USPS Ground Advantage (1-15oz)',
-         'price': 4.5, 'num_orders': 2,
-         'dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels',
-         'file': 'ebayOrdersGround20240815122835.xls',
-         'unzipped_dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240815122835'
+        {
+            'service': 'USPS Ground Advantage (1-15oz)',
+            'price': 4.5, 'num_orders': 2,
+            'dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels',
+            'file': 'ebayOrdersGround20240815122835.xls',
+            'unzipped_dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240815122835',
+            'order_data': [
+                {
+                    "name":"",
+                    "order_ids": [""],
+                    "tracking": "",
+                }
+            ],
+            "succeed": True,
+            "result": ""
          }
     ]
 

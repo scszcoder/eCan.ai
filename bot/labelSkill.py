@@ -740,8 +740,17 @@ def processPrepareGSOrder(step, i):
         if len(light_orders) > 0:
             ofname1 = file_path+"/"+ec_platform+"OrdersGround"+dt_string+".xlsx"
             ofname1_unzipped = file_path + "/"+ec_platform+"OrdersGround" + dt_string
-            createLabelOrderFile(seller, "ozs", light_orders, ec_platform, symTab[step["prod_book"]], ofname1)
-            gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)", "price": len(light_orders)*2.25, "num_orders": len(light_orders), "dir": os.path.dirname(ofname1), "file": os.path.basename(ofname1), "unzipped_dir": ofname1_unzipped})
+            gs_order_data = createLabelOrderFile(seller, "ozs", light_orders, ec_platform, symTab[step["prod_book"]], ofname1)
+            gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)",
+                                    "price": len(light_orders)*2.25,
+                                    "num_orders": len(light_orders),
+                                    "dir": os.path.dirname(ofname1),
+                                    "file": os.path.basename(ofname1),
+                                    "unzipped_dir": ofname1_unzipped,
+                                    "order_data": gs_order_data,
+                                    "succeed": True,
+                                    "result": ""
+                                    })
 
             #create unziped label dir ahead of time.
             if not os.path.exists(ofname1_unzipped):
@@ -751,8 +760,17 @@ def processPrepareGSOrder(step, i):
             ofname2 = file_path+"/"+ec_platform+"OrdersPriority"+dt_string+".xlsx"
             ofname2_unzipped =  file_path+"/"+ec_platform+"OrdersPriority"+dt_string
 
-            createLabelOrderFile(seller, "lbs", regular_orders, ec_platform, symTab[step["prod_book"]], ofname2)
-            gs_label_orders.append({"service":"USPS Priority V4", "price": len(regular_orders)*3, "num_orders": len(regular_orders), "dir": os.path.dirname(ofname2),  "file": os.path.basename(ofname2), "unzipped_dir": ofname2_unzipped})
+            gs_order_data = createLabelOrderFile(seller, "lbs", regular_orders, ec_platform, symTab[step["prod_book"]], ofname2)
+            gs_label_orders.append({"service":"USPS Priority V4",
+                                    "price": len(regular_orders)*3,
+                                    "num_orders": len(regular_orders),
+                                    "dir": os.path.dirname(ofname2),
+                                    "file": os.path.basename(ofname2),
+                                    "unzipped_dir": ofname2_unzipped,
+                                    "order_data": gs_order_data,
+                                    "succeed": True,
+                                    "result": ""
+                                    })
 
             #create unziped label dir ahead of time.
             if not os.path.exists(ofname2_unzipped):
@@ -781,6 +799,7 @@ def combine_duplicates(orders):
         key = (order.getRecipientName(), order.getRecipientAddrStreet1(), order.getRecipientAddrStreet2(), order.getRecipientAddrCity(), order.getRecipientAddrState())
         if key in merged_dict:
             merged_dict[key].products.extend(order.products)
+            merged_dict[key].combineOid(order.getOid())
         else:
             merged_dict[key] = copy.deepcopy(order)
 
@@ -788,6 +807,7 @@ def combine_duplicates(orders):
 
 # ofname is the order file name, should be etsy_orders+Date.xls
 def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname):
+    gs_orders = []
     if weight_unit == "ozs":
         allorders = [{
             "No": str(oi+1),
@@ -839,6 +859,12 @@ def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname)
             "description": ""
         } for oi, o in enumerate(orders)]
 
+    gs_orders = [{
+            "name": o.getRecipientName(),
+            "order_ids": [o.getOid()]+o.getCombinedOids(),
+            "tracking": ""
+        } for oi, o in enumerate(orders)]
+
     df = pd.DataFrame(allorders)
 
     # Save to .xls file
@@ -861,6 +887,8 @@ def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname)
         os.makedirs(ofdir)
     # Save workbook
     wb.save(ofname)
+
+    return gs_orders
 
 # if 1 product is not FBS, then the whole order is FBS... requires manual work.....
 def orderIsForFBS(order, ec_platform, pbook):
