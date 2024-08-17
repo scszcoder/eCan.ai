@@ -944,6 +944,18 @@ def processWebdriverExtractInfo(step, i):
         print("element type:", element_type)
         print("element name:", element_name)
 
+        placeholders = re.findall(r'\{(.*?)\}', element_name)
+
+        # Replace each placeholder with the corresponding global variable value
+        for placeholder in placeholders:
+            if placeholder in globals():
+                element_name = element_name.replace(f'{{{placeholder}}}', str(globals()[placeholder]))
+            else:
+                raise ValueError(f"Global variable '{placeholder}' not found.")
+
+        print("updated element name:", element_name)
+
+
         if wait_time != 0:
             print("wait until:", wait_time)
             wait = WebDriverWait(driver, wait_time)
@@ -1196,6 +1208,11 @@ def processWebdriverWaitDownloadDoneAndTransfer(step, i):
             print(f"Download completed: {completed_file}")
             symTab[step["flag"]] = True
             symTab[step["result"]] = completed_file
+
+            target_dir = os.path.dirname(target_file)
+            # Ensure the directory exists, and if not, create it
+            os.makedirs(target_dir, exist_ok=True)
+
             os.rename(completed_file, target_file)
             print(f"file moved to:{target_file}")
 
