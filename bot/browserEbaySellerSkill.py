@@ -159,6 +159,9 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "update_tracking_result", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
@@ -205,17 +208,20 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     psk_words = psk_words + step_words
     #
     # using ebay to purchase shipping label will auto update tracking code..... s
-    this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "buy_shipping_input", "labels_dir", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "buy_shipping_input", "labels_dir", this_step)
+    # psk_words = psk_words + step_words
+
+    # # extract tracking code from labels and update them into etsy_orders data struture.
     #
-    # # # extract tracking code from labels and update them into etsy_orders data struture.
-    # #
-    # # # gen_etsy_test_data()
-    # #
-    # # # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
-    # # # now update tracking coded back to the orderlist
-    # # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
-    # # psk_words = psk_words + step_words
+    # # gen_etsy_test_data()
+    #
+    # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
+    # now update tracking coded back to the orderlist
+    this_step, step_words = genStepCreateData("expr", "update_tracking_input", "NA", "['sale', gs_orders, ebay_orders, product_book]", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepUseSkill("browser_update_tracking", "public/win_ads_ebay_orders", "update_tracking_input", "update_tracking_result", this_step)
+    psk_words = psk_words + step_words
     # #
     # this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA",
     #                                           "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]",
@@ -1115,15 +1121,12 @@ def genWinADSEbayBrowserUpdateTrackingSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/browser_update_tracking", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
-    psk_words = psk_words + step_words
-
     # open the order page again.
     this_step, step_words = genStepCallExtern("global blurl\nblurl = 'https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT'", "", "in_line", "",
                                               this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepsWinChromeEbayUpdateShipmentTrackingSkill(worksettings, this_step, theme)
+    this_step, step_words = genStepsWinChromeEbayBrowserUpdateTracking(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
 
@@ -1155,7 +1158,7 @@ def genWinChromeEbayBrowserUpdateTrackingSkill(worksettings, stepN, theme):
                                               this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepsWinChromeEbayUpdateShipmentTrackingSkill(worksettings, this_step, theme)
+    this_step, step_words = genStepsWinChromeEbayBrowserUpdateTracking(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_chrome_ebay_orders/browser_update_tracking", "", this_step)
@@ -1167,28 +1170,33 @@ def genWinChromeEbayBrowserUpdateTrackingSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genStepsWinChromeEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
+# this skill assumes the webdriver has already set chrome page to orders await shipment page and has obtained orders on this
+# page and all data are still in tact so we can pick up from there.
+def genStepsWinChromeEbayBrowserUpdateTracking(worksettings, stepN, theme):
     psk_words = ""
 
 
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, stepN)
     psk_words = psk_words + step_words
 
-    # open the order page again.
-    this_step, step_words = genStepCallExtern("global blurl\nblurl = 'https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT'", "", "in_line", "",
-                                              this_step)
+    this_step, step_words = genStepCreateData("obj", "in_gs_orders", "NA", None, this_step)
     psk_words = psk_words + step_words
 
-    # hit ctrl-t to open a new tab.
-    this_step, step_words = genStepKeyInput("", True, "ctrl,t", "", 3, this_step)
+    this_step, step_words = genStepCreateData("obj", "in_ebay_orders", "NA", None, this_step)
     psk_words = psk_words + step_words
 
-    # type in bulk buy label URL address.
-    this_step, step_words = genStepTextInput("var", False, "blurl", "direct", 1, "", 2, this_step)
+    this_step, step_words = genStepCreateData("string", "tracking_code", "NA", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWait(5, 0, 0, this_step)
+    this_step, step_words = genStepCreateData("string", "carrier", "NA", "", this_step)
     psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "in_prod_book", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fin, in_ebay_orders, in_gs_labels, in_prod_book\nin_gs_orders = fin[1]\nin_ebay_orders = fin[2]\nin_prod_book = fin[3]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     # go thru all orders, page by page, screen by screen. same nested loop as in collect orders...
     this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = False", "", "in_line", "", this_step)
@@ -1197,154 +1205,238 @@ def genStepsWinChromeEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme)
     this_step, step_words = genStepCallExtern("global currentPage\ncurrentPage = 0", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "update_order_index", "NA", -1, this_step)
+    this_step, step_words = genStepCreateData("int", "maxOrdersPerPage", "NA", 200, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "nMore2Update", "NA", 0, this_step)
+    this_step, step_words = genStepCreateData("int", "nthOnPage", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "orderIds", "NA", "[]", this_step)
+    this_step, step_words = genStepCreateData("int", "nOrdersOnPage", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "numCompletions", "NA", 0, this_step)
+    this_step, step_words = genStepCreateData("obj", "orderIds", "NA", [], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "nthCompletion", "NA", 0, this_step)
+    this_step, step_words = genStepCreateData("int", "numOrders", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepLoop("endOfOrderList != True", "", "", "browseEtsyOL" + str(stepN), this_step)
+    this_step, step_words = genStepCallExtern("global numOrders, in_ebay_orders\nnumOrders = sum(len(page['ol']) for page in in_ebay_orders)\nprint('numOrders', numOrders, in_ebay_orders[0]['orders_per_page'])", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global endOfOrdersPage\nendOfOrdersPage = False", "", "in_line", "", this_step)
+    this_step, step_words = genStepCreateData("int", "nOrdersUpdated", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-
-    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
-    this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
-    psk_words = psk_words + step_words
-
-    # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    # use this info, as it contains the name and address, as well as the ship_to anchor location.
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["complete_order"], "direct", ["anchor icon"], "any", "complete_buttons", "useless", "etsy", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["order_number"], "direct", ["info 1"], "any", "orderIds", "useless", "etsy", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global numCompletions\nnumCompletions = len(orderIds)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = 0", "", "in_line", "", this_step)
+    this_step, step_words = genStepLoop("nOrdersUpdated < numOrders", "", "", "browseEtsyOL" + str(stepN), this_step)
     psk_words = psk_words + step_words
 
 
-    # loop thru every "Ship to" on the page and click on it to show the full address. and record accumulatively #of "Ship to" being clicked.
-    this_step, step_words = genStepLoop("nthCompletion < numCompletions", "", "", "dummy" + str(stepN), this_step)
+    # 1st, scrape the order table on this page.
+
+    this_step, step_words = genStepCreateData("string", "src_type", "NA", 'var', this_step)
     psk_words = psk_words + step_words
 
-    # use nth ship to to find its related ship-to-summery, use name, city, state in that summery to find this order's click status.
-    # this_step, step_words = genStepEtsyGetOrderClickedStatus("shipTos", "nthShipTo", "pageOfOrders", "found_index", "nthChecked", this_step)
+    this_step, step_words = genStepCreateData("string", "info_type", "NA", 'web element', this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "order_table", "NA", "None", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "order_summary", "NA", "None", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("bool", "extract_flag", "NA", True, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CLASS_NAME, 'table-grid-component', False, "var", "order_table", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, '.summary-h2 .summary-content', False, "var", "order_summary", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_orders", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "pidx", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, '#totalOrdersCount', False, "var", "n_orders", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "order_rows", "NA", "None", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_table", 0, "info_type", By.CSS_SELECTOR, 'tr.order-info', True, "var", "order_rows", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global order_rows\nprint('ORDER ROWS', order_rows, len(order_rows))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "nth_row", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "row", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("nth_row < len(order_rows)", "", "", "BrCollectOrd" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(f"global row, nth_row, order_rows\nrow = order_rows[nth_row]\nprint('row::',nth_row, row)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # Click on the dropdown menu button
+    # dropdown_button = row.find_element(By.CSS_SELECTOR, "button[aria-label='Show more actions']")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR, "button[aria-label='Show more actions']", False, "var", "dropdown_button", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepCheckCondition("not dropdown_button.is_displayed()", "", "", this_step)
     # psk_words = psk_words + step_words
 
-    # first, nthcompleteion related order number， then search this order number from the order data structure,
-    # if found and its status is wait for completion, then return the order index number.
-    # if the index number is invalid, then skip this item.
-
-    this_step, step_words = genStepEtsyFindScreenOrder("nthCompletion", "complete_buttons", "orderIds", "etsy_orders", "update_order_index", "nMore2Update", this_step)
+    this_step, step_words = genStepCallExtern("print('scrolling to target....')", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global update_order_index\nprint('update_order_index', update_order_index)", "", "in_line", "", this_step)
+    # driver.execute_script("arguments[0].scrollIntoView(true);", dropdown_button)
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "dropdown_button", 10, 30, 0.25, "dummy_in", "element_present", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global fin\nprint('fin', fin)", "", "in_line", "", this_step)
+    # Alternatively, you can use ActionChains to move to the element
+    # ActionChains(driver).move_to_element(dropdown_button).perform()
+    # this_step, step_words = genStepWebdriverHoverTo("web_driver", "dropdown_button", "element_present", this_step)
+    # psk_words = psk_words + step_words
+
+    # end condition stub
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+
+    # dropdown_button.click()
+    this_step, step_words = genStepWebdriverClick("web_driver", "dropdown_button", "click_result", "click_flag", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("update_order_index >= 0", "", "", this_step)
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-
-    # click on the complete order button
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "order_pulldown", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    # Wait for the dropdown options to be visible and click "Add tracking number"
+    # WebDriverWait(driver, 5).until(
+    #     EC.visibility_of_element_located((By.XPATH, "//span[contains(text(),'Add tracking number')]/parent::button"))
+    # ).click()
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 5, "info_type", By.XPATH,
+                                                        "//button[contains(., 'Add tracking number')]", False, "var",
+                                                        "dropdown_item", "element_present", this_step)
     psk_words = psk_words + step_words
 
-    # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme, this_step, None)
-    psk_words = psk_words + step_words
-
-    # click and type USPS in carrier pull down menu
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "add_tracking", "anchor text", "", [0, 0], "bottom", [0, 2], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global shipping_service\nshipping_service = fin[0][update_order_index].getShippingService()[:3]", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepTextInput("var", False, "shipping_service", "direct", 1, "", 2, this_step)
-    psk_words = psk_words + step_words
-
-    # click and type in the tracking code.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "add_tracking", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global track_code\ntrack_code = fin[0][update_order_index].getShippingTracking()", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "tracking_number", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepTextInput("var", False, "track_code", "direct", 1, "enter", 2, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "carrier", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepTextInput("var", False, "current_carrier", "var", 1, "enter", 2, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "save_continue", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    # now refresh the page, the just completed order should dissappear (moved to completed list)
-    this_step, step_words = genStepKeyInput("", True, "ctrl,f5", "", 4, this_step)
+    # dropdown_button.click()
+    # this_step, step_words = genStepWebdriverClick("web_driver", "dropdown_item", "click_result", "click_flag", this_step)
+    this_step, step_words = genStepWebdriverExecuteJs("web_driver", "arguments[0].click();", "dropdown_item", "dumm_in", "element_present", this_step)
     psk_words = psk_words + step_words
 
 
-    # end condition for checking whehter this order can to be completed.
+    # Switch to the iframe containing the tracking number form
+    # WebDriverWait(driver, 10).until(
+    #     EC.frame_to_be_available_and_switch_to_it((By.CSS_SELECTOR, "iframe#tracking-iframe"))
+    # )
+    #
+    this_step, step_words = genStepWebdriverSwitchToFrame("web_driver", 10, By.CSS_SELECTOR, "iframe#tracking-iframe", "var", "tracking_pop_frame", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+
+    #         # Wait for the tracking number input field and carrier input field to be visible
+    #         tracking_input = WebDriverWait(driver, 10).until(
+    #             EC.visibility_of_element_located((By.ID, "s0-14-0-0-7-0-0-2-0-0-7[0]-textbox"))
+    #         )
+    #         carrier_input = driver.find_element(By.ID, "s0-14-0-0-7-0-0-2-0-0-10[0]-input")
+    this_step, step_words = genStepWebdriverWaitForVisibility("web_driver",10, By.ID, "s0-14-0-0-7-0-0-2-0-0-7[0]-textbox", "var", "tracking_input", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, "s0-14-0-0-7-0-0-2-0-0-10[0]-input", False, "var", "carrier_input", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global tracking_code, carrier\ntracking_code='12345'\ncarrier='USPS'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "tracking_input", "tracking_code", "action_result", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "carrier_input", "carrier", "action_result", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # Submit the form by clicking "Save and continue"
+    # save_button = driver.find_element(By.CSS_SELECTOR, ".add-tracking-button.btn.btn--large.btn--primary")
+    # save_button.click()
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, ".add-tracking-button.btn.btn--large.btn--primary", False, "var", "save_button", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, ".add-tracking-button.btn.btn--large.btn--tertiary", False, "var", "cancel_button", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    # dropdown_button.click()
+    # this_step, step_words = genStepWebdriverClick("web_driver", "save_button", "click_result", "click_flag", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverClick("web_driver", "cancel_button", "click_result", "click_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # Switch back to the default content
+    # this_step, step_words = genStepWebdriverSwitchToDefaultContent("web_driver", "click_flag", this_step)
+    # psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global nth_row\nnth_row = nth_row + 1\nprint('updated nth_row', nth_row)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nOrdersUpdated\nnOrdersUpdated = nOrdersUpdated + 1\nprint('ORDER ROWS', order_rows, len(order_rows))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("nth_row < len(order_rows)", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # after actioin, web element needs to be refeteched.
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CLASS_NAME, 'table-grid-component', False, "var", "order_table", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_table", 0, "info_type", By.CSS_SELECTOR, 'tr.order-info', True, "var", "order_rows", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        f"global row, nth_row, order_rows\nrow = order_rows[nth_row]\nprint('row::',nth_row, row)", "", "in_line", "",
+        this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR,
+                                                        "button[aria-label='Show more actions']", False, "var",
+                                                        "dropdown_button", "element_present", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
 
-    # now 1 order update is finished. update the counter
-    this_step, step_words = genStepCallExtern("global nthCompletion\nnthCompletion = nthCompletion + 1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
 
-
-    # end loop for going thru all completion buttons on the screen
+    #  end of loop for scoll till the nth_row < len(order_rows).
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
+    # next_button = driver.find_element(By.CSS_SELECTOR, "a.pagination__next")
+    # if "aria-disabled" not in next_button.get_attribute("outerHTML"):
+    #     next_button.click()
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "a.pagination__next", False, "var", "next_button", "element_present", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # # dropdown_button.click()
+    # this_step, step_words = genStepWebdriverClick("web_driver", "next_button", "click_result", "click_flag",
+    #                                               this_step)
+    # psk_words = psk_words + step_words
 
+    # actually no need to click on next to go the next page, simply refresh the page, the already updated orders will
+    # be removed and moved into shipped bin.
 
-    # check end of page information again
-    # search "etsy, inc" and page list as indicators for the bottom of the order list page.
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["etsy_inc"], "direct", ["anchor text"], "any", "endOfOrdersPage", "endOfOrdersPage", "etsy", False, this_step)
-    psk_words = psk_words + step_words
-
-    # now scroll to the next screen.
-    # (action, action_args, smount, stepN):
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 60, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(2, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-
-    #  end of loop for scoll till the endOfOrdersPage.
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
-    psk_words = psk_words + step_words
 
 
     # now check to see whether there are more pages to visit. basically we have updated all possible tracking code
@@ -1352,27 +1444,22 @@ def genStepsWinChromeEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme)
     # 2) the last found order # on this page is not found in the purchased label order# list. - search returns 0 found.
     #    and there is no more orders to update (go to the order list and see whether there is more orders with tracking
     #    code ready but not yet updated....
-    this_step, step_words = genStepCheckCondition("nMore2Update <= 0", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # set the flag, we have completed collecting all orders information at this point.
-    this_step, step_words = genStepCallExtern("global endOfOrderList\nendOfOrderList = True", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # else stub
-    this_step, step_words = genStepStub("else", "", "", this_step)
+    this_step, step_words = genStepCheckCondition("nOrdersUpdated < numOrders", "", "", this_step)
     psk_words = psk_words + step_words
 
     # after updating tracking code for the page, reload the page, at this time, the ones updated will be gone,
     # the next batch will appear on the page.
-    this_step, step_words = genStepKeyInput("", True, "f5", "", 4, this_step)
+    this_step, step_words = genStepWebdriverRefreshPage("web_driver", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # end of loop for while (endOfOrderList != True)
+    # end of loop for nOrdersUpdated < numOrders
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -1606,7 +1693,7 @@ def genWinADSEbayBuyShippingLabelsSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/update_tracking", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/buy_labels", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"

@@ -2183,7 +2183,7 @@ def processCreateData(step, i):
                 executable = executable + "\n" + simple_expression
                 log3("full executable statement:"+executable)
                 exec(executable)
-                log3(step["data_name"] + " is now: "+json.dumps(symTab[step["data_name"]]))
+                # log3(step["data_name"] + " is now: "+json.dumps(symTab[step["data_name"]]))
             else:
                 symTab[step["data_name"]] = step["key_value"]
         else:
@@ -2666,7 +2666,7 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
 
         fin_par = stack.pop()
         symTab["fin"] = symTab[fin_par]
-        log3("getting skill call input parameter: "+json.dumps(fin_par)+" [val: "+json.dumps(symTab[fin_par]))
+        # log3("getting skill call input parameter: "+json.dumps(fin_par)+" [val: "+json.dumps(symTab[fin_par]))
         log3("current skill table: "+json.dumps(sk_table))
 
         # start execuation on the function, find the function name's address, and set next pointer to it.
@@ -2981,11 +2981,15 @@ def processListDir(step, i):
         current_time = datetime.now()
         hours = step["most_recent"]
         cutoff_time = current_time - timedelta(hours=hours)
+        if "/" in step["dir"]:
+            target_dir = step["dir"]
+        else:
+            target_dir = symTab[step["dir"]]
 
         all_files = []
-        lof = os.listdir(step["dir"])
+        lof = os.listdir(target_dir)
         for filename in lof:
-            file_path = os.path.join(step["dir"], filename)
+            file_path = os.path.join(target_dir, filename)
             if os.path.isfile(file_path):
                 file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
                 if file_mod_time > cutoff_time:
@@ -4875,7 +4879,8 @@ def processGetDefault(step, i):
     global json_file
     try:
         if step["var_name"] == "download dir":
-            symTab[step["result"]] = get_default_download_dir()
+            symTab[step["result"]] = getDefaultDownloadDirectory()
+            print("get default::", step["result"], symTab[step["result"]])
 
     except Exception as e:
         # Get the traceback information

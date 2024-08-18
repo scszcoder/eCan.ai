@@ -57,11 +57,16 @@ def genStepWebdriverClick(driver, clickable_var, result_var, flag_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepWebdriverScrollTo(driver_var, target_var, result_var, flag_var, stepN):
+def genStepWebdriverScrollTo(driver_var, target_var, wait_var, increment_var, loc_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Scroll To",
+        # "element_type_var": element_type_var,
+        # "element_var": element_var,
         "target_var": target_var,
         "driver_var": driver_var,  # anchor, info, text
+        "wait_var": wait_var,
+        "increment_var": increment_var,
+        "loc_var": loc_var,
         "result": result_var,
         "flag": flag_var
     }
@@ -85,6 +90,42 @@ def genStepWebdriverClick(driver, clickable_var, result_var, flag_var, stepN):
 def genStepWebdriverWaitUntilClickable(driver_var, wait_var, element_type_var, element_var, result_type, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Wait Until Clickable",
+        "driver_var": driver_var,  # anchor, info, text
+        "wait": wait_var,
+        "element_type_var": element_type_var,
+        "element_var": element_var,
+        "result_type": result_type,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepWebdriverSwitchToFrame(driver_var, wait_var, element_type_var, element_var, result_type, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Switch To Frame",
+        "driver_var": driver_var,  # anchor, info, text
+        "wait": wait_var,
+        "element_type_var": element_type_var,
+        "element_var": element_var,
+        "result_type": result_type,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepWebdriverSwitchToDefaultContent(driver_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Switch To Default Content",
+        "driver_var": driver_var,  # anchor, info, text
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+def genStepWebdriverWaitForVisibility(driver_var, wait_var, element_type_var, element_var, result_type, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Wait For Visibility",
         "driver_var": driver_var,  # anchor, info, text
         "wait": wait_var,
         "element_type_var": element_type_var,
@@ -187,11 +228,10 @@ def genStepWebdriverGoToTab(driver_var, text_var, site_var, result_var, flag_var
 
 
 
-def genStepWebdriverRefreshPage(driver_var, result_var, flag_var, stepN):
+def genStepWebdriverRefreshPage(driver_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Refresh Page",
         "driver_var": driver_var,  # anchor, info, text
-        "result": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -221,11 +261,11 @@ def genStepWebdriverForward(driver_var, result_var, flag_var, stepN):
 
 
 
-def genStepWebdriverHoverTo(driver_var, result_var, flag_var, stepN):
+def genStepWebdriverHoverTo(driver_var, target_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Hover To",
         "driver_var": driver_var,  # anchor, info, text
-        "result": result_var,
+        "target_var": target_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -253,10 +293,12 @@ def genStepWebdriverScreenShot(driver_var, result_var, flag_var, stepN):
 
 
 
-def genStepWebdriverExecJs(driver_var, result_var, flag_var, stepN):
+def genStepWebdriverExecuteJs(driver_var, script_var, target_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Execute Js",
         "driver_var": driver_var,  # anchor, info, text
+        "script_var": script_var,
+        "target_var": target_var,
         "result": result_var,
         "flag": flag_var
     }
@@ -478,16 +520,31 @@ def processWebdriverStartExistingADS(step, i):
     return (i + 1), ex_stat
 
 
-def smoothScrollToElement(driver, element):
+def smoothScrollToElement(driver, element, increment=50):
     try:
-        y_position = element.location['y']
+        current_scroll_position = driver.execute_script("return window.pageYOffset;")
+        target_position = element.location['y']
         scroll_height = 0
-        increment = 50  # Pixels to scroll each time
 
-        while scroll_height < y_position:
-            driver.execute_script(f"window.scrollBy(0, {increment});")
-            scroll_height += increment
-            time.sleep(0.01)  # Pause to make scrolling smooth
+        if current_scroll_position < target_position:
+            # Scroll down
+            while current_scroll_position < target_position:
+                # Scroll by the increment
+                driver.execute_script(f"window.scrollBy(0, {increment});")
+                # Update the current scroll position
+                current_scroll_position = driver.execute_script("return window.pageYOffset;")
+                # Optional: Add a small delay to make scrolling visible
+                time.sleep(0.01)
+        else:
+            # Scroll up
+            while current_scroll_position > target_position:
+                # Scroll by the increment (in the negative direction)
+                driver.execute_script(f"window.scrollBy(0, -{increment});")
+                # Update the current scroll position
+                current_scroll_position = driver.execute_script("return window.pageYOffset;")
+                # Optional: Add a small delay to make scrolling visible
+                time.sleep(0.01)
+
 
     except Exception as e:
         # Get the traceback information
@@ -505,27 +562,51 @@ def processWebdriverScrollTo(step, i):
         ex_stat = DEFAULT_RUN_STATUS
 
         driver = symTab[step["driver_var"]]
-        target = symTab[step["target_var"]]
+        # element_type = step["element_type_var"]
+        # element_name = step["element_var"]
+        target_element = symTab[step["target_var"]]
+        wait = step["wait_var"]
+        increment = step["increment_var"]
+        loc = step["loc_var"]
         print("waiting for pagination to load")
         time.sleep(5)
         # Wait until the pagination element is present
-        pagination_element = WebDriverWait(driver, 30).until(
-            # EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-cel-widget='MAIN-PAGINATION-72']"))
-            EC.presence_of_element_located(target)
-        )
+        # target_element = WebDriverWait(driver, wait).until(
+        #     # EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-cel-widget='MAIN-PAGINATION-72']"))
+        #     EC.presence_of_element_located((element_type, element_name))
+        # )
         print("pagination LOADED")
 
         # Smoothly scroll to the pagination element
-        smoothScrollToElement(driver, target)
+        # smoothScrollToElement(driver, target_element, increment)
+
+        # Smoothly scroll to the target element
+        # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+
+        window_height = driver.execute_script("return window.innerHeight")
+        print("window height:", window_height)
+
+        # Calculate the offset to position the element 25% down from the top
+        offset = window_height * loc
+        print("offset:", offset)
+
+        # Smoothly scroll to the element with the desired offset
+        # driver.execute_script("""
+        #     arguments[0].scrollIntoView({
+        #         behavior: 'smooth',
+        #         block: 'center'
+        #     });
+        #     window.scrollBy(0, arguments[1]);
+        # """, target_element, offset)
+        driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+
 
         # Wait a bit to ensure the scrolling action is complete
-        time.sleep(2)  # Short wait to ensure the scroll action is complete
-
-        log3()
+        time.sleep(1)  # Short wait to ensure the scroll action is complete
 
         # Wait a bit to ensure the scrolling action is complete
         WebDriverWait(driver, 2).until(
-            EC.visibility_of(pagination_element)
+            EC.visibility_of(target_element)
         )
 
     except Exception as e:
@@ -812,13 +893,13 @@ def processWebdriverHoverTo(step, i):
         target = symTab[step["target_var"]]
         log3("refresh")
 
-        element_to_hover_over = driver.find_element_by_xpath(target)  # Replace with the actual XPath
+        # element_to_hover_over = driver.find_element_by_xpath(target)  # Replace with the actual XPath
 
         # Create an instance of ActionChains
         actions = ActionChains(driver)
 
         # Perform the hover action
-        actions.move_to_element(element_to_hover_over).perform()
+        actions.move_to_element(target).perform()
 
     except Exception as e:
         # Get the traceback information
@@ -895,21 +976,22 @@ def execute_js_script(driver, script, *args):
     """
     return driver.execute_script(script, *args)
 
-def processWebdriverExecJs(step, i):
+def processWebdriverExecuteJs(step, i):
     try:
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
-        script = symTab[step["script_var"]]
-        script_input = symTab[step["script_var"]]
-        script_output = symTab[step["script_var"]]
+        script = step["script_var"]
+        target = symTab[step["target_var"]]
+        # script_input = symTab[step["script_var"]]
+        # script_output = symTab[step["script_var"]]
         log3("executing js")
 
-        js_script = "return arguments[0] + arguments[1];"
-        param1 = 10
-        param2 = 20
+        # js_script = "return arguments[0] + arguments[1];"
+        # param1 = 10
+        # param2 = 20
 
         # Execute the JavaScript script
-        result = execute_js_script(driver, js_script, param1, param2)
+        result = execute_js_script(driver, script, target)
         print(f"Result of the JavaScript execution: {result}")
 
     except Exception as e:
@@ -978,6 +1060,7 @@ def processWebdriverExtractInfo(step, i):
                 else:
                     web_elements = symTab[step["source_var"]].find_elements(element_type, element_name)
 
+
         if info_type == "text":
             print("found text:", web_element.text)
             if step["result_type"] == "var":
@@ -991,18 +1074,18 @@ def processWebdriverExtractInfo(step, i):
             if step["result_type"] == "var":
                 if not step["multi"]:
                     print("found web element.")
-                    symTab[step["result"]] = driver.find_element(element_type, element_name)
+                    symTab[step["result"]] = web_element
                 else:
-                    symTab[step["result"]] = driver.find_elements(element_type, element_name)
+                    symTab[step["result"]] = web_elements
                     print("found n elements:", len(symTab[step["result"]]))
             elif step["result_type"] == "expr":
                 to_words = re.split(r'\[|\(|\{', step["result"])
                 sink = to_words[0]
                 print("result in expression format", sink)
                 if not step["multi"]:
-                    exec(f"global {sink}\n{step['result']} = web_element\nprint('element text', web_element)")
+                    exec(f"global {sink}\n{step['result']} = web_element\nprint('found element-', web_element)")
                 else:
-                    exec(f"global {sink}\n{step['result']} = web_elements\nprint('element text', web_elements)")
+                    exec(f"global {sink}\n{step['result']} = web_elements\nprint('found elements-', web_elements)")
 
 
     except Exception as e:
@@ -1053,6 +1136,101 @@ def processWebdriverWaitUntilClickable(step, i):
         symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
+
+
+def processWebdriverSwitchToDefaultContent(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = True
+
+        driver.switch_to.default_content()
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverSwitchToDefaultContent:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverSwitchToDefaultContent: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+
+def processWebdriverSwitchToFrame(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = True
+
+        if type(step["wait"]) == int:
+            wait_time = step["wait"]
+        else:
+            wait_time = symTab[step["wait"]]
+
+        element_type = step["element_type_var"]
+        element_name = step["element_var"]
+        print("element type:", element_type)
+        print("element name:", element_name)
+
+
+        print("wait until:", wait_time)
+        wait = WebDriverWait(driver, wait_time)
+
+        symTab[step["result"]] = wait.until(EC.frame_to_be_available_and_switch_to_it((element_type, element_name)))
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverSwitchToFrame:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverSwitchToFrame: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+
+def processWebdriverWaitForVisibility(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = True
+
+        if type(step["wait"]) == int:
+            wait_time = step["wait"]
+        else:
+            wait_time = symTab[step["wait"]]
+
+        element_type = step["element_type_var"]
+        element_name = step["element_var"]
+        print("element type:", element_type)
+        print("element name:", element_name)
+
+
+        print("wait until:", wait_time)
+        wait = WebDriverWait(driver, wait_time)
+
+        symTab[step["result"]] = wait.until(EC.visibility_of_element_located((element_type, element_name)))
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverWaitForVisibility:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverWaitForVisibility: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
 
 
 def processWebdriverQuit(step, i):
@@ -1192,9 +1370,24 @@ def processWebdriverWaitDownloadDoneAndTransfer(step, i):
         else:
             wait_time = symTab[step["wait"]]
 
-        dl_dir = step["dl_dir_var"]
-        dl_file = step["dl_file_var"]
-        target_file = step["target_file_var"]
+        if "/" in step["dl_dir_var"]:
+            dl_dir = step["dl_dir_var"]
+        else:
+            dl_dir = symTab[step["dl_dir_var"]]
+
+        if "/" in step["dl_file_var"]:
+            dl_file = step["dl_file_var"][1:]
+        else:
+            dl_file = symTab[step["dl_file_var"]]
+
+        if "/" in step["target_file_var"]:
+            target_file = step["target_file_var"]
+        else:
+            if step["target_file_var"]:
+                target_file = symTab[step["target_file_var"]]
+            else:
+                target_file = step["target_file_var"]
+
         dl_platform = step["dl_platform_var"]
         temp_file  = step["temp_file_var"]
         current_dir_list = symTab[step['current_dir_list_var']]
