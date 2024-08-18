@@ -30,9 +30,10 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
-    genStepWebdriverQuit, genStepWebdriverExecJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
+    genStepWebdriverQuit, genStepWebdriverExecuteJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
-    genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer
+    genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
+    genStepWebdriverSwitchToFrame, genStepWebdriverWaitUntilClickable, genStepWebdriverSwitchToDefaultContent
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersFromHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -93,7 +94,7 @@ PUBLIC = {
     "genStepWebdriverNewTab": genStepWebdriverNewTab,
     "genStepWebdriverCloseTab": genStepWebdriverCloseTab,
     "genStepWebdriverQuit": genStepWebdriverQuit,
-    "genStepWebdriverExecJs": genStepWebdriverExecJs,
+    "genStepWebdriverExecuteJs": genStepWebdriverExecuteJs,
     "genStepWebdriverRefreshPage": genStepWebdriverRefreshPage,
     "genStepWebdriverScreenShot": genStepWebdriverScreenShot,
     "genStepWebdriverStartExistingChrome": genStepWebdriverStartExistingChrome,
@@ -101,6 +102,7 @@ PUBLIC = {
     "genStepWebdriverStartNewChrome": genStepWebdriverStartNewChrome,
     "genStepWebdriverExtractInfo": genStepWebdriverExtractInfo,
     "genStepWebdriverWaitUntilClickable": genStepWebdriverWaitUntilClickable,
+    "genStepWebdriverSwitchToDefaultContent": genStepWebdriverSwitchToDefaultContent,
     "genStepWebdriverWaitDownloadDoneAndTransfer": genStepWebdriverWaitDownloadDoneAndTransfer,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGetDefault': genStepGetDefault,

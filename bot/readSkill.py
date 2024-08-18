@@ -29,9 +29,10 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
-    processWebdriverExecJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
+    processWebdriverExecuteJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
     processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, \
-    processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer
+    processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer, \
+    processWebdriverWaitForVisibility, processWebdriverSwitchToFrame, processWebdriverSwitchToDefaultContent
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -206,7 +207,7 @@ RAIS = {
     "Web Driver New Tab": lambda x, y: processWebdriverNewTab(x, y),
     "Web Driver Close Tab": lambda x, y: processWebdriverCloseTab(x, y),
     "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
-    "Web Driver Exec Js": lambda x, y: processWebdriverExecJs(x, y),
+    "Web Driver Execute Js": lambda x, y: processWebdriverExecuteJs(x, y),
     "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
     "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
@@ -214,6 +215,9 @@ RAIS = {
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
     "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
     "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
+    "Web Driver Wait For Visibility": lambda x, y: processWebdriverWaitForVisibility(x, y),
+    "Web Driver Switch To Frame": lambda x, y: processWebdriverSwitchToFrame(x, y),
+    "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
@@ -325,7 +329,7 @@ ARAIS = {
     "Web Driver New Tab": lambda x, y: processWebdriverNewTab(x, y),
     "Web Driver Close Tab": lambda x, y: processWebdriverCloseTab(x, y),
     "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
-    "Web Driver Exec Js": lambda x, y: processWebdriverExecJs(x, y),
+    "Web Driver Execute Js": lambda x, y: processWebdriverExecuteJs(x, y),
     "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
     "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
@@ -333,6 +337,9 @@ ARAIS = {
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
     "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
     "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
+    "Web Driver Wait For Visibility": lambda x, y: processWebdriverWaitForVisibility(x, y),
+    "Web Driver Switch To Frame": lambda x, y: processWebdriverSwitchToFrame(x, y),
+    "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v)
