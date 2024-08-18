@@ -265,85 +265,209 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
 
     return this_step, psk_words
 
+
 def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
     print("fullfill using ebay labels")
     psk_words = "{"
 
-    this_step, step_words = genStepHeader("win_ads_ebay_browser_fullfill_orders", "win", "1.0", "AIPPS LLC",
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_buy_shipping", "win", "1.0", "AIPPS LLC",
                                           "PUBWINADSEBAY011",
-                                          "Selenium Ebay Fullfill New Orders On Windows ADS.", stepN)
+                                          "Selenium Ebay buy shipping labels on ebay On Windows ADS.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
-                                        this_step)
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_buy_shipping", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
+    # assume initilization is done, orders collected, simply go into bulk label generation page. and finish them.
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://www.ebay.com/gslblui/bulk?_trkparms=lblmgmt", "site_result", "site_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".orders-list__item")))
+    # # Locate all orders
+    # orders = driver.find_elements(By.CSS_SELECTOR, ".orders-list__item")
+    this_step, step_words = genStepCreateData("expr", "order_rows", "NA", "None", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 8, "info_type", By.CSS_SELECTOR, '.orders-list__item', True, "var", "order_rows", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global order_rows\nprint('ORDER ROWS', order_rows, len(order_rows))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "nth_row", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "weight_oz", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "weight_lb", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("float", "total_weight_lb", "NA", 0.0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "weight_oz_element", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "weight_lb_element", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "correct_carrier_option", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "carrier_button", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "correct_carrier", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "row", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    # # Loop through each order
+    # for order in orders:
+    this_step, step_words = genStepLoop("nth_row < len(order_rows)", "", "", "BrCollectOrd" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(f"global row, nth_row, order_rows\nrow = order_rows[nth_row]\nprint('row::',nth_row, row)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    #     # Get the weight in ounces and convert to pounds
+    #     weight_oz_element = order.find_element(By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='oz']")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='oz']", False, "var", "weight_oz_element", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    #     weight_lb_element = order.find_element(By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='lb']")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='lb']", False, "var", "weight_lb_element", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    #     weight_oz = int(weight_oz_element.get_attribute("value"))
+    this_step, step_words = genStepCallExtern(f"global weight_oz, weight_oz_element\nweight_oz = int(weight_oz_element.get_attribute('value'))\nprint('weight_oz::',weight_oz, weight_oz_element.get_attribute('value'))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    #     weight_lb = int(weight_lb_element.get_attribute("value"))
+    this_step, step_words = genStepCallExtern(f"global weight_lb, weight_lb_element\nweight_lb = int(weight_lb_element.get_attribute('value'))\nprint('weight_lb::',weight_lb, weight_lb_element.get_attribute('value'))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    #     total_weight_lb = weight_lb + weight_oz / 16.0
+    this_step, step_words = genStepCallExtern(f"global weight_lb, weight_oz, total_weight_lb\ntotal_weight_lb = weight_lb + weight_oz / 16.0\nprint('total_weight_lb::',total_weight_lb)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    #     # Determine the correct carrier
+    #     correct_carrier = "USPS Ground Advantage" if total_weight_lb < 1 else "USPS Priority Mail"
+    this_step, step_words = genStepCallExtern(f"global correct_carrier\ncorrect_carrier = 'USPS Ground Advantage' if total_weight_lb < 1 else 'USPS Priority Mail'\nprint('correct_carrier::',correct_carrier)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
 
-    # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
-    # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
-    # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
-
-    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA",
-                                              "['sale', ebay_orders, product_catelog]", this_step)
-    psk_words = psk_words + step_words
-    #
-    # using ebay to purchase shipping label will auto update tracking code..... s
-    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input",
-                                            "labels_dir", this_step)
+    #     # Get the currently selected carrier
+    #     selected_carrier_element = order.find_element(By.CSS_SELECTOR, ".selected-service")
+    #     selected_carrier = selected_carrier_element.text.strip()
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    # # extract tracking code from labels and update them into etsy_orders data struture.
-    #
-    # # gen_etsy_test_data()
-    #
-    # # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
-    # # now update tracking coded back to the orderlist
-    # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
-    # psk_words = psk_words + step_words
-    #
-    this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA",
-                                              "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]",
-                                              this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR, ".selected-service", False, "var", "selected_carrier", "element_present", this_step)
     psk_words = psk_words + step_words
 
-    # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
-    this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "",
-                                            this_step)
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
-    #
+
+
+    #     # If the carrier is incorrect, change it
+    #     if selected_carrier != correct_carrier:
+    this_step, step_words = genStepCheckCondition("selected_carrier != correct_carrier", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('scrolling to target....')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # driver.execute_script("arguments[0].scrollIntoView(true);", dropdown_button)
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "weight_oz_element", 10, 30, 0.25, "dummy_in", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+
+    #         # Click on the carrier selection button to open the menu
+    #         carrier_button = order.find_element(By.CSS_SELECTOR, "button[data-test='deliveryServiceExpandButton']")
+    #         carrier_button.click()
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR,
+                                                        "button[data-test='deliveryServiceExpandButton']", False, "var",
+                                                        "carrier_button", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    # carrier_button.click()
+    this_step, step_words = genStepWebdriverExecuteJs("web_driver", "arguments[0].click();", "carrier_button", "dumm_in", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+
+
+    #         # Wait for the carrier options to be visible
+    #         WebDriverWait(driver, 10).until(EC.visibility_of_element_located(
+    #             (By.CSS_SELECTOR, ".carrier-option-class")))  # Adjust selector as necessary
+    this_step, step_words = genStepWebdriverWaitForVisibility("web_driver", 10, By.CSS_SELECTOR, ".carrier-option-class", "var", "correct_carrier_option", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    #         # Select the correct carrier
+    #         correct_carrier_option = order.find_element(By.XPATH,
+    #                                                     f"//span[text()='{correct_carrier}']/ancestor::button")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.XPATH, "//span[text()='{correct_carrier}']/ancestor::button", False, "var", "correct_carrier_option", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+
+    #         correct_carrier_option.click()
+    this_step, step_words = genStepWebdriverClick("web_driver", "correct_carrier_option", "click_result", "click_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now move on to the next order row.
+    this_step, step_words = genStepCallExtern("global nth_row\nnth_row = nth_row + 1\nprint('updated nth_row', nth_row)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nOrdersUpdated\nnOrdersUpdated = nOrdersUpdated + 1\nprint('ORDER ROWS', order_rows, len(order_rows))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("nth_row < len(order_rows)", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # after actioin, web element needs to be refeteched.
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 8, "info_type", By.CSS_SELECTOR, '.orders-list__item', True, "var", "order_rows", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+    #  end of loop for scoll till the nth_row < len(order_rows).
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "review_purchase_button", "NA", None, this_step)
+    psk_words = psk_words + step_words
 
     #
-    # # close the browser and exit the skill, assuming at the end of genWinChromeEBAYWalkSteps, the browser tab
-    # # should return to top of the ebay home page with the search text box cleared.
-    # this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCheckCondition("mission_failed == False", "", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
-    # this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
-    # psk_words = psk_words + step_words
-    #
-    # # end condition for "not_logged_in == False"
-    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # # Once all orders are checked and corrected, click "Review purchase"
+    # review_purchase_button = driver.find_element(By.CSS_SELECTOR, "button.review-and-pay")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 8, "info_type", By.CSS_SELECTOR, "button.review-and-pay", False, "var", "review_purchase_button", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # review_purchase_button.click()
+    # this_step, step_words = genStepWebdriverClick("web_driver", "review_purchase_button", "click_result", "click_flag", this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_fullfill_orders", "",
-                                        this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_buy_shipping", "", this_step)
     psk_words = psk_words + step_words
     print("generating win ads ebay skill")
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
+    log3("DEBUG", "generated skill for windows ebay order browser buy shipping labels on ebay using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
