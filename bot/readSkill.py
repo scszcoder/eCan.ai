@@ -41,6 +41,7 @@ from bot.ebaySellerSkill import processEbayGenShippingInfoFromOrderID
 # from bot.browserEbaySellerSkill import process
 from bot.labelSkill import processGSExtractZippedFileName, processPrepareGSOrder
 from bot.printLabel import processPrintLabels
+from bot.ecSkill import processGenShippingOrdersFromMsgResponses
 from bot.scrapeGoodSupply import processGSScrapeLabels
 from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
 from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOrdersFromJss, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
@@ -191,6 +192,7 @@ RAIS = {
     "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
+    "Gen Shipping From Msg Responses": lambda x,y: processGenShippingOrdersFromMsgResponses(x, y),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y),
@@ -313,6 +315,7 @@ ARAIS = {
     "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
+    "Gen Shipping From Msg Responses": lambda x,y: processGenShippingOrdersFromMsgResponses(x, y),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y),

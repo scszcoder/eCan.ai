@@ -136,18 +136,18 @@ def get_file_with_presigned_url(dest_file, url):
 def gen_query_reqest_run_ext_skill_string(query):
     logger_helper.debug("in query:"+json.dumps(query))
     query_string = """
-        query MyQuery {
+        mutation MyMutation {
       requestRunExtSkill (input:[
     """
     rec_string = ""
     for i in range(len(query)):
         #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
-        rec_string = rec_string + "{ skid: \"" + query[i]["skid"] + "\", "
+        rec_string = rec_string + "{ skid: " + str(query[i]["skid"]) + ", "
         rec_string = rec_string + "owner: \"" + query[i]["owner"] + "\", "
         rec_string = rec_string + "start: \"" + query[i]["start"] + "\", "
         rec_string = rec_string + "name: \"" + query[i]["name"] + "\", "
         rec_string = rec_string + "in_data: \"" + query[i]["in_data"] + "\", "
-        rec_string = rec_string + "verbose: \"" + query[i]["verbose"] + "\" }"
+        rec_string = rec_string + "verbose: " + str(query[i]["verbose"]) + " }"
 
         if i != len(query) - 1:
             rec_string = rec_string + ', '
@@ -163,16 +163,19 @@ def gen_query_reqest_run_ext_skill_string(query):
 def gen_query_report_run_ext_skill_status_string(query):
     logger_helper.debug("in query:"+json.dumps(query))
     query_string = """
-        query MyQuery {
+        mutation MyMutation {
       reportRunExtSkillStatus (input:[
     """
     rec_string = ""
     for i in range(len(query)):
         #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
-        rec_string = rec_string + "{ run_id: \"" + query[i]["run_id"] + "\", "
-        rec_string = rec_string + "skid: \"" + query[i]["skid"] + "\", "
-        rec_string = rec_string + "timeStamp: \"" + query[i]["timeStamp"] + "\", "
+        rec_string = rec_string + "{ run_id: " + str(query[i]["run_id"]) + ", "
+        rec_string = rec_string + "skid: " + str(query[i]["skid"]) + ", "
+        rec_string = rec_string + "runner_mid: " + str(query[i]["runner_mid"]) + ", "
+        rec_string = rec_string + "runner_bid: " + str(query[i]["runner_bid"]) + ", "
         rec_string = rec_string + "status: \"" + query[i]["status"] + "\", "
+        rec_string = rec_string + "start_time: \"" + query[i]["start_time"] + "\", "
+        rec_string = rec_string + "end_time: \"" + query[i]["end_time"] + "\", "
         rec_string = rec_string + "result_data: \"" + query[i]["result_data"] + "\" }"
 
         if i != len(query) - 1:
@@ -1189,10 +1192,11 @@ def send_run_ext_skill_request_to_cloud(session, reqs, token):
 
     mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
 
-    jresp = appsync_http_request8(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token)
 
     if "errors" in jresp:
         screen_error = True
+        print("JRESP::", jresp)
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
 
         jresponse = jresp["errors"][0]

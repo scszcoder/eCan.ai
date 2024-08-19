@@ -14,6 +14,7 @@ from bot.labelSkill import genStepPrepareGSOrder
 from bot.scraperEbay import genStepEbayScrapeOrdersFromHtml, genStepEbayScrapeMsgList, genStepEbayScrapeOrdersFromJss, \
     genStepEbayScrapeCustomerMsgThread
 from bot.seleniumSkill import *
+from bot.ecSkill import genStepGenShippingOrdersFromMsgResponses
 from bot.seleniumScrapeEBayShop import *
 from bot.ordersData import Shipping
 from config.app_info import app_info
@@ -45,6 +46,9 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT", "site_result", "site_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -145,6 +149,9 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     psk_words = psk_words + step_words
 
     this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT", "site_result", "site_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -757,8 +764,8 @@ def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now open the target web site.
-    this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT", "site_result", "site_flag", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT", "site_result", "site_flag", this_step)
+    # psk_words = psk_words + step_words
 
     # this_step, step_words = genEbayLoginInSteps(this_step, theme)
     # psk_words = psk_words + step_words
@@ -924,21 +931,21 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     # this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", '.order-details a', "var", "order_id", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_row", 0, "info_type", "ele_type", '.order-details a', "var", "order_id", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     #
     # this_step, step_words = genStepCreateData("expr", "customer_name", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", '.user-name', "var", "customer_name", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_row", 0, "info_type", "ele_type", '.user-name', "var", "customer_name", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "addr_zip", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "order_row", 0, "info_type", "ele_type", '.zip-code', "var", "addr_zip", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_row", 0, "info_type", "ele_type", '.zip-code', "var", "addr_zip", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # #        # Find the corresponding item details row
@@ -955,35 +962,35 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", By.ID, 'orderid_'+order_id+'__item-info_0', "var", "item_info_row", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'orderid_'+order_id+'__item-info_0', "var", "item_info_row", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "product_name", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.item-title a', "var", "product_name", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.item-title a', "var", "product_name", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "product_id", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.item-itemID', "var", "product_id", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.item-itemID', "var", "product_id", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "quantity", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.quantity strong', "var", "quantity", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.quantity strong', "var", "quantity", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCreateData("expr", "date_sold", "NA", "None", this_step)
     # psk_words = psk_words + step_words
     #
     #
-    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.date-column .sh-default', "var", "date_sold", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "item_info_row", 0, "info_type", By.CSS_SELECTOR, '.date-column .sh-default', "var", "date_sold", "extract_flag", this_step)
     # psk_words = psk_words + step_words
     #
     # this_step, step_words = genStepCallExtern("global n_orders_collected\nn_orders_collected = n_orders_collected + 1", "", "in_line", "", this_step)
@@ -1006,7 +1013,7 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.TAG_NAME, 'script', True, "var", "jss", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.TAG_NAME, 'script', True, "var", "jss", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepEbayScrapeOrdersFromJss("jss", "var", "pidx", "page_of_orders", "scrape_flag", this_step)
@@ -2429,6 +2436,9 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
     # this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://mesg.ebay.com/mesgweb/ViewMessages/0/All", "site_result", "site_flag", this_step)
     # this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://mesg.ebay.com/mesgweb/ViewMessages/0/ebay", "site_result", "site_flag", this_step)
 
@@ -2436,8 +2446,17 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://mesg.ebay.com/mesgweb/ViewMessages/0/m2m", "site_result", "site_flag", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("string", "info_type", "NA", 'web element', this_step)
+    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", "full page", '', True, "var", "html_source", "extract_flag", this_step)
+    this_step, step_words = genStepCreateData("boolean", "element_present", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "html_source", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", "full page", '', True, "var", "html_source", "element_present", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("obj", "message_table", "NA", None, this_step)
@@ -2485,10 +2504,10 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("int", "max_msgs_per_pages", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global n_msgs_on_page\nn_msgs_on_page = sum(len(page['msgs']) for page in msg_list)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global n_msgs_on_page\nn_msgs_on_page = len(msg_list['msgs'])", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global n_unread\nn_unread = msg_list[0]['unread_summery']['from_members']", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global n_unread\nn_unread = msg_list['unread_summery']['from_members']\nprint('n_unread:', msg_list['unread_summery'])", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("n_unread > n_msgs_on_page", "", "", this_step)
@@ -2500,7 +2519,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global n_pages, n_unread, n_msgs_on_page\nn_pages = ceil(n_unread/n_msgs_on_page)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("import math\nglobal n_pages, n_unread, n_msgs_on_page\nn_pages = math.ceil(n_unread/n_msgs_on_page)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # Now with all the summey in hand, we will now go ahead and fetch all unread message.
@@ -2517,16 +2536,19 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     # now grab the message table and rows.
     # message_table = driver.find_element(By.ID, "msgTable")
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.ID, "msgTable", False, "var", "message_table", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.ID, "msgTable", False, "var", "message_table", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # # Locate all message rows
     # message_rows = message_table.find_elements(By.TAG_NAME, "tr")
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.TAG_NAME, "tr", True, "var", "message_rows", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.TAG_NAME, "tr", True, "var", "message_rows", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_read\nprint('n_read::',n_read,msg_list['msgs'][n_read]['read_status'],n_read_on_page)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepCheckCondition("msg_list[0]['msgs'][n_read]['read_status'] == 'unread'", "", "", this_step)
+    this_step, step_words = genStepCheckCondition("msg_list['msgs'][n_read_on_page]['read_status'] == 'unread'", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global row, message_rows, message_rows\nrow = message_rows[n_read_on_page]", "", "in_line", "", this_step)
@@ -2540,7 +2562,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # fetch the source code of the page.
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", "full page", "", True, "var", "html_source", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", "full page", "", True, "var", "html_source", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # scrape the message thread
@@ -2548,10 +2570,13 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # put message thread into the messages list and update the message list's unread status.
-    this_step, step_words = genStepCallExtern("global msg_list, n_read\nmsg_list[0]['msgs'][n_read]['msg_thread'] = msg_thread", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global msg_list, n_read\nmsg_list['msgs'][n_read]['msg_thread'] = msg_thread", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global n_read\nn_read = n_read + 1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverBack("web_driver", "click_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -2568,7 +2593,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
 
     # click to go to the next page.
     # next_button = WebDriverWait(driver, 10).until( EC.element_to_be_clickable((By.XPATH, "//a[@class='gspr nextBtn']")))
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.XPATH, "//a[@class='gspr nextBtn']", False, "var", "next_button", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH, "//a[@class='gspr nextBtn']", False, "var", "next_button", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # Click the Next Page button
@@ -2582,8 +2607,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverClick("web_driver", "next_page", "click_result", "click_flag", this_step)
-    psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
@@ -2610,7 +2634,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     # reply_button = WebDriverWait(driver, 10).until(
     #     EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Reply')]"))
     # )
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.XPATH, "//a[contains(text(), 'Reply')]", False, "var", "reply_button", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH, "//a[contains(text(), 'Reply')]", False, "var", "reply_button", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # Click the Reply button
@@ -2623,7 +2647,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     # message_box = WebDriverWait(driver, 10).until(
     #     EC.visibility_of_element_located((By.ID, "app-page-form-message-0"))
     # )
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.ID, "app-page-form-message-0", False, "var", "message_box", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.ID, "app-page-form-message-0", False, "var", "message_box", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # message_box.send_keys("Thank you for your patience. Your item has been shipped.")
@@ -2633,7 +2657,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     #
     # # Step 2: Attach files (optional)
     # file_input = driver.find_element(By.ID, "s0-1-15-2-3-16[0]-11-1-3[2]-1-2-messageFile")
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", By.ID, "app-page-form-message-0", False, "var", "message_box", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, "app-page-form-message-0", False, "var", "message_box", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # file_input.send_keys("/path/to/your/file.jpg")  # Replace with the correct file path
@@ -2643,7 +2667,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
 
     # # Step 3: Click the send button
     # send_button = driver.find_element(By.CSS_SELECTOR, "button.btn--primary")
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", By.CSS_SELECTOR, "button.btn--primary", False, "var", "send_button", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "button.btn--primary", False, "var", "send_button", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # send_button.click()

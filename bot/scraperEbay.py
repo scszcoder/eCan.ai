@@ -292,7 +292,7 @@ def processEbayScrapeCustomerMsgThread(step, i):
         if step["source_type"] == "file":
             html_file = html_dir + "/" + step["html_file"]
         else:
-            html_file = symTab["html_file"]
+            html_file = symTab[step["html_file"]]
 
         msg_thread = ebaySellerGetCustomerMsgThread(html_file, step["source_type"])
 
@@ -325,10 +325,34 @@ def ebaySellerGetCustomerMsgList(html_file, src_type, pidx):
         message_box = soup.find('div', {'id': 'inbx-list'})
         unread_summery = {}
         # Extract the message summaries
-        unread_summery['all_messages'] = message_box.find('a', {'id': 'all_unread_c'}).text.strip()
-        unread_summery['from_members'] = message_box.find('a', {'id': 'm2m_unread_c'}).text.strip()
-        unread_summery['from_ebay'] = message_box.find('a', {'id': 'ebay_unread_c'}).text.strip()
-        unread_summery['high_priority'] = message_box.find('a', {'id': 'priority_unread_c'}).text.strip()
+        msg_text = message_box.find('a', {'id': 'all_unread_c'}).text.strip()
+        matches = re.findall(r'\((.*?)\)', msg_text)
+        if len(matches) > 0:
+            unread_summery['all_messages'] = int(matches[0].strip())
+        else:
+            unread_summery['all_messages'] = 0
+
+        msg_text = message_box.find('a', {'id': 'm2m_unread_c'}).text.strip()
+        matches = re.findall(r'\((.*?)\)', msg_text)
+        if len(matches) > 0:
+            unread_summery['from_members'] = int(matches[0].strip())
+        else:
+            unread_summery['from_members'] = 0
+
+        msg_text = message_box.find('a', {'id': 'ebay_unread_c'}).text.strip()
+        matches = re.findall(r'\((.*?)\)', msg_text)
+        if len(matches) > 0:
+            unread_summery['from_ebay'] = int(matches[0].strip())
+        else:
+            unread_summery['from_ebay'] = 0
+
+        msg_text = message_box.find('a', {'id': 'priority_unread_c'}).text.strip()
+        matches = re.findall(r'\((.*?)\)', msg_text)
+        if len(matches) > 0:
+            unread_summery['high_priority'] = int(matches[0].strip())
+        else:
+            unread_summery['high_priority'] = 0
+
 
         messages = []
         rows = soup.find_all('tr')
