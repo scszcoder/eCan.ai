@@ -76,6 +76,8 @@ rpaConfig = None
 
 ecb_data_homepath = getECBotDataHome()
 
+in_data_string = ""
+
 # adopted from web: https://stackoverflow.com/questions/32476006/how-to-make-an-expandable-collapsable-section-widget-in-qt
 class Expander(QWidget):
     def __init__(self, parent=None, title='', animationDuration=300):
@@ -1459,7 +1461,12 @@ class MainWindow(QMainWindow):
         # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
         # run_genSchedules_test_case(self, self.session, self.tokens['AuthenticationResult']['IdToken'], 1)
         # test_run_mission(self)
-        test_save_csk(self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # test_save_csk(self.session, self.tokens['AuthenticationResult']['IdToken'])
+
+        new_mission = EBMISSION(self)
+        # test_request_skill_run(new_mission)
+
+        test_report_skill_run_result(new_mission)
 
         # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
 
@@ -1549,7 +1556,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest99.json'
+                        file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:

@@ -637,32 +637,31 @@ def genStepUseSkill(skname, skpath, skargs, output, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepUseExternalSkill(skid, skname, owner, skargs, start_time, verbose, output, stepN):
+def genStepUseExternalSkill(skid, skname, owner, in_data, start_time, verbose, output_var, stepN):
     stepjson = {
         "type": "Use External Skill",
         "skid": skid,
         "skname": skname,
         "owner": owner,
-        "skill_args": skargs,
+        "in_data": in_data,
         "start_time": start_time,
         "verbose": verbose,
-        "output": output
+        "output": output_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepReportExternalSkillRunStatus(run_id, skid, skname, start_time, end_time, mid, bid, status, output, stepN):
+def genStepReportExternalSkillRunStatus(run_id, skid, start_time, end_time, mid, bid, status, output, stepN):
     stepjson = {
         "type": "Report External Skill Run Status",
         "run_id": run_id,
         "skill_id": skid,
-        "skill_name": skname,
         "start_time": start_time,
         "end_time": end_time,
         "status": status,
-        "mid": mid,
-        "bid": bid,
+        "runner_mid": mid,
+        "runner_bid": bid,
         "output": output
     }
 
@@ -2710,7 +2709,7 @@ def processUseExternalSkill(step, i, mission):
             "owner": step["owner"],
             "start": step["start_time"],
             "name": step["skname"],
-            "in_data": json.dumps(symTab[step["skill_args"]]),
+            "in_data": symTab[step["in_data"]],
             "verbose": step["verbose"],
         }
         reqs = [req]
@@ -2738,16 +2737,18 @@ def processReportExternalSkillRunStatus(step, i, mission):
         settings = mission.main_win_settings
 
         req = {
+            "run_id": step["run_id"],
             "skid": step["skid"],
-            "owner": step["owner"],
-            "start": step["start_time"],
-            "name": step["skname"],
-            "in_data": json.dumps(symTab[step["skill_args"]]),
-            "verbose": step["verbose"],
+            "runner_mid": step["runner_mid"],
+            "runner_bid": step["runner_bid"],
+            "start_time": step["start_time"],
+            "end_time": step["end_time"],
+            "status": step["status"],
+            "result_data": symTab[step["result_data"]]
         }
         reqs = [req]
 
-        symTab[step["output"]] = send_run_ext_skill_request_to_cloud(settings["session"], reqs, settings["token"])
+        symTab[step["output"]] = send_report_run_ext_skill_status_request_to_cloud(settings["session"], reqs, settings["token"])
 
     except Exception as e:
         # Get the traceback information

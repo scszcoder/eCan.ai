@@ -239,22 +239,20 @@ def genStepWebdriverRefreshPage(driver_var, flag_var, stepN):
 
 
 
-def genStepWebdriverBack(driver_var, result_var, flag_var, stepN):
+def genStepWebdriverBack(driver_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Back",
         "driver_var": driver_var,  # anchor, info, text
-        "result": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 
-def genStepWebdriverForward(driver_var, result_var, flag_var, stepN):
+def genStepWebdriverForward(driver_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Forward",
         "driver_var": driver_var,  # anchor, info, text
-        "result": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))

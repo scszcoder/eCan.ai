@@ -3,7 +3,7 @@ import os
 import re
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 import win32print
 import win32api
 import pytz
@@ -12,8 +12,8 @@ from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_reques
 from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXlsx, covertTxtProfiles2XlsxProfiles, \
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
-from bot.basicSkill import processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
-    get_top_visible_window, processExtractInfo, startSaveCSK
+from bot.basicSkill import symTab, processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
+    get_top_visible_window, processExtractInfo, startSaveCSK, processUseExternalSkill, processReportExternalSkillRunStatus
 from bot.printLabel import processPrintLabels, sync_win_print_labels1
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
@@ -22,14 +22,14 @@ from bot.missions import EBMISSION
 from bot.ordersData import ORDER, OrderPerson, OrderedProduct, Shipping
 from bot.readSkill import prepRun1Skill, runAllSteps, prepRunSkill
 from bot.scraperAmz import processAmzScrapeSoldOrdersHtml, amz_buyer_scrape_product_details
-from bot.scraperEbay import ebay_seller_get_system_msg_thread, ebay_seller_fetch_page_of_order_list
+from bot.scraperEbay import ebaySellerGetSystemMsgThread, ebay_seller_fetch_page_of_order_list
 from bot.scraperEtsy import processEtsyScrapeOrders
 from bot.scrape1688 import *
 from bot.seleniumScrapeAmzShop import processAmzSeleniumScrapeOrdersBuyLabels, processAmzSeleniumScrapeOrders, processAmzSeleniumConfirmShipments
 # from my_skills.win_chrome_goodsupply_label.webdriver_buy_gs_labels import processMySeleniumBuyBulkGSLabels
 from bot.seleniumScrapeAmz import processAmzSeleniumScrapeSearchResults
 
-global symTab
+# global symTab
 import shutil
 import pyautogui
 import base64
@@ -1291,3 +1291,157 @@ def test_selenium_GS():
 def test_selenium_amazon():
     print("running test selenium amazon")
     processAmzSeleniumScrapeSearchResults()
+
+in_data_string = ""
+# request myself to run a skill
+def test_request_skill_run(mission):
+    # mission = None
+    # settings = mission.main_win_settings
+    global symTab
+    orders1 = [
+        {
+            "No": "123",
+            "FromName": "john smith",
+            "PhoneFrom": "123-456-7890",
+            "Address1From": "1 A St",
+            "Address2From": "Apt B",
+            "CityFrom": "San Jose",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "95123",
+            "NameTo": "Joe Toe",
+            "PhoneTo": "133-334-5566",
+            "Address1To": "3 C St",
+            "Address2To": "",
+            "CityTo": "Chicago",
+            "StateTo": "IL",
+            "ZipTo": "23466",
+            "Weight": 3,
+            "length": 4,
+            "width": 2,
+            "height": 1,
+            "description": ""
+        },
+        {
+            "No": "234",
+            "FromName": "john smith",
+            "PhoneFrom": "123-456-7890",
+            "Address1From": "1 A St",
+            "Address2From": "Apt B",
+            "CityFrom": "San Jose",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "95123",
+            "NameTo": "Jack Doe",
+            "PhoneTo": "122-334-5566",
+            "Address1To": "2 B St",
+            "Address2To": "",
+            "CityTo": "Chicago",
+            "StateTo": "IL",
+            "ZipTo": "23456",
+            "Weight": 8,
+            "length": 6,
+            "width": 6,
+            "height": 6,
+            "description": ""
+        }
+    ]
+
+    orders2 = [
+        {
+            "No": "345",
+            "FromName": "john smith",
+            "PhoneFrom": "123-456-7890",
+            "Address1From": "1 A St",
+            "Address2From": "Apt B",
+            "CityFrom": "San Jose",
+            "StateFrom": "CA",
+            "ZipCodeFrom": "95123",
+            "NameTo": "Tim Kay",
+            "PhoneTo": "222-333-5566",
+            "Address1To": "5 K St",
+            "Address2To": "",
+            "CityTo": "New York",
+            "StateTo": "NY",
+            "ZipTo": "12345",
+            "Weight": 18,
+            "length": 6,
+            "width": 6,
+            "height": 6,
+            "description": ""
+        }
+    ]
+
+    file_path="my_skills"
+    ec_platform="ebay"
+    dt_string="2024-08-29T00:00:00:000Z"
+    ofname1 = file_path + "/" + ec_platform + "OrdersGround" + dt_string + ".xlsx"
+    ofname1_unzipped = file_path + "/" + ec_platform + "OrdersGround" + dt_string
+
+    ofname2 = file_path + "/" + ec_platform + "OrdersPriority" + dt_string + ".xlsx"
+    ofname2_unzipped = file_path + "/" + ec_platform + "OrdersPriority" + dt_string
+
+    in_data = [
+        {
+            "service": "USPS Ground Advantage (1-15oz)",
+            "price": 2 * 2.25,
+            "num_orders": 2,
+            "dir": os.path.dirname(ofname1),
+            "file": os.path.basename(ofname1),
+            "unzipped_dir": ofname1_unzipped,
+            "order_data": orders1,
+            "succeed": True,
+            "result": ""
+        },
+        {
+            "service": "USPS Priority V4",
+             "price": 1* 3,
+             "num_orders": 1,
+             "dir": os.path.dirname(ofname2),
+             "file": os.path.basename(ofname2),
+             "unzipped_dir": ofname2_unzipped,
+             "order_data": orders2,
+             "succeed": True,
+             "result": ""
+        }
+    ]
+
+    symTab["in_data_string"] = json.dumps(in_data).replace('"', '\\"')
+    # symTab["in_data_string"] = "{}"
+
+    current_time = datetime.now(timezone.utc)
+
+    # Convert to AWSDATETIME string format
+    start_time = current_time.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+    step = {
+        "type": "Use External Skill",
+        "skid": 87,
+        "skname": "browser_gen_ecb_labels",
+        "owner": "songc@yahoo.com",
+        "in_data": "in_data_string",
+        "start_time": start_time,
+        "verbose": 'false',
+        "output": "run_result"
+    }
+    processUseExternalSkill(step, 1, mission)
+
+
+def test_report_skill_run_result(mission):
+    global symTab
+    results = {
+        "labels_download_link": "https://1.2.3.4/"
+    }
+    symTab["results_string"] = json.dumps(results).replace('"', '\\"').replace('/', '\\/')
+    step = {
+        "type": "Report External Skill Run Status",
+        "run_id": 123,
+        "skid": 87,
+        "runner_mid": 10000,
+        "runner_bid": 13,
+        "start_time": "2024-08-29T00:00:00.000Z",
+        "end_time": "2024-08-29T00:00:01.123Z",
+        "status": "Completed",
+        "result_data": "results_string",
+        "output": "run_result"
+    }
+    processReportExternalSkillRunStatus(step, 1, mission)
+
