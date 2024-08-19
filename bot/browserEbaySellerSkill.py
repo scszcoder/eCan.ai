@@ -11,7 +11,8 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreat
 from bot.Logger import log3
 from bot.etsySellerSkill import genStepPrepGSOrder
 from bot.labelSkill import genStepPrepareGSOrder
-from bot.scraperEbay import genStepEbayScrapeOrdersFromHtml, genStepEbayScrapeMsgList, genStepEbayScrapeOrdersFromJss
+from bot.scraperEbay import genStepEbayScrapeOrdersFromHtml, genStepEbayScrapeMsgList, genStepEbayScrapeOrdersFromJss, \
+    genStepEbayScrapeCustomerMsgThread
 from bot.seleniumSkill import *
 from bot.seleniumScrapeEBayShop import *
 from bot.ordersData import Shipping
@@ -49,15 +50,18 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # skname, skfname, in-args, output, step number
-    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in", "ebay_orders", this_step)
+    this_step, step_words = genStepCreateData("obj", "dummy_in", "NA", None, this_step)
     psk_words = psk_words + step_words
 
-    # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
-    # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
-    # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
+    this_step, step_words = genStepCreateData("obj", "dummy_out", "NA", [], this_step)
+    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global fdir\nfdir = sk_work_settings['log_path'] + 'ecb_labels'", "", "in_line", "", this_step)
+    # skname, skfname, in-args, output, step number
+    this_step, step_words = genStepUseSkill("browser_collect_orders", "public/win_ads_ebay_orders", "dummy_in", "dummy_out", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fdir\nfdir = sk_work_settings['log_path'] + 'ecb_labels'", "",
+                                              "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("expr", "current_seller", "NA", "sk_work_settings['seller']", this_step)
@@ -66,25 +70,18 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "product_book", "NA", "sk_work_settings['products']", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepPrepareGSOrder("ebay_orders", "gs_orders", "product_book", "current_seller", "ebay", "fdir", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', ebay_orders, product_catelog]", this_step)
+    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', ebay_orders, product_book]", this_step)
     psk_words = psk_words + step_words
     #
-    # using ebay to purchase shipping label will auto update tracking code..... s
-    this_step, step_words = genStepUseSkill("buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input", "labels_dir", this_step)
+    # using ebay to purchase shipping label will auto update tracking code..... so no need to do update tracking afterwords.
+    this_step, step_words = genStepUseSkill("browser_buy_shipping", "public/win_ads_ebay_orders", "buy_shipping_input", "labels_dir", this_step)
     psk_words = psk_words + step_words
 
     # # extract tracking code from labels and update them into etsy_orders data struture.
     #
     # # gen_etsy_test_data()
     #
-    # # now assume the result available in "order_track_codes" which is a list if [{"oid": ***, "sc": ***, "service": ***, "code": ***}]
-    # # now update tracking coded back to the orderlist
-    # this_step, step_words = genStepUseSkill("update_tracking", "public/win_ads_ebay_orders", "gs_input", "total_label_cost", this_step)
-    # psk_words = psk_words + step_words
-    #
+
     this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]", this_step)
     psk_words = psk_words + step_words
 
@@ -95,25 +92,7 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     # end condition for "not_logged_in == False"
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
-    #
-    # # close the browser and exit the skill, assuming at the end of genWinChromeEBAYWalkSteps, the browser tab
-    # # should return to top of the ebay home page with the search text box cleared.
-    # this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCheckCondition("mission_failed == False", "", "", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
-    # this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
-    # psk_words = psk_words + step_words
-    #
-    # # end condition for "not_logged_in == False"
-    # this_step, step_words = genStepStub("end condition", "", "", this_step)
-    # psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_fullfill_orders", "", this_step)
     psk_words = psk_words + step_words
@@ -321,6 +300,9 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("obj", "correct_carrier_option", "NA", None, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "pay_pop_frame", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("obj", "carrier_button", "NA", None, this_step)
     psk_words = psk_words + step_words
 
@@ -340,11 +322,11 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
 
     #     # Get the weight in ounces and convert to pounds
     #     weight_oz_element = order.find_element(By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='oz']")
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='oz']", False, "var", "weight_oz_element", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 5, "info_type", By.CSS_SELECTOR, "input.textbox__control.textbox-numbers.bulk-weight-input--minor[aria-label='oz']", False, "var", "weight_oz_element", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     #     weight_lb_element = order.find_element(By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='lb']")
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='lb']", False, "var", "weight_lb_element", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 5, "info_type", By.CSS_SELECTOR, "input[id^='weight_input_'][aria-label='lb']", False, "var", "weight_lb_element", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     #     weight_oz = int(weight_oz_element.get_attribute("value"))
@@ -461,6 +443,65 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
 
     # review_purchase_button.click()
     # this_step, step_words = genStepWebdriverClick("web_driver", "review_purchase_button", "click_result", "click_flag", this_step)
+    # psk_words = psk_words + step_words
+
+    # now on the pop up , review total price, payment method and then click on the "Confirm and pay" button
+    this_step, step_words = genStepWebdriverSwitchToFrame("web_driver", 10, By.CSS_SELECTOR, "iframe_selector", "var", "pay_pop_frame", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    # # Wait for the pop-up to be visible
+    # popup = WebDriverWait(driver, 10).until(
+    #     EC.visibility_of_element_located((By.CSS_SELECTOR, ".lightbox-dialog__main"))
+    # )
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 8, "info_type", By.CSS_SELECTOR, ".lightbox-dialog__main", False, "var", "popup", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # # Scrape payment methods
+    # payment_methods = driver.find_elements(By.CSS_SELECTOR,
+    #                                        "[data-testid='instant-payment-selection'] .InstantPaymentSelectionOption-module_container__LvZpa")
+    #
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "[data-testid='instant-payment-selection'] .InstantPaymentSelectionOption-module_container__LvZpa", True, "var", "payment_methods", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # for method in payment_methods:
+    #     method_name = method.find_element(By.CSS_SELECTOR, "label").text
+    #     is_selected = method.find_element(By.CSS_SELECTOR, "input[type='radio']").is_selected()
+    #     print(f"Payment Method: {method_name}, Selected: {is_selected}")
+    # default should be your fund.
+
+
+
+    # # Scrape the payment breakdown
+    # payment_details = driver.find_elements(By.CSS_SELECTOR, ".grid__group.grid__group--wrap.table__body")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, ".grid__group.grid__group--wrap.table__body", True, "var", "payment_details", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # for detail in payment_details:
+    #     service = detail.find_element(By.CSS_SELECTOR, ".tcell__summary-service").text
+    #     package_size = detail.find_element(By.CSS_SELECTOR, ".tcell__summary-package-size").text
+    #     price = detail.find_element(By.CSS_SELECTOR, ".tcell__summary-price .currency").text
+    #     print(f"Service: {service}, Package Size: {package_size}, Price: {price}")
+    #
+    # # Scrape the total amount
+    # total_amount = driver.find_element(By.CSS_SELECTOR, ".PaymentBreakdownTotal-module_totalAmount__VLy-o").text
+    # print(f"Total Amount: {total_amount}")
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, ".PaymentBreakdownTotal-module_totalAmount__VLy-o", False, "var", "total_amount", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # # Click on the "Confirm and pay" button
+    # confirm_pay_button = driver.find_element(By.CSS_SELECTOR, "button.review_and_pay")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "button.review_and_pay", False, "var", "confirm_pay_button", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # confirm_pay_button.click()
+    # this_step, step_words = genStepWebdriverClick("web_driver", "confirm_pay_button", "click_result", "click_flag", this_step)
     # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_buy_shipping", "", this_step)
@@ -2372,6 +2413,253 @@ def genWinADSEbayRespondMessagesSkill(worksettings, stepN, theme):
     log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
 
     return this_step, psk_words
+
+
+def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
+    psk_words = "{"
+
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_respond_messages", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY005",
+                                          "Ebay Respond To Customer Messages On Windows ADS Using In-Browser Automation Skills.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_respond_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://mesg.ebay.com/mesgweb/ViewMessages/0/All", "site_result", "site_flag", this_step)
+    # this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://mesg.ebay.com/mesgweb/ViewMessages/0/ebay", "site_result", "site_flag", this_step)
+
+    # 1st handle member messages
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://mesg.ebay.com/mesgweb/ViewMessages/0/m2m", "site_result", "site_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", "full page", '', True, "var", "html_source", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "message_table", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "message_rows", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "row", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "next_button", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "reply_button", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "message_box", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "file_input", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "send_button", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepEbayScrapeMsgList("", "code", "html_source", 0, "msg_list", "scrape_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_msgs_on_page", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_unread", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_pages", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_read", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_read_on_page", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "max_msgs_per_pages", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_msgs_on_page\nn_msgs_on_page = sum(len(page['msgs']) for page in msg_list)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_unread\nn_unread = msg_list[0]['unread_summery']['from_members']", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("n_unread > n_msgs_on_page", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global max_msgs_per_pages, n_msgs_on_page\nmax_msgs_per_pages = n_msgs_on_page", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_pages, n_unread, n_msgs_on_page\nn_pages = ceil(n_unread/n_msgs_on_page)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # Now with all the summey in hand, we will now go ahead and fetch all unread message.
+
+    this_step, step_words = genStepLoop("n_read < n_unread", "", "", "ReadMsg" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_read_on_page\nn_read_on_page = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("n_read_on_page < n_msgs_on_page", "", "", "ReadMsg" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    # now grab the message table and rows.
+    # message_table = driver.find_element(By.ID, "msgTable")
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.ID, "msgTable", False, "var", "message_table", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # # Locate all message rows
+    # message_rows = message_table.find_elements(By.TAG_NAME, "tr")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.TAG_NAME, "tr", True, "var", "message_rows", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCheckCondition("msg_list[0]['msgs'][n_read]['read_status'] == 'unread'", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global row, message_rows, message_rows\nrow = message_rows[n_read_on_page]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # click on the message.
+    this_step, step_words = genStepWebdriverClick("web_driver", "row", "click_result", "click_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # fetch the source code of the page.
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", "full page", "", True, "var", "html_source", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # scrape the message thread
+    this_step, step_words = genStepEbayScrapeCustomerMsgThread("", "code", "html_source", 0, "msg_thread", "scrape_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # put message thread into the messages list and update the message list's unread status.
+    this_step, step_words = genStepCallExtern("global msg_list, n_read\nmsg_list[0]['msgs'][n_read]['msg_thread'] = msg_thread", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_read\nn_read = n_read + 1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global n_read_on_page\nn_read_on_page = n_read_on_page + 1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("n_read_on_page >= n_msgs_on_page", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("n_read < n_unread", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # click to go to the next page.
+    # next_button = WebDriverWait(driver, 10).until( EC.element_to_be_clickable((By.XPATH, "//a[@class='gspr nextBtn']")))
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.XPATH, "//a[@class='gspr nextBtn']", False, "var", "next_button", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # Click the Next Page button
+    # next_button.click()
+    this_step, step_words = genStepWebdriverClick("web_driver", "next_button", "click_result", "click_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverClick("web_driver", "next_page", "click_result", "click_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now that all the messages are fetch. go analyze them using LLM
+    # genStepThink(goals_var, options_var, products_var, msgs_and_orders_var, msg_responses_var, flag_var, stepN):
+    # maybe product book should be in RAGS
+    this_step, step_words = genStepThink("respond messages", "", "related_products_book", "msgs_and_orders", "msg_responses", "think_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # now respond to each unread messages
+
+
+
+    # in case of any pre-messaging action items, now handle all the follow-up action items:
+    # 1) any shipping task - resend full/partial
+    # 2) return - shipping label generation (if needed) and attach to the message?
+    # 3) web interaction.
+    # 4) schedule next re-visit action item by creating a new misssion?
+
+    # reply_button = WebDriverWait(driver, 10).until(
+    #     EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Reply')]"))
+    # )
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.XPATH, "//a[contains(text(), 'Reply')]", False, "var", "reply_button", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # Click the Reply button
+    # reply_button.click()
+    this_step, step_words = genStepWebdriverClick("web_driver", "reply_button", "click_result", "click_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # now when the reply mail page appears, key in the reponse message and add attached files if any:
+    # Locate the message textarea and input your reply
+    # message_box = WebDriverWait(driver, 10).until(
+    #     EC.visibility_of_element_located((By.ID, "app-page-form-message-0"))
+    # )
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 10, "info_type", By.ID, "app-page-form-message-0", False, "var", "message_box", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # message_box.send_keys("Thank you for your patience. Your item has been shipped.")
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "message_box", "response_msg", "action_result", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+    #
+    # # Step 2: Attach files (optional)
+    # file_input = driver.find_element(By.ID, "s0-1-15-2-3-16[0]-11-1-3[2]-1-2-messageFile")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", By.ID, "app-page-form-message-0", False, "var", "message_box", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # file_input.send_keys("/path/to/your/file.jpg")  # Replace with the correct file path
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "file_input", "attached_file_path", "action_result", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    # # Step 3: Click the send button
+    # send_button = driver.find_element(By.CSS_SELECTOR, "button.btn--primary")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "src_type", "PAGE", 0, "info_type", By.CSS_SELECTOR, "button.btn--primary", False, "var", "send_button", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # send_button.click()
+    this_step, step_words = genStepWebdriverClick("web_driver", "send_button", "click_result", "click_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_respond_messages", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ebay handle customer and system messages using in-browser automation skills...." + psk_words)
+
+    return this_step, psk_words
+
+
 
 def genWinADSEbayBrowserHandleOffersSkill(worksettings, stepN, theme):
     psk_words = "{"
