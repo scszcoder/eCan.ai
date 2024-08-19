@@ -1026,66 +1026,74 @@ def processWebdriverExtractInfo(step, i):
         print("element type:", element_type)
         print("element name:", element_name)
 
-        placeholders = re.findall(r'\{(.*?)\}', element_name)
-
-        # Replace each placeholder with the corresponding global variable value
-        for placeholder in placeholders:
-            if placeholder in globals():
-                element_name = element_name.replace(f'{{{placeholder}}}', str(globals()[placeholder]))
-            else:
-                raise ValueError(f"Global variable '{placeholder}' not found.")
-
-        print("updated element name:", element_name)
-
-
-        if wait_time != 0:
-            print("wait until:", wait_time)
-            wait = WebDriverWait(driver, wait_time)
-            if not step["multi"]:
-                web_element = wait.until(EC.presence_of_element_located((element_type, element_name)))
-            else:
-                web_elements = wait.until(EC.presence_of_all_elements_located((element_type, element_name)))
+        if element_type == "full page":
+            if step["result_type"] == "var":
+                symTab[step["result"]] = driver.page_source
+            elif step["result_type"] == "expr":
+                to_words = re.split(r'\[|\(|\{', step["result"])
+                sink = to_words[0]
+                exec(f"global {sink}\n{step['result']} = driver.page_source")
         else:
-            print("no wait....")
-            if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
-                print("find in page")
-                if not step["multi"]:
-                    web_element = driver.find_element(element_type, element_name)
+            placeholders = re.findall(r'\{(.*?)\}', element_name)
+
+            # Replace each placeholder with the corresponding global variable value
+            for placeholder in placeholders:
+                if placeholder in globals():
+                    element_name = element_name.replace(f'{{{placeholder}}}', str(globals()[placeholder]))
                 else:
-                    web_elements = driver.find_elements(element_type, element_name)
-            elif step["source_var_type"] == "var":
-                print("find within an element")
-                if not step["multi"]:
-                    web_element = symTab[step["source_var"]].find_element(element_type, element_name)
-                else:
-                    web_elements = symTab[step["source_var"]].find_elements(element_type, element_name)
+                    raise ValueError(f"Global variable '{placeholder}' not found.")
+
+            print("updated element name:", element_name)
 
 
-        if info_type == "text":
-            print("found text:", web_element.text)
-            if step["result_type"] == "var":
-                    symTab[step["result"]] = web_element.text
-            elif step["result_type"] == "expr":
-                to_words = re.split(r'\[|\(|\{', step["result"])
-                sink = to_words[0]
+            if wait_time != 0:
+                print("wait until:", wait_time)
+                wait = WebDriverWait(driver, wait_time)
+                if not step["multi"]:
+                    web_element = wait.until(EC.presence_of_element_located((element_type, element_name)))
+                else:
+                    web_elements = wait.until(EC.presence_of_all_elements_located((element_type, element_name)))
+            else:
+                print("no wait....")
                 if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
-                    exec(f"global {sink}\n{step['result']} = web_element.text\nprint('element text', web_element.text)")
-        elif info_type == "web element":
-            if step["result_type"] == "var":
-                if not step["multi"]:
-                    print("found web element.")
-                    symTab[step["result"]] = web_element
-                else:
-                    symTab[step["result"]] = web_elements
-                    print("found n elements:", len(symTab[step["result"]]))
-            elif step["result_type"] == "expr":
-                to_words = re.split(r'\[|\(|\{', step["result"])
-                sink = to_words[0]
-                print("result in expression format", sink)
-                if not step["multi"]:
-                    exec(f"global {sink}\n{step['result']} = web_element\nprint('found element-', web_element)")
-                else:
-                    exec(f"global {sink}\n{step['result']} = web_elements\nprint('found elements-', web_elements)")
+                    print("find in page")
+                    if not step["multi"]:
+                        web_element = driver.find_element(element_type, element_name)
+                    else:
+                        web_elements = driver.find_elements(element_type, element_name)
+                elif step["source_var_type"] == "var":
+                    print("find within an element")
+                    if not step["multi"]:
+                        web_element = symTab[step["source_var"]].find_element(element_type, element_name)
+                    else:
+                        web_elements = symTab[step["source_var"]].find_elements(element_type, element_name)
+
+
+            if info_type == "text":
+                print("found text:", web_element.text)
+                if step["result_type"] == "var":
+                        symTab[step["result"]] = web_element.text
+                elif step["result_type"] == "expr":
+                    to_words = re.split(r'\[|\(|\{', step["result"])
+                    sink = to_words[0]
+                    if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
+                        exec(f"global {sink}\n{step['result']} = web_element.text\nprint('element text', web_element.text)")
+            elif info_type == "web element":
+                if step["result_type"] == "var":
+                    if not step["multi"]:
+                        print("found web element.")
+                        symTab[step["result"]] = web_element
+                    else:
+                        symTab[step["result"]] = web_elements
+                        print("found n elements:", len(symTab[step["result"]]))
+                elif step["result_type"] == "expr":
+                    to_words = re.split(r'\[|\(|\{', step["result"])
+                    sink = to_words[0]
+                    print("result in expression format", sink)
+                    if not step["multi"]:
+                        exec(f"global {sink}\n{step['result']} = web_element\nprint('found element-', web_element)")
+                    else:
+                        exec(f"global {sink}\n{step['result']} = web_elements\nprint('found elements-', web_elements)")
 
 
     except Exception as e:

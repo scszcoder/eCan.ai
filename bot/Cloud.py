@@ -983,6 +983,35 @@ def gen_feedback_request_string(fbReq):
     return query_string
 
 
+def gen_rag_store_request_string(ragReqs):
+    query_string = """
+            mutation MyRAGMutation {
+          reqRAGStore (input:[
+        """
+    rec_string = ""
+    for i in range(len(ragReqs)):
+        rec_string = rec_string + "{ fid: " + str(ragReqs[i]["fid"]) + ", "
+        rec_string = rec_string + "pid: '" + str(ragReqs[i]["pid"]) + "', "
+        rec_string = rec_string + "file: '" + ragReqs[i]["file"] + "', "
+        rec_string = rec_string + "type: '" + ragReqs[i]["type"] + "', "
+        rec_string = rec_string + "format: '" + ragReqs[i]["format"] + "', "
+        rec_string = rec_string + "options: '" + ragReqs[i]["options"] + "', "
+        rec_string = rec_string + "version: '" + ragReqs[i]["version"] + "'} "
+
+        if i != len(ragReqs) - 1:
+            rec_string = rec_string + ', '
+        else:
+            rec_string = rec_string + ']'
+
+    tail_string = """
+        ) 
+        } """
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
+
 def gen_wan_send_chat_message_string():
     send_msg_mutation = """
         mutation sendWanMessage($input: WanChatMessageInput!) {
@@ -1556,6 +1585,25 @@ def send_feedback_request_to_cloud(session, fb_reqs, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqAccountInfo"])
+
+    return jresponse
+
+
+
+
+def send_rag_store_request_to_cloud(session, fb_reqs, token):
+
+    queryInfo = gen_rag_store_request_string(fb_reqs)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reqRAGStore"])
 
     return jresponse
 
