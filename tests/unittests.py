@@ -28,6 +28,7 @@ from bot.scrape1688 import *
 from bot.seleniumScrapeAmzShop import processAmzSeleniumScrapeOrdersBuyLabels, processAmzSeleniumScrapeOrders, processAmzSeleniumConfirmShipments
 # from my_skills.win_chrome_goodsupply_label.webdriver_buy_gs_labels import processMySeleniumBuyBulkGSLabels
 from bot.seleniumScrapeAmz import processAmzSeleniumScrapeSearchResults
+from bot.ragSkill import storeDocToVectorDB
 
 # global symTab
 import shutil
@@ -1415,6 +1416,7 @@ def test_request_skill_run(mission):
     step = {
         "type": "Use External Skill",
         "skid": 87,
+        "requester_mid": 1000,
         "skname": "browser_gen_ecb_labels",
         "owner": "songc@yahoo.com",
         "in_data": "in_data_string",
@@ -1444,4 +1446,21 @@ def test_report_skill_run_result(mission):
         "output": "run_result"
     }
     processReportExternalSkillRunStatus(step, 1, mission)
+
+
+def test_request_rag_store(mission):
+    global symTab
+    settings = mission.main_win_settings
+    reqs = [
+        {
+            "fid": 0,
+            "pid": 12,
+            "file": "abc",
+            "type": "product:user manual",
+            "format": "txt",
+            "options": "{}",
+            "version": "0.0"
+        }
+    ]
+    storeDocToVectorDB(settings["session"], settings["token"], reqs)
 

@@ -511,7 +511,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
         if not in_msg_queue.empty():
             message = await in_msg_queue.get()
             log3(f"Rx RunAllSteps message: {message}")
-            msg = json.loads(message)
+            msg = json.loads(message["contents"])
             if msg["cmd"] == "reqCancelAllMissions":
                 # set program counter to the end, this shall stop it.
                 print("STOPPING ALL Missions by directly jump to the end.....")

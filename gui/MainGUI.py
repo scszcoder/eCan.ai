@@ -6155,6 +6155,7 @@ class MainWindow(QMainWindow):
                 "chatID": self.chat_id,
                 "sender": self.chat_id,
                 "receiver": commander_chat_id,
+                "type": "test ping",
                 # "contents": json.dumps({"type": "cmd", "cmd": "start log"}).replace('"', '\\"'),
                 "contents": json.dumps({"type": "cmd", "cmd": "start log"}),
                 "parameters": json.dumps({})
@@ -6170,8 +6171,9 @@ class MainWindow(QMainWindow):
                 "chatID": self.chat_id,
                 "sender": "",
                 "receiver": sa_chat_id,
+                "type": "test pong",
                 "contents": json.dumps({"type": "cmd", "cmd": "pong"}),
-                "parameters": "",
+                "parameters": json.dumps({}),
 
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token, self.websocket))
@@ -6181,11 +6183,12 @@ class MainWindow(QMainWindow):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
-                "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
                 "chatID": self.chat_id,
+                "sender": "",
                 "receiver": commander_chat_id,
-                "parameters": "",
-                "sender": ""
+                "type": "request command",
+                "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
+                "parameters": ""
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
 
@@ -6199,6 +6202,7 @@ class MainWindow(QMainWindow):
                 "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
                 "sender": "",
                 "receiver": commander_chat_id,
+                "type": "request command",
                 "parameters": "",
                 "timestamp": ""
             }
@@ -6211,6 +6215,7 @@ class MainWindow(QMainWindow):
                 "content": json.dumps({"type": "cmd", "cmd": "rpa ctrl", "settings": ["all"]}),
                 "chatID": self.chat_id,
                 "receiver": commander_chat_id,
+                "type": "request command",
                 "parameters": "",
                 "sender": ""
             }

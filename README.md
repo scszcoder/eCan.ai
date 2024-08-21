@@ -1,5 +1,5 @@
 # ECBOT
-E-Commerce Bot is an RPA software to free e-business owners from the daily chores of running an e-business.
+E-Commerce Bot is an Agentic RPA software to free e-business owners from the daily chores of running an e-business.
 Even though ECBot is for e-commerce, but it is designed to be extensible be a general purpose RPA software allowing
 one to automate any task. The bot software emulates human's view and move work pattern by extracting structured
 screen contents and create mouse and keyboard actions according to the screen contents. ecbot is written in 
@@ -9,10 +9,10 @@ Python, and works on windows PC (it will be adapated to MAC, and linux later on)
 
 ### Networked Bots
 
-ecbot can run many bots cross many computers on a LAN. There will always be a computer serves as a commander, and other 
-computers serve as vehicles that carries a platoon of bots.
+ecbot can run many bots(software) cross many computers on a LAN. There will be at least 1 host computer that serves as a commander, and other 
+computers serve as vehicles that carries a platoon of bots, a computer or a mobile device such as a smart phone or tablet can also serve as a staff officer, a staff officer computer can monitor and command the bots remotely thru the internet.
 
-![](resource/images/icons/top_cp_model.png)
+![](resource/images/icons/org0.png)
 
 ### Bots, Missions, Skills
 
@@ -379,3 +379,23 @@ Here some default settings and assumptions:
   - create "/my_rais_extensions/my_rais_extensions.json" in $ECBOT_DATA_HOME directory
   - when code the instruction generator function, make sure the instrution definition json's "type" starts with "My:", and the instruction execution function name starts with "processMy", and the generator function name starts with "genStepMy". The instruction execution function should take a standard three input arguments: [step, si, pubSkills] where pubSkills holds the context of the main ecbot app.
 
+### Interfacing with Bots over the internet
+You will need to install myECB App on Android devices or iOS devices, once logged in, you will be able to view, control or chat with any bot in the field.
+Here is the message format in a chat window.
+- for regular chat, simply key in the message.
+- for sending a command, start the line with ":" character then followed by xml tags.
+    - here is a list of commands you can send to a troop.
+    - 
+| Tag               | Text              | Description                                                                | Note |
+|-------------------|-------------------|----------------------------------------------------------------------------|------|
+| `<cmd>``</cmd>`   | "list bots"       | "list bots"                                                                |      |
+|                   | "list missions"   |                                                                            |      |
+|                   | "list vehicles"   |                                                                            |      |
+|                   | "halt missions"   |                                                                            |      |
+|                   | "cancel missions" |                                                                            |      |
+|                   | "resume missions" |                                                                            |      |
+|                   | "cancel missions" |                                                                            |      |
+|                   | "show logs"       |                                                                            |      |
+|                   | "hide logs"       |                                                                            |      |
+| `<data>``</data>` | "1,2,3"           | this is data for the commands, for example comma separated bot/mission ids |      |
+| `<file>``</file>` | "full path here"  | specify file name                                                          |      |
