@@ -637,10 +637,11 @@ def genStepUseSkill(skname, skpath, skargs, output, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepUseExternalSkill(skid, skname, owner, in_data, start_time, verbose, output_var, stepN):
+def genStepUseExternalSkill(skid, req_mid, skname, owner, in_data, start_time, verbose, output_var, stepN):
     stepjson = {
         "type": "Use External Skill",
         "skid": skid,
+        "requester_mid": req_mid,
         "skname": skname,
         "owner": owner,
         "in_data": in_data,
@@ -2706,6 +2707,7 @@ def processUseExternalSkill(step, i, mission):
 
         req = {
             "skid": step["skid"],
+            "requester_mid": step["requester_mid"],
             "owner": step["owner"],
             "start": step["start_time"],
             "name": step["skname"],

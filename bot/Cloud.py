@@ -943,9 +943,9 @@ def gen_train_request_string(mStats):
     for i in range(len(mStats)):
         rec_string = rec_string + "{ mid: " + str(mStats[i]["mid"]) + ", "
         rec_string = rec_string + "bid: '" + str(mStats[i]["bid"]) + "', "
-        rec_string = rec_string + "status: '" + mStats[i]["status"] + "', "
-        rec_string = rec_string + "starttime: '" + mStats[i]["starttime"] + "', "
-        rec_string = rec_string + "endtime: '" + mStats[i]["endtime"] + "'} "
+        rec_string = rec_string + "status: \"" + mStats[i]["status"] + "\", "
+        rec_string = rec_string + "starttime: \"" + mStats[i]["starttime"] + "\", "
+        rec_string = rec_string + "endtime: \"" + mStats[i]["endtime"] + "\"} "
 
         if i != len(mStats) - 1:
             rec_string = rec_string + ', '
@@ -966,14 +966,14 @@ def gen_feedback_request_string(fbReq):
           updateMissionsExStatus (input:[
         """
     rec_string = ""
-    for i in range(len(mStats)):
-        rec_string = rec_string + "{ mid: " + str(mStats[i]["mid"]) + ", "
-        rec_string = rec_string + "bid: '" + str(mStats[i]["bid"]) + "', "
-        rec_string = rec_string + "status: '" + mStats[i]["status"] + "', "
-        rec_string = rec_string + "starttime: '" + mStats[i]["starttime"] + "', "
-        rec_string = rec_string + "endtime: '" + mStats[i]["endtime"] + "'} "
+    for i in range(len(fbReq)):
+        rec_string = rec_string + "{ mid: " + str(fbReq[i]["mid"]) + ", "
+        rec_string = rec_string + "bid: '" + str(fbReq[i]["bid"]) + "', "
+        rec_string = rec_string + "status: \"" + fbReq[i]["status"] + "\", "
+        rec_string = rec_string + "starttime: \"" + fbReq[i]["starttime"] + "\", "
+        rec_string = rec_string + "endtime: \"" + fbReq[i]["endtime"] + "\"} "
 
-        if i != len(mStats) - 1:
+        if i != len(fbReq) - 1:
             rec_string = rec_string + ', '
         else:
             rec_string = rec_string + ']'
@@ -994,12 +994,12 @@ def gen_rag_store_request_string(ragReqs):
     rec_string = ""
     for i in range(len(ragReqs)):
         rec_string = rec_string + "{ fid: " + str(ragReqs[i]["fid"]) + ", "
-        rec_string = rec_string + "pid: '" + str(ragReqs[i]["pid"]) + "', "
-        rec_string = rec_string + "file: '" + ragReqs[i]["file"] + "', "
-        rec_string = rec_string + "type: '" + ragReqs[i]["type"] + "', "
-        rec_string = rec_string + "format: '" + ragReqs[i]["format"] + "', "
-        rec_string = rec_string + "options: '" + ragReqs[i]["options"] + "', "
-        rec_string = rec_string + "version: '" + ragReqs[i]["version"] + "'} "
+        rec_string = rec_string + "pid: " + str(ragReqs[i]["pid"]) + ", "
+        rec_string = rec_string + "file: \"" + ragReqs[i]["file"] + "\", "
+        rec_string = rec_string + "type: \"" + ragReqs[i]["type"] + "\", "
+        rec_string = rec_string + "format: \"" + ragReqs[i]["format"] + "\", "
+        rec_string = rec_string + "options: \"" + ragReqs[i]["options"] + "\", "
+        rec_string = rec_string + "version: \"" + ragReqs[i]["version"] + "\"} "
 
         if i != len(ragReqs) - 1:
             rec_string = rec_string + ', '
@@ -1023,6 +1023,7 @@ def gen_wan_send_chat_message_string():
             chatID
             sender
             receiver
+            type
             contents
             parameters
             timestamp
@@ -1041,6 +1042,7 @@ def gen_wan_subscription_connection_string():
             chatID
             sender
             receiver
+            type
             contents
             parameters
             timestamp

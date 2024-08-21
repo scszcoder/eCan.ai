@@ -62,6 +62,7 @@ async def wanSendMessage(msg_req, token, websocket):
             "chatID": msg_req["chatID"],
             "sender": msg_req["sender"],
             "receiver": msg_req["receiver"],
+            "type": msg_req["type"],
             "contents": msg_req["contents"],
             # "content": {
             #     "text": msg_req["contents"]
@@ -247,7 +248,15 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                 while True:
                     try:
                         message = await websocket.recv()
-                        print(f"SUBSCRIBE Received message: {message}")
+                        print(f"SUBSCRIBE Received message: {message}", type(message))  # this is string.
+                        # send the message to
+                        rcvd = json.loads(message)
+                        print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
+                        # route the message either to chat or RPA
+                        if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
+                            asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                        else:
+                            asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                     except websockets.exceptions.ConnectionClosed:
                         print("WebSocket connection closed.")
                         break
