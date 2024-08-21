@@ -517,22 +517,22 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
                 print("STOPPING ALL Missions by directly jump to the end.....")
                 step_stat = "ABORTEDByKey"
                 next_step_index = len(stepKeys)
-            elif msg["cmd"] == "reqCancelCurrentMission":
+            elif msg["cmd"] == "cancel missions" and msg["target"] == "all" :
                 next_step_index = len(stepKeys)
-            elif msg["cmd"] == "reqHaltMissions":
+            elif msg["cmd"] == "halt missions":
                 print("RPA HALTed", next_step_index, len(stepKeys), step_stat)
                 running = False
-            elif msg["cmd"] == "HILResponse":           # real time human in the loop response.
+            elif msg["cmd"] == "HIL response":           # real time human in the loop response.
                 print("Human Response Received.")
                 result, next_i  = processCloseHumanInLoop(msg, mission, -1)
                 if result == DEFAULT_RUN_STATUS:
                     running = True
                 else:
                     running = False
-            elif msg["cmd"] == "reqResumeMissions":
+            elif msg["cmd"] == "resume missions":
                 print("RPA RESUMEd")
                 running = True
-            elif msg["cmd"] == "reqMissionStatus":
+            elif msg["cmd"] == "show status":
                 # send back current running status based on msg["content"]
                 # basically sends back str(next_step_index)
                 rpa_stat_msg = json.dumps({"type": "rpa_running_status", "mid": mission.getMid(), "step": stepKeys[next_step_index], "last error": last_error_stat})

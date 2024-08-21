@@ -80,11 +80,12 @@ if __name__ == '__main__':
     # test_selenium_amazon_shop()
     # test_selenium_GS()
     # test_selenium_amazon()
+    test_parse_xml()
 
-    try:
-        main()
-    except Exception as e:
-        error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
-        logger_helper.error(error_info)
+    # try:
+    #     main()
+    # except Exception as e:
+    #     error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
+    #     logger_helper.error(error_info)
 
     # qasync.run(main())
