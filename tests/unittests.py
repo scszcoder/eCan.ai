@@ -29,6 +29,7 @@ from bot.seleniumScrapeAmzShop import processAmzSeleniumScrapeOrdersBuyLabels, p
 # from my_skills.win_chrome_goodsupply_label.webdriver_buy_gs_labels import processMySeleniumBuyBulkGSLabels
 from bot.seleniumScrapeAmz import processAmzSeleniumScrapeSearchResults
 from bot.ragSkill import storeDocToVectorDB
+from bot.wanChat import parseCommandString
 
 # global symTab
 import shutil
@@ -1464,3 +1465,11 @@ def test_request_rag_store(mission):
     ]
     storeDocToVectorDB(settings["session"], settings["token"], reqs)
 
+
+def test_parse_xml():
+    test_vec = ":<cmd>list<bots>all</bots></cmd>"
+    test_vec = ":<cmd>list<missions>1,2,3</missions></cmd>"
+    test_vec = ":<cmd>cancel<missions>1</missions></cmd>"
+    test_vec = ":<cmd>show<logs>all</logs></cmd>"
+
+    parseCommandString(test_vec)

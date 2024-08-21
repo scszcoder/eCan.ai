@@ -386,16 +386,22 @@ Here is the message format in a chat window.
 - for sending a command, start the line with ":" character then followed by xml tags.
     - here is a list of commands you can send to a troop.
     - 
-| Tag               | Text              | Description                                                                | Note |
-|-------------------|-------------------|----------------------------------------------------------------------------|------|
-| `<cmd>``</cmd>`   | "list bots"       | "list bots"                                                                |      |
-|                   | "list missions"   |                                                                            |      |
-|                   | "list vehicles"   |                                                                            |      |
-|                   | "halt missions"   |                                                                            |      |
-|                   | "cancel missions" |                                                                            |      |
-|                   | "resume missions" |                                                                            |      |
-|                   | "cancel missions" |                                                                            |      |
-|                   | "show logs"       |                                                                            |      |
-|                   | "hide logs"       |                                                                            |      |
-| `<data>``</data>` | "1,2,3"           | this is data for the commands, for example comma separated bot/mission ids |      |
-| `<file>``</file>` | "full path here"  | specify file name                                                          |      |
+| Tag                       | Text             | Description                                                                | Note |
+|---------------------------|------------------|----------------------------------------------------------------------------|------|
+| `<cmd>``</cmd>`           | "list"           | list bots/missions/skills/vehicles                                         |      |
+|                           | "halt"           | halt missions                                                              |      |
+|                           | "cancel"         | cancel missions                                                            |      |
+|                           | "resume"         | resume missions                                                            |      |
+|                           | "skip"           | skip missions                                                              |      |
+|                           | "show"           | logs                                                                       |      |
+|                           | "hide"           | logs                                                                       |      |
+| `<bots>``</bots>`         | "1,2,3"          | this is bot related info                                                   |      |
+| `<missions>``</missions>` | "full path here" | this is mission related info                                               
+| `<vehicles>``</vehicles>` | "1,2,3"          | this is vehicle related info                                               |      |
+| `<skills>``</skills>`     | "full path here" | this is skill related info                                                 
+| `<data>``</data>`         | "1,2,3"          | this is data for the commands, for example comma separated bot/mission ids |      |
+| `<file>``</file>`         | "full path here" | specify file name                                                          |      |
+
+
+Example: 
+here is the string for show/hide logs： ":<cmd>show<logs>all</logs></cmd>" or ":<cmd>hide<logs>all</logs></cmd>"

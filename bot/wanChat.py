@@ -11,6 +11,8 @@ from Cloud import gen_wan_send_chat_message_string, gen_wan_subscription_connect
 import base64
 from datetime import datetime
 from Logger import log3
+import xml.etree.ElementTree as ET
+import trace
 
 # Wan Chat Logic
 # Commander will connect to websocket and subscribe, and wan logging is default off, then sit in a loop
@@ -255,8 +257,10 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         # route the message either to chat or RPA
                         if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
                             asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                        else:
+                        elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
                             asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                        else:
+                            asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                     except websockets.exceptions.ConnectionClosed:
                         print("WebSocket connection closed.")
                         break
@@ -268,3 +272,34 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
         await subscribe_to_wan_chat()
 
 
+def parseCommandString(input_str):
+    # Check if the string starts with ':'
+    if input_str.startswith(":"):
+        # Remove the leading ':' character
+        input_str = input_str[1:]
+
+        # Try to parse the XML content
+        try:
+            root = ET.fromstring(input_str)
+            command = {}
+
+            # Extract the command name from the text content of the <cmd> tag
+            cmd_name = root.findtext('.')
+            command["name"] = cmd_name.strip() if cmd_name else None
+
+            # Parse known tags and add them to the command structure
+            for child in root:
+                if child.tag in ["bots", "missions", "skills", "vehicle", "logs", "log outlets", "data", "file"]:
+                    if child.text:
+                        command[child.tag] = child.text.strip()
+                    else:
+                        command[child.tag] = None
+            print("COMMAND:", command)
+            return json.dumps(command, indent=4)
+
+        except ET.ParseError:
+            return "Invalid XML command format."
+
+    else:
+        # Return the input string as a regular chat message
+        return input_str

@@ -37,6 +37,7 @@ from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cl
     send_get_bots_request_to_cloud
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from gui.LoggerGUI import CommanderLogWin
+from bot.Logger import LOG_SWITCH_BOARD, log3
 from gui.MissionGUI import MissionNewWin
 from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
 from gui.ScheduleGUI import ScheduleWin
@@ -5909,6 +5910,14 @@ class MainWindow(QMainWindow):
 
     def update_moitor_gui(self, in_message):
         self.showMsg(f"RPA Monitor:"+in_message)
+        if in_message["cmd"] in ["show", "hide"]:
+            if in_message["logs"] == "all":
+                print("loag all")
+            else:
+                ols = in_message["logs"].split(",").strip()
+
+
+
 
     # note recipient could be a group ID.
     def sendBotChatMessage(self, sender, recipient, text):
@@ -6070,14 +6079,14 @@ class MainWindow(QMainWindow):
     async def halt_action(self):
         print("escape hotkey pressed!")
         # send a message to RPA virtual machine engine.
-        msg = {"cmd": "reqHaltMissions"}
+        msg = {"cmd": "halt missions", "target": "current"}
         rpa_ctl_msg = json.dumps(msg)
         asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
 
     async def resume_action(self):
         print("space hotkey pressed!")
         # send a message to RPA virtual machine engine.
-        msg = {"cmd": "reqResumeMissions"}
+        msg = {"cmd": "resume missions", "target": "current"}
         rpa_ctl_msg = json.dumps(msg)
         asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
 
@@ -6090,7 +6099,7 @@ class MainWindow(QMainWindow):
             await asyncio.sleep(0.1)
         if self.rpa_quit_confirmation_future.result():
             print("reqCancelAllMissions")
-            msg = {"cmd": "reqCancelAllMissions"}
+            msg = {"cmd": "cancel missions", "target": "all"}
             rpa_ctl_msg = json.dumps(msg)
             asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
 
