@@ -152,6 +152,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
     WS_API_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com'
     id_token = tokens['AuthenticationResult']['IdToken']
+    ka_timeout_sec = 300
     try:
         api_headers = {
             'Content-Type': 'application/json',
@@ -197,6 +198,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         print("WEBSOCKET CONNECTED!!!!")
                         mainwin.set_wan_connected(True)
                         mainwin.set_websocket(websocket)
+                        ka_timeout_sec = response_data["payload"]["connectionTimeoutMs"]/1000
                         last_connected_ts = datetime.now()
                         break
 
@@ -218,7 +220,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                 print("NOW start to subscribe2")
 
                 sub_data_string = json.dumps(sub_data)
-                print("NOW start to subscribe3")
+                print("NOW start to subscribe3"+sub_data_string)
 
                 SUB_REG = {
                     "id": "1",
@@ -233,7 +235,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                     },
                     "type": "start"
                 }
-                print("SENDING WEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!")
+                print("SENDING WEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!"+json.dumps(SUB_REG))
 
                 await websocket.send(json.dumps(SUB_REG))
 
@@ -263,25 +265,43 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         print(f"SUBSCRIBE Received message: {message}", type(message))  # this is string.
                         # send the message to
                         rcvd = json.loads(message)
-                        print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
-                        # route the message either to chat or RPA
-                        if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
-                            asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                        elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
-                            asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                        if "payload" in rcvd:
+                            if "onMessageReceived" in rcvd["payload"]["data"]:
+                                print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
+                                # route the message either to chat or RPA
+                                if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
+                                    asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                                elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
+                                    asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                                else:
+                                    rx_contents = json.loads(rcvd["payload"]["data"]["onMessageReceived"]["contents"])
+                                    print("type of rx_contents", type(rx_contents))
+                                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                         else:
-                            rx_contents = json.loads(rcvd["payload"]["data"]["onMessageReceived"]["contents"])
-                            print("type of rx_contents", type(rx_contents))
-                            asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                    except websockets.exceptions.ConnectionClosed:
+                            if "type" in rcvd:
+                                if rcvd["type"] == "ka":
+                                    this_ts = datetime.now()
+                                    td = this_ts - last_connected_ts
+                                    # Get the time difference in seconds
+                                    td_seconds = td.total_seconds()
+                                    if td_seconds > ka_timeout_sec:
+                                        # something is wrong, we're suppose to receive this every minute or so.
+                                        print("WARNING: Keep Alive Out Of Sync")
+                                        raise Exception("Keep Alive Timeout")
+                                    else:
+                                        last_connected_ts = this_ts
+                    except Exception as e:
                         print("WebSocket connection closed.")
                         break
 
-    except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.InvalidStatusCode) as e:
+    except Exception as e:
         print(f"Websocket Connection error: {e}. Retrying in 5 seconds...")
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        ex_stat = "ErrorsubscribeToWanChat:" + traceback.format_exc() + " " + str(e)
+        log3(ex_stat)
         mainwin.set_wan_connected(False)
         await asyncio.sleep(5)
-        await subscribe_to_wan_chat()
+        await subscribeToWanChat(mainwin, tokens, chat_id)
 
 
 def parseCommandString(input_str):

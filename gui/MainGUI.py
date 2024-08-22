@@ -6214,21 +6214,23 @@ class MainWindow(QMainWindow):
             self_chat_id = self.user.split("@")[0] + "_StaffOfficer"
         else:
             self_chat_id = self.user.split("@")[0] + "_Commander"
-            ping_msg = {
-                "chatID": self_chat_id,
-                "sender": self.chat_id,
-                "receiver": self_chat_id,
-                "type": "ping self",
-                "contents": json.dumps({"msg": "hello?"}).replace('"', '\\"'),
-                "parameters": json.dumps({})
-            }
 
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+        ping_msg = {
+            "chatID": self_chat_id,
+            "sender": self.chat_id,
+            "receiver": self_chat_id,
+            "type": "ping self",
+            "contents": json.dumps({"msg": "hello?"}).replace('"', '\\"'),
+            "parameters": json.dumps({})
+        }
+
+        self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
 
     async def wan_pong(self):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            print("sending to chatID:", sa_chat_id)
             ping_msg = {
                 "chatID": sa_chat_id,
                 "sender": "Commander",
