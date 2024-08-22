@@ -193,6 +193,7 @@ class ORDER:
         self.total_width = 0
         self.total_height = 0
         self.ui_checked = False
+        self.combined_oids=[]
 
 
     def setOid(self, oid):
@@ -200,6 +201,12 @@ class ORDER:
 
     def getOid(self):
         return self.oid
+
+    def combineOid(self, oid):
+        self.combined_oids.append(oid)
+
+    def getCombinedOids(self):
+        return self.combined_oids
 
     def setBuyer(self, buyer):
         self.buyer = buyer

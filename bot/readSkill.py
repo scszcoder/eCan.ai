@@ -22,23 +22,29 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processExtractInfo8, DEFAULT_RUN_STATUS, WAIT_HIL_RESPONSE, p2p_distance, box_center, genStepMouseClick, genStepExtractInfo, \
     genStepWait, genStepCreateData, genStepLoop, genStepMouseScroll, genStepSearchAnchorInfo, genStepStub, \
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
-    processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop
+    processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
+    processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
+    processGetDefault
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
-    processWebdriverExecJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
-    processWebdriverStartExistingADS, processWebdriverStartNewChrome
+    processWebdriverExecuteJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
+    processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, \
+    processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer, \
+    processWebdriverWaitForVisibility, processWebdriverSwitchToFrame, processWebdriverSwitchToDefaultContent
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
     processPrepGSOrder
 from bot.ebaySellerSkill import processEbayGenShippingInfoFromOrderID
-from bot.labelSkill import processGSExtractZippedFileName
+# from bot.browserEbaySellerSkill import process
+from bot.labelSkill import processGSExtractZippedFileName, processPrepareGSOrder
 from bot.printLabel import processPrintLabels
+from bot.ecSkill import processGenShippingOrdersFromMsgResponses
 from bot.scrapeGoodSupply import processGSScrapeLabels
 from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
-from bot.scraperEbay import processEbayScrapeOrdersHtml, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
+from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOrdersFromJss, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
 from bot.envi import getECBotDataHome
 
@@ -105,17 +111,18 @@ RAIS = {
     "Browse": lambda x,y: processBrowse(x, y),
     "Text To Number": lambda x,y: processTextToNumber(x, y),
     "Extract Info": lambda x,y,z,k: processExtractInfo(x, y, z, k),
-    "Text Input": lambda x,y: processTextInput(x, y),
-    "Mouse Click": lambda x,y: processMouseClick(x, y),
-    "Mouse Scroll": lambda x,y: processMouseScroll(x, y),
+    "Text Input": lambda x,y,z: processTextInput(x, y, z),
+    "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
+    "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
-    "Key Input": lambda x,y: processKeyInput(x, y),
+    "Key Input": lambda x,y,z: processKeyInput(x, y, z),
     "App Open": lambda x,y: processOpenApp(x, y),
     "Create Data": lambda x,y: processCreateData(x, y),
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
     "Save Data": lambda x,y: processSaveData(x, y),
+    "Get Default": lambda x,y: processGetDefault(x, y),
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
     "Goto": lambda x,y,z: processGoto(x, y, z),
@@ -123,6 +130,8 @@ RAIS = {
     "Return": lambda x,y,z,w: processReturn(x, y, z, w),
     "Use Skill": lambda x,y,z,u,v,w: processUseSkill(x, y, z, u, v, w),
     "Overload Skill": lambda x,y,z,w: processOverloadSkill(x, y, z, w),
+    "Use External Skill": lambda x,y,z: processUseExternalSkill(x, y, z),
+    "Report External Skill Run Status": lambda x,y,z: processReportExternalSkillRunStatus(x, y, z),
     "Stub": lambda x,y,z,u,v,w: processStub(x, y, z, u, v, w),
     "Call Extern": lambda x,y: processCallExtern(x, y),
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
@@ -138,7 +147,12 @@ RAIS = {
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),
-    "print Label": lambda x,y: processPrintLabels(x, y),
+    "Read File": lambda x, y: processReadFile(x, y),
+    "Write File": lambda x, y: processWriteFile(x, y),
+    "Delete File": lambda x, y: processDeleteFile(x, y),
+    "print Label": lambda x, y: processPrintLabels(x, y),
+    "Read Json File": lambda x, y: processReadJsonFile(x, y),
+    "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
@@ -155,7 +169,8 @@ RAIS = {
     "AMZ PL Calc Columns": lambda x, y: processAmzPLCalcNCols(x, y),
     "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
     "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
-    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
+    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersFromHtml(x, y),
+    "EBAY Scrape Orders Javascript": lambda x, y: processEbayScrapeOrdersFromJss(x, y),
     "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
     "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
     "Ebay Gen Shipping From Order ID": lambda x, y: processEbayGenShippingInfoFromOrderID(x, y),
@@ -174,30 +189,38 @@ RAIS = {
     "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
+    "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
+    "Gen Shipping From Msg Responses": lambda x,y: processGenShippingOrdersFromMsgResponses(x, y),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y),
-    "Web Driver Click": lambda x,y: processWebdriverClick(x, y),
-    "Web Driver Scroll To": lambda x,y: processWebdriverScrollTo(x, y),
-    "Web Driver Key In": lambda x, y: processWebdriverKeyIn(x, y),
-    "Web Driver Combo Keys": lambda x, y: processWebdriverComboKeys(x, y),
-    "Web Driver Hover To": lambda x, y: processWebdriverHoverTo(x, y),
-    "Web Driver Focus": lambda x, y: processWebdriverFocus(x, y),
-    "Web Driver Select Drop Down": lambda x, y: processWebdriverSelectDropDown(x, y),
+    "Web Driver Click": lambda x,y,z: processWebdriverClick(x, y, z),
+    "Web Driver Scroll To": lambda x,y,z: processWebdriverScrollTo(x, y, z),
+    "Web Driver Key In": lambda x, y,z: processWebdriverKeyIn(x, y, z),
+    "Web Driver Combo Keys": lambda x,y,z: processWebdriverComboKeys(x, y, z),
+    "Web Driver Hover To": lambda x,y,z: processWebdriverHoverTo(x, y, z),
+    "Web Driver Focus": lambda x, y,z: processWebdriverFocus(x, y, z),
+    "Web Driver Select Drop Down": lambda x, y, z: processWebdriverSelectDropDown(x, y, z),
     "Web Driver Back": lambda x, y: processWebdriverBack(x, y),
     "Web Driver Forward": lambda x, y: processWebdriverForward(x, y),
     "Web Driver Go To Tab": lambda x, y: processWebdriverGoToTab(x, y),
     "Web Driver New Tab": lambda x, y: processWebdriverNewTab(x, y),
     "Web Driver Close Tab": lambda x, y: processWebdriverCloseTab(x, y),
     "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
-    "Web Driver Exec Js": lambda x, y: processWebdriverExecJs(x, y),
+    "Web Driver Execute Js": lambda x, y, z: processWebdriverExecuteJs(x, y, z),
     "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
     "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
+    "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
+    "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
+    "Web Driver Wait For Visibility": lambda x, y: processWebdriverWaitForVisibility(x, y),
+    "Web Driver Switch To Frame": lambda x, y: processWebdriverSwitchToFrame(x, y),
+    "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
+    "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
 }
@@ -211,17 +234,18 @@ ARAIS = {
     "Text To Number": lambda x,y: processTextToNumber(x, y),
     # "Extract Info": lambda x,y,z,k: processExtractInfo8(x, y, z, k),
     "Extract Info": processExtractInfo8,
-    "Text Input": lambda x,y: processTextInput(x, y),
-    "Mouse Click": lambda x,y: processMouseClick(x, y),
-    "Mouse Scroll": lambda x,y: processMouseScroll(x, y),
+    "Text Input": lambda x,y,z: processTextInput(x, y, z),
+    "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
+    "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
-    "Key Input": lambda x,y: processKeyInput(x, y),
+    "Key Input": lambda x,y,z: processKeyInput(x, y, z),
     "App Open": lambda x,y: processOpenApp(x, y),
     "Create Data": lambda x,y: processCreateData(x, y),
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
     "Save Data": lambda x,y: processSaveData(x, y),
+    "Get Default": lambda x,y: processGetDefault(x, y),
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
     "Goto": lambda x,y,z: processGoto(x, y, z),
@@ -229,13 +253,15 @@ ARAIS = {
     "Return": lambda x,y,z,w: processReturn(x, y, z, w),
     "Use Skill": lambda x,y,z,u,v,w: processUseSkill(x, y, z, u, v, w),
     "Overload Skill": lambda x,y,z,w: processOverloadSkill(x, y, z, w),
+    "Use External Skill": lambda x, y, z: processUseExternalSkill(x, y, z),
+    "Report External Skill Run Status": lambda x, y, z: processReportExternalSkillRunStatus(x, y, z),
     "Stub": lambda x,y,z,u,v,w: processStub(x, y, z, u, v, w),
     "Call Extern": lambda x,y: processCallExtern(x, y),
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
-    "Think": lambda x, y: processThink8(x, y, z),
+    "Think": lambda x, y, z: processThink8(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
     "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
@@ -248,6 +274,8 @@ ARAIS = {
     "Write File": lambda x, y: processWriteFile(x, y),
     "Delete File": lambda x, y: processDeleteFile(x, y),
     "print Label": lambda x,y: processPrintLabels(x, y),
+    "Read Json File": lambda x,y: processReadJsonFile(x, y),
+    "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
@@ -264,7 +292,8 @@ ARAIS = {
     "AMZ PL Calc Columns": lambda x, y: processAmzPLCalcNCols(x, y),
     "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
     "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
-    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersHtml(x, y),
+    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersFromHtml(x, y),
+    "EBAY Scrape Orders Javascript": lambda x, y: processEbayScrapeOrdersFromJss(x, y),
     "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
     "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
     "Ebay Gen Shipping From Order ID": lambda x, y: processEbayGenShippingInfoFromOrderID(x, y),
@@ -283,30 +312,38 @@ ARAIS = {
     "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
+    "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
+    "Gen Shipping From Msg Responses": lambda x,y: processGenShippingOrdersFromMsgResponses(x, y),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y),
-    "Web Driver Click": lambda x,y: processWebdriverClick(x, y),
-    "Web Driver Scroll To": lambda x,y: processWebdriverScrollTo(x, y),
-    "Web Driver Key In": lambda x, y: processWebdriverKeyIn(x, y),
-    "Web Driver Combo Keys": lambda x, y: processWebdriverComboKeys(x, y),
-    "Web Driver Hover To": lambda x, y: processWebdriverHoverTo(x, y),
-    "Web Driver Focus": lambda x, y: processWebdriverFocus(x, y),
-    "Web Driver Select Drop Down": lambda x, y: processWebdriverSelectDropDown(x, y),
+    "Web Driver Click": lambda x,y, z: processWebdriverClick(x, y, z),
+    "Web Driver Scroll To": lambda x,y, z: processWebdriverScrollTo(x, y, z),
+    "Web Driver Key In": lambda x, y, z: processWebdriverKeyIn(x, y, z),
+    "Web Driver Combo Keys": lambda x, y, z: processWebdriverComboKeys(x, y, z),
+    "Web Driver Hover To": lambda x, y, z: processWebdriverHoverTo(x, y, z),
+    "Web Driver Focus": lambda x, y, z: processWebdriverFocus(x, y, z),
+    "Web Driver Select Drop Down": lambda x, y, z: processWebdriverSelectDropDown(x, y, z),
     "Web Driver Back": lambda x, y: processWebdriverBack(x, y),
     "Web Driver Forward": lambda x, y: processWebdriverForward(x, y),
     "Web Driver Go To Tab": lambda x, y: processWebdriverGoToTab(x, y),
     "Web Driver New Tab": lambda x, y: processWebdriverNewTab(x, y),
     "Web Driver Close Tab": lambda x, y: processWebdriverCloseTab(x, y),
     "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
-    "Web Driver Exec Js": lambda x, y: processWebdriverExecJs(x, y),
+    "Web Driver Execute Js": lambda x, y, z: processWebdriverExecuteJs(x, y, z),
     "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
     "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
+    "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
+    "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
+    "Web Driver Wait For Visibility": lambda x, y: processWebdriverWaitForVisibility(x, y),
+    "Web Driver Switch To Frame": lambda x, y: processWebdriverSwitchToFrame(x, y),
+    "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
+    "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v)
 }
@@ -333,7 +370,7 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
                 # Call this as a recursive function if your json is highly nested
 
                 # get rid of comments.
-                lines = [re.sub("#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+                lines = [re.sub("^\s*#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
                 json_as_string.close()
 
                 # get rid of empty lines.
@@ -474,28 +511,28 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
         if not in_msg_queue.empty():
             message = await in_msg_queue.get()
             log3(f"Rx RunAllSteps message: {message}")
-            msg = json.loads(message)
+            msg = json.loads(message["contents"])
             if msg["cmd"] == "reqCancelAllMissions":
                 # set program counter to the end, this shall stop it.
                 print("STOPPING ALL Missions by directly jump to the end.....")
                 step_stat = "ABORTEDByKey"
                 next_step_index = len(stepKeys)
-            elif msg["cmd"] == "reqCancelCurrentMission":
+            elif msg["cmd"] == "cancel missions" and msg["target"] == "all" :
                 next_step_index = len(stepKeys)
-            elif msg["cmd"] == "reqHaltMissions":
+            elif msg["cmd"] == "halt missions":
                 print("RPA HALTed", next_step_index, len(stepKeys), step_stat)
                 running = False
-            elif msg["cmd"] == "HILResponse":           # real time human in the loop response.
+            elif msg["cmd"] == "HIL response":           # real time human in the loop response.
                 print("Human Response Received.")
                 result, next_i  = processCloseHumanInLoop(msg, mission, -1)
                 if result == DEFAULT_RUN_STATUS:
                     running = True
                 else:
                     running = False
-            elif msg["cmd"] == "reqResumeMissions":
+            elif msg["cmd"] == "resume missions":
                 print("RPA RESUMEd")
                 running = True
-            elif msg["cmd"] == "reqMissionStatus":
+            elif msg["cmd"] == "show status":
                 # send back current running status based on msg["content"]
                 # basically sends back str(next_step_index)
                 rpa_stat_msg = json.dumps({"type": "rpa_running_status", "mid": mission.getMid(), "step": stepKeys[next_step_index], "last error": last_error_stat})
@@ -551,7 +588,12 @@ def run1step(steps, si, mission, skill, stack):
             si,isat = RAIS[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = RAIS[step["type"]](step, si, mission, skill)
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
+            step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or \
+            step["type"] == "Web Driver Scroll To" or  step["type"] == "Web Driver Execute Js" or \
+            step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or \
+            step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
+            "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si,isat = RAIS[step["type"]](step, si, stack, stepKeys)
@@ -606,7 +648,12 @@ async def run1step8(steps, si, mission, skill, stack):
             else:
                 si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Obtain Reviews" or step["type"] == "Ask LLM":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
+             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or \
+                step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or \
+                step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
+             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
+             "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)
             else:

@@ -126,6 +126,71 @@ def get_file_with_presigned_url(dest_file, url):
             f.close()
 
 
+#	requestRunExtSkill(input: [SkillRun]): AWSJSON!
+# 	skid: ID!
+# 	owner: String
+# 	name: String
+# 	start: AWSDateTime
+# 	in_data: AWSJSON!
+# 	verbose: Boolean
+def gen_query_reqest_run_ext_skill_string(query):
+    logger_helper.debug("in query:"+json.dumps(query))
+    query_string = """
+        mutation MyMutation {
+      requestRunExtSkill (input:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ skid: " + str(query[i]["skid"]) + ", "
+        rec_string = rec_string + "owner: \"" + query[i]["owner"] + "\", "
+        rec_string = rec_string + "start: \"" + query[i]["start"] + "\", "
+        rec_string = rec_string + "name: \"" + query[i]["name"] + "\", "
+        rec_string = rec_string + "in_data: \"" + query[i]["in_data"] + "\", "
+        rec_string = rec_string + "verbose: " + str(query[i]["verbose"]) + " }"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+    ]) 
+    }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+#
+def gen_query_report_run_ext_skill_status_string(query):
+    logger_helper.debug("in query:"+json.dumps(query))
+    query_string = """
+        mutation MyMutation {
+      reportRunExtSkillStatus (input:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ run_id: " + str(query[i]["run_id"]) + ", "
+        rec_string = rec_string + "skid: " + str(query[i]["skid"]) + ", "
+        rec_string = rec_string + "runner_mid: " + str(query[i]["runner_mid"]) + ", "
+        rec_string = rec_string + "runner_bid: " + str(query[i]["runner_bid"]) + ", "
+        rec_string = rec_string + "status: \"" + query[i]["status"] + "\", "
+        rec_string = rec_string + "start_time: \"" + query[i]["start_time"] + "\", "
+        rec_string = rec_string + "end_time: \"" + query[i]["end_time"] + "\", "
+        rec_string = rec_string + "result_data: \"" + query[i]["result_data"] + "\" }"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+    ]) 
+    }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
+
+
 def gen_query_chat_request_string(query):
     logger_helper.debug("in query:"+json.dumps(query))
     query_string = """
@@ -878,9 +943,9 @@ def gen_train_request_string(mStats):
     for i in range(len(mStats)):
         rec_string = rec_string + "{ mid: " + str(mStats[i]["mid"]) + ", "
         rec_string = rec_string + "bid: '" + str(mStats[i]["bid"]) + "', "
-        rec_string = rec_string + "status: '" + mStats[i]["status"] + "', "
-        rec_string = rec_string + "starttime: '" + mStats[i]["starttime"] + "', "
-        rec_string = rec_string + "endtime: '" + mStats[i]["endtime"] + "'} "
+        rec_string = rec_string + "status: \"" + mStats[i]["status"] + "\", "
+        rec_string = rec_string + "starttime: \"" + mStats[i]["starttime"] + "\", "
+        rec_string = rec_string + "endtime: \"" + mStats[i]["endtime"] + "\"} "
 
         if i != len(mStats) - 1:
             rec_string = rec_string + ', '
@@ -901,14 +966,14 @@ def gen_feedback_request_string(fbReq):
           updateMissionsExStatus (input:[
         """
     rec_string = ""
-    for i in range(len(mStats)):
-        rec_string = rec_string + "{ mid: " + str(mStats[i]["mid"]) + ", "
-        rec_string = rec_string + "bid: '" + str(mStats[i]["bid"]) + "', "
-        rec_string = rec_string + "status: '" + mStats[i]["status"] + "', "
-        rec_string = rec_string + "starttime: '" + mStats[i]["starttime"] + "', "
-        rec_string = rec_string + "endtime: '" + mStats[i]["endtime"] + "'} "
+    for i in range(len(fbReq)):
+        rec_string = rec_string + "{ mid: " + str(fbReq[i]["mid"]) + ", "
+        rec_string = rec_string + "bid: '" + str(fbReq[i]["bid"]) + "', "
+        rec_string = rec_string + "status: \"" + fbReq[i]["status"] + "\", "
+        rec_string = rec_string + "starttime: \"" + fbReq[i]["starttime"] + "\", "
+        rec_string = rec_string + "endtime: \"" + fbReq[i]["endtime"] + "\"} "
 
-        if i != len(mStats) - 1:
+        if i != len(fbReq) - 1:
             rec_string = rec_string + ', '
         else:
             rec_string = rec_string + ']'
@@ -921,6 +986,35 @@ def gen_feedback_request_string(fbReq):
     return query_string
 
 
+def gen_rag_store_request_string(ragReqs):
+    query_string = """
+            mutation MyRAGMutation {
+          reqRAGStore (input:[
+        """
+    rec_string = ""
+    for i in range(len(ragReqs)):
+        rec_string = rec_string + "{ fid: " + str(ragReqs[i]["fid"]) + ", "
+        rec_string = rec_string + "pid: " + str(ragReqs[i]["pid"]) + ", "
+        rec_string = rec_string + "file: \"" + ragReqs[i]["file"] + "\", "
+        rec_string = rec_string + "type: \"" + ragReqs[i]["type"] + "\", "
+        rec_string = rec_string + "format: \"" + ragReqs[i]["format"] + "\", "
+        rec_string = rec_string + "options: \"" + ragReqs[i]["options"] + "\", "
+        rec_string = rec_string + "version: \"" + ragReqs[i]["version"] + "\"} "
+
+        if i != len(ragReqs) - 1:
+            rec_string = rec_string + ', '
+        else:
+            rec_string = rec_string + ']'
+
+    tail_string = """
+        ) 
+        } """
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
+
 def gen_wan_send_chat_message_string():
     send_msg_mutation = """
         mutation sendWanMessage($input: WanChatMessageInput!) {
@@ -929,6 +1023,7 @@ def gen_wan_send_chat_message_string():
             chatID
             sender
             receiver
+            type
             contents
             parameters
             timestamp
@@ -947,6 +1042,7 @@ def gen_wan_subscription_connection_string():
             chatID
             sender
             receiver
+            type
             contents
             parameters
             timestamp
@@ -1078,6 +1174,56 @@ def send_completion_status_to_cloud(session, missionStats, token):
         jresponse = "ERROR: EMPTY REPORTS"
     return jresponse
 
+async def send_run_ext_skill_request_to_cloud8(session, reqs, token):
+
+    mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
+
+    jresp = await appsync_http_request8(mutationInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["requestRunExtSkill"])
+
+    return jresponse
+
+def send_run_ext_skill_request_to_cloud(session, reqs, token):
+
+    mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
+
+    jresp = appsync_http_request(mutationInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        print("JRESP::", jresp)
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["requestRunExtSkill"])
+
+    return jresponse
+
+
+def send_report_run_ext_skill_status_request_to_cloud(session, reps, token):
+
+    mutationInfo = gen_query_report_run_ext_skill_status_string(reps)
+
+    jresp = appsync_http_request(mutationInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reportRunExtSkillStatus"])
+
+    return jresponse
+
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
@@ -1112,7 +1258,6 @@ def send_update_bots_request_to_cloud(session, bots, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateBots"])
-        logger_helper.error("updateBots Response: " + jresp["data"]["updateBots"])
 
     return jresponse
 
@@ -1132,7 +1277,6 @@ def send_remove_bots_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeBots"])
-        logger_helper.error("removeBots Response: " + jresp["data"]["removeBots"])
     return jresponse
 
 
@@ -1152,7 +1296,6 @@ def send_add_missions_request_to_cloud(session, missions, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addMissions"])
-        logger_helper.error("addMissions Response: " + jresp["data"]["addMissions"])
 
     return jresponse
 
@@ -1171,7 +1314,6 @@ def send_update_missions_request_to_cloud(session, missions, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateMissions"])
-        logger_helper.error("updateMissions Response: " + jresp["data"]["updateMissions"])
     return jresponse
 
 
@@ -1190,7 +1332,6 @@ def send_remove_missions_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeMissions"])
-        logger_helper.error("removeMissions Response: " + jresp["data"]["removeMissions"])
 
     return jresponse
 
@@ -1209,7 +1350,6 @@ def send_add_skills_request_to_cloud(session, skills, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addSkills"])
-        logger_helper.error("addSkills Response: " + jresp["data"]["addSkills"])
 
     return jresponse
 
@@ -1228,7 +1368,6 @@ def send_update_skills_request_to_cloud(session, bots, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateSkills"])
-        logger_helper.error("updateSkills Response: " + jresp["data"]["updateSkills"])
 
     return jresponse
 
@@ -1248,7 +1387,6 @@ def send_remove_skills_request_to_cloud(session, removes, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeSkills"])
-        logger_helper.error("removeSkills Response: " + jresp["data"]["removeSkills"])
 
     return jresponse
 
@@ -1453,6 +1591,25 @@ def send_feedback_request_to_cloud(session, fb_reqs, token):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reqAccountInfo"])
+
+    return jresponse
+
+
+
+
+def send_rag_store_request_to_cloud(session, fb_reqs, token):
+
+    queryInfo = gen_rag_store_request_string(fb_reqs)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reqRAGStore"])
 
     return jresponse
 

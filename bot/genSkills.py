@@ -25,16 +25,26 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepThink, genException, genStepGoToWindow, genStepReportToBoss, genStepAmzPLCalcNCols, \
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
-    genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews
+    genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
+    genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
-    genStepWebdriverQuit, genStepWebdriverExecJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
-    genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome
+    genStepWebdriverQuit, genStepWebdriverExecuteJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
+    genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
+    genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
+    genStepWebdriverSwitchToFrame, genStepWebdriverWaitUntilClickable, genStepWebdriverSwitchToDefaultContent
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
-    genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersHtml, genWinChromeEbayFullfillOrdersSkill, \
+    genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersFromHtml, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
-    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill, genEbayLoginInSteps
+    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill, genEbayLoginInSteps,\
+    genStepEbayScrapeOrdersFromJss
+from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, genWinADSEbayBrowserRespondMessagesSkill, \
+    genWinADSEbayBrowserCollectOrdersSkill, genWinADSEbayBrowserUpdateTrackingSkill, \
+    genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill, genWinADSEbayBrowserBuyShippingSkill, \
+    genWinADSEbayBrowserBuyECBLabelsSkill, genWinADSEbayBrowserHandleOffersSkill, \
+    genWinADSEbayBrowserHandleReturnSkill, genWinADSEbayBrowserHandleReturnWithECBLabelsSkill, \
+    genWinADSEbayBrowserHandleReplacementSkill, genWinADSEbayBrowserHandleRefundSkill
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
     genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
@@ -45,12 +55,11 @@ from bot.fileSkill import genWinFileLocalOpenSaveSkill
 from bot.printLabel import genStepPrintLabels, genWinPrinterLocalReformatPrintSkill
 from bot.rarSkill import genWinRARLocalUnzipSkill
 from bot.scraperEtsy import genStepEtsyScrapeOrders
-from bot.scraperEbay import genStepEbayScrapeMsgList, genStepEbayScrapeOrdersHtml, genStepEbayScrapeCustomerMsgThread
+from bot.scraperEbay import genStepEbayScrapeMsgList, genStepEbayScrapeOrdersFromHtml, genStepEbayScrapeOrdersFromJss, genStepEbayScrapeCustomerMsgThread
 from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml
 from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
-from bot.seleniumScrapeEBayShop import genWinADSEbayWebdriverFullfillOrdersSkill
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -85,13 +94,18 @@ PUBLIC = {
     "genStepWebdriverNewTab": genStepWebdriverNewTab,
     "genStepWebdriverCloseTab": genStepWebdriverCloseTab,
     "genStepWebdriverQuit": genStepWebdriverQuit,
-    "genStepWebdriverExecJs": genStepWebdriverExecJs,
+    "genStepWebdriverExecuteJs": genStepWebdriverExecuteJs,
     "genStepWebdriverRefreshPage": genStepWebdriverRefreshPage,
     "genStepWebdriverScreenShot": genStepWebdriverScreenShot,
     "genStepWebdriverStartExistingChrome": genStepWebdriverStartExistingChrome,
     "genStepWebdriverStartExistingADS": genStepWebdriverStartExistingADS,
     "genStepWebdriverStartNewChrome": genStepWebdriverStartNewChrome,
+    "genStepWebdriverExtractInfo": genStepWebdriverExtractInfo,
+    "genStepWebdriverWaitUntilClickable": genStepWebdriverWaitUntilClickable,
+    "genStepWebdriverSwitchToDefaultContent": genStepWebdriverSwitchToDefaultContent,
+    "genStepWebdriverWaitDownloadDoneAndTransfer": genStepWebdriverWaitDownloadDoneAndTransfer,
     'genStepCheckCondition': genStepCheckCondition,
+    'genStepGetDefault': genStepGetDefault,
     'genStepGoto': genStepGoto,
     'genStepLoop': genStepLoop,
     'genStepStub': genStepStub,
@@ -130,7 +144,21 @@ PUBLIC = {
     'genWinChromeEbayUpdateShipmentTrackingSkill': genWinChromeEbayUpdateShipmentTrackingSkill,
     'genWinChromeEbayBuyShippingSkill': genWinChromeEbayBuyShippingSkill,
     'genWinADSEbayBuyShippingSkill': genWinADSEbayBuyShippingSkill,
-    'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
+    'genStepEbayScrapeOrdersFromHtml': genStepEbayScrapeOrdersFromHtml,
+    'genStepEbayScrapeOrdersFromJss': genStepEbayScrapeOrdersFromJss,
+    'genWinADSEbayBrowserFullfillOrdersSkill': genWinADSEbayBrowserFullfillOrdersSkill,
+    'genWinADSEbayBrowserRespondMessagesSkill': genWinADSEbayBrowserRespondMessagesSkill,
+    'genWinADSEbayBrowserCollectOrdersSkill': genWinADSEbayBrowserCollectOrdersSkill,
+    'genWinADSEbayBrowserUpdateTrackingSkill': genWinADSEbayBrowserUpdateTrackingSkill,
+    'genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill': genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill,
+    'genWinADSEbayBrowserBuyShippingSkill': genWinADSEbayBrowserBuyShippingSkill,
+    'genWinADSEbayBrowserBuyECBLabelsSkill': genWinADSEbayBrowserBuyECBLabelsSkill,
+    'genWinADSEbayBrowserHandleOffersSkill': genWinADSEbayBrowserHandleOffersSkill,
+    'genWinADSEbayBrowserHandleReturnSkill': genWinADSEbayBrowserHandleReturnSkill,
+    'genWinADSEbayBrowserHandleReturnWithECBLabelsSkill': genWinADSEbayBrowserHandleReturnWithECBLabelsSkill,
+    'genWinADSEbayBrowserHandleReplacementSkill': genWinADSEbayBrowserHandleReplacementSkill,
+    'genWinADSEbayBrowserHandleRefundSkill': genWinADSEbayBrowserHandleRefundSkill,
+
     'genStepSetupADS': genStepSetupADS,
     'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
     'genWinADSRemoveProfilesSkill': genWinADSRemoveProfilesSkill,
@@ -171,7 +199,8 @@ PUBLIC = {
     'genStepEbayScrapeCustomerMsgThread': genStepEbayScrapeCustomerMsgThread,
     'genStepAmzScrapeBuyOrdersHtml': genStepAmzScrapeBuyOrdersHtml,
     'genEbayLoginInSteps': genEbayLoginInSteps,
-    'genStepEbayScrapeOrdersHtml': genStepEbayScrapeOrdersHtml,
+    'genStepEbayScrapeOrdersFromJss': genStepEbayScrapeOrdersFromJss,
+    'genStepEbayScrapeOrdersFromHtml': genStepEbayScrapeOrdersFromHtml,
     'log3': log3,
     'genStepReadFile': genStepReadFile,
     'genStepWriteFile': genStepWriteFile,
@@ -198,10 +227,23 @@ SkillGeneratorTable = {
     "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
-    "win_ads_ebay_orders_webdriver_fullfill_orders": lambda x,y,z: genWinADSEbayWebdriverFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
     "win_ads_ebay_orders_buy_shipping": lambda x, y, z: genWinADSEbayBuyShippingSkill(x, y, z),
     "win_ads_ebay_orders_update_tracking": lambda x, y, z: genWinADSEbayUpdateShipmentTrackingSkill(x, y, z),
+
+    "win_ads_ebay_orders_browser_fullfill_orders": lambda x, y, z: genWinADSEbayBrowserFullfillOrdersSkill(x, y, z),
+    "win_ads_ebay_orders_browser_fullfill_orders_with_ecb_labels": lambda x, y, z: genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(x, y, z),
+    "win_ads_ebay_orders_browser_collect_orders": lambda x, y, z: genWinADSEbayBrowserCollectOrdersSkill(x, y, z),
+    "win_ads_ebay_orders_browser_buy_shipping": lambda x, y, z: genWinADSEbayBrowserBuyShippingSkill(x, y, z),
+    "win_ads_ebay_orders_browser_buy_ecb_labels": lambda x, y, z: genWinADSEbayBrowserBuyECBLabelsSkill(x, y, z),
+    "win_ads_ebay_orders_browser_update_tracking": lambda x, y, z: genWinADSEbayBrowserUpdateTrackingSkill(x, y, z),
+    "win_ads_ebay_orders_browser_respond_messages": lambda x, y, z: genWinADSEbayBrowserRespondMessagesSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_offers": lambda x, y, z: genWinADSEbayBrowserHandleOffersSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_return": lambda x, y, z: genWinADSEbayBrowserHandleReturnSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_return_with_ecb_labels": lambda x, y, z: genWinADSEbayBrowserHandleReturnWithECBLabelsSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_replacement": lambda x, y, z: genWinADSEbayBrowserHandleReplacementSkill(x, y, z),
+    "win_ads_ebay_orders_browser_handle_refund": lambda x, y, z: genWinADSEbayBrowserHandleRefundSkill(x, y, z),
+
     "win_chrome_ebay_orders_fullfill_orders": lambda x, y, z: genWinChromeEbayFullfillOrdersSkill(x, y, z),
     "win_chrome_ebay_orders_collect_orders": lambda x, y, z: genWinChromeEbayCollectOrderListSkill(x, y, z),
     "win_chrome_ebay_orders_update_tracking": lambda x, y, z: genWinChromeEbayUpdateShipmentTrackingSkill(x, y, z),
@@ -390,6 +432,7 @@ def getWorkRunSettings(lieutenant, bot_works):
 
     scroll_resolution = 250     # default scroll resolution.
     scroll_resolution_file = ecb_data_homepath + "/scroll_resolution.json"
+    fp_browser_settings = lieutenant.getADSSettings()
     if os.path.exists(scroll_resolution_file):
         with open(scroll_resolution_file, 'r') as fileTBR:
             scroll_resolution_json = json.load(fileTBR)
@@ -432,7 +475,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "root_path": root_path,
             "log_path_prefix": log_path_prefix,
             "log_path": "",
-            # "settings": settings,
+            "fp_browser_settings": fp_browser_settings,
             "platform": platform,
             "site": site,
             "app": app,
@@ -484,8 +527,11 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     log3("sk_prefix"+" "+sk_prefix+" "+"sk_name: "+sk_name)
     if privacy == "public":
         sk_file_name = root_path + "/resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
+        my_sk_full_name = sk_full_name
     else:
         sk_file_name = root_path + "/my_skills/" + sk_prefix + "/" + sk_name + ".psk"
+        log3("gen private skill: " + sk_file_name)
+        my_sk_full_name = sk_full_name + "_my"
 
     sk_file_dir = os.path.dirname(sk_file_name)
     os.makedirs(sk_file_dir, exist_ok=True)
@@ -494,14 +540,14 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     log3("opening skill file: "+sk_file_name+" start_step: "+json.dumps(start_step))
 
     try:
-        if sk_full_name in SkillGeneratorTable.keys():
+        if my_sk_full_name in SkillGeneratorTable.keys():
             if privacy == "public":
                 # at this time, the settings is not yet known, so simply set it to None, later on in reAddrAndUpdateSteps(), we set the true value of settings there..
                 this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
             else:
                 log3("gen private....."+sk_full_name)
                 # at this time, the settings is not yet known, so simply set it to None, , later on in reAddrAndUpdateSteps(), we set the true value of settings there.
-                this_step, step_words = SkillGeneratorTable[sk_full_name+"_my"](None, start_step, theme, PUBLIC)
+                this_step, step_words = SkillGeneratorTable[my_sk_full_name](None, start_step, theme, PUBLIC)
 
             with open(sk_file_name, 'w+') as skf:
                 skf.write("\n")

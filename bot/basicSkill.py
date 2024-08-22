@@ -9,17 +9,19 @@ import sys
 import time
 import traceback
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 import platform
 import glob
-
+import chardet
+import pandas as pd
 import numpy as np
 
 from ping3 import ping
 
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
-    send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle
+    send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
+    send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud
 from bot.Logger import log3
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -85,6 +87,7 @@ def get_default_download_dir():
     home = os.path.expanduser("~").replace("\\", "/")
     return home+"/Downloads/"
 
+
 def genStepHeader(skillname, los, ver, author, skid, description, stepN):
     header = {
         "name": skillname,
@@ -111,6 +114,16 @@ def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor
         "cargs_type": cargs_type,
         "cargs": cargs,
         "wait":wait
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepGetDefault(var_name, result_var, stepN):
+    stepjson = {
+        "type": "Get Default",
+        "var_name": var_name,
+        "result": result_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -415,11 +428,14 @@ def genStepStub(sname, fname, fargs, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepListDir(dirname, fargs, result_var, stepN):
+def genStepListDir(dirname, extension, sort_by, sort_order, most_recent, result_var, stepN):
     stepjson = {
         "type": "List Dir",
         "dir": dirname,
-        "fargs": fargs,
+        "extension": extension,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+        "most_recent": most_recent,
         "result": result_var
     }
 
@@ -620,6 +636,40 @@ def genStepUseSkill(skname, skpath, skargs, output, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+
+def genStepUseExternalSkill(skid, req_mid, skname, owner, in_data, start_time, verbose, output_var, stepN):
+    stepjson = {
+        "type": "Use External Skill",
+        "skid": skid,
+        "requester_mid": req_mid,
+        "skname": skname,
+        "owner": owner,
+        "in_data": in_data,
+        "start_time": start_time,
+        "verbose": verbose,
+        "output": output_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepReportExternalSkillRunStatus(run_id, skid, start_time, end_time, mid, bid, status, output, stepN):
+    stepjson = {
+        "type": "Report External Skill Run Status",
+        "run_id": run_id,
+        "skill_id": skid,
+        "start_time": start_time,
+        "end_time": end_time,
+        "status": status,
+        "runner_mid": mid,
+        "runner_bid": bid,
+        "output": output
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 # fname: function name.
 # args: function arguments
 # return_point: where does function return. (maybe not needed with stack.)
@@ -807,6 +857,30 @@ def genStepMoveDownloadedFileToDestination(prefix, extension, destination, resul
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+
+def genStepReadJsonFile(file_name_type, file_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Read Json File",
+        "file_name_type": file_name_type,
+        "file_name": file_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepReadXlsxFile(file_name_type, file_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Read Xlsx File",
+        "file_name_type": file_name_type,
+        "file_name": file_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 def genStepReqHumanInLoop(qvar, img_var, type_var, time_var, retry_var, req_id_var, site_var, site_key_var, expected_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Request Human In Loop",
@@ -958,7 +1032,7 @@ def captureScreenToFile(win_title_keyword, sfile):
     else:
         im0 = pyautogui.screenshot()
         width, height = im0.size
-        window_rec = [0, 0, width, height]
+        window_rect = [0, 0, width, height]
 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
@@ -1501,9 +1575,10 @@ def processFillRecipients(step, i):
 #  speed: type speed.
 #  key_after: key to hit after textinput. (could be "", "enter",
 #  wait_after: number of seconds to wait after key_after action.
-def processTextInput(step, i):
+def processTextInput(step, i, mission):
     global page_stack
     global current_context
+    mainwin = mission.get_main_win()
     ex_stat = DEFAULT_RUN_STATUS
     try:
         # log3("Keyboard typing......", nthSearch, type(nthSearch), type(run_config), run_config, list(run_config.keys()))
@@ -1805,9 +1880,10 @@ def is_float(string):
 # "nth": nth,  # [0,0] in case of there are multiple occurance of target on the screen, click on which one? [n, m] would be nth from left, mth from top
 # "offset_from": offset_from,  # click at a offset from object's bound box side, left/top/right/bottom/center are choices. if left/right, y coordinate is default to be center, if top/bottom, x coordiate default to be center.
 # "offset": offset  # offset in x and y direction,
-def processMouseClick(step, i):
+def processMouseClick(step, i, mission):
     global page_stack
     global current_context
+    mainwin = mission.get_main_win()
     log3("Mouse Clicking .....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -1910,10 +1986,10 @@ def processMouseClick(step, i):
     return (i + 1), ex_stat
 
 # max 4 combo key stroke
-def processKeyInput(step, i):
+def processKeyInput(step, i, mission):
     global page_stack
     global current_context
-
+    mainwin = mission.get_main_win()
     ex_stat = DEFAULT_RUN_STATUS
     try:
         keys = step["action_value"].split(',')
@@ -1973,8 +2049,9 @@ def loc_center(box):
 def box_center(box):
     return (box[0]+int((box[2]-box[0])/2), box[1]+int((box[3]-box[1])/2))
 
-def processMouseScroll(step, i):
+def processMouseScroll(step, i, mission):
     screen_data = symTab[step["screen"]]
+    mainwin = mission.get_main_win()
     # log3("screen_data: "+json.dumps(screen_data))
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -2109,7 +2186,7 @@ def processCreateData(step, i):
                 executable = executable + "\n" + simple_expression
                 log3("full executable statement:"+executable)
                 exec(executable)
-                log3(step["data_name"] + " is now: "+json.dumps(symTab[step["data_name"]]))
+                # log3(step["data_name"] + " is now: "+json.dumps(symTab[step["data_name"]]))
             else:
                 symTab[step["data_name"]] = step["key_value"]
         else:
@@ -2592,16 +2669,20 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
 
         fin_par = stack.pop()
         symTab["fin"] = symTab[fin_par]
-        log3("getting skill call input parameter: "+json.dumps(fin_par)+" [val: "+json.dumps(symTab[fin_par]))
+        # log3("getting skill call input parameter: "+json.dumps(fin_par)+" [val: "+json.dumps(symTab[fin_par]))
         log3("current skill table: "+json.dumps(sk_table))
 
         # start execuation on the function, find the function name's address, and set next pointer to it.
         # the function name address key value pair was created in gen_addresses
         skname = step["skill_path"] + "/" + step["skill_name"]
-        log3("skname:"+skname+"  "+sk_table[skname])
-        idx = step_keys.index(sk_table[skname])
-        log3("idx:"+str(idx))
-        # log3("step_keys:"+json.dumps(step_keys))
+        log3("curr skill name: "+skname)
+
+        if skname in sk_table:
+            log3("skname:"+skname+"  "+sk_table[skname])
+            idx = step_keys.index(sk_table[skname])
+            log3("idx:"+str(idx))
+        else:
+            log3("ERROR: LOCAL SKILL NOT FOUND, TRYING CLOUD")
 
 
     except Exception as e:
@@ -2615,6 +2696,77 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
         log3(ex_stat)
 
     return idx, ex_stat
+
+
+# this is essentially an AppSync mutation API call to request running external skill.
+# the cloud side will check permission, and then create a mission for a bot with this
+# skill to run by the skill provider.
+def processUseExternalSkill(step, i, mission):
+    global skill_code
+
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        settings = mission.main_win_settings
+
+        req = {
+            "skid": step["skid"],
+            "requester_mid": step["requester_mid"],
+            "owner": step["owner"],
+            "start": step["start_time"],
+            "name": step["skname"],
+            "in_data": symTab[step["in_data"]],
+            "verbose": step["verbose"],
+        }
+        reqs = [req]
+
+        symTab[step["output"]] = send_run_ext_skill_request_to_cloud(settings["session"], reqs, settings["token"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorUseExternalSkill:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorUseExternalSkill: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return i+1, ex_stat
+
+
+def processReportExternalSkillRunStatus(step, i, mission):
+    global skill_code
+
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        settings = mission.main_win_settings
+
+        req = {
+            "run_id": step["run_id"],
+            "skid": step["skid"],
+            "runner_mid": step["runner_mid"],
+            "runner_bid": step["runner_bid"],
+            "start_time": step["start_time"],
+            "end_time": step["end_time"],
+            "status": step["status"],
+            "result_data": symTab[step["result_data"]]
+        }
+        reqs = [req]
+
+        symTab[step["output"]] = send_report_run_ext_skill_status_request_to_cloud(settings["session"], reqs, settings["token"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReportExternalSkillRunStatus:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReportExternalSkillRunStatus: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return i+1, ex_stat
+
 
 # this is for call a skill function.
 # fname: function name.
@@ -2720,7 +2872,7 @@ def processReturn(step, i, stack, step_keys):
 
         #  set the pointer to the return to pointer.
         next_i = stack.pop()
-        plog3rint("after return, will run @"+str(next_i))
+        log3("after return, will run @"+str(next_i), "processReturn")
 
 
 
@@ -2732,7 +2884,7 @@ def processReturn(step, i, stack, step_keys):
             ex_stat = "ErrorReturn:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorReturn: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processReturn")
 
     return next_i, ex_stat
 
@@ -2832,10 +2984,40 @@ def processGoto(step, i,  step_keys):
 def processListDir(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        lof = os.listdir(step["dir"])
-        symTab[step["result"]] = [f for f in lof if f.endswith(step["fargs"])]  # fargs contains extension such as ".pdf"
+        current_time = datetime.now()
+        hours = step["most_recent"]
+        cutoff_time = current_time - timedelta(hours=hours)
+        if "/" in step["dir"]:
+            target_dir = step["dir"]
+        else:
+            target_dir = symTab[step["dir"]]
 
+        all_files = []
+        lof = os.listdir(target_dir)
+        for filename in lof:
+            file_path = os.path.join(target_dir, filename)
+            if os.path.isfile(file_path):
+                file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                if file_mod_time > cutoff_time:
+                    all_files.append((file_path, file_mod_time))
 
+        if step["extension"]:
+            file_list = [f for f in all_files if f[0].endswith(step["extension"])]  # fargs contains extension such as ".pdf"
+        else:
+            file_list = all_files
+
+        if step["sort_by"] == "time":
+            if step["sort_order"] == "min-max":
+                sorted_list = sorted(file_list, key=lambda x: x[1], reverse=False)
+            else:
+                sorted_list =sorted(file_list, key=lambda x: x[1], reverse=True)
+        elif step["sort_by"] == "name":
+            if step["sort_order"] == "min-max":
+                sorted_list = sorted(file_list, key=lambda x: x[0], reverse=False)
+            else:
+                sorted_list =sorted(file_list, key=lambda x: x[0], reverse=True)
+
+        symTab[step["result"]] = [f[0] for f in sorted_list]
 
     except Exception as e:
         # Get the traceback information
@@ -4614,6 +4796,107 @@ def processCloseHumanInLoop(step, i, mission, hq):
         else:
             ex_stat = "ErrorMoveDownloadedFileToDestination: traceback information not available:" + str(e)
         symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+#         "file_name_type": file_name_type,
+#         "file_name": file_name,
+#         "result": result_var,
+#         "flag": flag_var
+def processReadJsonFile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global json_file
+    try:
+        if step["file_name_type"] == "direct":
+            json_file = step["file_name"]
+        elif step["file_name_type"] == "var":
+            json_file = symTab[step["file_name"]]
+        elif step["file_name_type"] == "expr":
+            exec("global json_file\njson_file = "+step["file_name"]+"\nprint('json_file',json_file)")
+            # exec("json_file = "+step["file_name"]+"\nprint('json_file',json_file)")
+
+        print("reading json file:", json_file)
+
+        if os.path.exists(json_file):
+            with open(json_file, 'rb') as jf:
+                raw_data = jf.read()
+                encoding_result = chardet.detect(raw_data)
+                detected_encoding = encoding_result['encoding']
+
+            with open(json_file, 'r', encoding=detected_encoding) as jf:
+                symTab[step["result"]] = json.load(jf)
+                jf.close()
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReadJsonFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReadJsonFile: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processReadXlsxFile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global json_file
+    try:
+        if step["file_name_type"] == "direct":
+            json_file = step["file_name"]
+        elif step["file_name_type"] == "var":
+            json_file = symTab[step["file_name"]]
+        elif step["file_name_type"] == "expr":
+            exec("global json_file\njson_file = "+step["file_name"]+"\nprint('json_file',json_file)")
+            # exec("json_file = "+step["file_name"]+"\nprint('json_file',json_file)")
+
+        print("reading xlsx file:", json_file)
+
+        if os.path.exists(json_file):
+            # with open(json_file, 'rb') as jf:
+            df = pd.read_excel(json_file, engine='openpyxl')
+
+            # Convert the DataFrame to a list of dictionaries (JSON objects)
+            symTab[step["result"]] = df.to_dict(orient='records')
+
+            print("read xlsx reslt data", symTab[step["result"]])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReadXlsxFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processGetDefault(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global json_file
+    try:
+        if step["var_name"] == "download dir":
+            symTab[step["result"]] = getDefaultDownloadDirectory()
+            print("get default::", step["result"], symTab[step["result"]])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorReadXlsxFile:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
+        # symTab[step["flag"]] = False
         log3(ex_stat)
 
     return (i + 1), ex_stat

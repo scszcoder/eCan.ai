@@ -72,7 +72,13 @@ def extract_order_data(aj):
             ex_stat = "ErrorExtractOrderData: traceback information not available:" + str(e)
         log3(ex_stat)
 
+    print("++++++++++++++++++++++++")
+    for o in orders:
+        print(o.toJson())
+        print("++++++++++++++++++++++++")
     return orders, resultsPerPage
+
+
 def extract_orders_from_tokens(tokens):
     is_variations = False
     brace_count = 0
@@ -154,6 +160,32 @@ def get_total_num_orders(hsoup):
 
     return n_orders
 
+def ebaySellerJS2Orders(scriptItems, pagefull_of_orders):
+    print("scrip items#", len(scriptItems))
+    scount = 0
+    for script in scriptItems:
+        # pattern = r'orderId.*?feedbackScore'
+        pattern = r'Awaiting shipment'
+        script_text = script.get_attribute('innerHTML')
+        found = re.findall(pattern, script_text)
+        if found:
+            print("right script found....", scount)
+            tokens = esprima.tokenize(script_text)
+            # js_tree = esprima.visitor.Visitor(item.text)
+
+            aj = extract_orders_from_tokens(tokens)
+
+            orders, results_per_page = extract_order_data(aj)
+        # else:
+        #     print("wrong script", scount)
+        # scount = scount + 1
+
+    pagefull_of_orders["ol"] = orders
+    pagefull_of_orders["orders_per_page"] = results_per_page
+    pagefull_of_orders["num_pages"] = math.ceil(len(orders) / results_per_page)
+    print("ORDERS:", orders)
+
+
 def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -175,22 +207,8 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
             scriptItems = soup.findAll("script")
             # log3(str(len(scriptItems)))
 
-            for item in scriptItems:
-                # pattern = r'orderId.*?feedbackScore'
-                pattern = r'Awaiting shipment'
-                found = re.findall(pattern, item.text)
-                if found:
-                    print("right script found....")
-                    tokens = esprima.tokenize(item.text)
-                    # js_tree = esprima.visitor.Visitor(item.text)
+            ebaySellerJS2Orders(scriptItems, pagefull_of_orders)
 
-                    aj = extract_orders_from_tokens(tokens)
-
-                    orders, results_per_page = extract_order_data(aj)
-
-        pagefull_of_orders["ol"] = orders
-        pagefull_of_orders["orders_per_page"] = results_per_page
-        pagefull_of_orders["num_pages"] = math.ceil(len(orders)/results_per_page)
         log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
         log3("# of orders:"+str(len(orders))+","+str(pagefull_of_orders["orders_per_page"])+","+str(pagefull_of_orders["num_pages"]))
         print([ord.toJson() for ord in orders])
@@ -203,12 +221,12 @@ def ebay_seller_fetch_page_of_order_list(html_file,  pidx):
     return pagefull_of_orders
 
 
-def genStepEbayScrapeMsgList(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+def genStepEbayScrapeMsgList(html_dir, source_type, html_file, pidx, outvar, statusvar, stepN):
     stepjson = {
         "type": "EBAY Scrape Msg Lists",
         "pidx": pidx,
+        "source_type": source_type,
         "html_dir": html_dir,
-        "html_dir_type": dir_name_type,
         "html_file": html_file,
         "result": outvar,
         "status": statusvar
@@ -216,12 +234,12 @@ def genStepEbayScrapeMsgList(html_dir, dir_name_type, html_file, pidx, outvar, s
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepEbayScrapeCustomerMsgThread(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+def genStepEbayScrapeCustomerMsgThread(html_dir, source_type, html_file, pidx, outvar, statusvar, stepN):
     stepjson = {
         "type": "EBAY Scrape Customer Msg",
         "pidx": pidx,
         "html_dir": html_dir,
-        "html_dir_type": dir_name_type,
+        "source_type": source_type,
         "html_file": html_file,
         "result": outvar,
         "status": statusvar
@@ -235,18 +253,21 @@ def processEbayScrapeMsgList(step, i):
         next_i = i + 1
         pidx = step["pidx"]
 
-        if step["html_dir_type"] == "direct":
-            html_dir = step["html_dir"]
+        if "/" not in step["html_dir"]:
+            html_dir = symTab[step["html_dir"]]
         else:
-            exec("html_dir = " + step["html_dir"])
+            # exec("html_dir = " + step["html_dir"])
+            html_dir = step["html_dir"]
 
-        html_file = html_dir + "/" + step["html_file"]
-        pagefull_of_msg_titles = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ml": None}
-        threads = []
+        if step['source_type'] == "file":
+            html_file = html_dir + "/" + step["html_file"]
+        else:
+            html_file = symTab[step["html_file"]]
 
-        ebay_seller_get_customer_msg_list(html_file, pidx)
 
-        symTab[step["result"]] = pagefull_of_msg_titles
+        pagefull_of_msgs = ebaySellerGetCustomerMsgList(html_file, step['source_type'], pidx)
+
+        symTab[step["result"]] = pagefull_of_msgs
 
     except Exception as e:
         ex_stat = "ErrorEbayScrapeMsgListHtml:" + traceback.format_exc() + " " + str(e)
@@ -262,18 +283,20 @@ def processEbayScrapeCustomerMsgThread(step, i):
         next_i = i + 1
         pidx = step["pidx"]
 
-        if step["html_dir_type"] == "direct":
-            html_dir = step["html_dir"]
+        if "/" not in step["html_dir"]:
+            html_dir = symTab[step["html_dir"]]
         else:
-            exec("html_dir = " + step["html_dir"])
+            # exec("html_dir = " + step["html_dir"])
+            html_dir = step["html_dir"]
 
-        html_file = html_dir + "/" + step["html_file"]
-        pagefull_of_msg_titles = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "thread": None}
-        threads = []
+        if step["source_type"] == "file":
+            html_file = html_dir + "/" + step["html_file"]
+        else:
+            html_file = symTab[step["html_file"]]
 
-        ebay_seller_get_customer_msg_thread(html_file, pidx)
+        msg_thread = ebaySellerGetCustomerMsgThread(html_file, step["source_type"])
 
-        symTab[step["result"]] = pagefull_of_msg_titles
+        symTab[step["result"]] = msg_thread
 
     except Exception as e:
         ex_stat = "ErrorEbayScrapeCustomerMsgThreadHtml:" + traceback.format_exc() + " " + str(e)
@@ -281,64 +304,99 @@ def processEbayScrapeCustomerMsgThread(step, i):
 
     return next_i, ex_stat
 
-def ebay_seller_get_customer_msg_list(html_file, pidx):
+def ebaySellerGetCustomerMsgList(html_file, src_type, pidx):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         pagefull_of_msgs = {"page": pidx, "msgs": None}
-        threads = []
 
         # Use Esprima to parse your JavaScript code
         # esprima_output = context.eval("esprima.parse('{}')".format(js_code))
 
         # Output will be a dictionary representing the parsed JavaScript code
         # log3(json.dumps(esprima_output))
-
-        with open(html_file, 'rb') as fp:
-            soup = BeautifulSoup(fp, 'html.parser')
-
-            messages = []
-            rows = soup.find_all('tr')
-            for row in rows:
-                message_id = row.get('id', '')
-                if row.find('td', {'id': f'{message_id}-from'}):
-                    from_user = row.find('td', {'id': f'{message_id}-from'}).div.text
-                    print("from_user:", from_user)
-                else:
-                    from_user = ""
-
-                if row.find('td', {'id': f'{message_id}-sub'}):
-                    subject_div = row.find('td', {'id': f'{message_id}-sub'}).div
-                    subject = subject_div.text
-                    print("subject:", subject)
-                else:
-                    subject = ""
-
-                if row.find('td', {'id': f'{message_id}-itm-ends'}):
-                    item_ends = row.find('td', {'id': f'{message_id}-itm-ends'}).div.text
-                    print("item_ends:", item_ends)
-                else:
-                    item_ends = ""
-
-                if row.find('td', {'id': f'{message_id}-msg-recvd'}):
-                    received_date = row.find('td', {'id': f'{message_id}-msg-recvd'}).div.text
-                    print("received_date:", received_date)
-                else:
-                    received_date = ""
-
-                read_status = 'unread' if 'msg-unread' in row.get('class', []) else 'read'
-
-                # Creating a message dictionary
-                message = {
-                    'id': message_id,
-                    'from': from_user,
-                    'subject': subject,
-                    'item_ends': item_ends,
-                    'received_date': received_date,
-                    'read_status': read_status
-                }
-                messages.append(message)
+        if src_type == "file":
+            with open(html_file, 'rb') as fp:
+                soup = BeautifulSoup(fp, 'html.parser')
+        else:
+            soup = BeautifulSoup(html_file, 'html.parser')
 
 
+        # Locate the message box summary section
+        message_box = soup.find('div', {'id': 'inbx-list'})
+        unread_summery = {}
+        # Extract the message summaries
+        msg_text = message_box.find('a', {'id': 'all_unread_c'}).text.strip()
+        matches = re.findall(r'\((.*?)\)', msg_text)
+        if len(matches) > 0:
+            unread_summery['all_messages'] = int(matches[0].strip())
+        else:
+            unread_summery['all_messages'] = 0
+
+        msg_text = message_box.find('a', {'id': 'm2m_unread_c'}).text.strip()
+        matches = re.findall(r'\((.*?)\)', msg_text)
+        if len(matches) > 0:
+            unread_summery['from_members'] = int(matches[0].strip())
+        else:
+            unread_summery['from_members'] = 0
+
+        msg_text = message_box.find('a', {'id': 'ebay_unread_c'}).text.strip()
+        matches = re.findall(r'\((.*?)\)', msg_text)
+        if len(matches) > 0:
+            unread_summery['from_ebay'] = int(matches[0].strip())
+        else:
+            unread_summery['from_ebay'] = 0
+
+        msg_text = message_box.find('a', {'id': 'priority_unread_c'}).text.strip()
+        matches = re.findall(r'\((.*?)\)', msg_text)
+        if len(matches) > 0:
+            unread_summery['high_priority'] = int(matches[0].strip())
+        else:
+            unread_summery['high_priority'] = 0
+
+
+        messages = []
+        rows = soup.find_all('tr')
+        for row in rows:
+            message_id = row.get('id', '')
+            if row.find('td', {'id': f'{message_id}-from'}):
+                from_user = row.find('td', {'id': f'{message_id}-from'}).div.text
+                print("from_user:", from_user)
+            else:
+                from_user = ""
+
+            if row.find('td', {'id': f'{message_id}-sub'}):
+                subject_div = row.find('td', {'id': f'{message_id}-sub'}).div
+                subject = subject_div.text
+                print("subject:", subject)
+            else:
+                subject = ""
+
+            if row.find('td', {'id': f'{message_id}-itm-ends'}):
+                item_ends = row.find('td', {'id': f'{message_id}-itm-ends'}).div.text
+                print("item_ends:", item_ends)
+            else:
+                item_ends = ""
+
+            if row.find('td', {'id': f'{message_id}-msg-recvd'}):
+                received_date = row.find('td', {'id': f'{message_id}-msg-recvd'}).div.text
+                print("received_date:", received_date)
+            else:
+                received_date = ""
+
+            read_status = 'unread' if 'msg-unread' in row.get('class', []) else 'read'
+
+            # Creating a message dictionary
+            message = {
+                'id': message_id,
+                'from': from_user,
+                'subject': subject,
+                'item_ends': item_ends,
+                'received_date': received_date,
+                'read_status': read_status
+            }
+            messages.append(message)
+
+        pagefull_of_msgs["unread_summery"] = unread_summery
         pagefull_of_msgs["msgs"] = messages
         log3("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
         # log3(json.dumps(pagefull_of_orders))
@@ -354,7 +412,7 @@ def ebay_seller_get_customer_msg_list(html_file, pidx):
 
 
 
-def ebay_seller_get_customer_msg_thread(html_file):
+def ebaySellerGetCustomerMsgThread(html_file, src_type):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         thread = []
@@ -364,31 +422,33 @@ def ebay_seller_get_customer_msg_thread(html_file):
 
         # Output will be a dictionary representing the parsed JavaScript code
         # log3(json.dumps(esprima_output))
+        if src_type == "file":
+            with open(html_file, 'rb') as fp:
+                soup = BeautifulSoup(fp, 'html.parser')
+        else:
+            soup = BeautifulSoup(html_file, 'html.parser')
 
-        with open(html_file, 'rb') as fp:
-            soup = BeautifulSoup(fp, 'html.parser')
+        scriptItems = soup.findAll("script")
 
-            scriptItems = soup.findAll("script")
+        for item in scriptItems:
+            pattern = r'New message from'
+            found = re.findall(pattern, item.text)
+            if found:
+                print("found script segment")
+                # New message from:\n            \u003Ca href =
+                pattern = r'u003Cstrong>(.*?)\\u003Cdiv style=\\\"font-weight\:bold'
 
-            for item in scriptItems:
-                pattern = r'New message from'
-                found = re.findall(pattern, item.text)
-                if found:
-                    print("found script segment")
-                    # New message from:\n            \u003Ca href =
-                    pattern = r'u003Cstrong>(.*?)\\u003Cdiv style=\\\"font-weight\:bold'
+                # Use re.findall to extract all occurrences
+                messages = re.findall(pattern, item.text, re.DOTALL)
 
-                    # Use re.findall to extract all occurrences
-                    messages = re.findall(pattern, item.text, re.DOTALL)
-
-                    # Output the messages
-                    print("found N:", len(messages))
-                    for index, message in enumerate(messages):
-                        pattern = r'\\.*?>'
-                        # Replace the pattern with a newline character
-                        modified_text = re.sub(pattern, '\n', message)
-                        print(f"Message {index + 1}: {modified_text.strip()}")
-                        thread.append(modified_text)
+                # Output the messages
+                print("found N:", len(messages))
+                for index, message in enumerate(messages):
+                    pattern = r'\\.*?>'
+                    # Replace the pattern with a newline character
+                    modified_text = re.sub(pattern, '\n', message)
+                    print(f"Message {index + 1}: {modified_text.strip()}")
+                    thread.append(modified_text)
 
 
     except Exception as e:
@@ -399,7 +459,7 @@ def ebay_seller_get_customer_msg_thread(html_file):
     return thread
 
 
-def ebay_seller_get_system_msg_thread(html_file):
+def ebaySellerGetSystemMsgThread(html_file, src_type):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         thread = []
@@ -467,7 +527,7 @@ def extract_text(html_content):
 
 
 
-def genStepEbayScrapeOrdersHtml(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
+def genStepEbayScrapeOrdersFromHtml(html_dir, dir_name_type, html_file, pidx, outvar, statusvar, stepN):
     stepjson = {
         "type": "EBAY Scrape Orders Html",
         "pidx": pidx,                   # page index, there could be multiple pages of orders.
@@ -480,8 +540,24 @@ def genStepEbayScrapeOrdersHtml(html_dir, dir_name_type, html_file, pidx, outvar
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepEbayScrapeOrdersFromJss(jss_var, jss_var_type, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "EBAY Scrape Orders Javascript",
+        "pidx": pidx,                   # page index, there could be multiple pages of orders.
+        "jss_var": jss_var,             # java scripts pointer
+        "jss_var_type": jss_var_type,   # "direct"/"var"/"expr" this directory could be a literal string or a variable.
+        "result": outvar,               # result variable
+        "status": statusvar             # status of the execution of this instruction.
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+
+
+
 html_dir = ""
-def processEbayScrapeOrdersHtml(step, i):
+def processEbayScrapeOrdersFromHtml(step, i):
     global html_dir
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -512,3 +588,36 @@ def processEbayScrapeOrdersHtml(step, i):
         log3(ex_stat)
 
     return next_i, ex_stat
+
+
+
+
+def processEbayScrapeOrdersFromJss(step, i):
+    global html_dir
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        pidx = symTab[step["pidx"]]
+        print("hello??????????")
+        if step["jss_var_type"] == "direct":
+            jss = step["jss_var"]
+        else:
+            jss = symTab[step["jss_var"]]
+
+        pagefull_of_orders = {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": None}
+        orders = []
+        option_tags = []
+        ebaySellerJS2Orders(jss, pagefull_of_orders)
+
+        symTab[step["result"]] = pagefull_of_orders
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorEbayScrapeOrdersJss:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorEbayScrapeOrdersJss traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat

@@ -80,6 +80,7 @@ if __name__ == '__main__':
     # test_selenium_amazon_shop()
     # test_selenium_GS()
     # test_selenium_amazon()
+    # test_parse_xml()
 
     try:
         main()

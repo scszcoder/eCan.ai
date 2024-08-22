@@ -11,6 +11,8 @@ from Cloud import gen_wan_send_chat_message_string, gen_wan_subscription_connect
 import base64
 from datetime import datetime
 from Logger import log3
+import xml.etree.ElementTree as ET
+import trace
 
 # Wan Chat Logic
 # Commander will connect to websocket and subscribe, and wan logging is default off, then sit in a loop
@@ -62,6 +64,7 @@ async def wanSendMessage(msg_req, token, websocket):
             "chatID": msg_req["chatID"],
             "sender": msg_req["sender"],
             "receiver": msg_req["receiver"],
+            "type": msg_req["type"],
             "contents": msg_req["contents"],
             # "content": {
             #     "text": msg_req["contents"]
@@ -247,7 +250,19 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                 while True:
                     try:
                         message = await websocket.recv()
-                        print(f"SUBSCRIBE Received message: {message}")
+                        print(f"SUBSCRIBE Received message: {message}", type(message))  # this is string.
+                        # send the message to
+                        rcvd = json.loads(message)
+                        print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
+                        # route the message either to chat or RPA
+                        if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
+                            asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                        elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
+                            asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                        else:
+                            rx_contents = json.loads(rcvd["payload"]["data"]["onMessageReceived"]["contents"])
+                            print("type of rx_contents", type(rx_contents))
+                            asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                     except websockets.exceptions.ConnectionClosed:
                         print("WebSocket connection closed.")
                         break
@@ -259,3 +274,48 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
         await subscribe_to_wan_chat()
 
 
+def parseCommandString(input_str):
+    # Check if the string starts with ':'
+    if input_str.startswith(":"):
+        # Remove the leading ':' character
+        input_str = input_str[1:]
+
+        # Try to parse the XML content
+        try:
+            root = ET.fromstring(input_str)
+
+            # Extract the command name from the text content of the <cmd> tag
+            cmd_type = root.tag             # could be "cmd", "resp",
+
+            # Parse known tags and add them to the command structure
+            if cmd_type == "cmd":
+                command = {}
+                cmd_name = root.findtext('.')
+                command["name"] = cmd_name.strip() if cmd_name else None
+                for child in root:
+                    if child.tag in ["bots", "missions", "skills", "vehicle", "logs", "log outlets", "data", "file"]:
+                        if child.text:
+                            command[child.tag] = child.text.strip()
+                        else:
+                            command[child.tag] = None
+                print("COMMAND:", command)
+                return json.dumps(command, indent=4)
+            elif cmd_type == "resp":
+                response = {}
+                resp_name = root.findtext('.')
+                response["name"] = resp_name.strip() if resp_name else None
+                for child in root:
+                    if child.tag in ["hil", "file"]:
+                        if child.text:
+                            response[child.tag] = child.text.strip()
+                        else:
+                            response[child.tag] = None
+                print("RESPONSE:", response)
+                return json.dumps(response, indent=4)
+
+        except ET.ParseError:
+            return "Invalid XML command format."
+
+    else:
+        # Return the input string as a regular chat message
+        return input_str
