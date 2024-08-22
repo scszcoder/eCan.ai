@@ -111,12 +111,12 @@ RAIS = {
     "Browse": lambda x,y: processBrowse(x, y),
     "Text To Number": lambda x,y: processTextToNumber(x, y),
     "Extract Info": lambda x,y,z,k: processExtractInfo(x, y, z, k),
-    "Text Input": lambda x,y: processTextInput(x, y),
-    "Mouse Click": lambda x,y: processMouseClick(x, y),
-    "Mouse Scroll": lambda x,y: processMouseScroll(x, y),
+    "Text Input": lambda x,y,z: processTextInput(x, y, z),
+    "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
+    "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
-    "Key Input": lambda x,y: processKeyInput(x, y),
+    "Key Input": lambda x,y,z: processKeyInput(x, y, z),
     "App Open": lambda x,y: processOpenApp(x, y),
     "Create Data": lambda x,y: processCreateData(x, y),
     "Fill Data": lambda x,y: processFillData(x, y),
@@ -196,20 +196,20 @@ RAIS = {
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y),
-    "Web Driver Click": lambda x,y: processWebdriverClick(x, y),
-    "Web Driver Scroll To": lambda x,y: processWebdriverScrollTo(x, y),
-    "Web Driver Key In": lambda x, y: processWebdriverKeyIn(x, y),
-    "Web Driver Combo Keys": lambda x, y: processWebdriverComboKeys(x, y),
-    "Web Driver Hover To": lambda x, y: processWebdriverHoverTo(x, y),
-    "Web Driver Focus": lambda x, y: processWebdriverFocus(x, y),
-    "Web Driver Select Drop Down": lambda x, y: processWebdriverSelectDropDown(x, y),
+    "Web Driver Click": lambda x,y,z: processWebdriverClick(x, y, z),
+    "Web Driver Scroll To": lambda x,y,z: processWebdriverScrollTo(x, y, z),
+    "Web Driver Key In": lambda x, y,z: processWebdriverKeyIn(x, y, z),
+    "Web Driver Combo Keys": lambda x,y,z: processWebdriverComboKeys(x, y, z),
+    "Web Driver Hover To": lambda x,y,z: processWebdriverHoverTo(x, y, z),
+    "Web Driver Focus": lambda x, y,z: processWebdriverFocus(x, y, z),
+    "Web Driver Select Drop Down": lambda x, y, z: processWebdriverSelectDropDown(x, y, z),
     "Web Driver Back": lambda x, y: processWebdriverBack(x, y),
     "Web Driver Forward": lambda x, y: processWebdriverForward(x, y),
     "Web Driver Go To Tab": lambda x, y: processWebdriverGoToTab(x, y),
     "Web Driver New Tab": lambda x, y: processWebdriverNewTab(x, y),
     "Web Driver Close Tab": lambda x, y: processWebdriverCloseTab(x, y),
     "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
-    "Web Driver Execute Js": lambda x, y: processWebdriverExecuteJs(x, y),
+    "Web Driver Execute Js": lambda x, y, z: processWebdriverExecuteJs(x, y, z),
     "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
     "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
@@ -234,12 +234,12 @@ ARAIS = {
     "Text To Number": lambda x,y: processTextToNumber(x, y),
     # "Extract Info": lambda x,y,z,k: processExtractInfo8(x, y, z, k),
     "Extract Info": processExtractInfo8,
-    "Text Input": lambda x,y: processTextInput(x, y),
-    "Mouse Click": lambda x,y: processMouseClick(x, y),
-    "Mouse Scroll": lambda x,y: processMouseScroll(x, y),
+    "Text Input": lambda x,y,z: processTextInput(x, y, z),
+    "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
+    "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
-    "Key Input": lambda x,y: processKeyInput(x, y),
+    "Key Input": lambda x,y,z: processKeyInput(x, y, z),
     "App Open": lambda x,y: processOpenApp(x, y),
     "Create Data": lambda x,y: processCreateData(x, y),
     "Fill Data": lambda x,y: processFillData(x, y),
@@ -261,7 +261,7 @@ ARAIS = {
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
-    "Think": lambda x, y: processThink8(x, y, z),
+    "Think": lambda x, y, z: processThink8(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
     "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
@@ -319,20 +319,20 @@ ARAIS = {
     "Go To Window": lambda x,y: processGoToWindow(x, y),
     "Move Downloaded File": lambda x,y: processMoveDownloadedFileToDestination(x, y),
     "Report To Boss": lambda x,y: processReportToBoss(x, y),
-    "Web Driver Click": lambda x,y: processWebdriverClick(x, y),
-    "Web Driver Scroll To": lambda x,y: processWebdriverScrollTo(x, y),
-    "Web Driver Key In": lambda x, y: processWebdriverKeyIn(x, y),
-    "Web Driver Combo Keys": lambda x, y: processWebdriverComboKeys(x, y),
-    "Web Driver Hover To": lambda x, y: processWebdriverHoverTo(x, y),
-    "Web Driver Focus": lambda x, y: processWebdriverFocus(x, y),
-    "Web Driver Select Drop Down": lambda x, y: processWebdriverSelectDropDown(x, y),
+    "Web Driver Click": lambda x,y, z: processWebdriverClick(x, y, z),
+    "Web Driver Scroll To": lambda x,y, z: processWebdriverScrollTo(x, y, z),
+    "Web Driver Key In": lambda x, y, z: processWebdriverKeyIn(x, y, z),
+    "Web Driver Combo Keys": lambda x, y, z: processWebdriverComboKeys(x, y, z),
+    "Web Driver Hover To": lambda x, y, z: processWebdriverHoverTo(x, y, z),
+    "Web Driver Focus": lambda x, y, z: processWebdriverFocus(x, y, z),
+    "Web Driver Select Drop Down": lambda x, y, z: processWebdriverSelectDropDown(x, y, z),
     "Web Driver Back": lambda x, y: processWebdriverBack(x, y),
     "Web Driver Forward": lambda x, y: processWebdriverForward(x, y),
     "Web Driver Go To Tab": lambda x, y: processWebdriverGoToTab(x, y),
     "Web Driver New Tab": lambda x, y: processWebdriverNewTab(x, y),
     "Web Driver Close Tab": lambda x, y: processWebdriverCloseTab(x, y),
     "Web Driver Quit": lambda x, y: processWebdriverQuit(x, y),
-    "Web Driver Execute Js": lambda x, y: processWebdriverExecuteJs(x, y),
+    "Web Driver Execute Js": lambda x, y, z: processWebdriverExecuteJs(x, y, z),
     "Web Driver Refresh Page": lambda x, y: processWebdriverRefreshPage(x, y),
     "Web Driver Screen Shot": lambda x, y: processWebdriverScreenShot(x, y),
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
@@ -588,8 +588,12 @@ def run1step(steps, si, mission, skill, stack):
             si,isat = RAIS[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = RAIS[step["type"]](step, si, mission, skill)
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or step["type"] == "Ask LLM" or \
-                step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status":
+        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
+            step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or \
+            step["type"] == "Web Driver Scroll To" or  step["type"] == "Web Driver Execute Js" or \
+            step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or \
+            step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
+            "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si,isat = RAIS[step["type"]](step, si, stack, stepKeys)
@@ -645,8 +649,11 @@ async def run1step8(steps, si, mission, skill, stack):
                 si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
         elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
-                step["type"] == "Obtain Reviews" or step["type"] == "Ask LLM"  or \
-                step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status":
+             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or \
+                step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or \
+                step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
+             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
+             "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)
             else:

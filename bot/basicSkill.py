@@ -1575,9 +1575,10 @@ def processFillRecipients(step, i):
 #  speed: type speed.
 #  key_after: key to hit after textinput. (could be "", "enter",
 #  wait_after: number of seconds to wait after key_after action.
-def processTextInput(step, i):
+def processTextInput(step, i, mission):
     global page_stack
     global current_context
+    mainwin = mission.get_main_win()
     ex_stat = DEFAULT_RUN_STATUS
     try:
         # log3("Keyboard typing......", nthSearch, type(nthSearch), type(run_config), run_config, list(run_config.keys()))
@@ -1879,9 +1880,10 @@ def is_float(string):
 # "nth": nth,  # [0,0] in case of there are multiple occurance of target on the screen, click on which one? [n, m] would be nth from left, mth from top
 # "offset_from": offset_from,  # click at a offset from object's bound box side, left/top/right/bottom/center are choices. if left/right, y coordinate is default to be center, if top/bottom, x coordiate default to be center.
 # "offset": offset  # offset in x and y direction,
-def processMouseClick(step, i):
+def processMouseClick(step, i, mission):
     global page_stack
     global current_context
+    mainwin = mission.get_main_win()
     log3("Mouse Clicking .....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -1984,10 +1986,10 @@ def processMouseClick(step, i):
     return (i + 1), ex_stat
 
 # max 4 combo key stroke
-def processKeyInput(step, i):
+def processKeyInput(step, i, mission):
     global page_stack
     global current_context
-
+    mainwin = mission.get_main_win()
     ex_stat = DEFAULT_RUN_STATUS
     try:
         keys = step["action_value"].split(',')
@@ -2047,8 +2049,9 @@ def loc_center(box):
 def box_center(box):
     return (box[0]+int((box[2]-box[0])/2), box[1]+int((box[3]-box[1])/2))
 
-def processMouseScroll(step, i):
+def processMouseScroll(step, i, mission):
     screen_data = symTab[step["screen"]]
+    mainwin = mission.get_main_win()
     # log3("screen_data: "+json.dumps(screen_data))
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -2869,7 +2872,7 @@ def processReturn(step, i, stack, step_keys):
 
         #  set the pointer to the return to pointer.
         next_i = stack.pop()
-        plog3rint("after return, will run @"+str(next_i))
+        log3("after return, will run @"+str(next_i), "processReturn")
 
 
 
@@ -2881,7 +2884,7 @@ def processReturn(step, i, stack, step_keys):
             ex_stat = "ErrorReturn:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorReturn: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processReturn")
 
     return next_i, ex_stat
 
