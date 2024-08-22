@@ -143,17 +143,24 @@ class BOT_PRIVATE_PROFILE():
         self.addr = l1 + "\n" + l2 + "\n" + city + ", " + state + " " + zip
 
     def setAddr1(self, addr):
-        self.addr = addr
-        addr_lines = addr.split("\n")
-        print("addr:", addr)
-        print("addr lines#", len(addr_lines))
-        if len(addr_lines) == 3:
-            self.addrl1 = addr_lines[0]
-            self.addrl2 = addr_lines[1]
-            fields = addr_lines[2].split(",")
-            self.addrcity = fields[0].strip()
-            self.addrstate = fields[1].split()[0].strip()
-            self.addrzip = fields[1].split()[1].strip()
+        if addr:
+            self.addr = addr
+            addr_lines = addr.split("\n")
+            print("addr:", addr)
+            print("addr lines#", len(addr_lines))
+            if len(addr_lines) == 3:
+                self.addrl1 = addr_lines[0]
+                self.addrl2 = addr_lines[1]
+                fields = addr_lines[2].split(",")
+                self.addrcity = fields[0].strip()
+                self.addrstate = fields[1].split()[0].strip()
+                self.addrzip = fields[1].split()[1].strip()
+        else:
+            self.addrl1 = ""
+            self.addrl2 = ""
+            self.addrcity = ""
+            self.addrstate = ""
+            self.addrzip = ""
 
     def setShippingAddr(self, l1, l2, city, state, zip):
         self.shipping_addrl1 = l1
@@ -166,19 +173,25 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addr = l1 + "\n" + l2 + "\n" + city + ", " + state + " " + zip
 
     def setShippingAddr1(self, addr):
-        self.shipping_addr = addr
+        if addr:
+            self.shipping_addr = addr
+            addr_lines = addr.split("\n")
+            print("saddr:", addr)
+            print("saddr lines#", len(addr_lines))
 
-        addr_lines = addr.split("\n")
-        print("saddr:", addr)
-        print("saddr lines#", len(addr_lines))
-
-        if len(addr_lines) == 3:
-            self.shipping_addrl1 = addr_lines[0]
-            self.shipping_addrl2 = addr_lines[1]
-            fields = addr_lines[2].split(",")
-            self.shipping_addrcity = fields[0].strip()
-            self.shipping_addrstate = fields[1].split()[0].strip()
-            self.shipping_addrzip = fields[1].split()[1].strip()
+            if len(addr_lines) == 3:
+                self.shipping_addrl1 = addr_lines[0]
+                self.shipping_addrl2 = addr_lines[1]
+                fields = addr_lines[2].split(",")
+                self.shipping_addrcity = fields[0].strip()
+                self.shipping_addrstate = fields[1].split()[0].strip()
+                self.shipping_addrzip = fields[1].split()[1].strip()
+        else:
+            self.shipping_addrl1 = ""
+            self.shipping_addrl2 = ""
+            self.shipping_addrcity = ""
+            self.shipping_addrstate = ""
+            self.shipping_addrzip = ""
 
     def setPhone(self, phone):
         self.phone = phone
