@@ -6314,6 +6314,7 @@ class MainWindow(QMainWindow):
             print("sending heartbeat")
             asyncio.ensure_future(self.wan_send_heartbeat())
 
+
     def wan_chat_test(self):
         if self.host_role == "Staff Officer":
             asyncio.ensure_future(self.wan_ping())
