@@ -384,11 +384,14 @@ def genStepWebdriverWaitDownloadDoneAndTransfer(driver_var, dl_dir_var, dl_file_
 
 
 # ====== now the processing routines for the step instructions.
-def processWebdriverClick(step, i):
-    log3("click....")
+def processWebdriverClick(step, i, mission):
+    mainwin = mission.get_main_win()
+
     ex_stat = DEFAULT_RUN_STATUS
     try:
         symTab[step["clickable"]].click()
+
+        log3("WebdriverClick:["+step["clickable"]+"]", "processWebdriverClick", mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -398,7 +401,7 @@ def processWebdriverClick(step, i):
             ex_stat = "ErrorWebdriverClick:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverClick: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processWebdriverClick", mainwin)
 
     return (i+1), ex_stat
 
@@ -479,7 +482,6 @@ def processWebdriverStartExistingChrome(step, i):
 
 def processWebdriverStartNewChrome(step, i):
     try:
-
         symTab[step["result"]] = webdriver.Chrome()
 
     except Exception as e:
@@ -555,10 +557,10 @@ def smoothScrollToElement(driver, element, increment=50):
         print(ex_stat)
 
 
-def processWebdriverScrollTo(step, i):
+def processWebdriverScrollTo(step, i, mission):
     try:
         ex_stat = DEFAULT_RUN_STATUS
-
+        mainwin = mission.get_main_win()
         driver = symTab[step["driver_var"]]
         # element_type = step["element_type_var"]
         # element_name = step["element_var"]
@@ -606,7 +608,7 @@ def processWebdriverScrollTo(step, i):
         WebDriverWait(driver, 2).until(
             EC.visibility_of(target_element)
         )
-
+        log3("WebdriverScrollTo:[" + step["target_var"] + "]", "processWebdriverScrollTo", mainwin)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -615,14 +617,14 @@ def processWebdriverScrollTo(step, i):
             ex_stat = "ErrorWebdriverScrollTo:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverScrollTo: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processWebdriverScrollTo", mainwin)
 
     return (i + 1), ex_stat
 
 
-def processWebdriverKeyIn(step, i):
+def processWebdriverKeyIn(step, i, mission):
     try:
-
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         target = symTab[step["target_var"]]
@@ -633,7 +635,7 @@ def processWebdriverKeyIn(step, i):
         # wait.until(EC.presence_of_element_located(target))
         target.clear()
         target.send_keys(text)
-
+        log3("WebdriverKeyIn:["+step["target_var"]+"]'"+text+"'", "processWebdriverKeyIn", mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -643,20 +645,20 @@ def processWebdriverKeyIn(step, i):
             ex_stat = "ErrorWebdriverKeyIn:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverKeyIn: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processWebdriverKeyIn", mainwin)
 
     return (i + 1), ex_stat
 
 
 
-def processWebdriverComboKeys(step, i):
+def processWebdriverComboKeys(step, i, mission):
     try:
-
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         target = symTab[step["target_var"]]
         keys_list = symTab[step["kl_var"]]
-        log3("wait for target to load")
+        log3("WebdriverComboKeys:["+step["target_var"]+"]", "processWebdriverComboKeys", mainwin)
         wait = WebDriverWait(driver, 10)
 
         wait.until(EC.presence_of_element_located(target))
@@ -677,7 +679,7 @@ def processWebdriverComboKeys(step, i):
             ex_stat = "ErrorWebdriverComboKeys:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverComboKeys: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processWebdriverComboKeys", mainwin)
 
     return (i + 1), ex_stat
 
@@ -884,8 +886,9 @@ def processWebdriverForward(step, i):
 
 
 
-def processWebdriverHoverTo(step, i):
+def processWebdriverHoverTo(step, i, mission):
     try:
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         target = symTab[step["target_var"]]
@@ -935,8 +938,9 @@ def processWebdriverScreenShot(step, i):
 
 
 
-def processWebdriverFocus(step, i):
+def processWebdriverFocus(step, i, mission):
     try:
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         target = symTab[step["target_var"]]
@@ -949,7 +953,7 @@ def processWebdriverFocus(step, i):
 
         # Focus on the input field using JavaScript
         driver.execute_script("arguments[0].focus();", input_field)
-
+        log3("WebdriverFocus:["+step["target_var"]+"]", "processWebdriverFocus", mainwin)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -958,7 +962,7 @@ def processWebdriverFocus(step, i):
             ex_stat = "ErrorWebdriverFocus:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverFocus: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processWebdriverFocus", mainwin)
 
     return (i + 1), ex_stat
 
@@ -974,7 +978,7 @@ def execute_js_script(driver, script, *args):
     """
     return driver.execute_script(script, *args)
 
-def processWebdriverExecuteJs(step, i):
+def processWebdriverExecuteJs(step, i, mission):
     try:
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
@@ -1423,7 +1427,7 @@ def processWebdriverWaitDownloadDoneAndTransfer(step, i):
             ex_stat = "ErrorWebdriverWaitDownloadDoneAndTransfer:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverWaitDownloadDoneAndTransfer: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processWebdriverWaitDownloadDoneAndTransfer")
         symTab[step["flag"]] = False
 
     return (i + 1), ex_stat

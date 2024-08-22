@@ -260,6 +260,8 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
                             asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                         else:
+                            rx_contents = json.loads(rcvd["payload"]["data"]["onMessageReceived"]["contents"])
+                            print("type of rx_contents", type(rx_contents))
                             asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                     except websockets.exceptions.ConnectionClosed:
                         print("WebSocket connection closed.")
@@ -281,21 +283,35 @@ def parseCommandString(input_str):
         # Try to parse the XML content
         try:
             root = ET.fromstring(input_str)
-            command = {}
 
             # Extract the command name from the text content of the <cmd> tag
-            cmd_name = root.findtext('.')
-            command["name"] = cmd_name.strip() if cmd_name else None
+            cmd_type = root.tag             # could be "cmd", "resp",
 
             # Parse known tags and add them to the command structure
-            for child in root:
-                if child.tag in ["bots", "missions", "skills", "vehicle", "logs", "log outlets", "data", "file"]:
-                    if child.text:
-                        command[child.tag] = child.text.strip()
-                    else:
-                        command[child.tag] = None
-            print("COMMAND:", command)
-            return json.dumps(command, indent=4)
+            if cmd_type == "cmd":
+                command = {}
+                cmd_name = root.findtext('.')
+                command["name"] = cmd_name.strip() if cmd_name else None
+                for child in root:
+                    if child.tag in ["bots", "missions", "skills", "vehicle", "logs", "log outlets", "data", "file"]:
+                        if child.text:
+                            command[child.tag] = child.text.strip()
+                        else:
+                            command[child.tag] = None
+                print("COMMAND:", command)
+                return json.dumps(command, indent=4)
+            elif cmd_type == "resp":
+                response = {}
+                resp_name = root.findtext('.')
+                response["name"] = resp_name.strip() if resp_name else None
+                for child in root:
+                    if child.tag in ["hil", "file"]:
+                        if child.text:
+                            response[child.tag] = child.text.strip()
+                        else:
+                            response[child.tag] = None
+                print("RESPONSE:", response)
+                return json.dumps(response, indent=4)
 
         except ET.ParseError:
             return "Invalid XML command format."

@@ -1515,6 +1515,31 @@ class MainWindow(QMainWindow):
         #     mfp.close()
         # skfp.close()
 
+    def handleCloudScheduledWorks(self, bodyobj):
+        print("handleCloudScheduledWorks....", len(bodyobj), type(bodyobj))
+        for nm in bodyobj["added_missions"]:
+            today = datetime.today()
+            formatted_today = today.strftime('%Y-%m-%d')
+            bd_parts = nm["createon"].split()
+            nm["createon"] = formatted_today + " " + bd_parts[1]
+        print("created on date generated.")
+        # self.showMsg("bodyobj: " + json.dumps(bodyobj))
+        if len(bodyobj) > 0:
+            print("BEGIN ASSIGN INCOMING MISSION....")
+            self.addNewlyAddedMissions(bodyobj)
+            # now that todays' newly added missions are in place, generate the cookie site list for the run.
+            self.build_cookie_site_lists()
+            self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
+            # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+            self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
+            self.unassigned_task_groups = self.todays_scheduled_task_groups
+
+            # for works on this host, add to the list of todos, otherwise send to the designated vehicle.
+            self.assignWork()
+            self.logDailySchedule(json.dumps(bodyobj))
+        else:
+            print("WARN: empty obj")
+            self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
 
     # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings):
@@ -1550,8 +1575,11 @@ class MainWindow(QMainWindow):
                 self.showMsg("decomppressed response:"+uncompressed+"!")
                 if uncompressed != "":
                     self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+
+                    bodyobj = {"task_groups": {}, "added_missions": []}
+
                     if not self.debug_mode:
-                        bodyobj = json.loads(uncompressed)                  # for test purpose, comment out, put it back when test is done....
+                        bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
                     else:
                         # file = 'C:/software/scheduleResultTest7.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
@@ -1563,25 +1591,7 @@ class MainWindow(QMainWindow):
                             with open(file) as test_schedule_file:
                                 bodyobj = json.load(test_schedule_file)
 
-                    for nm in bodyobj["added_missions"]:
-                        today = datetime.today()
-                        formatted_today = today.strftime('%Y-%m-%d')
-                        bd_parts = nm["createon"].split()
-                        nm["createon"] = formatted_today + " " + bd_parts[1]
-
-                    self.showMsg("bodyobj: " + json.dumps(bodyobj))
-                    if len(bodyobj) > 0:
-                        self.addNewlyAddedMissions(bodyobj)
-                        # now that todays' newly added missions are in place, generate the cookie site list for the run.
-                        self.build_cookie_site_lists()
-                        self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
-                        # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
-                        self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
-                        self.unassigned_task_groups = self.todays_scheduled_task_groups
-                        self.assignWork()
-                        self.logDailySchedule(uncompressed)
-                    else:
-                        self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
+                    self.handleCloudScheduledWorks(bodyobj)
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
@@ -2354,7 +2364,7 @@ class MainWindow(QMainWindow):
     # in case of 2 elements, the 0th element will be the fetch schedule, the 1st element will be the bot tasks(as a whole)
     # self.todays_work = {"tbd": [], "allstat": "working"}
     def checkNextToRun(self):
-        self.showMsg("checking todos...... "+json.dumps(self.todays_work["tbd"]))
+        # log3("checkNextToRun:checking todos...... "+json.dumps(self.todays_work["tbd"]), "checkNextToRun", self)
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
@@ -5302,6 +5312,7 @@ class MainWindow(QMainWindow):
             elif msg["type"] == "status":
                 # update vehicle status display.
                 self.showMsg(msg["content"])
+                log3("msg type:" + "status", "servePlatoons", self)
                 self.showMsg("recevied a status update message")
                 if self.platoonWin:
                     self.showMsg("updating platoon WIN")
@@ -5314,7 +5325,7 @@ class MainWindow(QMainWindow):
 
             elif msg["type"] == "report":
                 # collect report, the report should be already organized in json format and ready to submit to the network.
-                self.showMsg("msg type:"+str(type(msg)))
+                log3("msg type:"+"report", "servePlatoons", self)
                 #msg should be in the following json format {"ip": self.ip, "type": "report", "content": []]}
                 self.todaysPlatoonReports.append(msg)
 
@@ -5359,7 +5370,7 @@ class MainWindow(QMainWindow):
                 self.receiveBotLogMessage(msg["content"])
             elif msg["type"] == "heartbeat":
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.showMsg("Heartbeat From Vehicle: "+msg["ip"])
+                log3("Heartbeat From Vehicle: "+msg["ip"], "servePlatoons", self)
             else:
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.showMsg("unknown type:"+msg["contents"])
@@ -5372,6 +5383,7 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorprocessPlatoonMsgs:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorprocessPlatoonMsgs: traceback information not available:" + str(e)
+            log3(ex_stat, "servePlatoons", self)
 
             self.showMsg(ex_stat)
 
@@ -5901,7 +5913,9 @@ class MainWindow(QMainWindow):
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
                 self.showMsg(f"RPA Monitor message: {message}")
+
                 self.update_moitor_gui(message)
+
                 monitor_msg_queue.task_done()
 
             # print("polling chat msg queue....")
@@ -5909,14 +5923,10 @@ class MainWindow(QMainWindow):
 
 
     def update_moitor_gui(self, in_message):
-        self.showMsg(f"RPA Monitor:"+in_message)
-        if in_message["cmd"] in ["show", "hide"]:
-            if in_message["logs"] == "all":
-                print("loag all")
-            else:
-                ols = in_message["logs"].split(",").strip()
-
-
+        # self.showMsg(f"RPA Monitor:"+in_message)
+        if in_message["type"] == "request mission":
+            new_works = json.loads(in_message["contents"])
+            self.handleCloudScheduledWorks(new_works)
 
 
     # note recipient could be a group ID.
@@ -6157,38 +6167,50 @@ class MainWindow(QMainWindow):
     async def wait_forever(self):
         await asyncio.Event().wait()  # This will wait indefinitely
 
-    async def wan_ping(self, token):
+    async def wan_ping(self):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
-                "chatID": self.chat_id,
+                "chatID": commander_chat_id,
                 "sender": self.chat_id,
                 "receiver": commander_chat_id,
-                "type": "test ping",
-                # "contents": json.dumps({"type": "cmd", "cmd": "start log"}).replace('"', '\\"'),
-                "contents": json.dumps({"type": "cmd", "cmd": "start log"}),
+                "type": "ping",
+                "contents": json.dumps({"msg": "hello?"}).replace('"', '\\"'),
                 "parameters": json.dumps({})
             }
 
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token, self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
 
-    async def wan_pong(self, token):
+    async def wan_pong(self):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
             ping_msg = {
-                "chatID": self.chat_id,
-                "sender": "",
+                "chatID": sa_chat_id,
+                "sender": "Commander",
                 "receiver": sa_chat_id,
-                "type": "test pong",
-                "contents": json.dumps({"type": "cmd", "cmd": "pong"}),
+                "type": "pong",
+                "contents": json.dumps({"type": "cmd", "cmd": "pong"}).replace('"', '\\"'),
                 "parameters": json.dumps({}),
 
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token, self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+
+    async def wan_send_log(self, logmsg):
+        if self.host_role != "Staff Officer":
+            so_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            ping_msg = {
+                "chatID": so_chat_id,
+                "sender": "commander",
+                "receiver": self.user,
+                "type": "logs",
+                "contents": json.dumps({"msg": logmsg}).replace('"', '\\"'),
+                "parameters": json.dumps({})
+            }
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
 
-    async def wan_request_log(self, token):
+    async def wan_request_log(self):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
@@ -6196,43 +6218,40 @@ class MainWindow(QMainWindow):
                 "sender": "",
                 "receiver": commander_chat_id,
                 "type": "request command",
-                "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
+                "contents": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
 
-    async def wan_stop_log(self, token):
+    async def wan_stop_log(self):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
-                "id": 0,
                 "chatID": self.chat_id,
-                "content": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}),
                 "sender": "",
                 "receiver": commander_chat_id,
                 "type": "request command",
-                "parameters": "",
-                "timestamp": ""
+                "contents": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}).replace('"', '\\"'),
+                "parameters": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     def wan_rpa_ctrl(self, token):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
-                "content": json.dumps({"type": "cmd", "cmd": "rpa ctrl", "settings": ["all"]}),
                 "chatID": self.chat_id,
+                "sender": "",
                 "receiver": commander_chat_id,
                 "type": "request command",
-                "parameters": "",
-                "sender": ""
+                "contents": json.dumps({"type": "cmd", "cmd": "rpa ctrl", "settings": ["all"]}).replace('"', '\\"'),
+                "parameters": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, token))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     def wan_chat_test(self):
-        token = self.tokens["AuthenticationResult"]["IdToken"]
         if self.host_role == "Staff Officer":
-            asyncio.ensure_future(self.wan_ping(token))
+            asyncio.ensure_future(self.wan_ping())
         elif self.host_role != "Platoon":
-            asyncio.ensure_future(self.wan_pong(token))
+            asyncio.ensure_future(self.wan_pong())
