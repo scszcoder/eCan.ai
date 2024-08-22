@@ -12,7 +12,7 @@ import base64
 from datetime import datetime
 from Logger import log3
 import xml.etree.ElementTree as ET
-import trace
+import traceback
 
 # Wan Chat Logic
 # Commander will connect to websocket and subscribe, and wan logging is default off, then sit in a loop
@@ -59,41 +59,51 @@ async def wanSendMessage(msg_req, token, websocket):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
 
-    variables = {
-        "input": {
-            "chatID": msg_req["chatID"],
-            "sender": msg_req["sender"],
-            "receiver": msg_req["receiver"],
-            "type": msg_req["type"],
-            "contents": msg_req["contents"],
-            # "content": {
-            #     "text": msg_req["contents"]
-            # },
-            "parameters": msg_req["parameters"]
+    try:
+        variables = {
+            "input": {
+                "chatID": msg_req["chatID"],
+                "sender": msg_req["sender"],
+                "receiver": msg_req["receiver"],
+                "type": msg_req["type"],
+                "contents": msg_req["contents"],
+                # "content": {
+                #     "text": msg_req["contents"]
+                # },
+                "parameters": msg_req["parameters"]
+            }
         }
-    }
-    query_string = gen_wan_send_chat_message_string()
-    headers = {
-        'Content-Type': "application/json",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-    print("about to send wan msg:", variables, query_string, headers)
-    print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    async with aiohttp.ClientSession() as session8:
-        async with session8.post(
-                url=APPSYNC_API_ENDPOINT_URL,
-                timeout=aiohttp.ClientTimeout(total=30),
-                headers=headers,
-                json={
-                        'query': query_string,
-                        'variables': variables
-                }
-        ) as response:
-            jresp = await response.json()
-            print("send JRESP:", jresp)
-            return jresp
+        query_string = gen_wan_send_chat_message_string()
+        headers = {
+            'Content-Type': "application/json",
+            'Authorization': token,
+            'cache-control': "no-cache",
+        }
+        print("about to send wan msg:", variables, query_string, headers)
+        print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        async with aiohttp.ClientSession() as session8:
+            async with session8.post(
+                    url=APPSYNC_API_ENDPOINT_URL,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                    headers=headers,
+                    json={
+                            'query': query_string,
+                            'variables': variables
+                    }
+            ) as response:
+                jresp = await response.json()
+                print("send JRESP:", jresp)
+                return jresp
 
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorwanSendMessage:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorwanSendMessage traceback information not available:" + str(e)
+        log3(ex_stat)
 
 async def wanHandleRxMessage(mainwin):
     print("START WAN RX TASK")

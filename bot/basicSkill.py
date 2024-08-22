@@ -653,11 +653,12 @@ def genStepUseExternalSkill(skid, req_mid, skname, owner, in_data, start_time, v
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepReportExternalSkillRunStatus(run_id, skid, start_time, end_time, mid, bid, status, output, stepN):
+def genStepReportExternalSkillRunStatus(run_id, skid, start_time, end_time, mid, bid, requester, status, output, stepN):
     stepjson = {
         "type": "Report External Skill Run Status",
         "run_id": run_id,
         "skill_id": skid,
+        "requester": requester,
         "start_time": start_time,
         "end_time": end_time,
         "status": status,
@@ -1030,9 +1031,9 @@ def captureScreenToFile(win_title_keyword, sfile):
         # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
         im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     else:
-        im0 = pyautogui.screenshot()
-        width, height = im0.size
-        window_rect = [0, 0, width, height]
+        log3("capture default top window")
+        window_name, window_rect = get_top_visible_window("")
+        im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
 
     if not os.path.exists(os.path.dirname(sfile)):
         os.makedirs(os.path.dirname(sfile))
@@ -2744,11 +2745,12 @@ def processReportExternalSkillRunStatus(step, i, mission):
         req = {
             "run_id": step["run_id"],
             "skid": step["skid"],
-            "runner_mid": step["runner_mid"],
-            "runner_bid": step["runner_bid"],
-            "start_time": step["start_time"],
-            "end_time": step["end_time"],
-            "status": step["status"],
+            "runner_mid": symTab[step["runner_mid"]],
+            "runner_bid": symTab[step["runner_bid"]],
+            "requester": symTab[step["requester"]],
+            "start_time": symTab[step["start_time"]],
+            "end_time": symTab[step["end_time"]],
+            "status": symTab[step["status"]],
             "result_data": symTab[step["result_data"]]
         }
         reqs = [req]

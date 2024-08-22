@@ -4942,27 +4942,36 @@ class MainWindow(QMainWindow):
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
     def loadLocalBots(self, db_data: [BotModel]):
-        dict_results = [result.to_dict() for result in db_data]
-        self.showMsg("get local bots from DB::" + json.dumps(dict_results))
-        if len(db_data) != 0:
-            self.bots = []
-            self.botModel.clear()
-            for row in db_data:
-                self.showMsg("loading a bot: "+json.dumps(row.to_dict()))
-                new_bot = EBBOT(self)
-                new_bot.loadDBData(row)
-                print("hello????")
-                new_bot.updateDisplay()
-                self.bots.append(new_bot)
-                self.botModel.appendRow(new_bot)
-                self.selected_bot_row = self.botModel.rowCount() - 1
-                self.selected_bot_item = self.botModel.item(self.selected_bot_row)
+        try:
+            dict_results = [result.to_dict() for result in db_data]
+            self.showMsg("get local bots from DB::" + json.dumps(dict_results))
+            if len(db_data) != 0:
+                self.bots = []
+                self.botModel.clear()
+                for row in db_data:
+                    self.showMsg("loading a bot: "+json.dumps(row.to_dict()))
+                    new_bot = EBBOT(self)
+                    new_bot.loadDBData(row)
+                    print("hello????")
+                    new_bot.updateDisplay()
+                    self.bots.append(new_bot)
+                    self.botModel.appendRow(new_bot)
+                    self.selected_bot_row = self.botModel.rowCount() - 1
+                    self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
-                self.addBotToVehicle(new_bot)
-        else:
-            self.showMsg("WARNING: local bots DB empty!")
-            # self.newBotFromFile()
-
+                    self.addBotToVehicle(new_bot)
+            else:
+                self.showMsg("WARNING: local bots DB empty!")
+                # self.newBotFromFile()
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorloadLocalBots:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorloadLocalBots: traceback information not available:" + str(e)
+            log3(ex_stat)
 
     def addBotToVehicle(self, new_bot):
 
@@ -5101,101 +5110,120 @@ class MainWindow(QMainWindow):
     # this is be run as an async task.
     async def runbotworks(self, gui_rpa_queue, gui_monitor_queue):
         # run all the work
-        running = True
+        try:
+            running = True
+            pre_time = datetime.now()
+            while running:
+                print("runbotwork.....")
+                current_time = datetime.now()
 
-        while running:
-            print("looping runbotworks.....")
-            botTodos = None
-            if self.workingState == "Idle":
-                print("idle checking.....")
-                if self.getNumUnassignedWork() > 0:
-                    self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-                    self.assignWork()
+                # Check if more than 8 seconds have passed since the last heartbeat
+                if (current_time - pre_time).total_seconds() > 18:
+                    print("about to send heartbeat")
+                    pre_time = current_time
+                    # await self.wan_send_heartbeat()
 
-                print("check next to run")
-                botTodos = self.checkNextToRun()
-                if not botTodos == None:
-                    self.showMsg("working on..... "+botTodos["name"])
-                    self.workingState = "Working"
-                    if botTodos["name"] == "fetch schedule":
-                        self.showMsg("fetching schedule.........."+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-                        last_start = int(datetime.now().timestamp()*1)
+                print("real work starts here....")
+                botTodos = None
+                if self.workingState == "Idle":
+                    print("idle checking.....")
+                    if self.getNumUnassignedWork() > 0:
+                        self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                        self.assignWork()
 
-                        # this should be a daily routine, do it along with fetch schedule which is also daily routine.
-                        self.dailySkillsetUpdate()
-
-                        botTodos["status"] = self.fetchSchedule("", self.get_vehicle_settings())
-                        last_end = int(datetime.now().timestamp()*1)
-                        # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
-                        # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
-                        # if "Completed" in botTodos["status"]:
-                        current_run_report = self.genRunReport(last_start, last_end, 0, 0, botTodos["status"])
-                        self.showMsg("POP the daily initial fetch schedule task from queue")
-                        finished = self.todays_work["tbd"].pop(0)
-                        self.todays_completed.append(finished)
-                        time.sleep(5)
-                        self.showMsg("done fetching schedule."+"<>" + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
-                    elif botTodos["name"] == "automation":
-                        # run 1 bot's work
-                        self.showMsg("running RPA..............")
-                        if "Completed" not in botTodos["status"]:
-                            self.showMsg("time to run RPA........"+json.dumps(botTodos))
+                    print("check next to run")
+                    botTodos = self.checkNextToRun()
+                    if not botTodos == None:
+                        self.showMsg("working on..... "+botTodos["name"])
+                        self.workingState = "Working"
+                        if botTodos["name"] == "fetch schedule":
+                            self.showMsg("fetching schedule.........."+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                             last_start = int(datetime.now().timestamp()*1)
-                            current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_rpa_queue, gui_monitor_queue)
+
+                            # this should be a daily routine, do it along with fetch schedule which is also daily routine.
+                            self.dailySkillsetUpdate()
+
+                            botTodos["status"] = self.fetchSchedule("", self.get_vehicle_settings())
                             last_end = int(datetime.now().timestamp()*1)
+                            # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
+                            # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
+                            # if "Completed" in botTodos["status"]:
+                            current_run_report = self.genRunReport(last_start, last_end, 0, 0, botTodos["status"])
+                            self.showMsg("POP the daily initial fetch schedule task from queue")
+                            finished = self.todays_work["tbd"].pop(0)
+                            self.todays_completed.append(finished)
+                            time.sleep(5)
+                            self.showMsg("done fetching schedule."+"<>" + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-                        # else:
-                            # now need to chop off the 0th todo since that's done by now....
-                            #
-                            print("total # of works:"+str(botTodos["current widx"])+":"+str(len(botTodos["works"])))
-                            if current_mid >= 0:
-                                current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
+                        elif botTodos["name"] == "automation":
+                            # run 1 bot's work
+                            self.showMsg("running RPA..............")
+                            if "Completed" not in botTodos["status"]:
+                                self.showMsg("time to run RPA........"+json.dumps(botTodos))
+                                last_start = int(datetime.now().timestamp()*1)
+                                current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_rpa_queue, gui_monitor_queue)
+                                last_end = int(datetime.now().timestamp()*1)
 
-                            # if all tasks in the task group are done, we're done with this group.
-                            if botTodos["current widx"] >= len(botTodos["works"]):
-                                self.showMsg("POP a finished task from queue after runRPA")
-                                finished = self.todays_work["tbd"].pop(0)
-                                self.showMsg("JUST FINISHED A WORK GROUP:"+json.dumps(finished))
-                                self.todays_completed.append(finished)
+                            # else:
+                                # now need to chop off the 0th todo since that's done by now....
+                                #
+                                print("total # of works:"+str(botTodos["current widx"])+":"+str(len(botTodos["works"])))
+                                if current_mid >= 0:
+                                    current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
 
-                                # update GUI display to move missions in this task group to the completed missions list.
-                                self.updateCompletedMissions(finished)
+                                # if all tasks in the task group are done, we're done with this group.
+                                if botTodos["current widx"] >= len(botTodos["works"]):
+                                    self.showMsg("POP a finished task from queue after runRPA")
+                                    finished = self.todays_work["tbd"].pop(0)
+                                    self.showMsg("JUST FINISHED A WORK GROUP:"+json.dumps(finished))
+                                    self.todays_completed.append(finished)
+
+                                    # update GUI display to move missions in this task group to the completed missions list.
+                                    self.updateCompletedMissions(finished)
 
 
-                            if len(self.todays_work["tbd"]) == 0:
-                                if self.host_role == "Platoon":
-                                    self.showMsg("Platoon Done with today!!!!!!!!!")
-                                    self.doneWithToday()
-                                else:
-                                    # check whether we have collected all reports so far, there is 1 count difference between,
-                                    # at this point the local report on this machine has not been added to toddaysReports yet.
-                                    # this will be done in doneWithToday....
-                                    self.showMsg("n todaysPlatoonReports: "+str(len(self.todaysPlatoonReports))+" n todays_completed: "+str(len(self.todays_completed)))
-                                    self.showMsg("todaysPlatoonReports"+json.dumps(self.todaysPlatoonReports))
-                                    self.showMsg("todays_completed"+json.dumps(self.todays_completed))
-                                    if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
-                                        self.showMsg("Commander Done with today!!!!!!!!!")
+                                if len(self.todays_work["tbd"]) == 0:
+                                    if self.host_role == "Platoon":
+                                        self.showMsg("Platoon Done with today!!!!!!!!!")
                                         self.doneWithToday()
+                                    else:
+                                        # check whether we have collected all reports so far, there is 1 count difference between,
+                                        # at this point the local report on this machine has not been added to toddaysReports yet.
+                                        # this will be done in doneWithToday....
+                                        self.showMsg("n todaysPlatoonReports: "+str(len(self.todaysPlatoonReports))+" n todays_completed: "+str(len(self.todays_completed)))
+                                        self.showMsg("todaysPlatoonReports"+json.dumps(self.todaysPlatoonReports))
+                                        self.showMsg("todays_completed"+json.dumps(self.todays_completed))
+                                        if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
+                                            self.showMsg("Commander Done with today!!!!!!!!!")
+                                            self.doneWithToday()
+                        else:
+                            self.showMsg("Unrecogizable todo...."+botTodos["name"])
+                            self.showMsg("POP a unrecognized task from queue")
+                            self.todays_work["tbd"].pop(0)
+
                     else:
-                        self.showMsg("Unrecogizable todo...."+botTodos["name"])
-                        self.showMsg("POP a unrecognized task from queue")
-                        self.todays_work["tbd"].pop(0)
+                        # nothing to do right now. check if all of today's work are done.
+                        # if my own works are done and all platoon's reports are collected.
+                        if self.host_role == "Platoon":
+                            if len(self.todays_work["tbd"]) == 0:
+                                self.doneWithToday()
 
-                else:
-                    # nothing to do right now. check if all of today's work are done.
-                    # if my own works are done and all platoon's reports are collected.
-                    if self.host_role == "Platoon":
-                        if len(self.todays_work["tbd"]) == 0:
-                            self.doneWithToday()
+                if self.workingState != "Idle":
+                    # clear to make next round ready to work
+                    self.workingState = "Idle"
 
-            if self.workingState != "Idle":
-                # clear to make next round ready to work
-                self.workingState = "Idle"
+                print("running bot works whenever there is some to run....")
+                await asyncio.sleep(1)
 
-            print("running bot works whenever there is some to run....")
-            await asyncio.sleep(1)
-
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "Errorwanrunbotworks:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
+            log3(ex_stat)
 
     #update a vehicle's missions status
     # rx_data is a list of mission status for each mission that belongs to the vehicle.
@@ -6181,6 +6209,22 @@ class MainWindow(QMainWindow):
 
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
+    async def wan_self_ping(self):
+        if self.host_role == "Staff Officer":
+            self_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+        else:
+            self_chat_id = self.user.split("@")[0] + "_Commander"
+            ping_msg = {
+                "chatID": self_chat_id,
+                "sender": self.chat_id,
+                "receiver": self_chat_id,
+                "type": "ping self",
+                "contents": json.dumps({"msg": "hello?"}).replace('"', '\\"'),
+                "parameters": json.dumps({})
+            }
+
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+
 
     async def wan_pong(self):
         if "Commander" in self.host_role:
@@ -6250,8 +6294,32 @@ class MainWindow(QMainWindow):
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
+    async def wan_send_heartbeat(self):
+        if "Commander" in self.host_role:
+            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            ping_msg = {
+                "chatID": sa_chat_id,
+                "sender": self.user.split("@")[0] + "_Commander",
+                "receiver": sa_chat_id,
+                "type": "heartbeat",
+                "contents": json.dumps({}),
+                "parameters": json.dumps({}),
+            }
+            # self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            await wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket)
+
+
+    def send_heartbeat(self):
+        if "Commander" in self.host_role:
+            print("sending heartbeat")
+            asyncio.ensure_future(self.wan_send_heartbeat())
+
     def wan_chat_test(self):
         if self.host_role == "Staff Officer":
             asyncio.ensure_future(self.wan_ping())
+            time.sleep(1)
+            asyncio.ensure_future(self.wan_self_ping())
         elif self.host_role != "Platoon":
             asyncio.ensure_future(self.wan_pong())
+            time.sleep(1)
+            asyncio.ensure_future(self.wan_self_ping())
