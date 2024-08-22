@@ -28,17 +28,18 @@ jobs:
 
     - name: Build EXE with PyInstaller
       run: |
-        pyinstaller --onefile --name your_app_name main.py  # 替换为你的主脚本文件
+        # pyinstaller --onefile --name ECBot main.py  # 替换为你的主脚本文件
+        python setup.py
 
     - name: Install Inno Setup
       run: choco install innosetup --yes
 
     - name: Build Installer with Inno Setup
       run: |
-        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" your_script.iss  # 替换为你的 Inno Setup 脚本文件路径
+        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss  # 替换为你的 Inno Setup 脚本文件路径
 
     - name: Upload Installer as artifact
       uses: actions/upload-artifact@v3
       with:
         name: Installer
-        path: path\to\output\installer.exe  # 替换为生成的安装程序路径
+        path: path\to\output\ecbot_installer.exe  # 替换为生成的安装程序路径
