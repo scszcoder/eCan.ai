@@ -17,7 +17,7 @@ def build_app():
 
     # 打包选项
     options = [
-        '--name=ecbot',  # 替换为你的应用程序名称
+        '--name=ECBot',  # 替换为你的应用程序名称
         '--windowed',
         '--clean',
         # '--noconsole',
@@ -40,11 +40,11 @@ def build_app():
     # 运行 PyInstaller 打包
     run(options + ['main.py'])
 
-    if os.name == 'nt':  # Windows
-        pass
-    else:
-        # 执行shell脚本，构建dmg文件
-        result = subprocess.run(['sh', 'build_dmg.sh'], capture_output=True, text=True)
+    # if os.name == 'nt':  # Windows
+    #     pass
+    # else:
+    #     # 执行shell脚本，构建dmg文件
+    #     result = subprocess.run(['sh', 'build_dmg.sh'], capture_output=True, text=True)
 
 
 def remove_directory(path):
