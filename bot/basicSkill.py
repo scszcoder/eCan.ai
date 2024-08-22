@@ -2765,7 +2765,7 @@ def processReportExternalSkillRunStatus(step, i, mission):
             ex_stat = "ErrorReportExternalSkillRunStatus:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorReportExternalSkillRunStatus: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "processReportExternalSkillRunStatus", )
 
     return i+1, ex_stat
 
