@@ -4117,8 +4117,12 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("populating a newly created Chat GUI............")
             from ChatGUIV2 import ChatDialog
-            self.chatWin = ChatDialog(self, self.selected_bot_item.getBid())
-            self.showMsg("done create win............"+str(self.selected_bot_item.getBid()))
+            if self.selected_bot_item:
+                self.chatWin = ChatDialog(self, self.selected_bot_item.getBid())
+                self.showMsg("done create win............"+str(self.selected_bot_item.getBid()))
+            else:
+                self.chatWin = ChatDialog(self, 0)
+                self.showMsg("done create win............commander")
         self.chatWin.show()
 
     def _createCusMissionViewAction(self):
@@ -6326,3 +6330,23 @@ class MainWindow(QMainWindow):
             asyncio.ensure_future(self.wan_pong())
             time.sleep(1)
             asyncio.ensure_future(self.wan_self_ping())
+
+
+    async def wan_sa_send_chat(self, msg):
+        if self.host_role == "Staff Officer":
+            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            ping_msg = {
+                "chatID": commander_chat_id,
+                "sender": self.chat_id,
+                "receiver": commander_chat_id,
+                "type": "chat",
+                "contents": msg,
+                "parameters": json.dumps({})
+            }
+
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+
+
+    def sa_send_chat(self, msg):
+        asyncio.ensure_future(self.wan_sa_send_chat(msg))
+
