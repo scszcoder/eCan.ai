@@ -13,6 +13,7 @@ from datetime import datetime
 from Logger import log3
 import xml.etree.ElementTree as ET
 import traceback
+import requests
 
 # Wan Chat Logic
 # Commander will connect to websocket and subscribe, and wan logging is default off, then sit in a loop
@@ -55,7 +56,58 @@ async def wanStopSubscription(mainwin):
 
 
 
-async def wanSendMessage(msg_req, token, websocket):
+def wanSendMessage(msg_req, session, token):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
+
+    try:
+        variables = {
+            "input": {
+                "chatID": msg_req["chatID"],
+                "sender": msg_req["sender"],
+                "receiver": msg_req["receiver"],
+                "type": msg_req["type"],
+                "contents": msg_req["contents"],
+                # "content": {
+                #     "text": msg_req["contents"]
+                # },
+                "parameters": msg_req["parameters"]
+            }
+        }
+        query_string = gen_wan_send_chat_message_string()
+        headers = {
+            'Content-Type': "application/json",
+            'Authorization': token,
+            'cache-control': "no-cache",
+        }
+        print("about to send wan msg:", variables, query_string, headers)
+        print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        session.headers.update(headers)
+        response = session.post(
+            url=APPSYNC_API_ENDPOINT_URL,
+            json={
+                'query': query_string,
+                'variables': variables
+            },
+            timeout=30  # Timeout in seconds as int or float
+        )
+        jresp = response.json()
+        print("send JRESP:", jresp)
+        return jresp
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorwanSendMessage:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorwanSendMessage traceback information not available:" + str(e)
+        log3(ex_stat)
+
+
+
+async def wanSendMessage8(msg_req, token, websocket):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
 
@@ -100,9 +152,9 @@ async def wanSendMessage(msg_req, token, websocket):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorwanSendMessage:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorwanSendMessage8:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorwanSendMessage traceback information not available:" + str(e)
+            ex_stat = "ErrorwanSendMessage8 traceback information not available:" + str(e)
         log3(ex_stat)
 
 async def wanHandleRxMessage(mainwin):
@@ -341,11 +393,11 @@ def parseCommandString(input_str):
                         else:
                             response[child.tag] = None
                 print("RESPONSE:", response)
-                return json.dumps(response, indent=4)
+                return cmd_type, json.dumps(response, indent=4)
 
         except ET.ParseError:
             return "Invalid XML command format."
 
     else:
         # Return the input string as a regular chat message
-        return input_str
+        return "chat", input_str

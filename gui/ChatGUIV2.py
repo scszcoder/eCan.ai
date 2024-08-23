@@ -269,8 +269,7 @@ class ChatDialog(QDialog):
         qs = [{"msgID": message_id, "user": current_item.text(),
                "timeStamp": timeStamp, "products": "",
                "goals": goals_string, "background": "", "msg": message}]
-        result = send_query_chat_request_to_cloud(self.parent.session,
-                                                  self.parent.tokens['AuthenticationResult']['IdToken'], qs)
+        result = send_query_chat_request_to_cloud(self.parent.session, self.parent.tokens['AuthenticationResult']['IdToken'], qs)
         self.addLeftMessage(result['body'])
         self.message_history.moveCursor(QTextCursor.MoveOperation.End)
         self.message_history.ensureCursorVisible()

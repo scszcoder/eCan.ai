@@ -593,7 +593,7 @@ def run1step(steps, si, mission, skill, stack):
             step["type"] == "Web Driver Scroll To" or  step["type"] == "Web Driver Execute Js" or \
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-            "Mouse" in step["type"] or "Key" in step["type"]:
+            step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si,isat = RAIS[step["type"]](step, si, stack, stepKeys)
@@ -650,10 +650,10 @@ async def run1step8(steps, si, mission, skill, stack):
 
         elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
              step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or \
-                step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or \
-                step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
+             step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or \
+             step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-             "Mouse" in step["type"] or "Key" in step["type"]:
+             step["type"] == "Web Driver Select Drop Down" or  "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)
             else:

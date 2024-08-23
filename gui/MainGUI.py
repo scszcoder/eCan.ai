@@ -49,7 +49,7 @@ from bot.basicSkill import STEP_GAP
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
-from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage
+from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage, wanSendMessage8, parseCommandString
 from lzstring import LZString
 import openpyxl
 from datetime import timedelta
@@ -1585,7 +1585,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest999.json'
+                        file = 'C:/temp/scheduleResultTest99.json'
                         # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
@@ -5913,7 +5913,7 @@ class MainWindow(QMainWindow):
     # the message will be in the format of botid:send time stamp in yyyy:mm:dd hh:mm:ss format:msg in html format
     # from network the message will have chatmsg: prepend to the message.
     def update_chat_gui(self, rcvd_msg):
-        self.chatWin.updateDisplay(rcvd_msg)
+        self.chatWin.addLeftMessage(rcvd_msg)
 
     # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
     async def connectChat(self, chat_msg_queue):
@@ -5922,7 +5922,7 @@ class MainWindow(QMainWindow):
             if not chat_msg_queue.empty():
                 message = await chat_msg_queue.get()
                 self.showMsg(f"Rx Chat message from bot: {message}")
-                self.update_chat_gui(message)
+                self.update_chat_gui(message["contents"])
                 chat_msg_queue.task_done()
 
             # print("polling chat msg queue....")
@@ -5945,8 +5945,10 @@ class MainWindow(QMainWindow):
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
                 self.showMsg(f"RPA Monitor message: {message}")
-
-                self.update_moitor_gui(message)
+                if type(message) == str:
+                    print("wanlog message....", message)
+                else:
+                    self.update_moitor_gui(message)
 
                 monitor_msg_queue.task_done()
 
@@ -6211,7 +6213,7 @@ class MainWindow(QMainWindow):
                 "parameters": json.dumps({})
             }
 
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     async def wan_self_ping(self):
         if self.host_role == "Staff Officer":
@@ -6228,7 +6230,7 @@ class MainWindow(QMainWindow):
             "parameters": json.dumps({})
         }
 
-        self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+        self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
 
     async def wan_pong(self):
@@ -6244,9 +6246,9 @@ class MainWindow(QMainWindow):
                 "parameters": json.dumps({}),
 
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
-    async def wan_send_log(self, logmsg):
+    def wan_send_log(self, logmsg):
         if self.host_role != "Staff Officer":
             so_chat_id = self.user.split("@")[0] + "_StaffOfficer"
             ping_msg = {
@@ -6257,7 +6259,20 @@ class MainWindow(QMainWindow):
                 "contents": json.dumps({"msg": logmsg}).replace('"', '\\"'),
                 "parameters": json.dumps({})
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            wanSendMessage(ping_msg, self.session, self.tokens["AuthenticationResult"]["IdToken"])
+
+    async def wan_send_log8(self, logmsg):
+        if self.host_role != "Staff Officer":
+            so_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            ping_msg = {
+                "chatID": so_chat_id,
+                "sender": "commander",
+                "receiver": self.user,
+                "type": "logs",
+                "contents": json.dumps({"msg": logmsg}).replace('"', '\\"'),
+                "parameters": json.dumps({})
+            }
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
 
     async def wan_request_log(self):
@@ -6271,21 +6286,34 @@ class MainWindow(QMainWindow):
                 "contents": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
-
-    async def wan_stop_log(self):
-        if self.host_role == "Staff Officer":
-            commander_chat_id = self.user.split("@")[0] + "_Commander"
-            ping_msg = {
-                "chatID": self.chat_id,
-                "sender": "",
-                "receiver": commander_chat_id,
-                "type": "request command",
-                "contents": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}).replace('"', '\\"'),
+    def wan_stop_log(self):
+        if "Commander" in self.host_role:
+            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            log_msg = {
+                "chatID": sa_chat_id,
+                "sender": self.chat_id,
+                "receiver": sa_chat_id,
+                "type": "cmd",
+                "contents": json.dumps({"type": "cmd", "cmd": "stop log", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            wanSendMessage(log_msg, self.tokens["AuthenticationResult"]["IdToken"])
+
+
+    async def wan_stop_log8(self, logmsg):
+        if self.host_role == "Staff Officer":
+            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            ping_msg = {
+                "chatID": sa_chat_id,
+                "sender": "",
+                "receiver": sa_chat_id,
+                "type": "cmd",
+                "contents": json.dumps({"type": "cmd", "cmd": "stop log", "settings": ["all"]}).replace('"', '\\"'),
+                "parameters": ""
+            }
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     def wan_rpa_ctrl(self, token):
         if self.host_role == "Staff Officer":
@@ -6298,7 +6326,7 @@ class MainWindow(QMainWindow):
                 "contents": json.dumps({"type": "cmd", "cmd": "rpa ctrl", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     async def wan_send_heartbeat(self):
         if "Commander" in self.host_role:
@@ -6311,8 +6339,8 @@ class MainWindow(QMainWindow):
                 "contents": json.dumps({}),
                 "parameters": json.dumps({}),
             }
-            # self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
-            await wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket)
+            # self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            await wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket)
 
 
     def send_heartbeat(self):
@@ -6344,9 +6372,28 @@ class MainWindow(QMainWindow):
                 "parameters": json.dumps({})
             }
 
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+
+
+    async def wan_sa_send_structured(self, msg_type, msg):
+        if self.host_role == "Staff Officer":
+            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            ping_msg = {
+                "chatID": commander_chat_id,
+                "sender": self.chat_id,
+                "receiver": commander_chat_id,
+                "type": msg_type,
+                "contents": msg.replace('"', '\\"'),
+                "parameters": json.dumps({})
+            }
+
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+
 
 
     def sa_send_chat(self, msg):
-        asyncio.ensure_future(self.wan_sa_send_chat(msg))
-
+        msg_type, msg_contents = parseCommandString(msg)
+        if msg_type == "chat":
+            asyncio.ensure_future(self.wan_sa_send_chat(msg))
+        else:
+            asyncio.ensure_future(self.wan_sa_send_structured(msg_type, msg_contents))
