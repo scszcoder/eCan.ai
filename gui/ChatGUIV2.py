@@ -50,7 +50,7 @@ class ChatDialog(QDialog):
         self.contacts_list.setCurrentRow(select_index)
 
     def init_ui(self):
-        self.setWindowTitle("聊天对话框")
+        self.setWindowTitle("Agent Chat")
         self.setGeometry(100, 100, 800, 600)
 
         main_layout = QHBoxLayout(self)
@@ -109,7 +109,7 @@ class ChatDialog(QDialog):
         """)
         input_layout.addWidget(self.input_field)
 
-        self.send_button = QPushButton("发送")
+        self.send_button = QPushButton("Send")
         self.send_button.setStyleSheet("""
             min-width: 80px;
             height: 35px;
@@ -206,11 +206,16 @@ class ChatDialog(QDialog):
     def send_message(self):
         message = self.input_field.text()
         if message:
-            current_item = self.contacts_list.currentItem()
-            if current_item:
+            if self.parent.host_role == "Staff Officer":
+                self.parent.sa_send_chat(message)
                 self.input_field.clear()
                 self.addRightMessage(message)
-                # 实际应用中，还需将消息发送到服务器等后续逻辑
+            else:
+                current_item = self.contacts_list.currentItem()
+                if current_item:
+                    self.input_field.clear()
+                    self.addRightMessage(message)
+                    # 实际应用中，还需将消息发送到服务器等后续逻辑
 
     def addHyperlinkMessage(self, message):
         """插入可能含有超链接的文本"""
