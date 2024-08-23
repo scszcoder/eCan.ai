@@ -217,6 +217,7 @@ class ChatDialog(QDialog):
                     self.addRightMessage(message)
                     # 实际应用中，还需将消息发送到服务器等后续逻辑
 
+
     def addHyperlinkMessage(self, message):
         """插入可能含有超链接的文本"""
         # 自动识别并转换URL为超链接
