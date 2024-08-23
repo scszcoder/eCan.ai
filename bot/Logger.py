@@ -174,7 +174,51 @@ def log3(msg, mask='all', gui_main=None, range='lan'):
             gui_main.appendNetLogs([msg])
 
         if wan_enabled:
-            asyncio.ensure_future(gui_main.wan_send_log((":<mlog>"+msg+"</mlog>")))
+            gui_main.wan_send_log((":<mlog>"+msg+"</mlog>"))
+
+async def log4(msg, mask='all', gui_main=None, range='lan'):
+    log_enabled = False
+    wan_enabled = False
+    if mask in LOG_SWITCH_BOARD:
+        if LOG_SWITCH_BOARD[mask]["log"]:
+            log_enabled = True
+        if LOG_SWITCH_BOARD[mask]["range"] == "wan" and gui_main:
+            wan_enabled = True
+
+    if log_enabled:
+        ecb_data_homepath = getECBotDataHome()
+        now = datetime.now()  # current date and time
+        year = now.strftime("%Y")
+        month = now.strftime("%m")
+        day = now.strftime("%d")
+        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
+        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+        time = now.strftime("%H:%M:%S - ")
+        if os.path.isfile(dailyLogFile):
+            file1 = open(dailyLogFile, "a", encoding='utf-8')  # append mode
+
+            file1.write(time + msg + "\n")
+            file1.close()
+        else:
+            if not os.path.exists(dailyLogDir):
+                os.makedirs(dailyLogDir)
+
+            file1 = open(dailyLogFile, "w", encoding='utf-8')  # append mode
+
+            file1.write(time + msg + "\n")
+            file1.close()
+
+        # read details from the page.
+        print(msg)
+
+        if gui_main:
+            gui_main.appendNetLogs([msg])
+
+        if wan_enabled:
+            loop = asyncio.get_event_loop()
+            await gui_main.wan_send_log8((":<mlog>"+msg+"</mlog>"))
+        #     # loop.run_until_complete(gui_main.gui_monitor_msg_queue.put((":<wanlog>"+msg+"</wanlog>")))
+        #     # asyncio.ensure_future(gui_main.wan_send_log((":<mlog>"+msg+"</mlog>")))
 
 
 def log2file(msg, category='None', mask='None', file='None'):

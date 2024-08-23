@@ -173,6 +173,7 @@ def gen_query_report_run_ext_skill_status_string(query):
         rec_string = rec_string + "skid: " + str(query[i]["skid"]) + ", "
         rec_string = rec_string + "runner_mid: " + str(query[i]["runner_mid"]) + ", "
         rec_string = rec_string + "runner_bid: " + str(query[i]["runner_bid"]) + ", "
+        rec_string = rec_string + "requester: " + str(query[i]["requester"]) + ", "
         rec_string = rec_string + "status: \"" + query[i]["status"] + "\", "
         rec_string = rec_string + "start_time: \"" + query[i]["start_time"] + "\", "
         rec_string = rec_string + "end_time: \"" + query[i]["end_time"] + "\", "

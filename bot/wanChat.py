@@ -12,7 +12,8 @@ import base64
 from datetime import datetime
 from Logger import log3
 import xml.etree.ElementTree as ET
-import trace
+import traceback
+import requests
 
 # Wan Chat Logic
 # Commander will connect to websocket and subscribe, and wan logging is default off, then sit in a loop
@@ -55,45 +56,106 @@ async def wanStopSubscription(mainwin):
 
 
 
-async def wanSendMessage(msg_req, token, websocket):
+def wanSendMessage(msg_req, session, token):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
 
-    variables = {
-        "input": {
-            "chatID": msg_req["chatID"],
-            "sender": msg_req["sender"],
-            "receiver": msg_req["receiver"],
-            "type": msg_req["type"],
-            "contents": msg_req["contents"],
-            # "content": {
-            #     "text": msg_req["contents"]
-            # },
-            "parameters": msg_req["parameters"]
+    try:
+        variables = {
+            "input": {
+                "chatID": msg_req["chatID"],
+                "sender": msg_req["sender"],
+                "receiver": msg_req["receiver"],
+                "type": msg_req["type"],
+                "contents": msg_req["contents"],
+                # "content": {
+                #     "text": msg_req["contents"]
+                # },
+                "parameters": msg_req["parameters"]
+            }
         }
-    }
-    query_string = gen_wan_send_chat_message_string()
-    headers = {
-        'Content-Type': "application/json",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-    print("about to send wan msg:", variables, query_string, headers)
-    print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    async with aiohttp.ClientSession() as session8:
-        async with session8.post(
-                url=APPSYNC_API_ENDPOINT_URL,
-                timeout=aiohttp.ClientTimeout(total=30),
-                headers=headers,
-                json={
-                        'query': query_string,
-                        'variables': variables
-                }
-        ) as response:
-            jresp = await response.json()
-            print("send JRESP:", jresp)
-            return jresp
+        query_string = gen_wan_send_chat_message_string()
+        headers = {
+            'Content-Type': "application/json",
+            'Authorization': token,
+            'cache-control': "no-cache",
+        }
+        print("about to send wan msg:", variables, query_string, headers)
+        print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        session.headers.update(headers)
+        response = session.post(
+            url=APPSYNC_API_ENDPOINT_URL,
+            json={
+                'query': query_string,
+                'variables': variables
+            },
+            timeout=30  # Timeout in seconds as int or float
+        )
+        jresp = response.json()
+        print("send JRESP:", jresp)
+        return jresp
 
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorwanSendMessage:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorwanSendMessage traceback information not available:" + str(e)
+        log3(ex_stat)
+
+
+
+async def wanSendMessage8(msg_req, token, websocket):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
+
+    try:
+        variables = {
+            "input": {
+                "chatID": msg_req["chatID"],
+                "sender": msg_req["sender"],
+                "receiver": msg_req["receiver"],
+                "type": msg_req["type"],
+                "contents": msg_req["contents"],
+                # "content": {
+                #     "text": msg_req["contents"]
+                # },
+                "parameters": msg_req["parameters"]
+            }
+        }
+        query_string = gen_wan_send_chat_message_string()
+        headers = {
+            'Content-Type': "application/json",
+            'Authorization': token,
+            'cache-control': "no-cache",
+        }
+        print("about to send wan msg:", variables, query_string, headers)
+        print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        async with aiohttp.ClientSession() as session8:
+            async with session8.post(
+                    url=APPSYNC_API_ENDPOINT_URL,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                    headers=headers,
+                    json={
+                            'query': query_string,
+                            'variables': variables
+                    }
+            ) as response:
+                jresp = await response.json()
+                print("send JRESP:", jresp)
+                return jresp
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorwanSendMessage8:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorwanSendMessage8 traceback information not available:" + str(e)
+        log3(ex_stat)
 
 async def wanHandleRxMessage(mainwin):
     print("START WAN RX TASK")
@@ -142,6 +204,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
     WS_API_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com'
     id_token = tokens['AuthenticationResult']['IdToken']
+    ka_timeout_sec = 300
     try:
         api_headers = {
             'Content-Type': 'application/json',
@@ -187,6 +250,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         print("WEBSOCKET CONNECTED!!!!")
                         mainwin.set_wan_connected(True)
                         mainwin.set_websocket(websocket)
+                        ka_timeout_sec = response_data["payload"]["connectionTimeoutMs"]/1000
                         last_connected_ts = datetime.now()
                         break
 
@@ -208,7 +272,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                 print("NOW start to subscribe2")
 
                 sub_data_string = json.dumps(sub_data)
-                print("NOW start to subscribe3")
+                print("NOW start to subscribe3"+sub_data_string)
 
                 SUB_REG = {
                     "id": "1",
@@ -223,7 +287,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                     },
                     "type": "start"
                 }
-                print("SENDING WEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!")
+                print("SENDING WEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!"+json.dumps(SUB_REG))
 
                 await websocket.send(json.dumps(SUB_REG))
 
@@ -253,25 +317,43 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         print(f"SUBSCRIBE Received message: {message}", type(message))  # this is string.
                         # send the message to
                         rcvd = json.loads(message)
-                        print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
-                        # route the message either to chat or RPA
-                        if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
-                            asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                        elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
-                            asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                        if "payload" in rcvd:
+                            if "onMessageReceived" in rcvd["payload"]["data"]:
+                                print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
+                                # route the message either to chat or RPA
+                                if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
+                                    asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                                elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
+                                    asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                                else:
+                                    rx_contents = json.loads(rcvd["payload"]["data"]["onMessageReceived"]["contents"])
+                                    print("type of rx_contents", type(rx_contents))
+                                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                         else:
-                            rx_contents = json.loads(rcvd["payload"]["data"]["onMessageReceived"]["contents"])
-                            print("type of rx_contents", type(rx_contents))
-                            asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                    except websockets.exceptions.ConnectionClosed:
+                            if "type" in rcvd:
+                                if rcvd["type"] == "ka":
+                                    this_ts = datetime.now()
+                                    td = this_ts - last_connected_ts
+                                    # Get the time difference in seconds
+                                    td_seconds = td.total_seconds()
+                                    if td_seconds > ka_timeout_sec:
+                                        # something is wrong, we're suppose to receive this every minute or so.
+                                        print("WARNING: Keep Alive Out Of Sync")
+                                        raise Exception("Keep Alive Timeout")
+                                    else:
+                                        last_connected_ts = this_ts
+                    except Exception as e:
                         print("WebSocket connection closed.")
                         break
 
-    except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.InvalidStatusCode) as e:
+    except Exception as e:
         print(f"Websocket Connection error: {e}. Retrying in 5 seconds...")
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        ex_stat = "ErrorsubscribeToWanChat:" + traceback.format_exc() + " " + str(e)
+        log3(ex_stat)
         mainwin.set_wan_connected(False)
         await asyncio.sleep(5)
-        await subscribe_to_wan_chat()
+        await subscribeToWanChat(mainwin, tokens, chat_id)
 
 
 def parseCommandString(input_str):
@@ -311,11 +393,11 @@ def parseCommandString(input_str):
                         else:
                             response[child.tag] = None
                 print("RESPONSE:", response)
-                return json.dumps(response, indent=4)
+                return cmd_type, json.dumps(response, indent=4)
 
         except ET.ParseError:
             return "Invalid XML command format."
 
     else:
         # Return the input string as a regular chat message
-        return input_str
+        return "chat", input_str
