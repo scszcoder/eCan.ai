@@ -194,8 +194,8 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     psk_words = psk_words + step_words
     #
     # using ebay to purchase shipping label will auto update tracking code..... s
-    # this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "buy_shipping_input", "labels_dir", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "buy_shipping_input", "labels_dir", this_step)
+    psk_words = psk_words + step_words
 
     # # extract tracking code from labels and update them into etsy_orders data struture.
     #

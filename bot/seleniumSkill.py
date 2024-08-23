@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 import traceback
 import os
 from bot.adsAPISkill import startADSWebDriver
-from bot.Logger import log3
+from bot.Logger import log3, log4
 from bot.basicSkill import *
 
 def getChromeOpenTabs():
@@ -621,6 +621,70 @@ def processWebdriverScrollTo(step, i, mission):
 
     return (i + 1), ex_stat
 
+async def processWebdriverScrollTo8(step, i, mission):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        mainwin = mission.get_main_win()
+        driver = symTab[step["driver_var"]]
+        # element_type = step["element_type_var"]
+        # element_name = step["element_var"]
+        target_element = symTab[step["target_var"]]
+        wait = step["wait_var"]
+        increment = step["increment_var"]
+        loc = step["loc_var"]
+        print("waiting for pagination to load")
+        time.sleep(5)
+        # Wait until the pagination element is present
+        # target_element = WebDriverWait(driver, wait).until(
+        #     # EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-cel-widget='MAIN-PAGINATION-72']"))
+        #     EC.presence_of_element_located((element_type, element_name))
+        # )
+        print("pagination LOADED")
+
+        # Smoothly scroll to the pagination element
+        # smoothScrollToElement(driver, target_element, increment)
+
+        # Smoothly scroll to the target element
+        # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+
+        window_height = driver.execute_script("return window.innerHeight")
+        print("window height:", window_height)
+
+        # Calculate the offset to position the element 25% down from the top
+        offset = window_height * loc
+        print("offset:", offset)
+
+        # Smoothly scroll to the element with the desired offset
+        # driver.execute_script("""
+        #     arguments[0].scrollIntoView({
+        #         behavior: 'smooth',
+        #         block: 'center'
+        #     });
+        #     window.scrollBy(0, arguments[1]);
+        # """, target_element, offset)
+        driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+
+
+        # Wait a bit to ensure the scrolling action is complete
+        time.sleep(1)  # Short wait to ensure the scroll action is complete
+
+        # Wait a bit to ensure the scrolling action is complete
+        WebDriverWait(driver, 2).until(
+            EC.visibility_of(target_element)
+        )
+        await log4("WebdriverScrollTo:[" + step["target_var"] + "]", "processWebdriverScrollTo", mainwin)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverScrollTo:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverScrollTo: traceback information not available:" + str(e)
+        log3(ex_stat, "processWebdriverScrollTo", mainwin)
+
+    return (i + 1), ex_stat
+
 
 def processWebdriverKeyIn(step, i, mission):
     try:
@@ -685,8 +749,9 @@ def processWebdriverComboKeys(step, i, mission):
 
 
 
-def processWebdriverSelectDropDown(step, i):
+def processWebdriverSelectDropDown(step, i, mission):
     try:
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         # target_type = symTab[step["target_type_var"]]
@@ -698,7 +763,7 @@ def processWebdriverSelectDropDown(step, i):
         # dropdown = wait.until(EC.presence_of_element_located((target_type, target)))
         select_menu = Select(dropdown)
         selected = select_menu.first_selected_option.text
-
+        log3("WebdriverSelectDropDown:[" + step["target_var"] + "]<"+text+">", "processWebdriverSelectDropDown", mainwin)
         if selected != text:
             select_menu.select_by_visible_text(text)
 
