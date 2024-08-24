@@ -24,7 +24,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
     processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
-    processGetDefault, processUploadFile, processDownloadFile
+    processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -107,6 +107,7 @@ hil_queue = asyncio.Queue()
 RAIS = {
     "Halt": lambda x,y: processHalt(x, y),
     "Wait": lambda x,y: processWait(x, y),
+    "Wait Until": lambda x,y: processWaitUntil(x, y),
     "Save Html": lambda x,y,z,k: processSaveHtml(x, y, z, k),
     "Browse": lambda x,y: processBrowse(x, y),
     "Text To Number": lambda x,y: processTextToNumber(x, y),
@@ -223,14 +224,15 @@ RAIS = {
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
-    "Upload File": lambda x, y, z: processUploadFile(x, y, z),
-    "Download File": lambda x, y, z: processDownloadFile(x, y, z)
+    "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
+    "Download Files": lambda x, y, z: processDownloadFiles(x, y, z)
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
 ARAIS = {
     "Halt": lambda x,y: processHalt(x, y),
     "Wait": lambda x,y: processWait(x, y),
+    "Wait Until": lambda x,y: processWaitUntil(x, y),
     "Save Html": lambda x,y,z,k: processSaveHtml(x, y, z, k),
     "Browse": lambda x,y: processBrowse(x, y),
     "Text To Number": lambda x,y: processTextToNumber(x, y),
@@ -348,8 +350,8 @@ ARAIS = {
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
-    "Upload File": lambda x, y, z: processUploadFile(x, y, z),
-    "Download File": lambda x, y, z: processDownloadFile(x, y, z)
+    "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
+    "Download Files": lambda x, y, z: processDownloadFiles(x, y, z)
 }
 
 # read an psk fill into steps (json data structure)
@@ -593,9 +595,9 @@ def run1step(steps, si, mission, skill, stack):
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = RAIS[step["type"]](step, si, mission, skill)
         elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
-            step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload File" or \
+            step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
             step["type"] == "Web Driver Scroll To" or  step["type"] == "Web Driver Execute Js" or \
-            step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download File" or \
+            step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
@@ -653,8 +655,8 @@ async def run1step8(steps, si, mission, skill, stack):
                 si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
         elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
-             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload File" or \
-             step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download File" or \
+             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
+             step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download Files" or \
              step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
              step["type"] == "Web Driver Select Drop Down" or  "Mouse" in step["type"] or "Key" in step["type"]:

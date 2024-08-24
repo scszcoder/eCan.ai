@@ -2668,9 +2668,26 @@ class MainWindow(QMainWindow):
                     # of the mission will come from the another computer, and there might even be
                     # files to be downloaded first as the input to the mission.
                     if worksettings["as_server"]:
-                        if len(worksettings["config"]["dl_links"]) > 0:
-                            for dl_link in worksettings["config"]["dl_links"]:
-                                download_file(self.session, dl_link["f2dl"], self.tokens['AuthenticationResult']['IdToken'], dl_link["ftype"])
+                        if len(worksettings["config"]["ul_links"]) > 0:
+                            worksettings["config"]["downloaded"] = []
+                            for i, ul_link in enumerate(worksettings["config"]["ul_links"]):
+                                # ul_link in form of "datahome+runlogs+user+date+b*m*+cuspas+skills+skill name+*.xlsx
+                                start_index = ul_link.find("runlogs")
+                                if start_index != -1:
+                                    f2dl = ul_link[start_index:]
+
+                                fdir = ecb_data_homepath + "/"
+
+                                dir_path = fdir + os.path.dirname(f2dl)
+
+                                # Create the directory structure if it doesn't exist
+                                if not os.path.exists(dir_path):
+                                    os.makedirs(dir_path)
+
+                                download_file(self.session, fdir, f2dl, self.tokens['AuthenticationResult']['IdToken'], "general")
+
+                                worksettings["config"]["downloaded"].append(fdir + f2dl)
+
 
 
                     # (steps, mission, skill, mode="normal"):
