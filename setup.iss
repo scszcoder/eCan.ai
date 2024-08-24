@@ -103,7 +103,9 @@ var
   lines: TArrayOfString;
   Role: String;
   RoleLine: String;
-  ConfigIniFilePath: string;
+  ConfigFilePath: string;
+  AppVersionValue: string;
+  AppUpdatesURLValue: string;
 
 const
   SMTO_ABORTIFHUNG = 2;
@@ -114,22 +116,6 @@ type
   WPARAM = UINT_PTR;
   LPARAM = INT_PTR;
   LRESULT = INT_PTR;
-
-procedure InitializeSetup(): Boolean;
-begin
-  ConfigIniFilePath := ExpandConstant('{src}\config.ini');  // 定义 .ini 文件路径
-  Result := True;  // 返回 True 继续安装
-end;
-
-function GetAppVersion(): string;
-begin
-  Result := GetIniString('Settings', 'AppVersion', '1.0.0', ConfigIniFilePath);
-end;
-
-function GetAppUpdatesURL(): string;
-begin
-  Result := GetIniString('Settings', 'AppUpdatesURL', 'http://www.ecbot.com/updates', ConfigIniFilePath);
-end;
 
 procedure InitializeWizard;
 begin
@@ -185,6 +171,23 @@ begin
   end;
 
   DataDirPage.Values[0] := GetPreviousData('DataDir', '');
+end;
+
+procedure InitializeSetup;
+begin
+  ConfigFilePath := ExpandConstant('{src}\config.ini');
+  AppVersionValue := GetIniString('Settings', 'AppVersion', '1.0.0', ConfigFilePath);
+  AppUpdatesURLValue := GetIniString('Settings', 'AppUpdatesURL', 'http://www.ecbot.com/updates', ConfigFilePath);
+end;
+
+function GetAppVersion(): string;
+begin
+  Result := AppVersionValue;
+end;
+
+function GetAppUpdatesURL(): string;
+begin
+  Result := AppUpdatesURLValue;
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
