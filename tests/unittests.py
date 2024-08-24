@@ -14,7 +14,7 @@ from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXl
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import symTab, processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
     get_top_visible_window, processExtractInfo, startSaveCSK, processUseExternalSkill, processReportExternalSkillRunStatus,\
-    processDownloadFile, processUploadFile
+    processDownloadFiles, processUploadFiles
 from bot.printLabel import processPrintLabels, sync_win_print_labels1
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
