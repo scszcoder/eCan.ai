@@ -26,7 +26,7 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
-    genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUnloadFile, \
+    genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFile, \
     genStepDownloadFile
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
@@ -129,7 +129,7 @@ PUBLIC = {
     'genStepFillData': genStepFillData,
     'genStepThink': genStepThink,
     'genException': genException,
-    "genStepUploadFile": genStepUnloadFile,
+    "genStepUploadFile": genStepUploadFile,
     "genStepDownloadFile": genStepDownloadFile,
     'genWinChromeEtsyCollectOrderListSkill': genWinChromeEtsyCollectOrderListSkill,
     'genStepEtsySearchOrders': genStepEtsySearchOrders,
