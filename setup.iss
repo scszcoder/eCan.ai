@@ -16,7 +16,7 @@ SolidCompression=yes
 AppPublisher=Copyright@ ECBot Co., Ltd.
 ;AppPublisherURL={code:GetAppPublisherURL}
 ;AppSupportURL={code:GetAppSupportURL}
-AppUpdatesURL={code:GetAppUpdatesURL}
+;AppUpdatesURL={code:GetAppUpdatesURL}
 
 DisableWelcomePage=no
 LicenseFile=license.txt
@@ -104,8 +104,6 @@ var
   Role: String;
   RoleLine: String;
   ConfigFilePath: string;
-  AppVersionValue: string;
-  AppUpdatesURLValue: string;
 
 const
   SMTO_ABORTIFHUNG = 2;
@@ -173,23 +171,15 @@ begin
   DataDirPage.Values[0] := GetPreviousData('DataDir', '');
 end;
 
-function InitializeSetup(): Boolean;
+procedure InitializeConfig;
 begin
   ConfigFilePath := ExpandConstant('{src}\config.ini');
-  AppVersionValue := GetIniString('Settings', 'AppVersion', '1.0.0', ConfigFilePath);
-  AppUpdatesURLValue := GetIniString('Settings', 'AppUpdatesURL', 'http://www.ecbot.com/updates', ConfigFilePath);
-
-  Result := True;
 end;
 
-function GetAppVersion(): string;
+function GetAppVersion(Default: string): string;
 begin
-  Result := AppVersionValue;
-end;
-
-function GetAppUpdatesURL(): string;
-begin
-  Result := AppUpdatesURLValue;
+  InitializeConfig;
+  Result := GetIniString('Settings', 'AppVersion', Default, ConfigFilePath);
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
