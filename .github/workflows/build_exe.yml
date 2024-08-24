@@ -1,10 +1,10 @@
 name: Build Windows Installer
 
 on:
-#  push:
-#    branches: [ feature-jenkins ]
-#    tags:
-#      - 'v*' # 只有在推送标签时触发，通常用于版本发布
+  push:
+    #branches: [ feature-jenkins ]
+    tags:
+      - 'v*' # 只有在推送标签时触发，通常用于版本发布
   workflow_dispatch:  # 添加这个触发器以支持手动运行
     inputs:
       version:
@@ -22,6 +22,15 @@ on:
           - prod
           - sit
           - dev
+
+      platform:
+        description: 'Platform'
+        required: true
+        default: 'windows'
+        type: choice
+        options:
+          - windows
+          - macos
 
 jobs:
   build:
