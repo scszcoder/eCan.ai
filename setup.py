@@ -40,12 +40,6 @@ def build_app():
     # 运行 PyInstaller 打包
     run(options + ['main.py'])
 
-    # if os.name == 'nt':  # Windows
-    #     pass
-    # else:
-    #     # 执行shell脚本，构建dmg文件
-    #     result = subprocess.run(['sh', 'build_dmg.sh'], capture_output=True, text=True)
-
 
 def clean_directory(path):
     if os.path.exists(path):

@@ -3,13 +3,20 @@
 
 [Setup]
 AppName=ECBot
-AppVersion=1.0.0
+AppVersion={code:GetAppVersion}
 WizardStyle=modern
 DefaultDirName={autopf}\ECBot
 UninstallDisplayIcon={app}\ECBot.exe
 SetupIconFile=ECBot.ico
 OutputDir=Installer
 OutputBaseFilename=ECBotInstaller
+Compression=lzma2
+SolidCompression=yes
+
+AppPublisher=Copyright@ ECBot Co., Ltd.
+;AppPublisherURL={code:GetAppPublisherURL}
+;AppSupportURL={code:GetAppSupportURL}
+AppUpdatesURL={code:GetAppUpdatesURL}
 
 DisableWelcomePage=no
 LicenseFile=license.txt
@@ -96,6 +103,7 @@ var
   lines: TArrayOfString;
   Role: String;
   RoleLine: String;
+  IniFilePath: string;
 
 const
   SMTO_ABORTIFHUNG = 2;
@@ -106,6 +114,21 @@ type
   WPARAM = UINT_PTR;
   LPARAM = INT_PTR;
   LRESULT = INT_PTR;
+
+procedure InitializeSetup;
+begin
+  IniFilePath := ExpandConstant('config.ini');  // 定义 .ini 文件路径
+end;
+
+function GetAppVersion(Value: string): string;
+begin
+  Result := GetIniString('Settings', 'AppVersion', '1.0.0', IniFilePath);
+end;
+
+function GetAppUpdatesURL(Value: string): string;
+begin
+  Result := GetIniString('Settings', 'AppUpdatesURL', 'http://www.ecbot.com/updates', IniFilePath);
+end;
 
 procedure InitializeWizard;
 begin
