@@ -103,7 +103,7 @@ var
   lines: TArrayOfString;
   Role: String;
   RoleLine: String;
-  IniFilePath: string;
+  ConfigIniFilePath: string;
 
 const
   SMTO_ABORTIFHUNG = 2;
@@ -115,19 +115,19 @@ type
   LPARAM = INT_PTR;
   LRESULT = INT_PTR;
 
-procedure InitializeSetup;
+procedure InitializeSetup();
 begin
-  IniFilePath := ExpandConstant('config.ini');  // 定义 .ini 文件路径
+  ConfigIniFilePath := ExpandConstant('{src}\config.ini');  // 定义 .ini 文件路径
 end;
 
 function GetAppVersion(Value: string): string;
 begin
-  Result := GetIniString('Settings', 'AppVersion', '1.0.0', IniFilePath);
+  Result := GetIniString('Settings', 'AppVersion', '1.0.0', ConfigIniFilePath);
 end;
 
 function GetAppUpdatesURL(Value: string): string;
 begin
-  Result := GetIniString('Settings', 'AppUpdatesURL', 'http://www.ecbot.com/updates', IniFilePath);
+  Result := GetIniString('Settings', 'AppUpdatesURL', 'http://www.ecbot.com/updates', ConfigIniFilePath);
 end;
 
 procedure InitializeWizard;
