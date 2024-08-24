@@ -115,17 +115,18 @@ type
   LPARAM = INT_PTR;
   LRESULT = INT_PTR;
 
-procedure InitializeSetup();
+procedure InitializeSetup(): Boolean;
 begin
   ConfigIniFilePath := ExpandConstant('{src}\config.ini');  // 定义 .ini 文件路径
+  Result := True;  // 返回 True 继续安装
 end;
 
-function GetAppVersion(Value: string): string;
+function GetAppVersion(): string;
 begin
   Result := GetIniString('Settings', 'AppVersion', '1.0.0', ConfigIniFilePath);
 end;
 
-function GetAppUpdatesURL(Value: string): string;
+function GetAppUpdatesURL(): string;
 begin
   Result := GetIniString('Settings', 'AppUpdatesURL', 'http://www.ecbot.com/updates', ConfigIniFilePath);
 end;
