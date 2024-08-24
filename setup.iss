@@ -7,12 +7,12 @@ AppVersion=1.0.0
 WizardStyle=modern
 DefaultDirName={autopf}\ECBot
 UninstallDisplayIcon={app}\ECBot.exe
-SetupIconFile=installer.ico
+SetupIconFile=ECBot.ico
 OutputDir=Installer
 OutputBaseFilename=ECBotInstaller
 
 DisableWelcomePage=no
-;LicenseFile=license.txt
+LicenseFile=license.txt
 ;#define Password 'password'
 ;Password={#Password}
 ;InfoBeforeFile=readme.txt
