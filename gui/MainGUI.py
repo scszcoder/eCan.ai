@@ -1711,6 +1711,7 @@ class MainWindow(QMainWindow):
 
 
     def fill_mission(self, blank_m, m, tgs):
+        print("BLANK:", m)
         blank_m.loadNetRespJson(m)
         # self.showMsg("after fill mission paramter:"+str(blank_m.getRetry()))
         mconfig = None
