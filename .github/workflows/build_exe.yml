@@ -6,6 +6,22 @@ on:
 #    tags:
 #      - 'v*' # 只有在推送标签时触发，通常用于版本发布
   workflow_dispatch:  # 添加这个触发器以支持手动运行
+    inputs:
+      version:
+        description: 'The version number for the release' # 描述
+        required: true # 是否为必填项
+        default: '1.0.0' # 默认值
+        type: string # 类型，支持 string、choice、boolean、environment 等
+
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - sit
+          - dev
 
 jobs:
   build:
@@ -14,6 +30,14 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+
+    - name: Echo version
+      run:
+        echo "Version: ${{ github.event.inputs.version }}"
+
+    - name: Echo environment
+      run:
+        echo "Environment: ${{ github.event.inputs.environment }}"
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -30,6 +54,11 @@ jobs:
       run: |
         # pyinstaller --onefile --name ECBot main.py  # 替换为你的主脚本文件
         python setup.py
+
+    - name: Replace version in Inno Setup script
+      run: |
+        $version = '${{ github.event.inputs.version }}'
+        (Get-Content setup.iss) -replace 'AppVersion=.*', "AppVersion=$version" | Set-Content setup.iss
 
 #    - name: Get the latest Git tag
 #      id: get_tag
