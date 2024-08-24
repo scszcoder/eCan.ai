@@ -42,4 +42,4 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: Installer
-        path: dist\ECBotInstaller.exe  # 替换为生成的安装程序路径
+        path: Installer\ECBotInstaller.exe  # 替换为生成的安装程序路径
