@@ -12,7 +12,7 @@ OutputDir=Installer
 OutputBaseFilename=ECBotInstaller
 
 DisableWelcomePage=no
-LicenseFile=license.txt
+;LicenseFile=license.txt
 ;#define Password 'password'
 ;Password={#Password}
 ;InfoBeforeFile=readme.txt
@@ -39,7 +39,7 @@ ChangesEnvironment=yes
 
 Source: "dist\ECBot.exe"; DestDir: "{app}"
 ;Source: "ECBot.chm"; DestDir: "{app}"
-Source: "Readme.txt"; DestDir: "{app}"; Flags: isreadme
+Source: "readme.txt"; DestDir: "{app}"; Flags: isreadme
 ;Source: "{src}\CanBTL.dat"; DestDir: "{cf}\Folder"; Flags: external;
 ;Source: "{src}\CanBTP.dat"; DestDir: "{cf}\Folder"; Flags: external;
 Source: "dist\*"; DestDir: "{app}\ECBot"; Flags: ignoreversion recursesubdirs
