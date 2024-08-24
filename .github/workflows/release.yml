@@ -40,14 +40,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Echo version
-      run:
-        echo "Version: ${{ github.event.inputs.version }}"
-
-    - name: Echo environment
-      run:
-        echo "Environment: ${{ github.event.inputs.environment }}"
-
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
