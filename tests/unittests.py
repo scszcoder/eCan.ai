@@ -1475,11 +1475,14 @@ def test_parse_xml():
 
     parseCommandString(test_vec)
 
-
+# Note: upload/download file direction must follow this structure:
+# always starts with runlogs/...
+# then user/date/b*m*/skillpath/skills/.....
 def test_presigned_updownload(mission):
     global symTab
     settings = mission.main_win_settings
-    symTab["infile"] = "C:/"
+    symTab["infile"] = "runlogs/songc_yahoo/20240817/b88m697/win_ads_ebay_orders/skills/images/scrnsongc_yahoo_1723916188.png"
+
     step = {
             "type": "Download File",
             "file_var": "infile",

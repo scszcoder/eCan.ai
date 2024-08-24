@@ -7,7 +7,8 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreat
     genStepCheckCondition, genStepUseSkill, genStepOpenApp, genStepCallExtern, genStepLoop, genStepExtractInfo, \
     genStepSearchAnchorInfo, genStepMouseClick, genStepMouseScroll, genStepCreateDir, genStepKeyInput, genStepTextInput, \
     STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink, genStepSearchWordLine, genStepCalcObjectsDistance, \
-    genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination, genStepReadXlsxFile, genStepReadJsonFile
+    genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination, genStepReadXlsxFile, genStepReadJsonFile, \
+    genStepUploadFiles, genStepDownloadFiles
 from bot.Logger import log3
 from bot.etsySellerSkill import genStepPrepGSOrder
 from bot.labelSkill import genStepPrepareGSOrder
@@ -142,6 +143,9 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "gs_order_files", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("obj", "update_tracking_result", "NA", None, this_step)
     psk_words = psk_words + step_words
 
@@ -179,6 +183,29 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepPrepareGSOrder("ebay_orders", "gs_orders", "product_book", "current_seller", "ebay", "fdir", this_step)
     psk_words = psk_words + step_words
 
+    # here is what gs_orders looks like:
+    # [{"service":"USPS Priority V4",
+    #  "price": len(regular_orders)*3,
+    #  "num_orders": len(regular_orders),
+    #  "dir": os.path.dirname(ofname2),
+    #  "file": os.path.basename(ofname2),
+    #  "unzipped_dir": ofname2_unzipped,
+    #  "order_data": gs_order_data,
+    #  "succeed": True,
+    #  "result": ""
+    # },...]
+    #     worksettings["log_path"] = datahome+runlogs+date+b*m* + platform_app_site_page + "/skills/" + worksettings["skname"] + "/"
+    # ofname2 = log_path + "/" + ec_platform + "OrdersPriority" + dt_string + ".xlsx"
+    # ofname2_unzipped = log_path + "/" + ec_platform + "OrdersPriority" + dt_string
+
+    # collect files into a list and give this list var to stepuploadfile, gs_order_files should be a list of files.
+    this_step, step_words = genStepCallExtern("global gs_orders, gs_order_files\ngs_order_files= [ord['dir']+'/'+ord['file'] for ord in gs_orders]\nprint('gs_order_files':gs_order_files)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepUploadFiles("sk_work_settings", "gs_order_files", "general", "ul_links", this_step)
+    psk_words = psk_words + step_words
+
+    # feed the gs_orders into useextskill.
 
     # below is for quick unit test....
     # this_step, step_words = genStepCreateData("obj", "gs_orders", "NA", genTestGSOrdersData(), this_step)
@@ -194,7 +221,14 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     psk_words = psk_words + step_words
     #
     # using ebay to purchase shipping label will auto update tracking code..... s
-    this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "buy_shipping_input", "labels_dir", this_step)
+    # this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "buy_shipping_input", "labels_dir", this_step)
+    # psk_words = psk_words + step_words
+
+    # use external ECBot's label shipping skill to purchase the label
+    this_step, step_words = genStepUseExternalSkill(87, "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "buy_shipping_input", "start_time", True,"label_results", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWaitUntil(60, ["labels_ready"], "all", "wait_results", "event_happend", this_step)
     psk_words = psk_words + step_words
 
     # # extract tracking code from labels and update them into etsy_orders data struture.
@@ -519,6 +553,7 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+
 def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     print("fullfill using ebay labels")
     psk_words = "{"
@@ -539,15 +574,19 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
+    this_step, step_words = genStepUploadFiles("label_files", "settings", "general", "presigned_link", this_step)
+    psk_words = psk_words + step_words
+
+
     this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', ebay_orders, product_catelog]", this_step)
     psk_words = psk_words + step_words
     #
     # using ebay to purchase shipping label will auto update tracking code..... s
-    # this_step, step_words = genStepUseExternalSkill(87, "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "skill_input", "start_time", True,"label_results", this_step)
-    # psk_words = psk_words + step_words
-
-    this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "gs_input", "label_results", this_step)
+    this_step, step_words = genStepUseExternalSkill(87, "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "skill_input", "start_time", True,"label_results", this_step)
     psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "gs_input", "label_results", this_step)
+    # psk_words = psk_words + step_words
 
 
     this_step, step_words = genStepCheckCondition("label_results", "", "", this_step)

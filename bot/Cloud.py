@@ -13,6 +13,7 @@ import asyncio
 from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
 import websockets
+import traceback
 
 ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
@@ -116,6 +117,7 @@ def get_file_with_presigned_url(dest_file, url):
     #Download file to S3 using presigned URL
     # POST to S3 presigned url
     http_response = requests.get(url, stream=True)
+    print("DL presigned:", http_response)
     if http_response.status_code == 200:
         with open(dest_file, 'wb') as f:
             #http_response.raw.decode_content = True
@@ -1625,65 +1627,109 @@ def findIdx(list, element):
 
 
 def upload_file(session, f2ul, token, ftype="general"):
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+    try:
+        logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
-    fname = os.path.basename(f2ul)
-    fwords = f2ul.split("/")
-    relf2ul = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
-    prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
+        fname = os.path.basename(f2ul)
+        fwords = f2ul.split("/")
+        relf2ul = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
+        prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
 
-    fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
-    logger_helper.debug("fopreqs:"+json.dumps(fopreqs))
+        fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
+        logger_helper.debug("fopreqs:"+json.dumps(fopreqs))
 
-    res = send_file_op_request_to_cloud(session, fopreqs, token)
-    logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+        res = send_file_op_request_to_cloud(session, fopreqs, token)
+        logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
+        logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
-    resd = json.loads(res['body']['urls']['result'])
-    logger_helper.debug("resd: "+json.dumps(resd))
+        resd = json.loads(res['body']['urls']['result'])
+        logger_helper.debug("resd: "+json.dumps(resd))
 
-    # now perform the upload of the presigned URL
-    logger_helper.debug("f2ul:"+json.dumps(f2ul))
-    resp = send_file_with_presigned_url(f2ul, resd['body'][0])
-    #  logger_helper.debug("upload result: "+json.dumps(resp))
-    logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        # now perform the upload of the presigned URL
+        logger_helper.debug("f2ul:"+json.dumps(f2ul))
+        resp = send_file_with_presigned_url(f2ul, resd['body'][0])
+        #  logger_helper.debug("upload result: "+json.dumps(resp))
+        logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        link = resd['body'][0]
 
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "Errorupload_file:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "Errorupload_file traceback information not available:" + str(e)
+        link = ""
 
-
-def download_file(session, f2dl, token, ftype="general"):
-    fname = os.path.basename(f2dl)
-    fwords = f2dl.split("/")
-    relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
-    prefix = ftype + "|" + os.path.dirname(f2dl)
-
-    fopreqs = [{"op": "download", "names": fname, "options": prefix}]
-
-    res = send_file_op_request_to_cloud(session, fopreqs, token)
-    # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
-
-    resd = json.loads(res['body']['urls']['result'])
-    # logger_helper.debug("cloud response data: "+json.dumps(resd))
-    resp = get_file_with_presigned_url(f2dl, resd['body'][0])
-    #
-    # logger_helper.debug("resp:"+json.dumps(resp))
+    return link
 
 
-def download_file8(session, f2dl, token, ftype="general"):
-    fname = os.path.basename(f2dl)
-    fwords = f2dl.split("/")
-    relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
-    prefix = ftype + "|" + os.path.dirname(f2dl)
+# datahome should ends with "/", f2dl should starts with "runlogs"
+def download_file(session, datahome, f2dl, token, ftype="general"):
+    try:
+        fname = os.path.basename(f2dl)
+        fwords = f2dl.split("/")
+        relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
+        prefix = ftype + "|" + os.path.dirname(f2dl)
 
-    fopreqs = [{"op": "download", "names": fname, "options": prefix}]
+        fopreqs = [{"op": "download", "names": fname, "options": prefix}]
 
-    res = send_file_op_request_to_cloud(session, fopreqs, token)
-    # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
+        res = send_file_op_request_to_cloud(session, fopreqs, token)
+        # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
 
-    resd = json.loads(res['body']['urls']['result'])
-    # logger_helper.debug("cloud response data: "+json.dumps(resd))
-    resp = get_file_with_presigned_url(f2dl, resd['body'][0])
-    #
-    # logger_helper.debug("resp:"+json.dumps(resp))
+        resd = json.loads(res['body']['urls']['result'])
+        print("RESD:", resd, resd['body'][0])
+        # logger_helper.debug("cloud response data: "+json.dumps(resd))
+        resp = get_file_with_presigned_url(datahome+f2dl, resd['body'][0])
+        #
+        # logger_helper.debug("resp:"+json.dumps(resp))
+        link = resd['body'][0]
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "Errordownload_file:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "Errordownload_file traceback information not available:" + str(e)
+        link = ""
+
+    return link
+
+
+
+def download_file8(session, datahome, f2dl, token, ftype="general"):
+    try:
+        fname = os.path.basename(f2dl)
+        fwords = f2dl.split("/")
+        relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
+        prefix = ftype + "|" + os.path.dirname(f2dl)
+
+        fopreqs = [{"op": "download", "names": fname, "options": prefix}]
+
+        res = send_file_op_request_to_cloud(session, fopreqs, token)
+        # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
+
+        resd = json.loads(res['body']['urls']['result'])
+        # logger_helper.debug("cloud response data: "+json.dumps(resd))
+        resp = get_file_with_presigned_url(datahome+f2dl, resd['body'][0])
+        #
+        # logger_helper.debug("resp:"+json.dumps(resp))
+        link = resd['body'][0]
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "Errordownload_file8:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "Errordownload_file8 traceback information not available:" + str(e)
+        link = ""
+
+    return link
 
 
 
