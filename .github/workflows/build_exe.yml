@@ -36,10 +36,10 @@ jobs:
 
     - name: Build Installer with Inno Setup
       run: |
-        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss  # 替换为你的 Inno Setup 脚本文件路径
+        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "setup.iss"
 
     - name: Upload Installer as artifact
       uses: actions/upload-artifact@v3
       with:
         name: Installer
-        path: path\to\output\ecbot_installer.exe  # 替换为生成的安装程序路径
+        path: dist\ECBotInstaller.exe  # 替换为生成的安装程序路径
