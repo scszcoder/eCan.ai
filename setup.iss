@@ -173,11 +173,13 @@ begin
   DataDirPage.Values[0] := GetPreviousData('DataDir', '');
 end;
 
-procedure InitializeSetup;
+function InitializeSetup(): Boolean;
 begin
   ConfigFilePath := ExpandConstant('{src}\config.ini');
   AppVersionValue := GetIniString('Settings', 'AppVersion', '1.0.0', ConfigFilePath);
   AppUpdatesURLValue := GetIniString('Settings', 'AppUpdatesURL', 'http://www.ecbot.com/updates', ConfigFilePath);
+
+  Result := True;
 end;
 
 function GetAppVersion(): string;
