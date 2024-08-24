@@ -48,6 +48,7 @@ class MissionModel(Base):
     follow_seller = Column(Text)
     follow_price = Column(Text)
     fingerprint_profile = Column(Text)
+    as_server = Column(Integer)
     def to_dict(self):
         return {
             "mid": self.mid,
@@ -93,4 +94,5 @@ class MissionModel(Base):
             "follow_seller": self.follow_seller,
             "follow_price": self.follow_price,
             "fingerprint_profile": self.fingerprint_profile,
+            "as_server": self.as_server
         }

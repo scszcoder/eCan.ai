@@ -67,10 +67,10 @@ def direct_send_screen(file_name, bucket="winrpa"):
     return response
 
 
-def download_file(file_name, bucket, object_name=None):
-    s3 = boto3.client('s3')
-    with open('FILE_NAME', 'wb') as f:
-        s3.download_fileobj('BUCKET_NAME', 'OBJECT_NAME', f)
+# def download_file(file_name, bucket, object_name=None):
+#     s3 = boto3.client('s3')
+#     with open('FILE_NAME', 'wb') as f:
+#         s3.download_fileobj('BUCKET_NAME', 'OBJECT_NAME', f)
 
 
 def list_s3_file():
@@ -1624,7 +1624,7 @@ def findIdx(list, element):
     return index_value
 
 
-def upload_file(session, f2ul, token, ftype):
+def upload_file(session, f2ul, token, ftype="general"):
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     fname = os.path.basename(f2ul)
@@ -1650,7 +1650,7 @@ def upload_file(session, f2ul, token, ftype):
 
 
 
-def download_file(session, f2dl, token, ftype):
+def download_file(session, f2dl, token, ftype="general"):
     fname = os.path.basename(f2dl)
     fwords = f2dl.split("/")
     relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
@@ -1666,6 +1666,26 @@ def download_file(session, f2dl, token, ftype):
     resp = get_file_with_presigned_url(f2dl, resd['body'][0])
     #
     # logger_helper.debug("resp:"+json.dumps(resp))
+
+
+def download_file8(session, f2dl, token, ftype="general"):
+    fname = os.path.basename(f2dl)
+    fwords = f2dl.split("/")
+    relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
+    prefix = ftype + "|" + os.path.dirname(f2dl)
+
+    fopreqs = [{"op": "download", "names": fname, "options": prefix}]
+
+    res = send_file_op_request_to_cloud(session, fopreqs, token)
+    # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
+
+    resd = json.loads(res['body']['urls']['result'])
+    # logger_helper.debug("cloud response data: "+json.dumps(resd))
+    resp = get_file_with_presigned_url(f2dl, resd['body'][0])
+    #
+    # logger_helper.debug("resp:"+json.dumps(resp))
+
+
 
 # list dir on my cloud storage
 def cloud_ls(session, token):
@@ -1788,7 +1808,7 @@ async def send_file_with_presigned_url8(session, src_file, resp):
                 return r.status
 
 
-async def upload_file8(session, f2ul, token, ftype):
+async def upload_file8(session, f2ul, token, ftype="general"):
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     fname = os.path.basename(f2ul)

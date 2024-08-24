@@ -164,7 +164,6 @@
     "win_title_kw": "",
     "page": "orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "completion"
 },
 "step 100":
@@ -292,7 +291,6 @@
     "win_title_kw": "",
     "page": "orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "completion"
 },
 "step 155":
