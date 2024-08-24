@@ -47,12 +47,13 @@ def build_app():
     #     result = subprocess.run(['sh', 'build_dmg.sh'], capture_output=True, text=True)
 
 
-def remove_directory(path):
+def clean_directory(path):
     if os.path.exists(path):
         shutil.rmtree(path)
         print(f"Removed directory: {path}")
     else:
-        print(f"Directory not found: {path}")
+        os.makedirs(path)
+        print(f"build Directory: {path}")
 
 
 def remove_file(path):
@@ -83,8 +84,8 @@ def main():
     project_path = Path('./')
 
     # Remove build and dist directories
-    remove_directory(project_path / 'build')
-    remove_directory(project_path / 'dist')
+    clean_directory(project_path / 'build')
+    clean_directory(project_path / 'dist')
 
     # Remove .spec files
     for spec_file in project_path.glob('*.spec'):
