@@ -4,33 +4,15 @@ on:
   push:
     branches: [ feature-jenkins ]
     tags:
-      - 'v*' # 只有在推送标签时触发，通常用于版本发布
-  workflow_dispatch:  # 添加这个触发器以支持手动运行
-    inputs:
-      version:
-        description: 'Release version' # 描述
-        required: true # 是否为必填项
-        default: '1.0.0' # 默认值
-        type: string # 类型，支持 string、choice、boolean、environment 等
+      - 'Release-v*' # 只有在推送标签时触发，通常用于版本发布
+#  workflow_dispatch:  # 添加这个触发器以支持手动运行
+#    inputs:
+#      version:
+#        description: 'Release version' # 描述
+#        required: true # 是否为必填项
+#        default: '1.0.0' # 默认值
+#        type: string # 类型，支持 string、choice、boolean、environment 等
 
-      environment:
-        description: 'Build environment'
-        required: true
-        default: 'prod'
-        type: choice
-        options:
-          - prod
-          - sit
-          - dev
-
-      platform:
-        description: 'OS Platform'
-        required: true
-        default: 'windows'
-        type: choice
-        options:
-          - windows
-          - macos
 
 jobs:
   build:
@@ -53,24 +35,12 @@ jobs:
 
     - name: Build EXE with PyInstaller
       run: |
-        # pyinstaller --onefile --name ECBot main.py  # 替换为你的主脚本文件
         python setup.py
 
-    - name: Replace version in Inno Setup script
-      run: |
-        $version = "${{ github.event.inputs.version }}"
-        (Get-Content setup.iss) -replace 'AppVersion=.*', "AppVersion=$version" | Set-Content setup.iss
-
-#    - name: Get the latest Git tag
-#      id: get_tag
-#      run: echo "TAG_NAME=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
-#
-#    - name: Generate dynamic Inno Setup script
+#    - name: Replace version in Inno Setup script
 #      run: |
-#        $tag = "${{ env.TAG_NAME }}"
-#        $setupScript = Get-Content path\to\your\template.iss
-#        $setupScript = $setupScript -replace "AppVersion=.*", "AppVersion=$tag"
-#        Set-Content path\to\your\output.iss $setupScript
+#        $version = "${{ github.event.inputs.version }}"
+#        (Get-Content setup.iss) -replace 'AppVersion=.*', "AppVersion=$version" | Set-Content setup.iss
 
     - name: Install Inno Setup
       run: choco install innosetup --yes
@@ -90,7 +60,7 @@ jobs:
       uses: actions/create-release@v1
       with:
         tag_name: ${{ github.ref }} # 使用当前推送的标签
-        release_name: Release ${{ github.ref }}
+        release_name: ${{ github.ref }}
         draft: false
         prerelease: false
         token: ${{ secrets.GITHUB_TOKEN }} # GitHub 自动提供的访问令牌
