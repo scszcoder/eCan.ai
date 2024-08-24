@@ -34,7 +34,7 @@ from gui.BotGUI import BotNewWin
 from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud
+    send_get_bots_request_to_cloud, download_file
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from gui.LoggerGUI import CommanderLogWin
 from bot.Logger import LOG_SWITCH_BOARD, log3
@@ -1467,8 +1467,9 @@ class MainWindow(QMainWindow):
         new_mission = EBMISSION(self)
         # test_request_skill_run(new_mission)
 
-        test_report_skill_run_result(new_mission)
+        # test_report_skill_run_result(new_mission)
 
+        test_presigned_updownload(new_mission)
         # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
 
         # test_processSearchWordLine()
@@ -2660,6 +2661,16 @@ class MainWindow(QMainWindow):
                     rpaScripts.append(rpa_script)
                     # self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
                     self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+str(len(relevant_skills))+" "+str(worksettings["midx"])+" "+str(len(self.missions)))
+
+
+                    # Before running do the needed prep to get "fin" input parameters ready.
+                    # this is the case when this mission is run as an independent server, the input
+                    # of the mission will come from the another computer, and there might even be
+                    # files to be downloaded first as the input to the mission.
+                    if worksettings["as_server"]:
+                        if len(worksettings["config"]["dl_links"]) > 0:
+                            for dl_link in worksettings["config"]["dl_links"]:
+                                download_file(self.session, dl_link["f2dl"], self.tokens['AuthenticationResult']['IdToken'], dl_link["ftype"])
 
 
                     # (steps, mission, skill, mode="normal"):
@@ -5122,10 +5133,10 @@ class MainWindow(QMainWindow):
                 current_time = datetime.now()
 
                 # Check if more than 8 seconds have passed since the last heartbeat
-                if (current_time - pre_time).total_seconds() > 18:
+                if (current_time - pre_time).total_seconds() > 60:
                     print("about to send heartbeat")
                     pre_time = current_time
-                    # await self.wan_send_heartbeat()
+                    await self.wan_send_heartbeat()
 
                 print("real work starts here....")
                 botTodos = None
@@ -5165,6 +5176,7 @@ class MainWindow(QMainWindow):
                             if "Completed" not in botTodos["status"]:
                                 self.showMsg("time to run RPA........"+json.dumps(botTodos))
                                 last_start = int(datetime.now().timestamp()*1)
+
                                 current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_rpa_queue, gui_monitor_queue)
                                 last_end = int(datetime.now().timestamp()*1)
 

@@ -243,7 +243,6 @@
     "win_title_kw": "",
     "page": "label",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 145":
@@ -347,7 +346,6 @@
     "win_title_kw": "",
     "page": "label",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 195":
@@ -392,7 +390,7 @@
     "data_type": "string",
     "data_name": "today_date_range",
     "key_name": "NA",
-    "key_value": "08/21/2024 - 08/22/2024"
+    "key_value": "08/22/2024 - 08/23/2024"
 },
 "step 210":
 {
@@ -493,7 +491,7 @@
     "data_type": "string",
     "data_name": "todate",
     "key_name": "NA",
-    "key_value": "0822"
+    "key_value": "0823"
 },
 "step 260":
 {
@@ -521,7 +519,6 @@
     "win_title_kw": "",
     "page": "label",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 275":
@@ -755,7 +752,6 @@
     "win_title_kw": "",
     "page": "label",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 395":
@@ -842,7 +838,6 @@
     "win_title_kw": "",
     "page": "label",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 420":
@@ -911,7 +906,6 @@
     "win_title_kw": "",
     "page": "label",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 445":
@@ -956,7 +950,7 @@
     "data_type": "str",
     "data_name": "hfname",
     "key_name": "NA",
-    "key_value": "etsyOrders1724393052.html"
+    "key_value": "etsyOrders1724456243.html"
 },
 "step 470":
 {
@@ -1048,7 +1042,6 @@
     "win_title_kw": "",
     "page": "label",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 525":
@@ -1108,7 +1101,6 @@
     "win_title_kw": "",
     "page": "label",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 545":

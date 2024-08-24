@@ -21,7 +21,8 @@ from ping3 import ping
 
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
-    send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud
+    send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
+    download_file, download_file8
 from bot.Logger import log3
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -168,11 +169,38 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
         "win_title_kw": win_title_kw,
         "page": page,
         "page_data_info": page_data,
-        "theme": theme,
         "section": sect
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+# input: file_var, settings, ftype,
+# output: presigned_var
+def genStepUploadFile(file_var, settings, ftype, presigned_var, stepN):
+    stepjson = {
+        "type": "Upload File",
+        "settings": settings,
+        "file_var": file_var,
+        "ftype": ftype,
+        "presigned": presigned_var,
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+# input: file_var, settings, ftype
+# output: presigned_var
+def genStepDownloadFile(file_var, settings, ftype, presigned_var, stepN):
+    stepjson = {
+        "type": "Download File",
+        "file_var": file_var,
+        "settings": settings,
+        "ftype": ftype,
+        "presigned": presigned_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 def genStepFillRecipients(texts_var, orders_var, site, stepN, option=""):
     stepjson = {
@@ -1514,6 +1542,95 @@ async def processExtractInfo8(step, i, mission, skill):
         log3(ex_stat)
 
     return (i+1), ex_stat
+
+def processUploadFile(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        settings = mission.main_win_settings
+        if "/" in step["file_name"]:
+            sfile = step["file_name"]
+        else:
+            sfile = symTab[step["file_name"]]
+
+        ftype = step["ftype"]
+        dtnow = datetime.now()
+
+        date_word = dtnow.strftime("%Y%m%d")
+        dt_string = str(int(dtnow.timestamp()))
+        log3("date string:" + dt_string)
+        sfile = "C:/Users/songc/PycharmProjects/testdata/"
+
+
+        log3("mission[" + str(mission.getMid()) + "] cuspas: " + mission.getCusPAS() + "step settings:" + json.dumps(
+            step["settings"]))
+
+        if type(step["settings"]) == str:
+            step_settings = symTab[step["settings"]]
+            log3("SETTINGS FROM STRING...." + json.dumps(step_settings))
+        else:
+            step_settings = step["settings"]
+
+        log3("STEP SETTINGS" + json.dumps(step_settings))
+        platform = step_settings["platform"]
+        app = step_settings["app"]
+        site = step_settings["site"]
+        page = step_settings["page"]
+
+        if step_settings["root_path"][len(step_settings["root_path"]) - 1] == "/":
+            step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"]) - 1]
+
+        fdir = ecb_data_homepath + "/runlogs/"
+        fdir = fdir + date_word + "/"
+
+        fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
+        # fdir = fdir + ppword + "/"
+        fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
+        fdir = fdir + step_settings["skname"] + "/images/"
+        sfile = fdir + "scrn" + mission.main_win_settings["uid"] + "_" + dt_string + ".png"
+        log3("sfile: " + sfile)
+
+
+
+        upload_file(settings["session"], sfile, settings["token"], ftype)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorExtractInfo:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i+1), ex_stat
+
+
+
+def processDownloadFile(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        settings = mission.main_win_settings
+        if "/" in step["file_name"]:
+            sfile = step["file_name"]
+        else:
+            sfile = symTab[step["file_name"]]
+
+        ftype = step["ftype"]
+        download_file(settings["session"], sfile, settings["token"], ftype)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorExtractInfo:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i+1), ex_stat
+
 
 
 # this is function is more or less for Etsy or others...
