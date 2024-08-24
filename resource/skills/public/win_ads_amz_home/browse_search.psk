@@ -120,7 +120,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 75":
@@ -186,7 +185,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 105":
@@ -355,7 +353,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 195":
@@ -405,7 +402,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 220":
@@ -561,7 +557,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 295":
@@ -622,7 +617,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 315":
@@ -694,7 +688,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 335":
@@ -766,7 +759,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 355":
@@ -825,7 +817,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 385":
@@ -882,7 +873,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 415":
@@ -1154,7 +1144,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 550":
@@ -1261,7 +1250,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 595":
@@ -1340,7 +1328,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 640":
@@ -1421,7 +1408,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 675":
@@ -1646,7 +1632,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 775":
@@ -1727,7 +1712,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 810":
@@ -1808,7 +1792,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 845":
@@ -1882,7 +1865,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 875":
@@ -1952,7 +1934,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 915":
@@ -2098,7 +2079,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'check_shipping1724393051'+'_'+'955'+'.html'"
+    "key_value": "'check_shipping1724456242'+'_'+'955'+'.html'"
 },
 "step 980":
 {
@@ -2256,7 +2237,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 1060":
@@ -2296,7 +2276,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 1080":
@@ -2377,7 +2356,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 1115":
@@ -2526,7 +2504,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 1180":
@@ -2966,7 +2943,6 @@
     "win_title_kw": "SunBrowser",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1400":
@@ -3058,7 +3034,6 @@
     "win_title_kw": "SunBrowser",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1455":
@@ -3112,7 +3087,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1480":
@@ -3161,7 +3135,6 @@
     "win_title_kw": "SunBrowser",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1505":
@@ -3280,7 +3253,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1560":
@@ -3399,7 +3371,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1620":
@@ -3713,7 +3684,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1795":
@@ -3750,7 +3720,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1815":
@@ -3793,7 +3762,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 1830":
@@ -3937,7 +3905,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 1905":
@@ -4010,7 +3977,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "bottom"
 },
 "step 1945":
@@ -4054,7 +4020,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 1970":
@@ -4257,7 +4222,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "bottom"
 },
 "step 2090":
@@ -4321,7 +4285,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2115":
@@ -4397,7 +4360,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "bottom"
 },
 "step 2145":
@@ -4488,7 +4450,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "bottom"
 },
 "step 2185":
@@ -4663,7 +4624,6 @@
     "win_title_kw": "",
     "page": "all_reviews",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2265":
@@ -4929,7 +4889,6 @@
     "win_title_kw": "",
     "page": "all_reviews",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2395":
@@ -5096,7 +5055,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "",
     "section": "top"
 },
 "step 2480":
@@ -5187,7 +5145,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2530":
@@ -5268,7 +5225,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2565":
@@ -5493,7 +5449,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2665":
@@ -5574,7 +5529,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2700":
@@ -5655,7 +5609,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2735":
@@ -5729,7 +5682,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2765":
@@ -5799,7 +5751,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2805":
@@ -5945,7 +5896,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'check_shipping1724393051'+'_'+'2845'+'.html'"
+    "key_value": "'check_shipping1724456242'+'_'+'2845'+'.html'"
 },
 "step 2870":
 {
@@ -6103,7 +6054,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2950":
@@ -6143,7 +6093,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 2970":
@@ -6224,7 +6173,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 3005":
@@ -6373,7 +6321,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 3070":
@@ -6749,7 +6696,6 @@
     "win_title_kw": "SunBrowser",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3245":
@@ -6867,7 +6813,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3310":
@@ -6916,7 +6861,6 @@
     "win_title_kw": "SunBrowser",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3335":
@@ -7035,7 +6979,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3390":
@@ -7154,7 +7097,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3450":
@@ -7431,7 +7373,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3605":
@@ -7557,7 +7498,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3670":
@@ -7594,7 +7534,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3690":
@@ -7637,7 +7576,6 @@
     "win_title_kw": "",
     "page": "product_list",
     "page_data_info": null,
-    "theme": "light",
     "section": "body"
 },
 "step 3705":
@@ -7781,7 +7719,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 3780":
@@ -7854,7 +7791,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "bottom"
 },
 "step 3820":
@@ -7898,7 +7834,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 3845":
@@ -8101,7 +8036,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "bottom"
 },
 "step 3965":
@@ -8165,7 +8099,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 3990":
@@ -8241,7 +8174,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "bottom"
 },
 "step 4020":
@@ -8332,7 +8264,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "light",
     "section": "bottom"
 },
 "step 4060":
@@ -8507,7 +8438,6 @@
     "win_title_kw": "",
     "page": "all_reviews",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4140":
@@ -8773,7 +8703,6 @@
     "win_title_kw": "",
     "page": "all_reviews",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4270":
@@ -8940,7 +8869,6 @@
     "win_title_kw": "",
     "page": "product_details",
     "page_data_info": null,
-    "theme": "",
     "section": "top"
 },
 "step 4355":
@@ -9031,7 +8959,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4405":
@@ -9112,7 +9039,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4440":
@@ -9337,7 +9263,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4540":
@@ -9418,7 +9343,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4575":
@@ -9499,7 +9423,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4610":
@@ -9573,7 +9496,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4640":
@@ -9643,7 +9565,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4680":
@@ -9789,7 +9710,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'check_shipping1724393051'+'_'+'4720'+'.html'"
+    "key_value": "'check_shipping1724456242'+'_'+'4720'+'.html'"
 },
 "step 4745":
 {
@@ -9947,7 +9868,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4825":
@@ -9987,7 +9907,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4845":
@@ -10068,7 +9987,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4880":
@@ -10217,7 +10135,6 @@
     "win_title_kw": "",
     "page": "my_orders",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 4945":
@@ -10817,7 +10734,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 5250":
@@ -10924,7 +10840,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 5295":
@@ -10997,7 +10912,6 @@
     "win_title_kw": "",
     "page": "amazon_home",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 5335":
@@ -11054,7 +10968,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 5370":
@@ -11123,7 +11036,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 5390":
@@ -11173,7 +11085,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "export_text"
 },
 "step 5405":
@@ -11258,7 +11169,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "export_text"
 },
 "step 5425":
@@ -11343,7 +11253,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "export_text"
 },
 "step 5445":
@@ -11417,7 +11326,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "export_text"
 },
 "step 5465":
@@ -11454,7 +11362,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "file_dialog"
 },
 "step 5475":
@@ -11529,7 +11436,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "popup"
 },
 "step 5495":
@@ -11581,7 +11487,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "popup"
 },
 "step 5515":
@@ -11625,7 +11530,6 @@
     "win_title_kw": "",
     "page": "ads_power",
     "page_data_info": null,
-    "theme": "light",
     "section": "top"
 },
 "step 5530":

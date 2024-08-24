@@ -49,6 +49,7 @@ MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'defa
                           {'name': 'customer', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'platoon', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'result', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                        {'name': 'as_server', 'type': 'INTEGER', 'nullable': True, 'default': 0}
                      ]
 class MissionService:
     def __init__(self, main_win, session):
@@ -138,6 +139,7 @@ class MissionService:
             local_mission.follow_seller = messions["follow_seller"]
             local_mission.follow_price = messions["follow_price"]
             local_mission.fingerprint_profile = messions["fingerprint_profile"]
+            local_mission.as_server = messions["as_server"]
             self.session.add(local_mission)
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
         self.session.commit()
@@ -186,6 +188,7 @@ class MissionService:
             result.follow_seller = amission["follow_seller"]
             result.follow_price = amission["follow_price"]
             result.fingerprint_profile = amission["fingerprint_profile"]
+            result.as_server = amission["as_server"]
             self.session.commit()
             self.main_win.showMsg("update row: " + json.dumps(result.to_dict()))
 
@@ -262,6 +265,7 @@ class MissionService:
             local_mission.config = str(mission['config'])
             local_mission.skills = mission['skills']
             local_mission.delDate = mission['delDate']
+            local_mission.as_server = mission['as_server']
             if insert:
                 self.session.add(local_mission)
         self.session.commit()

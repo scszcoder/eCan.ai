@@ -189,6 +189,13 @@ class M_Pub_Attributes():
         self.platoon_id = ""
         self.buy_type = ""
         self.sell_type = ""
+        self.as_server = False
+
+    def getAsServer(self):
+        return self.as_server
+
+    def setAsServer(self, ias):
+        self.as_server = ias
 
     def setType(self, atype, mtype):
         self.assign_type = atype
@@ -247,6 +254,7 @@ class M_Pub_Attributes():
         self.app_exe = dj["app_exe"]
         self.platoon_id = dj["platoon_id"]
         self.createon = dj["createon"]
+        self.as_server = dj["as_server"]
 
     def loadNetRespJson(self, dj):
         self.missionId = dj["mid"]
@@ -279,6 +287,7 @@ class M_Pub_Attributes():
         self.platform = cuspas[0]
         self.app = cuspas[1]
         self.site = cuspas[2]
+        self.as_server = dj["as_server"]
 
         if self.app == "ads":
             full_app_name = "AdsPower Global"
@@ -362,6 +371,7 @@ class M_Pub_Attributes():
                 "del_date": self.del_date,
                 "platoon_id": self.platoon_id,
                 "app_exe": self.app_exe,
+                "as_server": self.as_server
             }
         return jd
 
@@ -879,6 +889,12 @@ class EBMISSION(QStandardItem):
     def updateDisplay(self):
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
+    def getAsServer(self):
+        return self.pubAttributes.as_server
+
+    def setAsServer(self, ias):
+        self.pubAttributes.as_server = ias
+
     # self.
     def setJsonData(self, ppJson):
         self.pubAttributes.loadJson(ppJson["pubAttributes"])
@@ -952,6 +968,7 @@ class EBMISSION(QStandardItem):
         self.setFollowSeller(dbd.follow_seller)
         self.setFollowPrice(dbd.follow_price)
         self.setFingerPrintProfile(dbd.fingerprint_profile)
+        self.setAsServer(dbd.as_server)
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadXlsxData(self, jd):
@@ -987,6 +1004,7 @@ class EBMISSION(QStandardItem):
         self.setFollowSeller(jd["follow_seller"])
         self.setFollowPrice(jd["follow_price"])
         self.setFingerPrintProfile(jd["fingerprint_profile"])
+        self.setAsServer(jd["as_server"])
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadAMZReqData(self,jd):

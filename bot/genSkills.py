@@ -26,7 +26,8 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepUpdateBuyMissionResult, genStepGenRespMsg, \
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
-    genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault
+    genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUnloadFile, \
+    genStepDownloadFile
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -128,6 +129,8 @@ PUBLIC = {
     'genStepFillData': genStepFillData,
     'genStepThink': genStepThink,
     'genException': genException,
+    "genStepUploadFile": genStepUnloadFile,
+    "genStepDownloadFile": genStepDownloadFile,
     'genWinChromeEtsyCollectOrderListSkill': genWinChromeEtsyCollectOrderListSkill,
     'genStepEtsySearchOrders': genStepEtsySearchOrders,
     'genWinChromeEtsyUpdateShipmentTrackingSkill': genWinChromeEtsyUpdateShipmentTrackingSkill,
@@ -299,6 +302,7 @@ def getWorkSettings(lieutenant, bot_works):
     site = lieutenant.missions[midx].getSite()
     app = lieutenant.missions[midx].getApp()
     app_exe = lieutenant.missions[midx].getAppExe()
+    as_server = lieutenant.missions[midx].getAsServer()
     # log3("settings: "+json.dumps(settings))
 
     rpa_name = works[tz][bidx][grp][idx]["name"]
@@ -371,6 +375,7 @@ def getWorkSettings(lieutenant, bot_works):
             "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
             "options": "{}",
+            "as_server": as_server,
             "name_space": name_space
             }
 
@@ -397,6 +402,7 @@ def getWorkRunSettings(lieutenant, bot_works):
     full_site = lieutenant.missions[midx].getSiteHTML()
     app = lieutenant.missions[midx].getApp()
     app_exe = lieutenant.missions[midx].getAppExe()
+    as_server = lieutenant.missions[midx].getAsServer()
     log3("settings setting app_exe: "+app+app_exe+platform+site)
 
     rpa_name = works[widx]["name"]
@@ -489,6 +495,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "self_ip": lieutenant.ip,
             "machine_name": lieutenant.machine_name,
             "scroll_resolution": scroll_resolution,
+            "as_server": as_server,
             # "commander_link": lieutenant.commanderXport,
             "name_space": name_space
             }
@@ -593,7 +600,6 @@ def genLinuxSkillCode(worksettings, start_step, theme):
 
 def genChromeOSSkillCode(worksettings, start_step, theme):
     log3("No ChromeOS Skills Found.")
-
 
 
 

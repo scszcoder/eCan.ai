@@ -222,18 +222,20 @@ class MissionNewWin(QMainWindow):
 
         self.mission_type_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission Type:</b>"),
                                          alignment=Qt.AlignLeft)
-        self.buy_rb = QRadioButton(QApplication.translate("QPushButton", "Buy Side"))
+        self.buy_rb = QRadioButton(QApplication.translate("QRadioButton", "Buy Side"))
         self.buy_rb.toggled.connect(self.buy_rb_checked_state_changed)
 
-        self.sell_rb = QRadioButton(QApplication.translate("QPushButton", "Sell Side"))
+        self.sell_rb = QRadioButton(QApplication.translate("QRadioButton", "Sell Side"))
         self.sell_rb.toggled.connect(self.sell_rb_checked_state_changed)
-        self.op_rb = QRadioButton(QApplication.translate("QPushButton", "Operation Side"))
+        self.op_rb = QRadioButton(QApplication.translate("QRadioButton", "Operation Side"))
         self.op_rb.toggled.connect(self.op_rb_checked_state_changed)
 
-        self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"),
-                                                alignment=Qt.AlignLeft)
-        self.manual_rb = QRadioButton(QApplication.translate("QPushButton", "Manual Assign(Bot and Schedule)"))
-        self.auto_rb = QRadioButton(QApplication.translate("QPushButton", "Auto Assign(Bot and Schedule)"))
+        self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"), alignment=Qt.AlignLeft)
+        self.manual_rb = QRadioButton(QApplication.translate("QRadioButton", "Manual Assign(Bot and Schedule)"))
+        self.auto_rb = QRadioButton(QApplication.translate("QRadioButton", "Auto Assign(Bot and Schedule)"))
+
+        self.run_as_server_label = QLabel(QApplication.translate("QLabel", "Run Type:"), alignment=Qt.AlignRight)
+        self.as_server_rb = QRadioButton(QApplication.translate("QRadioButton", "Run As Server"))
 
         self.bid_label = QLabel(QApplication.translate("QLabel", "Assigned Bot ID:"), alignment=Qt.AlignLeft)
         self.bid_edit = QLineEdit()
@@ -348,6 +350,8 @@ class MissionNewWin(QMainWindow):
         self.pubAttrLine2ALayout.addWidget(self.mission_auto_assign_label)
         self.pubAttrLine2ALayout.addWidget(self.manual_rb)
         self.pubAttrLine2ALayout.addWidget(self.auto_rb)
+        self.pubAttrLine2ALayout.addWidget(self.run_as_server_label)
+        self.pubAttrLine2ALayout.addWidget(self.as_server_rb)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2ALayout)
 
         self.pubAttrLine2BLayout = QHBoxLayout(self)
@@ -776,6 +780,8 @@ class MissionNewWin(QMainWindow):
         self.newMission.updateDisplay()
         # public: type,
 
+        self.newMission.setAsServer(self.as_server_rb.isChecked())
+
         if self.mode == "new":
             self.main_win.showMsg("adding new mission....")
             self.main_win.addNewMissions([self.newMission])
@@ -915,6 +921,8 @@ class MissionNewWin(QMainWindow):
                 self.mission_site_sel.setCurrentText('Custom')
                 self.missionCustomAppNameEdit.setText(self.newMission.getSite())
                 self.missionCustomAppLinkEdit.setText(self.newMission.getSiteHTML())
+
+            self.as_server_rb.setChecked(self.newMission.getAsServer())
 
             self.loadSkills(mission)
         except Exception as e:
