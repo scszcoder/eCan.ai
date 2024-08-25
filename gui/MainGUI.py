@@ -34,7 +34,7 @@ from gui.BotGUI import BotNewWin
 from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud, download_file
+    send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from gui.LoggerGUI import CommanderLogWin
 from bot.Logger import LOG_SWITCH_BOARD, log3
@@ -1586,7 +1586,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest99.json'
+                        file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
@@ -2668,6 +2668,7 @@ class MainWindow(QMainWindow):
                     # of the mission will come from the another computer, and there might even be
                     # files to be downloaded first as the input to the mission.
                     if worksettings["as_server"]:
+                        print("AS Server")
                         if len(worksettings["config"]["ul_links"]) > 0:
                             worksettings["config"]["downloaded"] = []
                             for i, ul_link in enumerate(worksettings["config"]["ul_links"]):
@@ -5942,7 +5943,7 @@ class MainWindow(QMainWindow):
     # the message will be in the format of botid:send time stamp in yyyy:mm:dd hh:mm:ss format:msg in html format
     # from network the message will have chatmsg: prepend to the message.
     def update_chat_gui(self, rcvd_msg):
-        self.chatWin.addLeftMessage(rcvd_msg)
+        self.chatWin.updateDisplay(rcvd_msg)
 
     # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
     async def connectChat(self, chat_msg_queue):
@@ -5951,7 +5952,10 @@ class MainWindow(QMainWindow):
             if not chat_msg_queue.empty():
                 message = await chat_msg_queue.get()
                 self.showMsg(f"Rx Chat message from bot: {message}")
-                self.update_chat_gui(message["contents"])
+                self.update_chat_gui(message)
+                if self.host_role != "Staff Officer":
+                    response = self.think_about_a_reponse(message)
+                    self.c_send_chat(response)
                 chat_msg_queue.task_done()
 
             # print("polling chat msg queue....")
@@ -5986,11 +5990,31 @@ class MainWindow(QMainWindow):
 
 
     def update_moitor_gui(self, in_message):
-        # self.showMsg(f"RPA Monitor:"+in_message)
-        if in_message["type"] == "request mission":
-            new_works = json.loads(in_message["contents"])
-            self.handleCloudScheduledWorks(new_works)
+        try:
+            # self.showMsg(f"RPA Monitor:"+in_message)
+            if in_message["type"] == "request mission":
+                print("request mission:", in_message)
+                new_works = json.loads(in_message["contents"])
+                print("NEW works:", new_works, type(new_works['added_missions'][0]))
+                print("CONFIG:", new_works['added_missions'][0]['config'])
 
+                # downloaded files if any so that we don't have to do this later on....
+                if new_works['added_missions'][0]['config'][0] == "sale":
+                    for batch in new_works['added_missions'][0]['config'][1]:
+                        if batch['file']:
+                            print("about to download....", batch['file'])
+                            download_file(self.session, ecb_data_homepath, batch['file'], self.tokens['AuthenticationResult']['IdToken'], "general")
+                self.handleCloudScheduledWorks(new_works)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "Errorupdate_moitor_gui:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "Errorupdate_moitor_gui traceback information not available:" + str(e)
+            print(ex_stat)
 
     # note recipient could be a group ID.
     def sendBotChatMessage(self, sender, recipient, text):
@@ -6242,14 +6266,14 @@ class MainWindow(QMainWindow):
                 "parameters": json.dumps({})
             }
 
-            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     async def wan_self_ping(self):
         if self.host_role == "Staff Officer":
             self_chat_id = self.user.split("@")[0] + "_StaffOfficer"
         else:
             self_chat_id = self.user.split("@")[0] + "_Commander"
-
+        print("Self:", self_chat_id)
         ping_msg = {
             "chatID": self_chat_id,
             "sender": self.chat_id,
@@ -6259,13 +6283,12 @@ class MainWindow(QMainWindow):
             "parameters": json.dumps({})
         }
 
-        self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+        self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
 
     async def wan_pong(self):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
-            print("sending to chatID:", sa_chat_id)
             ping_msg = {
                 "chatID": sa_chat_id,
                 "sender": "Commander",
@@ -6275,7 +6298,7 @@ class MainWindow(QMainWindow):
                 "parameters": json.dumps({}),
 
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     def wan_send_log(self, logmsg):
         if self.host_role != "Staff Officer":
@@ -6330,14 +6353,13 @@ class MainWindow(QMainWindow):
             }
             wanSendMessage(log_msg, self.tokens["AuthenticationResult"]["IdToken"])
 
-
-    async def wan_stop_log8(self, logmsg):
+    async def wan_stop_log(self):
         if self.host_role == "Staff Officer":
-            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            commander_chat_id = self.user.split("@")[0] + "_Commander"
             ping_msg = {
-                "chatID": sa_chat_id,
+                "chatID": commander_chat_id,
                 "sender": "",
-                "receiver": sa_chat_id,
+                "receiver": commander_chat_id,
                 "type": "cmd",
                 "contents": json.dumps({"type": "cmd", "cmd": "stop log", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
@@ -6355,7 +6377,7 @@ class MainWindow(QMainWindow):
                 "contents": json.dumps({"type": "cmd", "cmd": "rpa ctrl", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     async def wan_send_heartbeat(self):
         if "Commander" in self.host_role:
@@ -6384,9 +6406,11 @@ class MainWindow(QMainWindow):
             time.sleep(1)
             asyncio.ensure_future(self.wan_self_ping())
         elif self.host_role != "Platoon":
-            asyncio.ensure_future(self.wan_pong())
-            time.sleep(1)
-            asyncio.ensure_future(self.wan_self_ping())
+            # asyncio.ensure_future(self.wan_pong())
+            # asyncio.ensure_future(self.wan_c_send_chat("got it!!!"))
+            # time.sleep(1)
+            # asyncio.ensure_future(self.wan_self_ping())
+            self.think_about_a_reponse("[abc]'hello?'")
 
 
     async def wan_sa_send_chat(self, msg):
@@ -6403,26 +6427,48 @@ class MainWindow(QMainWindow):
 
             self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
+    def sa_send_chat(self, msg):
+        asyncio.ensure_future(self.wan_sa_send_chat(msg))
 
-    async def wan_sa_send_structured(self, msg_type, msg):
-        if self.host_role == "Staff Officer":
-            commander_chat_id = self.user.split("@")[0] + "_Commander"
+
+    async def wan_c_send_chat(self, msg):
+        if "Commander" in self.host_role:
+            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
             ping_msg = {
-                "chatID": commander_chat_id,
+                "chatID": sa_chat_id,
                 "sender": self.chat_id,
-                "receiver": commander_chat_id,
-                "type": msg_type,
-                "contents": msg.replace('"', '\\"'),
+                "receiver": sa_chat_id,
+                "type": "chat",
+                "contents": msg,
                 "parameters": json.dumps({})
             }
 
-            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
 
+    def c_send_chat(self, msg):
+        asyncio.ensure_future(self.wan_c_send_chat(msg))
 
-    def sa_send_chat(self, msg):
-        msg_type, msg_contents = parseCommandString(msg)
-        if msg_type == "chat":
-            asyncio.ensure_future(self.wan_sa_send_chat(msg))
-        else:
-            asyncio.ensure_future(self.wan_sa_send_structured(msg_type, msg_contents))
+
+        # Convert to the required AWSDateTime format
+        aws_datetime_string = current_time.isoformat()
+
+    def think_about_a_reponse(self, thread):
+        print("Thinking about response.")
+        current_time = datetime.now(timezone.utc)
+
+        session = self.session
+        token = self.tokens['AuthenticationResult']['IdToken']
+        qs = [{
+            "msgID": "1",
+            "user": self.user,
+            "timeStamp": aws_datetime_string,
+            "products": "",
+            "goals": "",
+            "options": "",
+            "background": thread,
+            "msg": "provide answer"
+        }]
+        resp = send_query_chat_request_to_cloud(session, token, qs)
+
+        print("THINK RESP:", resp)
