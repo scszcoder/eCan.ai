@@ -14,7 +14,7 @@ from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXl
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import symTab, processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
     get_top_visible_window, processExtractInfo, startSaveCSK, processUseExternalSkill, processReportExternalSkillRunStatus,\
-    processDownloadFiles, processUploadFiles
+    processDownloadFiles, processUploadFiles, processZipUnzip
 from bot.printLabel import processPrintLabels, sync_win_print_labels1
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
@@ -1490,5 +1490,31 @@ def test_presigned_updownload(mission):
             "presigned": "presigned"
     }
     processDownloadFile(step, 1, mission)
+
+def test_pyzipunzip():
+    global symTab
+    symTab["infile"] = "runlogs/songc_yahoo/20240817/b88m697/win_ads_ebay_orders/skills/images/scrnsongc_yahoo_1723916188.png"
+    print("about to test zip unzip")
+    step = {
+        "type": "Zip Unzip",
+        "action": "zip",
+        "var_type": "direct",
+        "in_var": ["c:/software", "c:/shared/as_server.txt"],
+        "out_path": "c:/temp",
+        "out_var": "test123.zip",
+        "result": "zip_result"
+    }
+
+    step = {
+        "type": "Zip Unzip",
+        "action": "unzip",
+        "var_type": "direct",
+        "in_var": "c:/temp/test123.zip",
+        "out_path": "c:/temp/testzip",
+        "out_var": "",
+        "result": "zip_result"
+    }
+
+    processZipUnzip(step, 1)
 
 

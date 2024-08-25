@@ -24,7 +24,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
     processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
-    processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil
+    processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -145,6 +145,7 @@ RAIS = {
     "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
     "Calc Objs Distance": lambda x,y: processCalcObjectsDistance(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),
+    "Zip Unzip": lambda x,y: processZipUnzip(x, y),
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),
@@ -271,6 +272,7 @@ ARAIS = {
     "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
     "Calc Objs Distance": lambda x,y: processCalcObjectsDistance(x, y),
     "Seven Zip": lambda x,y: process7z(x, y),
+    "Zip Unzip": lambda x,y: processZipUnzip(x, y),
     "List Dir": lambda x, y: processListDir(x, y),
     "Check Existence": lambda x, y: processCheckExistence(x, y),
     "Create Dir": lambda x, y: processCreateDir(x, y),

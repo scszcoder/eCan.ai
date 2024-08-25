@@ -5983,7 +5983,7 @@ class MainWindow(QMainWindow):
                         if batch['file']:
                             print("about to download....", batch['file'])
                             local_file = download_file(self.session, ecb_data_homepath, batch['file'], self.tokens['AuthenticationResult']['IdToken'], "general")
-                            batch['dir'] = local_file
+                            batch['dir'] = os.path.dirname(local_file)
 
                             # update the config in task_groups too. bascially go thru
                             # may be no need to do it here, just do it in skill when needed.

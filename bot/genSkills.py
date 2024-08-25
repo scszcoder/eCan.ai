@@ -27,7 +27,7 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
-    genStepDownloadFiles, genStepWaitUntil
+    genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -114,6 +114,7 @@ PUBLIC = {
     'genStepCheckExistence': genStepCheckExistence,
     'genStepCreateDir': genStepCreateDir,
     'genStep7z': genStep7z,
+    'genStepZipUnzip': genStepZipUnzip,
     'genStepTextToNumber': genStepTextToNumber,
     'genStepEndException': genStepEndException,
     'genStepExceptionHandler': genStepExceptionHandler,
