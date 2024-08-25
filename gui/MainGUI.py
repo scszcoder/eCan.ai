@@ -45,7 +45,7 @@ from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt
-from bot.basicSkill import STEP_GAP
+from bot.basicSkill import STEP_GAP, setMissionInput
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
@@ -2669,26 +2669,6 @@ class MainWindow(QMainWindow):
                     # files to be downloaded first as the input to the mission.
                     if worksettings["as_server"]:
                         print("AS Server")
-                        if len(worksettings["config"]["ul_links"]) > 0:
-                            worksettings["config"]["downloaded"] = []
-                            for i, ul_link in enumerate(worksettings["config"]["ul_links"]):
-                                # ul_link in form of "datahome+runlogs+user+date+b*m*+cuspas+skills+skill name+*.xlsx
-                                start_index = ul_link.find("runlogs")
-                                if start_index != -1:
-                                    f2dl = ul_link[start_index:]
-
-                                fdir = ecb_data_homepath + "/"
-
-                                dir_path = fdir + os.path.dirname(f2dl)
-
-                                # Create the directory structure if it doesn't exist
-                                if not os.path.exists(dir_path):
-                                    os.makedirs(dir_path)
-
-                                download_file(self.session, fdir, f2dl, self.tokens['AuthenticationResult']['IdToken'], "general")
-
-                                worksettings["config"]["downloaded"].append(fdir + f2dl)
-
 
 
                     # (steps, mission, skill, mode="normal"):
@@ -5995,7 +5975,6 @@ class MainWindow(QMainWindow):
             if in_message["type"] == "request mission":
                 print("request mission:", in_message)
                 new_works = json.loads(in_message["contents"])
-                print("NEW works:", new_works, type(new_works['added_missions'][0]))
                 print("CONFIG:", new_works['added_missions'][0]['config'])
 
                 # downloaded files if any so that we don't have to do this later on....
@@ -6003,7 +5982,13 @@ class MainWindow(QMainWindow):
                     for batch in new_works['added_missions'][0]['config'][1]:
                         if batch['file']:
                             print("about to download....", batch['file'])
-                            download_file(self.session, ecb_data_homepath, batch['file'], self.tokens['AuthenticationResult']['IdToken'], "general")
+                            local_file = download_file(self.session, ecb_data_homepath, batch['file'], self.tokens['AuthenticationResult']['IdToken'], "general")
+                            batch['dir'] = local_file
+
+                            # update the config in task_groups too. bascially go thru
+                            # may be no need to do it here, just do it in skill when needed.
+
+                setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
 
         except Exception as e:

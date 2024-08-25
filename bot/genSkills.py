@@ -34,12 +34,11 @@ from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, g
     genStepWebdriverQuit, genStepWebdriverExecuteJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
     genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
-    genStepWebdriverSwitchToFrame, genStepWebdriverWaitUntilClickable, genStepWebdriverSwitchToDefaultContent
+    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
-    genWinADSEbayUpdateShipmentTrackingSkill, genStepEbayScrapeOrdersFromHtml, genWinChromeEbayFullfillOrdersSkill, \
+    genWinADSEbayUpdateShipmentTrackingSkill, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
-    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill, genEbayLoginInSteps,\
-    genStepEbayScrapeOrdersFromJss
+    genWinChromeEbayUpdateShipmentTrackingSkill, genWinChromeEbayBuyShippingSkill, genEbayLoginInSteps
 from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, genWinADSEbayBrowserRespondMessagesSkill, \
     genWinADSEbayBrowserCollectOrdersSkill, genWinADSEbayBrowserUpdateTrackingSkill, \
     genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill, genWinADSEbayBrowserBuyShippingSkill, \
@@ -105,6 +104,7 @@ PUBLIC = {
     "genStepWebdriverWaitUntilClickable": genStepWebdriverWaitUntilClickable,
     "genStepWebdriverSwitchToDefaultContent": genStepWebdriverSwitchToDefaultContent,
     "genStepWebdriverWaitDownloadDoneAndTransfer": genStepWebdriverWaitDownloadDoneAndTransfer,
+    "genStepWebdriverSwitchToFrame": genStepWebdriverSwitchToFrame,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGetDefault': genStepGetDefault,
     'genStepGoto': genStepGoto,
@@ -203,8 +203,12 @@ PUBLIC = {
     'genStepEbayScrapeCustomerMsgThread': genStepEbayScrapeCustomerMsgThread,
     'genStepAmzScrapeBuyOrdersHtml': genStepAmzScrapeBuyOrdersHtml,
     'genEbayLoginInSteps': genEbayLoginInSteps,
-    'genStepEbayScrapeOrdersFromJss': genStepEbayScrapeOrdersFromJss,
-    'genStepEbayScrapeOrdersFromHtml': genStepEbayScrapeOrdersFromHtml,
+
+    "genStepReportExternalSkillRunStatus": genStepReportExternalSkillRunStatus,
+    "genStepUseExternalSkill": genStepUseExternalSkill,
+    "genStepReadJsonFile": genStepReadJsonFile,
+    "genStepReadXlsxFile": genStepReadXlsxFile,
+
     'log3': log3,
     'genStepReadFile': genStepReadFile,
     'genStepWriteFile': genStepWriteFile,
@@ -215,7 +219,6 @@ PUBLIC = {
     'ORDER': ORDER,
     'Shipping': Shipping,
     'OrderPerson': OrderPerson
-
 }
 
 

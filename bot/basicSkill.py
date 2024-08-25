@@ -2919,7 +2919,7 @@ def processReportExternalSkillRunStatus(step, i, mission):
         settings = mission.main_win_settings
 
         req = {
-            "run_id": step["run_id"],
+            "run_id": symTab[step["run_id"]],
             "skid": step["skid"],
             "runner_mid": symTab[step["runner_mid"]],
             "runner_bid": symTab[step["runner_bid"]],
@@ -5078,3 +5078,7 @@ def processGetDefault(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+def setMissionInput(input):
+    symTab["fin"] = input
