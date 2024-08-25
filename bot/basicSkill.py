@@ -178,26 +178,26 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
 
 # input: file_var, settings, ftype,
 # output: presigned_var
-def genStepUploadFiles(files_var, settings, ftype, presigned_var, stepN):
+def genStepUploadFiles(files_var, settings, ftype, locs_var, stepN):
     stepjson = {
         "type": "Upload Files",
         "settings": settings,
         "files_var": files_var,
         "ftype": ftype,
-        "presigned": presigned_var,
+        "locs": locs_var,
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 # input: file_var, settings, ftype
 # output: presigned_var
-def genStepDownloadFiles(files_var, settings, ftype, presigned_var, stepN):
+def genStepDownloadFiles(files_var, settings, ftype, locs_var, stepN):
     stepjson = {
         "type": "Download Files",
         "files_var": files_var,
         "settings": settings,
         "ftype": ftype,
-        "presigned": presigned_var
+        "locs": locs_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -1624,14 +1624,18 @@ def processUploadFiles(step, i, mission):
             sfiles = step["files_var"]
         else:
             sfiles = symTab[step["files_var"]]
+            print("gvar is list")
             if type(sfiles) == str:
+                print("gvar is string")
                 sfiles = [sfiles]
 
-
+        print("SFILES:", sfiles)
         ftype = step["ftype"]
 
+        symTab[step["locs"]] = []
+
         for sfile in sfiles:
-            upload_file(settings["session"], sfile, settings["token"], ftype)
+            symTab[step["locs"]].append(upload_file(settings["session"], sfile, settings["token"], ftype))
 
     except Exception as e:
         # Get the traceback information
@@ -2872,17 +2876,25 @@ def processUseExternalSkill(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         settings = mission.main_win_settings
-
+        # 	skid: ID!
+        # 	requester_mid: ID!
+        # 	owner: String
+        # 	name: String
+        # 	start: AWSDateTime
+        # 	in_data: AWSJSON!
+        # 	verbose: Boolean
         req = {
             "skid": step["skid"],
-            "requester_mid": step["requester_mid"],
+            "requester_mid": symTab[step["requester_mid"]],
             "owner": step["owner"],
-            "start": step["start_time"],
+            "start": symTab[step["start_time"]],
             "name": step["skname"],
-            "in_data": symTab[step["in_data"]],
-            "verbose": step["verbose"],
+            "in_data": json.dumps(symTab[step["in_data"]]).replace('"', '\\"'),
+            # "in_data": json.dumps({}).replace('"', '\\"'),
+            "verbose": step["verbose"]
         }
         reqs = [req]
+        print("REQS:", reqs)
 
         symTab[step["output"]] = send_run_ext_skill_request_to_cloud(settings["session"], reqs, settings["token"])
 

@@ -2663,7 +2663,6 @@ class MainWindow(QMainWindow):
                     # self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
                     self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+str(len(relevant_skills))+" "+str(worksettings["midx"])+" "+str(len(self.missions)))
 
-
                     # Before running do the needed prep to get "fin" input parameters ready.
                     # this is the case when this mission is run as an independent server, the input
                     # of the mission will come from the another computer, and there might even be
