@@ -1696,7 +1696,7 @@ def download_file(session, datahome, f2dl, token, ftype="general"):
         resp = get_file_with_presigned_url(datahome+"/"+local_f2dl, resd['body'][0])
         #
         # logger_helper.debug("resp:"+json.dumps(resp))
-        link = resd['body'][0]
+        link = datahome+"/"+local_f2dl
 
     except Exception as e:
         # Get the traceback information
