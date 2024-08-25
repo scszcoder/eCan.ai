@@ -558,6 +558,19 @@ def genStep7z(action, var_type, exe_var, in_var, out_path, out_var, result, step
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepZipUnzip(action, var_type, in_var, out_path, out_var, result, stepN):
+    stepjson = {
+        "type": "Zip Unzip",
+        "action": action,
+        "var_type": var_type,
+        "in_var": in_var,
+        "out_path": out_path,
+        "out_var": out_var,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 def genStepTextToNumber(invar, outvar, stepN):
@@ -1635,6 +1648,7 @@ def processUploadFiles(step, i, mission):
         symTab[step["locs"]] = []
 
         for sfile in sfiles:
+            print("uploading....", sfile)
             symTab[step["locs"]].append(upload_file(settings["session"], sfile, settings["token"], ftype))
 
     except Exception as e:
@@ -3440,8 +3454,6 @@ def process7z(step, i):
             else:
                 symTab[step["result"]] = subprocess.call(exe + " e " + input)
 
-
-
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -3450,6 +3462,72 @@ def process7z(step, i):
             ex_stat = "Error7z:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "Error7z: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+def zip_files(files_and_dirs, output_zip_path):
+    with zipfile.ZipFile(output_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for item in files_and_dirs:
+            if os.path.isdir(item):
+                # If it's a directory, walk through all its contents
+                for root, dirs, files in os.walk(item):
+                    for file in files:
+                        # Create the full path of the file
+                        file_path = os.path.join(root, file)
+                        # Add the file to the zip, using a relative path
+                        print("zipping file:", file_path)
+                        zipf.write(file_path, os.path.relpath(file_path, os.path.dirname(item)))
+            else:
+                # If it's a file, just add it
+                zipf.write(item, os.path.basename(item))
+
+def unzip_file(fullzip, extract_to):
+    if extract_to:
+        # If a directory is specified and it doesn't exist, create it
+        os.makedirs(extract_to, exist_ok=True)
+    else:
+        # If extract_to is empty, use the current directory
+        extract_to = os.getcwd()
+
+    with zipfile.ZipFile(fullzip, 'r') as zipf:
+        zipf.extractall(extract_to)
+
+
+def processZipUnzip(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        if step["var_type"] == "direct":
+            input = step["in_var"]
+            output_dir = step["out_path"]
+            out_file = step["out_var"]
+        else:
+            input = symTab[step["in_var"]]
+            output_dir = symTab[step["out_path"]]
+            out_file = symTab[step["out_var"]]
+
+        if step["action"] == "zip":
+            print("Zippping.....")
+            zip_files(input, os.path.join(output_dir, out_file))
+
+        elif step["action"] == "unzip":
+            log3("executing....unzip" + input + " to" + output_dir)
+
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            unzip_file(input, output_dir)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorZipUnzip:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorZipUnzip: traceback information not available:" + str(e)
+        symTab[step["result"]] = ex_stat
         log3(ex_stat)
 
     return (i + 1), ex_stat
