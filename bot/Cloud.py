@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime
 
 import requests
@@ -119,6 +120,12 @@ def get_file_with_presigned_url(dest_file, url):
     http_response = requests.get(url, stream=True)
     print("DL presigned:", http_response)
     if http_response.status_code == 200:
+        dest_dir = os.path.dirname(dest_file)
+
+        # Check if the directory exists, and if not, create it
+        if not os.path.exists(dest_dir):
+            os.makedirs(dest_dir)
+
         with open(dest_file, 'wb') as f:
             #http_response.raw.decode_content = True
             #shutil.copyfileobj(http_response.raw, f)
@@ -1675,6 +1682,9 @@ def download_file(session, datahome, f2dl, token, ftype="general"):
         relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
         prefix = ftype + "|" + os.path.dirname(f2dl)
 
+        local_f2dl = re.sub(r'(runlogs/)[^/]+/', r'\1', f2dl)
+
+
         fopreqs = [{"op": "download", "names": fname, "options": prefix}]
 
         res = send_file_op_request_to_cloud(session, fopreqs, token)
@@ -1683,7 +1693,7 @@ def download_file(session, datahome, f2dl, token, ftype="general"):
         resd = json.loads(res['body']['urls']['result'])
         print("RESD:", resd, resd['body'][0])
         # logger_helper.debug("cloud response data: "+json.dumps(resd))
-        resp = get_file_with_presigned_url(datahome+f2dl, resd['body'][0])
+        resp = get_file_with_presigned_url(datahome+"/"+local_f2dl, resd['body'][0])
         #
         # logger_helper.debug("resp:"+json.dumps(resp))
         link = resd['body'][0]
