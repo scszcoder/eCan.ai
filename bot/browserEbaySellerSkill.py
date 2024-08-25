@@ -146,6 +146,9 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCreateData("obj", "gs_order_files", "NA", [], this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("boolean", "labels_ready", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("obj", "update_tracking_result", "NA", None, this_step)
     psk_words = psk_words + step_words
 
@@ -199,10 +202,13 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     # ofname2_unzipped = log_path + "/" + ec_platform + "OrdersPriority" + dt_string
 
     # collect files into a list and give this list var to stepuploadfile, gs_order_files should be a list of files.
-    this_step, step_words = genStepCallExtern("global gs_orders, gs_order_files\ngs_order_files= [ord['dir']+'/'+ord['file'] for ord in gs_orders]\nprint('gs_order_files':gs_order_files)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global gs_orders, gs_order_files\ngs_order_files = [ord['dir']+'/'+ord['file'] for ord in gs_orders]\nprint('gs_order_files:',gs_order_files)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepUploadFiles("sk_work_settings", "gs_order_files", "general", "ul_links", this_step)
+    this_step, step_words = genStepUploadFiles("gs_order_files", "sk_work_settings", "general", "ul_links", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global gs_orders, ul_links\nlist(map(lambda order, new_link: order.update({'file': new_link}), gs_orders, ul_links))\nprint('gs_orders:',gs_orders)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # feed the gs_orders into useextskill.
@@ -216,8 +222,9 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     # now work with orderListResult , the next step is to purchase shipping labels, this will be highly diverse, but at the end,
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
+    # this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', gs_orders, product_book]", this_step)
 
-    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', gs_orders, product_book]", this_step)
+    this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', gs_orders]", this_step)
     psk_words = psk_words + step_words
     #
     # using ebay to purchase shipping label will auto update tracking code..... s
@@ -225,7 +232,15 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     # psk_words = psk_words + step_words
 
     # use external ECBot's label shipping skill to purchase the label
-    this_step, step_words = genStepUseExternalSkill(87, "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "buy_shipping_input", "start_time", True,"label_results", this_step)
+    # (skid, req_mid, skname, owner, in_data, start_time, verbose, output_var, stepN):
+    this_step, step_words = genStepCallExtern("global req_mid, sk_work_settings\nreq_mid = sk_work_settings['mid']\nprint('req_mid:',req_mid)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # "from datetime import datetime\nglobal hf_name\nhf_name= 'ebayOrders'+ str(int(datetime.now().timestamp()))
+    this_step, step_words = genStepCallExtern("from datetime import datetime, timezone\nglobal start_time\nstart_time = datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')\nprint('start_time:',start_time)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepUseExternalSkill(87, "req_mid", "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "buy_shipping_input", "start_time", True,"req_results", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWaitUntil(60, ["labels_ready"], "all", "wait_results", "event_happend", this_step)
@@ -580,9 +595,16 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
 
     this_step, step_words = genStepCreateData("expr", "buy_shipping_input", "NA", "['sale', ebay_orders, product_catelog]", this_step)
     psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global req_mid, sk_work_settings\nreq_mid = sk_work_settings['mid']\nprint('req_mid':req_mid)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # "from datetime import datetime\nglobal hf_name\nhf_name= 'ebayOrders'+ str(int(datetime.now().timestamp()))
+    this_step, step_words = genStepCallExtern("from datetime import datetime\nglobal start_time\nstart_time = str(int(datetime.now().timestamp()))\nprint('start_time':start_time)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
     #
     # using ebay to purchase shipping label will auto update tracking code..... s
-    this_step, step_words = genStepUseExternalSkill(87, "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "skill_input", "start_time", True,"label_results", this_step)
+    this_step, step_words = genStepUseExternalSkill(87, "req_mid", "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "skill_input", "start_time", True,"label_results", this_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepUseSkill("browser_gen_ecb_labels", "my_skills/win_chrome_goodsupply_label", "gs_input", "label_results", this_step)

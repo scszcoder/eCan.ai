@@ -145,11 +145,13 @@ def gen_query_reqest_run_ext_skill_string(query):
     for i in range(len(query)):
         #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
         rec_string = rec_string + "{ skid: " + str(query[i]["skid"]) + ", "
+        rec_string = rec_string + "requester_mid: " + str(query[i]["requester_mid"]) + ", "
         rec_string = rec_string + "owner: \"" + query[i]["owner"] + "\", "
         rec_string = rec_string + "start: \"" + query[i]["start"] + "\", "
         rec_string = rec_string + "name: \"" + query[i]["name"] + "\", "
         rec_string = rec_string + "in_data: \"" + query[i]["in_data"] + "\", "
-        rec_string = rec_string + "verbose: " + str(query[i]["verbose"]) + " }"
+        # rec_string = rec_string + "verbose: " + str(query[i]["verbose"]) + " }"
+        rec_string += "verbose: " + ("true" if query[i]["verbose"] else "false") + " }"
 
         if i != len(query) - 1:
             rec_string = rec_string + ', '
@@ -1650,7 +1652,7 @@ def upload_file(session, f2ul, token, ftype="general"):
         resp = send_file_with_presigned_url(f2ul, resd['body'][0])
         #  logger_helper.debug("upload result: "+json.dumps(resp))
         logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        link = resd['body'][0]
+        link = resd['body'][0]['fields']['key']
 
     except Exception as e:
         # Get the traceback information
