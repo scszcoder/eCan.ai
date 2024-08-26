@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 from bot.envi import getECBotDataHome
 from PIL import Image
 import shutil
+import zipfile
 
 if sys.platform == 'win32':
     import win32gui
@@ -177,26 +178,26 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
 
 # input: file_var, settings, ftype,
 # output: presigned_var
-def genStepUploadFile(file_var, settings, ftype, presigned_var, stepN):
+def genStepUploadFiles(files_var, settings, ftype, locs_var, stepN):
     stepjson = {
-        "type": "Upload File",
+        "type": "Upload Files",
         "settings": settings,
-        "file_var": file_var,
+        "files_var": files_var,
         "ftype": ftype,
-        "presigned": presigned_var,
+        "locs": locs_var,
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 # input: file_var, settings, ftype
 # output: presigned_var
-def genStepDownloadFile(file_var, settings, ftype, presigned_var, stepN):
+def genStepDownloadFiles(files_var, settings, ftype, locs_var, stepN):
     stepjson = {
-        "type": "Download File",
-        "file_var": file_var,
+        "type": "Download Files",
+        "files_var": files_var,
         "settings": settings,
         "ftype": ftype,
-        "presigned": presigned_var
+        "locs": locs_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -557,6 +558,19 @@ def genStep7z(action, var_type, exe_var, in_var, out_path, out_var, result, step
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepZipUnzip(action, var_type, in_var, out_path, out_var, result, stepN):
+    stepjson = {
+        "type": "Zip Unzip",
+        "action": action,
+        "var_type": var_type,
+        "in_var": in_var,
+        "out_path": out_path,
+        "out_var": out_var,
+        "result": result
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 def genStepTextToNumber(invar, outvar, stepN):
@@ -598,6 +612,19 @@ def genStepWait(wait, random_min, random_max, stepN):
         "random_min": random_min,
         "random_max": random_max,
         "time": wait
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepWaitUntil(wait, events_var, ev_relation, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Wait Until",
+        "events": events_var,
+        "events_relation": ev_relation,
+        "time_out": wait,
+        "result": result_var,
+        "flag": flag_var,
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -1347,11 +1374,68 @@ def processWait(step, i):
         log3("actually waiting for "+str(wtime)+" seconds....")
         time.sleep(wtime)
 
-    except:
-        ex_stat = "ErrorWait:" + str(i)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWait:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWait traceback information not available:" + str(e)
+        log3(ex_stat)
 
-    return (i+1), ex_stat
+    return (i + 1), ex_stat
 
+
+def processWaitUntil(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        log3("waiting...... make mouse pointer wonder a little bit!")
+        wtime = 1
+
+        if type(step["time_out"]) == int:
+            wait_in_s = step["time_out"]
+        else:
+            wait_in_s = symTab[step["time_out"]]
+
+        start_time = time.time()
+        while True:
+            # Check if all boolean variables are True
+            if step["events_relation"] == "all":
+                if all([symTab[e] for e in step["events"]]):
+                    symTab[["flag"]] = True
+                    symTab[["result"]] = "Completed:Event Received"
+                    break
+
+            else:
+                if any([symTab[e] for e in step["events"]]):
+                    symTab[["flag"]] = True
+                    symTab[["result"]] = "Completed:Event Received"
+                    break
+
+            # Check if timeout has occurred
+            elapsed_time = time.time() - start_time
+            if elapsed_time > wait_in_s:
+                symTab[["flag"]] = False
+                symTab[["result"]] = "Error:Timed Out"
+                break
+
+            # Sleep for a short duration before checking again
+            time.sleep(0.5)  # Adjust sleep duration as needed
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWaitUntil:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWaitUntil traceback information not available:" + str(e)
+        symTab[["flag"]] = False
+        symTab[["result"]] = ex_stat
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
 
 
 def processExtractInfo(step, i, mission, skill):
@@ -1543,55 +1627,29 @@ async def processExtractInfo8(step, i, mission, skill):
 
     return (i+1), ex_stat
 
-def processUploadFile(step, i, mission):
+def processUploadFiles(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         settings = mission.main_win_settings
-        if "/" in step["file_name"]:
-            sfile = step["file_name"]
+        if "/" in step["files_var"]:
+            sfiles = [step["files_var"]]
+        elif type(step["files_var"]) == list:
+            sfiles = step["files_var"]
         else:
-            sfile = symTab[step["file_name"]]
+            sfiles = symTab[step["files_var"]]
+            print("gvar is list")
+            if type(sfiles) == str:
+                print("gvar is string")
+                sfiles = [sfiles]
 
+        print("SFILES:", sfiles)
         ftype = step["ftype"]
-        dtnow = datetime.now()
 
-        date_word = dtnow.strftime("%Y%m%d")
-        dt_string = str(int(dtnow.timestamp()))
-        log3("date string:" + dt_string)
-        sfile = "C:/Users/songc/PycharmProjects/testdata/"
+        symTab[step["locs"]] = []
 
-
-        log3("mission[" + str(mission.getMid()) + "] cuspas: " + mission.getCusPAS() + "step settings:" + json.dumps(
-            step["settings"]))
-
-        if type(step["settings"]) == str:
-            step_settings = symTab[step["settings"]]
-            log3("SETTINGS FROM STRING...." + json.dumps(step_settings))
-        else:
-            step_settings = step["settings"]
-
-        log3("STEP SETTINGS" + json.dumps(step_settings))
-        platform = step_settings["platform"]
-        app = step_settings["app"]
-        site = step_settings["site"]
-        page = step_settings["page"]
-
-        if step_settings["root_path"][len(step_settings["root_path"]) - 1] == "/":
-            step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"]) - 1]
-
-        fdir = ecb_data_homepath + "/runlogs/"
-        fdir = fdir + date_word + "/"
-
-        fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
-        # fdir = fdir + ppword + "/"
-        fdir = fdir + platform + "_" + app + "_" + site + "_" + page + "/skills/"
-        fdir = fdir + step_settings["skname"] + "/images/"
-        sfile = fdir + "scrn" + mission.main_win_settings["uid"] + "_" + dt_string + ".png"
-        log3("sfile: " + sfile)
-
-
-
-        upload_file(settings["session"], sfile, settings["token"], ftype)
+        for sfile in sfiles:
+            print("uploading....", sfile)
+            symTab[step["locs"]].append(upload_file(settings["session"], sfile, settings["token"], ftype))
 
     except Exception as e:
         # Get the traceback information
@@ -1607,17 +1665,24 @@ def processUploadFile(step, i, mission):
 
 
 
-def processDownloadFile(step, i, mission):
+def processDownloadFiles(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
+        dh = ecb_data_homepath + "/"
         settings = mission.main_win_settings
-        if "/" in step["file_name"]:
-            sfile = step["file_name"]
+        if "/" in step["files_var"]:
+            sfiles = [step["files_var"]]
+        elif type(step["files_var"]) == list:
+            sfiles = step["files_var"]
         else:
-            sfile = symTab[step["file_name"]]
+            sfiles = symTab[step["files_var"]]
+            if type(sfiles) == str:
+                sfiles = [sfiles]
 
         ftype = step["ftype"]
-        download_file(settings["session"], sfile, settings["token"], ftype)
+
+        for sfile in sfiles:
+            download_file(settings["session"], dh, sfile, settings["token"], ftype)
 
     except Exception as e:
         # Get the traceback information
@@ -2825,17 +2890,25 @@ def processUseExternalSkill(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         settings = mission.main_win_settings
-
+        # 	skid: ID!
+        # 	requester_mid: ID!
+        # 	owner: String
+        # 	name: String
+        # 	start: AWSDateTime
+        # 	in_data: AWSJSON!
+        # 	verbose: Boolean
         req = {
             "skid": step["skid"],
-            "requester_mid": step["requester_mid"],
+            "requester_mid": symTab[step["requester_mid"]],
             "owner": step["owner"],
-            "start": step["start_time"],
+            "start": symTab[step["start_time"]],
             "name": step["skname"],
-            "in_data": symTab[step["in_data"]],
-            "verbose": step["verbose"],
+            "in_data": json.dumps(symTab[step["in_data"]]).replace('"', '\\"'),
+            # "in_data": json.dumps({}).replace('"', '\\"'),
+            "verbose": step["verbose"]
         }
         reqs = [req]
+        print("REQS:", reqs)
 
         symTab[step["output"]] = send_run_ext_skill_request_to_cloud(settings["session"], reqs, settings["token"])
 
@@ -2860,7 +2933,7 @@ def processReportExternalSkillRunStatus(step, i, mission):
         settings = mission.main_win_settings
 
         req = {
-            "run_id": step["run_id"],
+            "run_id": symTab[step["run_id"]],
             "skid": step["skid"],
             "runner_mid": symTab[step["runner_mid"]],
             "runner_bid": symTab[step["runner_bid"]],
@@ -3381,8 +3454,6 @@ def process7z(step, i):
             else:
                 symTab[step["result"]] = subprocess.call(exe + " e " + input)
 
-
-
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -3391,6 +3462,72 @@ def process7z(step, i):
             ex_stat = "Error7z:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "Error7z: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+def zip_files(files_and_dirs, output_zip_path):
+    with zipfile.ZipFile(output_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for item in files_and_dirs:
+            if os.path.isdir(item):
+                # If it's a directory, walk through all its contents
+                for root, dirs, files in os.walk(item):
+                    for file in files:
+                        # Create the full path of the file
+                        file_path = os.path.join(root, file)
+                        # Add the file to the zip, using a relative path
+                        print("zipping file:", file_path)
+                        zipf.write(file_path, os.path.relpath(file_path, os.path.dirname(item)))
+            else:
+                # If it's a file, just add it
+                zipf.write(item, os.path.basename(item))
+
+def unzip_file(fullzip, extract_to):
+    if extract_to:
+        # If a directory is specified and it doesn't exist, create it
+        os.makedirs(extract_to, exist_ok=True)
+    else:
+        # If extract_to is empty, use the current directory
+        extract_to = os.getcwd()
+
+    with zipfile.ZipFile(fullzip, 'r') as zipf:
+        zipf.extractall(extract_to)
+
+
+def processZipUnzip(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        if step["var_type"] == "direct":
+            input = step["in_var"]
+            output_dir = step["out_path"]
+            out_file = step["out_var"]
+        else:
+            input = symTab[step["in_var"]]
+            output_dir = symTab[step["out_path"]]
+            out_file = symTab[step["out_var"]]
+
+        if step["action"] == "zip":
+            print("Zippping.....")
+            zip_files(input, os.path.join(output_dir, out_file))
+
+        elif step["action"] == "unzip":
+            log3("executing....unzip" + input + " to" + output_dir)
+
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            unzip_file(input, output_dir)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorZipUnzip:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorZipUnzip: traceback information not available:" + str(e)
+        symTab[step["result"]] = ex_stat
         log3(ex_stat)
 
     return (i + 1), ex_stat
@@ -5019,3 +5156,7 @@ def processGetDefault(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+def setMissionInput(input):
+    symTab["fin"] = input

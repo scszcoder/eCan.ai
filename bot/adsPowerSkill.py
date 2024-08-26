@@ -1259,10 +1259,11 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
             found_mision = found_missions[0]
             bot_work["fingerprint_profile"] = batch_file
             found_mision.setFingerPrintProfile(batch_file)
+            log3("found mission fingerprint profile:"+found_mision.getFingerPrintProfile())
         else:
             bot_work["fingerprint_profile"] = ""
 
-        log3("bot fingerprint_profile:" + bot_work["fingerprint_profile"] + " " + found_mision.getFingerPrintProfile())
+        log3("bot fingerprint_profile:" + bot_work["fingerprint_profile"] + ">")
 
         if len(found_bots) > 0 and found_mision:
             found_bot = found_bots[0]
