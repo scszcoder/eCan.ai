@@ -500,14 +500,14 @@ def genStepCreateDir(dirname, nametype, result_var, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepReadFile(filename, nametype, filetype, datasink, result_var, stepN):
+def genStepReadFile(filename, nametype, filetype, datasink, flag_var, stepN):
     stepjson = {
         "type": "Read File",
         "filename": filename,
         "name_type": nametype,
         "filetype": filetype,
         "datasink": datasink,
-        "result": result_var
+        "flag": flag_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -3303,7 +3303,7 @@ def processCreateDir(step, i):
 
 def processReadFile(step, i):
     ex_stat = DEFAULT_RUN_STATUS
-    symTab[step["result"]] = True
+    symTab[step["flag"]] = True
     try:
         if step["name_type"] == "direct":
             file_full_path = step["filename"]
@@ -3322,7 +3322,7 @@ def processReadFile(step, i):
             fileTBR.close()
         else:
             log3("ERROR: File not exists")
-            symTab[step["result"]] = False
+            symTab[step["flag"]] = False
 
     except Exception as e:
         # Get the traceback information

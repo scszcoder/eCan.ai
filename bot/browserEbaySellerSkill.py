@@ -152,6 +152,15 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCreateData("obj", "update_tracking_result", "NA", None, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("string", "bucket_loc", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "ul_result", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("boolean", "ul_succeeded", "NA", True, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
@@ -205,7 +214,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCallExtern("global gs_orders, gs_order_files\ngs_order_files = [ord['dir']+'/'+ord['file'] for ord in gs_orders]\nprint('gs_order_files:',gs_order_files)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepUploadFiles("gs_order_files", "sk_work_settings", "general", "ul_links", this_step)
+    this_step, step_words = genStepUploadFiles("gs_order_files", "sk_work_settings", "general", "bucket_loc", "ul_result", "ul_succeeded", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_orders, ul_links\nlist(map(lambda order, new_link: order.update({'file': new_link}), gs_orders, ul_links))\nprint('gs_orders:',gs_orders)", "", "in_line", "", this_step)
@@ -589,7 +598,7 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
-    this_step, step_words = genStepUploadFiles("label_files", "settings", "general", "presigned_link", this_step)
+    this_step, step_words = genStepUploadFiles("label_files", "settings", "general", "bucket_loc", "ul_result", "ul_succeeded", this_step)
     psk_words = psk_words + step_words
 
 

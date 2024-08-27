@@ -422,9 +422,13 @@ class EBMISSION(QStandardItem):
                                 "token": self.main_win.tokens['AuthenticationResult']['IdToken'],
                                 "uid": self.main_win.uid}
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
-        self.icon = QIcon(main_win.file_resouce.mission_icon_path)
+        self.icon = QIcon(main_win.file_resource.mission_icon_path)
         self.setIcon(self.icon)
         self.setFont(main_win.std_item_font)
+        # self.destroyed.connect(lambda: print(f"{self} is being destroyed"))
+
+    def __del__(self):
+        print(f"{self} EBMISSION deleted")
 
     def setFingerPrintProfile(self, axpf):
         self.privateAttributes.fingerprint_profile = axpf
