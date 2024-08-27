@@ -338,7 +338,7 @@ def getWorkSettings(lieutenant, bot_works):
     date_word = dtnow.strftime("%Y%m%d")
     log3("date word:"+date_word)
     fdir = ecb_data_homepath.replace("\\", "/")
-    fdir = fdir + "/runlogs/" + date_word + "/"
+    fdir = fdir + f"/{lieutenant.log_user}/runlogs/{lieutenant.log_user}/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     bot = lieutenant.bots[bot_idx]
@@ -369,6 +369,8 @@ def getWorkSettings(lieutenant, bot_works):
             "root_path": root_path,
             "log_path_prefix": log_path_prefix,
             "log_path": "",
+            "local_data_path": ecb_data_homepath + "/" + lieutenant.log_user,
+            "log_user": lieutenant.log_user,
             # "settings": settings,
             "platform": platform,
             "site": site,
@@ -438,11 +440,11 @@ def getWorkRunSettings(lieutenant, bot_works):
     date_word = dtnow.strftime("%Y%m%d")
     log3("date word:"+date_word)
     fdir = ecb_data_homepath.replace("\\", "/")
-    fdir = fdir + "/runlogs/" + date_word + "/"
+    fdir = fdir + f"/{lieutenant.log_user}/runlogs/{lieutenant.log_user}/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     scroll_resolution = 250     # default scroll resolution.
-    scroll_resolution_file = ecb_data_homepath + "/scroll_resolution.json"
+    scroll_resolution_file = ecb_data_homepath + f"/{lieutenant.log_user}/scroll_resolution.json"
     fp_browser_settings = lieutenant.getADSSettings()
     if os.path.exists(scroll_resolution_file):
         with open(scroll_resolution_file, 'r') as fileTBR:
@@ -472,11 +474,11 @@ def getWorkRunSettings(lieutenant, bot_works):
             "cargs": "",
             # "works": works,
             "botid": bot_id,
-            "b_email": bot.getEmail(),
-            "b_email_pw": bot.getEmPW(),
-            "b_backup_email": bot.getBackEm(),
-            "b_backup_email_pw": bot.getAcctPw(),
-            "b_backup_email_site": bot.getBackEmSite(),
+            "b_email": bot.getEmail() if bot.getEmail() else "",
+            "b_email_pw": bot.getEmPW() if bot.getEmPW() else "",
+            "b_backup_email": bot.getBackEm() if bot.getBackEm() else "",
+            "b_backup_email_pw": bot.getAcctPw() if bot.getAcctPw() else "",
+            "b_backup_email_site": bot.getBackEmSite() if bot.getBackEmSite() else "",
             "batch_profile": works[widx]["fingerprint_profile"],
             "full_site": full_site,
             "seller": sij,
@@ -486,6 +488,8 @@ def getWorkRunSettings(lieutenant, bot_works):
             "root_path": root_path,
             "log_path_prefix": log_path_prefix,
             "log_path": "",
+            "local_data_path": lieutenant.my_ecb_data_homepath,
+            "log_user": lieutenant.log_user,
             "fp_browser_settings": fp_browser_settings,
             "platform": platform,
             "site": site,
@@ -509,7 +513,10 @@ def getWorkRunSettings(lieutenant, bot_works):
 def setWorkSettingsSkill(worksettings, sk):
     # derive full path skill file name.
     log3(">>>>>>>getting psk file name:"+sk.getPskFileName())
-    worksettings["skfname"] = worksettings["root_path"] + "" + sk.getPskFileName()
+    if "my_skills" in sk.getPskFileName():
+        worksettings["skfname"] = worksettings["local_data_path"] + sk.getPskFileName()
+    else:
+        worksettings["skfname"] = worksettings["root_path"] + "" + sk.getPskFileName()
     worksettings["platform"] = sk.getPlatform()
     worksettings["app"] = sk.getApp()
     # worksettings["app_exe"] = sk.getAppLink()
@@ -548,7 +555,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     sk_file_dir = os.path.dirname(sk_file_name)
     os.makedirs(sk_file_dir, exist_ok=True)
 
-    log3("sk_file_dir"+sk_file_dir+" sk_full_name: "+sk_full_name)
+    log3("sk_file_dir"+sk_file_dir+" sk_full_name: "+sk_full_name+" my_sk_full_name:"+my_sk_full_name)
     log3("opening skill file: "+sk_file_name+" start_step: "+json.dumps(start_step))
 
     try:

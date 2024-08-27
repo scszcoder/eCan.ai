@@ -2,7 +2,7 @@ import logging
 import colorlog
 from logging.handlers import RotatingFileHandler
 
-
+login = None
 class LoggerHelper:
     def __init__(self):
         print("init logger helper object")

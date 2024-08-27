@@ -2,6 +2,7 @@
 # https://stackoverflow.com/questions/5227107/python-code-to-read-registry
 
 from config.app_info import app_info
+
 # import errno, os, winreg
 # proc_arch = os.environ['PROCESSOR_ARCHITECTURE'].lower()
 #proc_arch64 = os.environ['PROCESSOR_ARCHITEW6432'].lower()
@@ -36,7 +37,6 @@ from config.app_info import app_info
 #             ecbhome = ecbhome.replace('\\', '/')
 #             print("ECBot Home: ", ecbhome)
 #             return ecbhome
-
 
 def getECBotDataHome():
 #     ecb_data_home = ""

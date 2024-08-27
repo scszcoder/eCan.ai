@@ -112,9 +112,9 @@ def genTestGSOrdersData():
         {
             'service': 'USPS Ground Advantage (1-15oz)',
             'price': 4.5, 'num_orders': 2,
-            'dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels',
+            'dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/songc_yahoo/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels',
             'file': 'ebayOrdersGround20240815122835.xls',
-            'unzipped_dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240815122835',
+            'unzipped_dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/songc_yahoo/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240815122835',
             'order_data': [
                 {
                     "name":"",
@@ -150,6 +150,15 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("obj", "update_tracking_result", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "bucket_loc", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "ul_result", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("boolean", "ul_succeeded", "NA", True, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -205,7 +214,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCallExtern("global gs_orders, gs_order_files\ngs_order_files = [ord['dir']+'/'+ord['file'] for ord in gs_orders]\nprint('gs_order_files:',gs_order_files)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepUploadFiles("gs_order_files", "sk_work_settings", "general", "ul_links", this_step)
+    this_step, step_words = genStepUploadFiles("gs_order_files", "sk_work_settings", "general", "bucket_loc", "ul_result", "ul_succeeded", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_orders, ul_links\nlist(map(lambda order, new_link: order.update({'file': new_link}), gs_orders, ul_links))\nprint('gs_orders:',gs_orders)", "", "in_line", "", this_step)
@@ -589,7 +598,7 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     # we should obtain a list of tracking number vs. order number. and we fill these back to this page and complete the transaction.
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
-    this_step, step_words = genStepUploadFiles("label_files", "settings", "general", "presigned_link", this_step)
+    this_step, step_words = genStepUploadFiles("label_files", "settings", "general", "bucket_loc", "ul_result", "ul_succeeded", this_step)
     psk_words = psk_words + step_words
 
 
@@ -2013,7 +2022,7 @@ def genWinADSEbayHandleReturnsSkill(worksettings, stepN, theme):
     homepath = app_info.app_home_path
     if homepath[len(homepath)-1] == "/":
         homepath = homepath[:len(homepath)-1]
-    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/songc_yahoo/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)", "", "in_line", "", this_step)
@@ -2127,7 +2136,7 @@ def genWinADSEbayHandleMsgsSkill(worksettings, stepN, theme):
     homepath = app_info.app_home_path
     if homepath[len(homepath)-1] == "/":
         homepath = homepath[:len(homepath)-1]
-    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/songc_yahoo/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)", "", "in_line", "", this_step)

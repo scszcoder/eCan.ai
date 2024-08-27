@@ -231,7 +231,7 @@ class WORKSKILL(QStandardItem):
         self.procedural_skill = PROCEDURAL_SKILL(parent)
         self.cloud_skill = CLOUD_SKILL(parent)
         self.setText('Skill'+str(self.getSkid()))
-        self.icon = QIcon(parent.file_resouce.skill_icon_path)
+        self.icon = QIcon(parent.file_resource.skill_icon_path)
         self.setIcon(self.icon)
         self.createdOn = datetime.today().strftime('%Y-%m-%d')
         self.description = "This skill does great automation."

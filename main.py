@@ -13,8 +13,8 @@ from config.app_settings import app_settings
 from gui.LoginoutGUI import Login
 from gui.WaitGui import WaitWindow
 from bot.network import runCommanderLAN, runPlatoonLAN
-from utils.logger_helper import logger_helper
-
+# from utils.logger_helper import logger_helper, login
+import utils.logger_helper
 
 # from tests.unittests import *
 from tests.unittests import *
@@ -23,7 +23,6 @@ from tests.unittests import *
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
-
 def main():
     app = QApplication.instance()
     if not app:  # If no instance, create a new QApplication
@@ -31,13 +30,14 @@ def main():
     # app = QApplication(sys.argv)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
-    global login
-    login = Login()
+    # global login
+    # login = Login()
+    utils.logger_helper.login = Login()
 
-    if login.isCommander():
+    if utils.logger_helper.login.isCommander():
         print("run as commander......")
-        login.show()
-        loop.create_task(runCommanderLAN(login))
+        utils.logger_helper.login.show()
+        loop.create_task(runCommanderLAN(utils.logger_helper.login))
 
         loop.run_forever()
 
@@ -46,7 +46,7 @@ def main():
         wait_window = WaitWindow()
         wait_window.show()
 
-        loop.create_task(runPlatoonLAN(login, loop, wait_window))
+        loop.create_task(runPlatoonLAN(utils.logger_helper.login, loop, wait_window))
 
         loop.run_forever()
 
@@ -81,12 +81,12 @@ if __name__ == '__main__':
     # test_selenium_GS()
     # test_selenium_amazon()
     # test_parse_xml()
-    test_pyzipunzip()
+    # test_pyzipunzip()
 
-    # try:
-    #     main()
-    # except Exception as e:
-    #     error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
-    #     logger_helper.error(error_info)
+    try:
+        main()
+    except Exception as e:
+        error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
+        utils.logger_helper.error(error_info)
 
     # qasync.run(main())

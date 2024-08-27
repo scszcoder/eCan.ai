@@ -1267,35 +1267,36 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
 
         if len(found_bots) > 0 and found_mision:
             found_bot = found_bots[0]
-            bot_txt_profile_name = ads_profile_dir + "/" + found_bot.getEmail().split("@")[0]+".txt"
-            bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
-            log3("bot_mid_key:"+bot_mid_key+"bot_txt_profile_name:"+bot_txt_profile_name)
+            if found_bot.getEmail():
+                bot_txt_profile_name = ads_profile_dir + "/" + found_bot.getEmail().split("@")[0]+".txt"
+                bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
+                log3("bot_mid_key:"+bot_mid_key+"bot_txt_profile_name:"+bot_txt_profile_name)
 
-            if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
-                newly_read = readTxtProfile(bot_txt_profile_name)
-                batch_bot_profiles_read.append(bot_txt_profile_name)
-            else:
-                log3("bot_txt_profile_name doesn't exist!")
-                found_mision.setFingerPrintProfile("")
-                newly_read = []
+                if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
+                    newly_read = readTxtProfile(bot_txt_profile_name)
+                    batch_bot_profiles_read.append(bot_txt_profile_name)
+                else:
+                    log3("bot_txt_profile_name doesn't exist!")
+                    found_mision.setFingerPrintProfile("")
+                    newly_read = []
 
-            batch_bot_mids.append(bot_mid_key)
+                batch_bot_mids.append(bot_mid_key)
 
-            bot_pfJsons = bot_pfJsons + newly_read
+                bot_pfJsons = bot_pfJsons + newly_read
 
-            if w_idx >= commander.getADSBatchSize()-1:
-                genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
-                v_ads_profile_batch_xlsxs.append(batch_file)
-                w_idx = 0
-                bot_pfJsons = []
-                batch_bot_mids = []
-                batch_bot_profiles_read = []
-                batch_idx = batch_idx + 1
-                batch_file = "Host" + target_vehicle_ip + "B" + str(batch_idx) + "profile.xlsx"
-                batch_file = ads_profile_dir + "/" + batch_file
-                log3("batch_file:" + batch_file)
-            else:
-                w_idx = w_idx + 1
+                if w_idx >= commander.getADSBatchSize()-1:
+                    genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
+                    v_ads_profile_batch_xlsxs.append(batch_file)
+                    w_idx = 0
+                    bot_pfJsons = []
+                    batch_bot_mids = []
+                    batch_bot_profiles_read = []
+                    batch_idx = batch_idx + 1
+                    batch_file = "Host" + target_vehicle_ip + "B" + str(batch_idx) + "profile.xlsx"
+                    batch_file = ads_profile_dir + "/" + batch_file
+                    log3("batch_file:" + batch_file)
+                else:
+                    w_idx = w_idx + 1
 
     # take care of the last batch.
     if len(bot_pfJsons) > 0:
