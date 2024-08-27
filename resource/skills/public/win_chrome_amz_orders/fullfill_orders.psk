@@ -92,12 +92,12 @@
     "data_type": "str",
     "data_name": "fdir",
     "key_name": "NA",
-    "key_value": "C:\\Users\\songc\\PycharmProjects\\ecbot/runlogs/20240825/"
+    "key_value": ""
 },
 "step 60":
 {
     "type": "Call Extern",
-    "file": "fdir = fdir + 'b' + str(sk_work_settings['mid']) + m + str(sk_work_settings['bid']) + '/'",
+    "file": "import datetime\nfdir =  sk_work_settings['local_data_path'] + '/runlogs/' + sk_work_settings['log_user'] + '/' + datetime.now().strftime('%Y%m%d')+'/'",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -105,7 +105,7 @@
 "step 65":
 {
     "type": "Call Extern",
-    "file": "fdir = fdir + sk_work_settings['platform'] + '_' + sk_work_settings['app'] + '_' + sk_work_settings['site'] + '_' + sk_work_settings['page'] + '/skills/'",
+    "file": "fdir = fdir + 'b' + str(sk_work_settings['mid']) + m + str(sk_work_settings['bid']) + '/'",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -113,12 +113,20 @@
 "step 70":
 {
     "type": "Call Extern",
-    "file": "fdir = fdir + sk_work_settings['skname'] + '/'",
+    "file": "fdir = fdir + sk_work_settings['platform'] + '_' + sk_work_settings['app'] + '_' + sk_work_settings['site'] + '_' + sk_work_settings['page'] + '/skills/'",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
 "step 75":
+{
+    "type": "Call Extern",
+    "file": "fdir = fdir + sk_work_settings['skname'] + '/'",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 80":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -126,7 +134,7 @@
     "key_name": "NA",
     "key_value": "sk_work_settings['seller']"
 },
-"step 80":
+"step 85":
 {
     "type": "Call Extern",
     "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:\\Users\\songc\\PycharmProjects\\ecbot/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)",
@@ -134,7 +142,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 85":
+"step 90":
 {
     "type": "Call Extern",
     "file": "global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)",
@@ -142,7 +150,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 90":
+"step 95":
 {
     "type": "Stub",
     "stub_name": "end skill",

@@ -17,6 +17,7 @@ import asyncio
 # res.fetchmany()
 # con.close()
 
+
 LOG_SWITCH_BOARD = {
     "all": {"log": True, "range": "lan"},
     "processHalt": {"log": False, "range": "lan"},
@@ -134,8 +135,13 @@ LOG_SWITCH_BOARD = {
 
 }
 
+# from utils.logger_helper import login
+import utils.logger_helper
+def getLogUser():
+    global login
+    return login.getCurrentUser().split(".")[0].replace("@", "_")
 # log messages into console, file, and GUI
-def log3(msg, mask='all', gui_main=None, range='lan'):
+def log3(msg, mask='all', log_user='anonymous', gui_main=None, range='lan'):
     log_enabled = False
     wan_enabled = False
     if mask in LOG_SWITCH_BOARD:
@@ -150,8 +156,18 @@ def log3(msg, mask='all', gui_main=None, range='lan'):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
-        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+        if gui_main:
+            log_user = gui_main.log_user
+        else:
+            # global login
+            if utils.logger_helper.login:
+                log_user = utils.logger_helper.login.getCurrentUser().split(".")[0].replace("@", "_")
+                print("LOG USER:" + log_user)
+            else:
+                print("NO LOG USER")
+
+        dailyLogDir = ecb_data_homepath + "/{}/runlogs/{}/{}".format(log_user, log_user, year)
+        dailyLogFile = ecb_data_homepath + "/{}/runlogs/{}/{}/log{}{}{}.txt".format(log_user, log_user, year, year, month, day)
         time = now.strftime("%H:%M:%S - ")
         if os.path.isfile(dailyLogFile):
             file1 = open(dailyLogFile, "a", encoding='utf-8')  # append mode
@@ -176,7 +192,7 @@ def log3(msg, mask='all', gui_main=None, range='lan'):
         if wan_enabled:
             gui_main.wan_send_log((":<mlog>"+msg+"</mlog>"))
 
-async def log4(msg, mask='all', gui_main=None, range='lan'):
+async def log4(msg, mask='all', log_user='anonymous', gui_main=None, range='lan'):
     log_enabled = False
     wan_enabled = False
     if mask in LOG_SWITCH_BOARD:
@@ -191,8 +207,10 @@ async def log4(msg, mask='all', gui_main=None, range='lan'):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
-        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+        if gui_main:
+            log_user = gui_main.log_user
+        dailyLogDir = ecb_data_homepath + "/{}/runlogs/{}/{}".format(log_user, log_user, year)
+        dailyLogFile = ecb_data_homepath + "/{}/runlogs/{}/{}/log{}{}{}.txt".format(log_user, log_user, year, year, month, day)
         time = now.strftime("%H:%M:%S - ")
         if os.path.isfile(dailyLogFile):
             file1 = open(dailyLogFile, "a", encoding='utf-8')  # append mode
