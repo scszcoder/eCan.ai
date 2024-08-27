@@ -1685,8 +1685,8 @@ def download_file(session, datahome, f2dl, source, token, ftype="general"):
         # local_f2dl = re.sub(r'(runlogs/)[^/]+/', r'\1', f2dl)
         local_f2dl = f2dl
 
-
         fopreqs = [{"op": "download", "names": fname, "options": prefix}]
+        print("FOPREQS:", fopreqs)
 
         res = send_file_op_request_to_cloud(session, fopreqs, token)
         # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))

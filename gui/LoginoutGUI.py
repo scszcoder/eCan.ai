@@ -439,6 +439,9 @@ class Login(QDialog):
 
     def getCurrentUser(self):
         return self.current_user
+
+    def getLogUser(self):
+        return self.current_user.split("@")[0] + "_" + self.current_user.split("@")[1].replace(".", "_")
     def handleLogin(self):
         print("logging in....")
         # global commanderServer

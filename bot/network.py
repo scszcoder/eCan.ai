@@ -122,7 +122,7 @@ class communicatorProtocol(asyncio.Protocol):
                         fname = os.path.basename(json_data['file_name'])
                         if json_data["file_type"] == "ads profile":
                             if utils.logger_helper.login:
-                                log_user = utils.logger_helper.login.getCurrentUser().split(".")[0].replace("@", "_")
+                                log_user = utils.logger_helper.login.getLogUser()
                             else:
                                 log_user = 'anonymous'
                             fullfname = ecb_data_homepath + f"/{log_user}/ads_profiles/" + fname

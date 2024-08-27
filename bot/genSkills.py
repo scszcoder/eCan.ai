@@ -474,11 +474,11 @@ def getWorkRunSettings(lieutenant, bot_works):
             "cargs": "",
             # "works": works,
             "botid": bot_id,
-            "b_email": bot.getEmail(),
-            "b_email_pw": bot.getEmPW(),
-            "b_backup_email": bot.getBackEm(),
-            "b_backup_email_pw": bot.getAcctPw(),
-            "b_backup_email_site": bot.getBackEmSite(),
+            "b_email": bot.getEmail() if bot.getEmail() else "",
+            "b_email_pw": bot.getEmPW() if bot.getEmPW() else "",
+            "b_backup_email": bot.getBackEm() if bot.getBackEm() else "",
+            "b_backup_email_pw": bot.getAcctPw() if bot.getAcctPw() else "",
+            "b_backup_email_site": bot.getBackEmSite() if bot.getBackEmSite() else "",
             "batch_profile": works[widx]["fingerprint_profile"],
             "full_site": full_site,
             "seller": sij,
@@ -488,7 +488,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "root_path": root_path,
             "log_path_prefix": log_path_prefix,
             "log_path": "",
-            "local_data_path": ecb_data_homepath+"/"+lieutenant.log_user,
+            "local_data_path": lieutenant.my_ecb_data_homepath,
             "log_user": lieutenant.log_user,
             "fp_browser_settings": fp_browser_settings,
             "platform": platform,
@@ -513,7 +513,10 @@ def getWorkRunSettings(lieutenant, bot_works):
 def setWorkSettingsSkill(worksettings, sk):
     # derive full path skill file name.
     log3(">>>>>>>getting psk file name:"+sk.getPskFileName())
-    worksettings["skfname"] = worksettings["root_path"] + "" + sk.getPskFileName()
+    if "my_skills" in sk.getPskFileName():
+        worksettings["skfname"] = worksettings["local_data_path"] + sk.getPskFileName()
+    else:
+        worksettings["skfname"] = worksettings["root_path"] + "" + sk.getPskFileName()
     worksettings["platform"] = sk.getPlatform()
     worksettings["app"] = sk.getApp()
     # worksettings["app_exe"] = sk.getAppLink()
@@ -552,7 +555,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     sk_file_dir = os.path.dirname(sk_file_name)
     os.makedirs(sk_file_dir, exist_ok=True)
 
-    log3("sk_file_dir"+sk_file_dir+" sk_full_name: "+sk_full_name)
+    log3("sk_file_dir"+sk_file_dir+" sk_full_name: "+sk_full_name+" my_sk_full_name:"+my_sk_full_name)
     log3("opening skill file: "+sk_file_name+" start_step: "+json.dumps(start_step))
 
     try:

@@ -161,7 +161,7 @@ def log3(msg, mask='all', log_user='anonymous', gui_main=None, range='lan'):
         else:
             # global login
             if utils.logger_helper.login:
-                log_user = utils.logger_helper.login.getCurrentUser().split(".")[0].replace("@", "_")
+                log_user = utils.logger_helper.login.getLogUser()
                 print("LOG USER:" + log_user)
             else:
                 print("NO LOG USER")
