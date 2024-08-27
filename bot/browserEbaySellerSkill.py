@@ -112,9 +112,9 @@ def genTestGSOrdersData():
         {
             'service': 'USPS Ground Advantage (1-15oz)',
             'price': 4.5, 'num_orders': 2,
-            'dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels',
+            'dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/songc_yahoo/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels',
             'file': 'ebayOrdersGround20240815122835.xls',
-            'unzipped_dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240815122835',
+            'unzipped_dir': 'C:/Users/songc/PycharmProjects/ecbot/runlogs/songc_yahoo/20240815/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240815122835',
             'order_data': [
                 {
                     "name":"",
@@ -2013,7 +2013,7 @@ def genWinADSEbayHandleReturnsSkill(worksettings, stepN, theme):
     homepath = app_info.app_home_path
     if homepath[len(homepath)-1] == "/":
         homepath = homepath[:len(homepath)-1]
-    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/songc_yahoo/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)", "", "in_line", "", this_step)
@@ -2127,7 +2127,7 @@ def genWinADSEbayHandleMsgsSkill(worksettings, stepN, theme):
     homepath = app_info.app_home_path
     if homepath[len(homepath)-1] == "/":
         homepath = homepath[:len(homepath)-1]
-    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': '" + homepath + "/runlogs/songc_yahoo/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_input\ngs_input = [etsy_orders, gs_orders, sevenZExe, rarExe]\nprint('GS input', gs_input)", "", "in_line", "", this_step)

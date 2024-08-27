@@ -203,6 +203,8 @@ class MainWindow(QMainWindow):
 
         self.user = user
         self.chat_id = user.split("@")[0]
+        self.log_user = user.split(".")[0].replace("@", "_")
+        self.my_ecb_data_homepath = f"{ecb_data_homepath}/{self.log_user}"
         self.cog = None
         self.cog_client = None
         self.host_role = machine_role
@@ -225,7 +227,7 @@ class MainWindow(QMainWindow):
         self.inventories = []
 
         self.bot_cookie_site_lists = {}
-        self.ads_profile_dir = ecb_data_homepath + "/ads_profiles/"
+        self.ads_profile_dir = self.my_ecb_data_homepath + "/ads_profiles/"
 
         self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
         self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "ads_port": 0, "ads_api_key": ""}
@@ -290,9 +292,13 @@ class MainWindow(QMainWindow):
         self.todaysPlatoonReports = []
         self.tester = Tester()
         self.wifis = []
-        self.dbfile = self.homepath + "/resource/data/myecb.db"
-        self.product_catelog_file = ecb_data_homepath + "/resource/data/product_catelog.json"
-        self.general_settings_file = self.homepath + "/resource/data/settings.json"
+
+        if not os.path.exists(f"{self.my_ecb_data_homepath}/resource/data/"):
+            os.makedirs(f"{self.my_ecb_data_homepath}/resource/data/")
+
+        self.dbfile = f"{self.my_ecb_data_homepath}/resource/data/myecb.db"
+        self.product_catelog_file = f"{self.my_ecb_data_homepath}/resource/data/product_catelog.json"
+        self.general_settings_file = f"{self.my_ecb_data_homepath}/resource/data/settings.json"
         self.general_settings = {}
         self.debug_mode = False
         self.readSellerInventoryJsonFile("")
@@ -752,8 +758,8 @@ class MainWindow(QMainWindow):
 
         # Done with all UI stuff, now do the instruction set extension work.
         self.showMsg("set up rais extensions ")
-        rais_extensions_file = ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
-        rais_extensions_dir = ecb_data_homepath + "/my_rais_extensions/"
+        rais_extensions_file = self.my_ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
+        rais_extensions_dir = self.my_ecb_data_homepath + "/my_rais_extensions/"
         added_handlers=[]
         print("rais extension file:"+rais_extensions_file)
         if os.path.isfile(rais_extensions_file):
@@ -761,7 +767,7 @@ class MainWindow(QMainWindow):
                 user_rais_modules = json.load(rais_extensions)
                 print("user_rais_modules:", user_rais_modules)
                 for i, user_module in enumerate(user_rais_modules):
-                    module_file = ecb_data_homepath + "/" + user_module["dir"] + "/"+user_module["file"]
+                    module_file = self.my_ecb_data_homepath + "/" + user_module["dir"] + "/"+user_module["file"]
                     added_ins = user_module['instructions']
                     module_name = os.path.splitext(user_module["file"])[0]
                     spec = importlib.util.spec_from_file_location(module_name, module_file)
@@ -778,7 +784,7 @@ class MainWindow(QMainWindow):
                             print("EXTENDING ARAIS")
 
         # now load experience file which will speed up icon matching
-        run_experience_file = ecb_data_homepath + "/run_experience.txt"
+        run_experience_file = self.my_ecb_data_homepath + "/run_experience.txt"
         if os.path.exists(run_experience_file):
             try:
                 with open(run_experience_file, 'rb') as fileTBRead:
@@ -913,7 +919,7 @@ class MainWindow(QMainWindow):
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
             else:
                 self.showMsg("GEN PRIVATE SKILL PSK::::::" + sk_full_name)
-                next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), ecb_data_homepath, first_step, "light")
+                next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.my_ecb_data_homepath, first_step, "light")
             self.showMsg("PSK FILE:::::::::::::::::::::::::"+psk_file)
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
@@ -1619,7 +1625,7 @@ class MainWindow(QMainWindow):
 
     def fetchScheduleFromFile(self):
 
-        uncompressed = open(ecb_data_homepath + "/resource/testdata/testschedule.json")
+        uncompressed = open(self.my_ecb_data_homepath + "/resource/testdata/testschedule.json")
         if uncompressed != "":
             # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
             bodyobj = json.load(uncompressed)
@@ -1677,7 +1683,7 @@ class MainWindow(QMainWindow):
         month = now.strftime("%m")
         day = now.strftime("%d")
         time = now.strftime("%H:%M:%S - ")
-        dailyScheduleLogFile = ecb_data_homepath + "/runlogs/{}/schedule{}{}{}.txt".format(year, month, day, year)
+        dailyScheduleLogFile = self.my_ecb_data_homepath + "/runlogs/{}/{}/schedule{}{}{}.txt".format(self.log_user, year, month, day, year)
         print("netSched:: "+netSched)
         if os.path.isfile(dailyScheduleLogFile):
             file1 = open(dailyScheduleLogFile, "a")  # append mode
@@ -1694,7 +1700,7 @@ class MainWindow(QMainWindow):
         month = now.strftime("%m")
         day = now.strftime("%d")
         time = now.strftime("%H:%M:%S - ")
-        dailyRunReportFile = ecb_data_homepath + "/runlogs/{}/runreport{}{}{}.txt".format(year, month, day, year)
+        dailyRunReportFile = self.my_ecb_data_homepath + "/runlogs/{}/{}/runreport{}{}{}.txt".format(self.log_user, year, month, day, year)
 
         if os.path.isfile(dailyRunReportFile):
             with open(dailyRunReportFile, 'a') as f:
@@ -2336,7 +2342,7 @@ class MainWindow(QMainWindow):
                 if found_skill.getPrivacy() == "public":
                     psk_file = self.homepath + found_skill.getPskFileName()
                 else:
-                    psk_file = ecb_data_homepath + found_skill.getPskFileName()
+                    psk_file = self.my_ecb_data_homepath + found_skill.getPskFileName()
                 self.showMsg("Empowering platoon with skill PSK"+psk_file)
                 self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
             else:
@@ -2519,7 +2525,7 @@ class MainWindow(QMainWindow):
         if pub:
             skill_file = self.homepath + "resource/skills/public/" + skname + "/scripts/" + skname + ".psk"
         else:
-            skill_file = ecb_data_homepath + "/my_skills/" + skname + "/scripts/" + skname + ".psk"
+            skill_file = self.my_ecb_data_homepath + "/my_skills/" + skname + "/scripts/" + skname + ".psk"
 
         self.showMsg("loadSKILLFILE: "+skill_file)
         stepKeys = readPSkillFile(skname, skill_file, lvl=0)
@@ -2624,7 +2630,7 @@ class MainWindow(QMainWindow):
                         if sk.getPrivacy() == "public":
                             sk_dir = self.homepath
                         else:
-                            sk_dir = ecb_data_homepath
+                            sk_dir = self.my_ecb_data_homepath
                         pskJson = readPSkillFile(worksettings["name_space"], sk_dir+sk.getPskFileName(), lvl=0)
                         # self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
 
@@ -3527,7 +3533,7 @@ class MainWindow(QMainWindow):
             self.botModel.appendRow(self.newBot)
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
-            bot_profile_name = ecb_data_homepath + "/ads_profiles/"+bjs["privateProfile"]["email"].split("@")[0]+".txt"
+            bot_profile_name = self.my_ecb_data_homepath + "/ads_profiles/"+bjs["privateProfile"]["email"].split("@")[0]+".txt"
             self.todays_bot_profiles.append(bot_profile_name)
 
         for mjs in missionsJson:
@@ -4630,7 +4636,7 @@ class MainWindow(QMainWindow):
         dtnow = datetime.now()
         date_word = dtnow.strftime("%Y%m%d")
 
-        new_orders_dir = ecb_data_homepath + "/new_orders/ORDER" + date_word + "/"
+        new_orders_dir = self.my_ecb_data_homepath + "/new_orders/ORDER" + date_word + "/"
         self.showMsg("working on new orders:" + new_orders_dir)
 
         new_buy_missions = []
@@ -4798,7 +4804,7 @@ class MainWindow(QMainWindow):
                             if "public" in code_jsons[key]["skill_path"]:
                                 dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
                             else:
-                                dependency_file = ecb_data_homepath + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+                                dependency_file = self.my_ecb_data_homepath + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
 
 
                             if dependency_file not in dependencies:
@@ -4856,7 +4862,7 @@ class MainWindow(QMainWindow):
         csk_files = []
         json_files = []
 
-        skdir = ecb_data_homepath + "/my_skills/"
+        skdir = self.my_ecb_data_homepath + "/my_skills/"
         # Iterate over all files in the directory
         # Walk through the directory tree recursively
         for root, dirs, files in os.walk(skdir):
@@ -4940,7 +4946,7 @@ class MainWindow(QMainWindow):
 
         self.showMsg("loading products from a local file or DB...")
         api_products = []
-        uncompressed = open(ecb_data_homepath + "/resource/testdata/newproducts.json")
+        uncompressed = open(self.my_ecb_data_homepath + "/resource/testdata/newproducts.json")
         if uncompressed != None:
             # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
             fileproducts = json.load(uncompressed)
@@ -5434,7 +5440,7 @@ class MainWindow(QMainWindow):
     # file to file.old so that we at least always have two copies and in case something is wrong
     # we can at least go back to the previous copy.
     def receivePlattonBotsADSProfileUpdateMessage(self, pMsg):
-        file_name = ecb_data_homepath + pMsg["file_name"]           # msg["file_name"] should start with "/"
+        file_name = self.my_ecb_data_homepath + pMsg["file_name"]           # msg["file_name"] should start with "/"
         file_name_wo_extension = os.path.basename(file_name).split(".")[0]
         file_name_dir = os.path.dirname(file_name)
         new_filename = file_name_dir + "/" + file_name_wo_extension + "_old.txt"
@@ -5982,12 +5988,14 @@ class MainWindow(QMainWindow):
                     for batch in new_works['added_missions'][0]['config'][1]:
                         if batch['file']:
                             print("about to download....", batch['file'])
-                            local_file = download_file(self.session, ecb_data_homepath, batch['file'], self.tokens['AuthenticationResult']['IdToken'], "general")
+                            local_file = download_file(self.session, self.my_ecb_data_homepath, batch['file'], self.tokens['AuthenticationResult']['IdToken'], "general")
                             batch['dir'] = os.path.dirname(local_file)
 
                             # update the config in task_groups too. bascially go thru
                             # may be no need to do it here, just do it in skill when needed.
-
+                # add useful key
+                new_works['added_missions'][0]['config'].append(in_message['id'])
+                new_works['added_missions'][0]['config'].append(in_message['sender'])
                 setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
 

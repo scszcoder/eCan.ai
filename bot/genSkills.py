@@ -338,7 +338,7 @@ def getWorkSettings(lieutenant, bot_works):
     date_word = dtnow.strftime("%Y%m%d")
     log3("date word:"+date_word)
     fdir = ecb_data_homepath.replace("\\", "/")
-    fdir = fdir + "/runlogs/" + date_word + "/"
+    fdir = fdir + f"/{lieutenant.log_user}/runlogs/{lieutenant.log_user}/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     bot = lieutenant.bots[bot_idx]
@@ -369,6 +369,8 @@ def getWorkSettings(lieutenant, bot_works):
             "root_path": root_path,
             "log_path_prefix": log_path_prefix,
             "log_path": "",
+            "local_data_path": ecb_data_homepath + "/" + lieutenant.log_user,
+            "log_user": lieutenant.log_user,
             # "settings": settings,
             "platform": platform,
             "site": site,
@@ -438,11 +440,11 @@ def getWorkRunSettings(lieutenant, bot_works):
     date_word = dtnow.strftime("%Y%m%d")
     log3("date word:"+date_word)
     fdir = ecb_data_homepath.replace("\\", "/")
-    fdir = fdir + "/runlogs/" + date_word + "/"
+    fdir = fdir + f"/{lieutenant.log_user}/runlogs/{lieutenant.log_user}/" + date_word + "/"
     log_path_prefix = fdir + "b" + str(bot_id) + "m" + str(mission_id) + "/"
 
     scroll_resolution = 250     # default scroll resolution.
-    scroll_resolution_file = ecb_data_homepath + "/scroll_resolution.json"
+    scroll_resolution_file = ecb_data_homepath + f"/{lieutenant.log_user}/scroll_resolution.json"
     fp_browser_settings = lieutenant.getADSSettings()
     if os.path.exists(scroll_resolution_file):
         with open(scroll_resolution_file, 'r') as fileTBR:
@@ -486,6 +488,8 @@ def getWorkRunSettings(lieutenant, bot_works):
             "root_path": root_path,
             "log_path_prefix": log_path_prefix,
             "log_path": "",
+            "local_data_path": ecb_data_homepath+"/"+lieutenant.log_user,
+            "log_user": lieutenant.log_user,
             "fp_browser_settings": fp_browser_settings,
             "platform": platform,
             "site": site,

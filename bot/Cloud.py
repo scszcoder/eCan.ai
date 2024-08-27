@@ -69,12 +69,6 @@ def direct_send_screen(file_name, bucket="winrpa"):
     return response
 
 
-# def download_file(file_name, bucket, object_name=None):
-#     s3 = boto3.client('s3')
-#     with open('FILE_NAME', 'wb') as f:
-#         s3.download_fileobj('BUCKET_NAME', 'OBJECT_NAME', f)
-
-
 def list_s3_file():
     # method 1 per: https://stackoverflow.com/questions/27292145/python-boto-list-contents-of-specific-dir-in-bucket
     #s3 = boto3.resource('s3')
@@ -1635,14 +1629,17 @@ def findIdx(list, element):
     return index_value
 
 
-def upload_file(session, f2ul, token, ftype="general"):
+def upload_file(session, f2ul, destination, token, ftype="general"):
     try:
         logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
         fname = os.path.basename(f2ul)
         fwords = f2ul.split("/")
         relf2ul = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
-        prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
+        if destination:
+            prefix = ftype + "|" + destination
+        else:
+            prefix = ftype + "|" + os.path.dirname(f2ul).replace("\\", "\\\\")
 
         fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
         logger_helper.debug("fopreqs:"+json.dumps(fopreqs))
@@ -1675,14 +1672,18 @@ def upload_file(session, f2ul, token, ftype="general"):
 
 
 # datahome should ends with "/", f2dl should starts with "runlogs"
-def download_file(session, datahome, f2dl, token, ftype="general"):
+def download_file(session, datahome, f2dl, source, token, ftype="general"):
     try:
         fname = os.path.basename(f2dl)
         fwords = f2dl.split("/")
         relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
-        prefix = ftype + "|" + os.path.dirname(f2dl)
+        if source:
+            prefix = ftype + "|" + source
+        else:
+            prefix = ftype + "|" + os.path.dirname(f2dl)
 
-        local_f2dl = re.sub(r'(runlogs/)[^/]+/', r'\1', f2dl)
+        # local_f2dl = re.sub(r'(runlogs/)[^/]+/', r'\1', f2dl)
+        local_f2dl = f2dl
 
 
         fopreqs = [{"op": "download", "names": fname, "options": prefix}]

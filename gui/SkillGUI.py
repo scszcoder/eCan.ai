@@ -1448,8 +1448,8 @@ class SkillGUI(QMainWindow):
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
-        dailyLogDir = ecb_data_homepath + "/runlogs/{}".format(year)
-        dailyLogFile = ecb_data_homepath + "/runlogs/{}/log{}{}{}.txt".format(year, year, month, day)
+        dailyLogDir = self.parent.main_win.my_ecb_data_homepath + "/runlogs/{}/{}".format(self.parent.main_win.log_user, year)
+        dailyLogFile = self.parent.main_win.my_ecb_data_homepath + "/runlogs/{}/{}/log{}{}{}.txt".format(self.parent.main_win.log_user, year, year, month, day)
         time = now.strftime("%H:%M:%S - ")
         if os.path.isfile(dailyLogFile):
             file1 = open(dailyLogFile, "a")  # append mode

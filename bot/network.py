@@ -9,6 +9,7 @@ import platform
 import base64
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
+import utils.logger_helper
 
 UDP_IP = "127.0.0.1"
 
@@ -120,8 +121,12 @@ class communicatorProtocol(asyncio.Protocol):
                         fdir = os.path.dirname(json_data['file_name'])
                         fname = os.path.basename(json_data['file_name'])
                         if json_data["file_type"] == "ads profile":
-                            fullfname = ecb_data_homepath + "/ads_profiles/" + fname
-                            fullfdir = ecb_data_homepath + "/ads_profiles/"
+                            if utils.logger_helper.login:
+                                log_user = utils.logger_helper.login.getCurrentUser().split(".")[0].replace("@", "_")
+                            else:
+                                log_user = 'anonymous'
+                            fullfname = ecb_data_homepath + f"/{log_user}/ads_profiles/" + fname
+                            fullfdir = ecb_data_homepath + f"/{log_user}/ads_profiles/"
                         elif json_data["file_type"] == "skill psk":
                             start_index = fdir.find("resource")
                             half_path = fdir[start_index:]

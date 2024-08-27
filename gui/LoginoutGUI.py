@@ -50,6 +50,7 @@ class Login(QDialog):
         self.mode = "Sign In"
         self.machine_role = "Platoon"
         self.read_role()
+        self.current_user = ""
         super(Login, self).__init__(parent)
         self.banner = QLabel(self)
         pixmap = QPixmap(ecbhomepath + '/resource/images/icons/ecBot09.png')
@@ -436,6 +437,8 @@ class Login(QDialog):
         except IOError as e:
             print(f"Error: Unable to open or write to {config_file} - {e}")
 
+    def getCurrentUser(self):
+        return self.current_user
     def handleLogin(self):
         print("logging in....")
         # global commanderServer
@@ -487,7 +490,7 @@ class Login(QDialog):
             self.hide()
             print("hello hello hello")
             main_key = self.scramble(self.textPass.text())
-
+            self.current_user = self.textName.text()
             if self.machine_role == "Commander Only" or self.machine_role == "Commander":
                 # global commanderServer
 

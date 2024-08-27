@@ -59,6 +59,7 @@ symTab = globals()
 from pynput.mouse import Controller
 # from bot.envi import *
 
+
 STEP_GAP = 5
 rd_screen_count = 0
 mouse = Controller()
@@ -76,6 +77,7 @@ DEFAULT_RUN_STATUS = "Completed:0"
 TEST_RUN_CNT = 0
 
 ecb_data_homepath = getECBotDataHome()
+
 
 # the dictionary structure is {"machine name": {"skid", {"page": {"section": [{"icon anchor name": [scales...]}....]}}}}
 # each time processExtractInfo executes, this dic will be accumulated and built up.
@@ -176,28 +178,32 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-# input: file_var, settings, ftype,
+# input: file_var - local file, locs - cloud file
 # output: presigned_var
-def genStepUploadFiles(files_var, settings, ftype, locs_var, stepN):
+def genStepUploadFiles(files_var, settings, ftype, locs_var, results_var, flag_var, stepN):
     stepjson = {
         "type": "Upload Files",
         "settings": settings,
         "files_var": files_var,
         "ftype": ftype,
         "locs": locs_var,
+        "results": results_var,
+        "flag": flag_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-# input: file_var, settings, ftype
-# output: presigned_var
-def genStepDownloadFiles(files_var, settings, ftype, locs_var, stepN):
+# input: file_var - local file, locs - cloud file
+# output:
+def genStepDownloadFiles(files_var, settings, ftype, locs_var, results_var, flag_var, stepN):
     stepjson = {
         "type": "Download Files",
         "files_var": files_var,
         "settings": settings,
         "ftype": ftype,
-        "locs": locs_var
+        "locs": locs_var,
+        "results": results_var,
+        "flag": flag_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -1192,12 +1198,12 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
             return []
 
 # win_title_keyword == "" means capture the entire screen
-async def readRandomWindow8(win_title_keyword, session,  token):
+async def readRandomWindow8(win_title_keyword, log_user, session,  token):
     dtnow = datetime.now()
     date_word = dtnow.strftime("%Y%m%d")
     dt_string = str(int(dtnow.timestamp()))
     log3("date string:" + dt_string)
-    fdir = ecb_data_homepath + "/runlogs/" + date_word + "/b0m0/any_any_any_any/skills/any/images"
+    fdir = ecb_data_homepath + f"/{log_user}/runlogs/{log_user}/" + date_word + "/b0m0/any_any_any_any/skills/any/images"
     image_file = fdir + "scrn" + "_" + dt_string + ".png"
 
     window_rect = captureScreenToFile(win_title_keyword, image_file)
@@ -1496,7 +1502,7 @@ def processExtractInfo(step, i, mission, skill):
         if step_settings["root_path"][len(step_settings["root_path"])-1]=="/":
             step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"])-1]
 
-        fdir = ecb_data_homepath + "/runlogs/"
+        fdir = ecb_data_homepath + f"/{mainwin.log_user}/runlogs/{mainwin.log_user}/"
         fdir = fdir + date_word + "/"
 
         fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
@@ -1516,7 +1522,7 @@ def processExtractInfo(step, i, mission, skill):
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
         if len(result) > 0:
-            updateIconScalesDict(machine_name, sk_name, step["page"], step["section"], result)
+            updateIconScalesDict(machine_name, sk_name, mainwin.log_user, step["page"], step["section"], result)
 
         rd_screen_count = rd_screen_count + 1
         log3("rd_screen_count: "+str(rd_screen_count))
@@ -1592,7 +1598,7 @@ async def processExtractInfo8(step, i, mission, skill):
         if step_settings["root_path"][len(step_settings["root_path"])-1]=="/":
             step_settings["root_path"] = step_settings["root_path"][:len(step_settings["root_path"])-1]
 
-        fdir = ecb_data_homepath + "/runlogs/"
+        fdir = ecb_data_homepath + f"/{mainwin.log_user}/runlogs/{mainwin.log_user}/"
         fdir = fdir + date_word + "/"
 
         fdir = fdir + "b" + str(step_settings["botid"]) + "m" + str(step_settings["mid"]) + "/"
@@ -1612,7 +1618,7 @@ async def processExtractInfo8(step, i, mission, skill):
         log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
         if len(result) > 0:
-            updateIconScalesDict(machine_name, sk_name, step["page"], step["section"], result)
+            updateIconScalesDict(machine_name, sk_name, mainwin.log_user, step["page"], step["section"], result)
 
 
     except Exception as e:
@@ -1645,12 +1651,12 @@ def processUploadFiles(step, i, mission):
         print("SFILES:", sfiles)
         ftype = step["ftype"]
 
-        symTab[step["locs"]] = []
-
-        for sfile in sfiles:
+        for si, sfile in enumerate(sfiles):
             print("uploading....", sfile)
-            symTab[step["locs"]].append(upload_file(settings["session"], sfile, settings["token"], ftype))
-
+            if type(symTab[step["locs"]]) == list:
+                upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], ftype)
+            else:
+                upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], ftype)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -1668,7 +1674,8 @@ def processUploadFiles(step, i, mission):
 def processDownloadFiles(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        dh = ecb_data_homepath + "/"
+        mainwin = mission.get_main_win()
+        dh = ecb_data_homepath + f"/{mainwin.log_user}/"
         settings = mission.main_win_settings
         if "/" in step["files_var"]:
             sfiles = [step["files_var"]]
@@ -1681,8 +1688,11 @@ def processDownloadFiles(step, i, mission):
 
         ftype = step["ftype"]
 
-        for sfile in sfiles:
-            download_file(settings["session"], dh, sfile, settings["token"], ftype)
+        for si, sfile in enumerate(sfiles):
+            if type(symTab[step["locs"]]) == list:
+                download_file(settings["session"], dh, sfile, symTab[step["locs"]][si], settings["token"], ftype)
+            else:
+                download_file(settings["session"], dh, sfile, symTab[step["locs"]], settings["token"], ftype)
 
     except Exception as e:
         # Get the traceback information
@@ -3306,6 +3316,8 @@ def processReadFile(step, i):
             with open(file_full_path, 'r') as fileTBR:
                 if step["filetype"] == "json":
                     symTab[step["datasink"]] = json.load(fileTBR)
+                elif step["filetype"] == "txt":
+                    symTab[step["datasink"]] = fileTBR.read()
 
             fileTBR.close()
         else:
@@ -4178,12 +4190,13 @@ def processSaveHtml(step, i, mission, skill):
     log3("Saving web page to a local html file ....."+json.dumps(step))
     ex_stat = DEFAULT_RUN_STATUS
     try:
+        mainwin = mission.get_main_win()
         dtnow = datetime.now()
 
         date_word = dtnow.strftime("%Y%m%d")
         log3("date word:"+date_word)
 
-        fdir = ecb_data_homepath + "/runlogs/"
+        fdir = ecb_data_homepath + f"/{mainwin.log_user}/runlogs/{mainwin.log_user}/"
         fdir = fdir + date_word + "/"
 
         platform = mission.getPlatform()
@@ -4587,6 +4600,7 @@ def get_commander_link_by_ip(ip):
     global login
     return login.get_mainwin().commanderXport
 
+
 # this function sends some logging logging message to the commander, that a commander can see what's going on remotely via TCP/IP
 def processReportToBoss(step, i):
     ex_stat = DEFAULT_RUN_STATUS
@@ -4609,7 +4623,7 @@ def processReportToBoss(step, i):
 
     return (i + 1), ex_stat
 
-def updateIconScalesDict(machine_name, sk_name, page, section, screen_data):
+def updateIconScalesDict(machine_name, sk_name, log_user, page, section, screen_data):
     all_icons = [x for x in screen_data if (x["type"] == "anchor icon")]
     print("all icons with scale factors to be saved: ", all_icons)
     icon_scales = []
@@ -4636,7 +4650,7 @@ def updateIconScalesDict(machine_name, sk_name, page, section, screen_data):
                     icon_match_dict[machine_name][sk_name][page][section][icon["name"]].append(icon["scale"])
 
         # save the updated to a file.
-        run_experience_file = ecb_data_homepath + "/run_experience.txt"
+        run_experience_file = ecb_data_homepath + f"/{log_user}/run_experience.txt"
         print("run_experience_file: "+run_experience_file)
         print("icon match dict: ", icon_match_dict)
         with open(run_experience_file, 'w') as fileTBSaved:

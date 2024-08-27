@@ -95,11 +95,11 @@ def genWinChromeAMZFullfillOrdersSkill(worksettings, stepN, theme):
     # first organized order list data into 2 xls for bulk label purchase, and calcualte total funding requird for this action.
 
     # from collected etsy orders, generate gs label purchase order files.
-    dtnow = datetime.now()
-    date_word = dtnow.strftime("%Y%m%d")
-    fdir = ecb_data_homepath + "/runlogs/"
-    fdir = fdir + date_word + "/"
-    this_step, step_words = genStepCreateData("str", "fdir", "NA", fdir, this_step)
+
+    this_step, step_words = genStepCreateData("str", "fdir", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("import datetime\nfdir =  sk_work_settings['local_data_path'] + '/runlogs/' + sk_work_settings['log_user'] + '/' + datetime.now().strftime('%Y%m%d')+'/'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("fdir = fdir + 'b' + str(sk_work_settings['mid']) + m + str(sk_work_settings['bid']) + '/'", "", "in_line", "", this_step)

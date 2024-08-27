@@ -80,7 +80,7 @@ def wanSendMessage(msg_req, session, token):
             'Authorization': token,
             'cache-control': "no-cache",
         }
-        print("about to send wan msg:", variables, query_string, headers)
+        # print("about to send wan msg:", variables, query_string, headers)
         print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
         session.headers.update(headers)
         response = session.post(
