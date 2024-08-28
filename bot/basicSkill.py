@@ -725,7 +725,7 @@ def genStepReportExternalSkillRunStatus(run_id, skid, start_time, end_time, mid,
         "status": status,
         "runner_mid": mid,
         "runner_bid": bid,
-        "output": output
+        "result_data": output
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -1654,8 +1654,10 @@ def processUploadFiles(step, i, mission):
         for si, sfile in enumerate(sfiles):
             print("uploading....", sfile)
             if type(symTab[step["locs"]]) == list:
+                print("tos....", symTab[step["locs"]][si])
                 upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], ftype)
             else:
+                print("to....", symTab[step["locs"]])
                 upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], ftype)
     except Exception as e:
         # Get the traceback information
@@ -2941,21 +2943,23 @@ def processReportExternalSkillRunStatus(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         settings = mission.main_win_settings
-
+        print("report reuslt data:", type(symTab[step["result_data"]]), symTab[step["result_data"]])
         req = {
             "run_id": symTab[step["run_id"]],
-            "skid": step["skid"],
+            "skid": step["skill_id"],
             "runner_mid": symTab[step["runner_mid"]],
             "runner_bid": symTab[step["runner_bid"]],
             "requester": symTab[step["requester"]],
             "start_time": symTab[step["start_time"]],
             "end_time": symTab[step["end_time"]],
             "status": symTab[step["status"]],
-            "result_data": symTab[step["result_data"]]
+            # "result_data": "[{\"dir\": \"\"}]"
+            # "result_data": json.dumps(symTab[step["result_data"]])
+            "result_data": json.dumps(symTab[step["result_data"]]).replace('"', '\\"')
         }
         reqs = [req]
 
-        symTab[step["output"]] = send_report_run_ext_skill_status_request_to_cloud(settings["session"], reqs, settings["token"])
+        send_result = send_report_run_ext_skill_status_request_to_cloud(settings["session"], reqs, settings["token"])
 
     except Exception as e:
         # Get the traceback information
@@ -3242,7 +3246,7 @@ def processCheckExistence(step, i):
         else:
             fn = step["file"]
         log3("check existence for :"+fn+" of type:"+step["fntype"])
-        if "dir" in  step["fntype"]:
+        if "dir" in step["fntype"]:
             symTab[step["result"]] = os.path.isdir(fn)
         else:
             symTab[step["result"]] = os.path.isfile(fn)
@@ -3308,7 +3312,8 @@ def processReadFile(step, i):
         if step["name_type"] == "direct":
             file_full_path = step["filename"]
         else:
-            exec("file_full_path = " + step["filename"])
+            # exec("file_full_path = " + step["filename"])
+            file_full_path = symTab[step["filename"]]
 
         log3("Read from file:"+file_full_path)
         if os.path.exists(file_full_path):
@@ -3519,9 +3524,11 @@ def processZipUnzip(step, i):
             out_file = symTab[step["out_var"]]
 
         if step["action"] == "zip":
-            print("Zippping.....")
-            zip_files(input, os.path.join(output_dir, out_file))
-
+            print("Zippping.....", input, output_dir, out_file)
+            if type(input) == list:
+                zip_files(input, os.path.join(output_dir, out_file))
+            else:
+                zip_files([input], os.path.join(output_dir, out_file))
         elif step["action"] == "unzip":
             log3("executing....unzip" + input + " to" + output_dir)
 
