@@ -24,7 +24,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processCalcObjectsDistance, processAmzDetailsCheckPosition, rd_screen_count, processAmzPLCalcNCols, \
     processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
-    processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip
+    processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
+    processWriteFile, processDeleteFile
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
