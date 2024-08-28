@@ -1027,3 +1027,7 @@ def lookUpProductQuantityShortHandInfo(order_ids):
             products.append(product)
 
     return products
+
+
+def setLabelsReady():
+    symTab['labels_ready'] = True

@@ -6065,7 +6065,7 @@ class MainWindow(QMainWindow):
                         os.rename(full_file_name, new_file)
 
                 # finally set the global flag for the relavant event(s) so that the RPA loop can continue...
-
+                setLabelsReady()
 
         except Exception as e:
             # Get the traceback information
