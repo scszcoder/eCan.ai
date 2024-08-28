@@ -45,7 +45,7 @@ from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt
-from bot.basicSkill import STEP_GAP, setMissionInput
+from bot.basicSkill import STEP_GAP, setMissionInput, unzip_file, list_zip_file
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
@@ -66,6 +66,8 @@ from tests.unittests import *
 import pandas as pd
 from gui.encrypt import *
 import keyboard
+from bot.labelSkill import lookUpProductQuantityShortHandInfo
+
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -5997,7 +5999,7 @@ class MainWindow(QMainWindow):
     def update_moitor_gui(self, in_message):
         try:
             # self.showMsg(f"RPA Monitor:"+in_message)
-            if in_message["type"] == "request mission":
+            if in_message["type"] == "request mission" and self.getIP() not in in_message["sender"]:
                 print("request mission:", in_message)
                 new_works = json.loads(in_message["contents"])
                 print("CONFIG:", new_works['added_missions'][0]['config'])
@@ -6017,6 +6019,53 @@ class MainWindow(QMainWindow):
                 new_works['added_missions'][0]['config'].append(in_message['sender'])
                 setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
+            elif  in_message["type"] == "report results":
+                ext_run_results = json.loads(in_message["contents"])
+                for req in ext_run_results:
+                    dl_stat = download_file(self.session, req['zip_dir'], req['zip_file'], req['zip_dir'], self.tokens['AuthenticationResult']['IdToken'], "general")
+                    dl_zip = req['zip_dir']+"/"+req['zip_file']
+                    unzip_file(dl_zip, req['zip_dir'])
+                    rel_zip_contents = list_zip_file(dl_zip)
+                    zip_contents = [req['zip_dir']+"/"+rel_file for rel_file in rel_zip_contents if 'pdf' in rel_file]
+                    # now zip_contents is a list of label files in pdf format. now we need to update
+                    # tracking info and pdf file name into the original ebay_orders data structure,
+                    # this will make the data structure ready for the next stage of the RPA process which is update
+                    # tracking code. and the labels will be need to be further renamed to include product info in it.
+                    # file name should start with ec site like "ebay" then recipient then product then tracking code.pdf
+                    # the files should be moved into ecb_labels dir and this directory name will be put as the input to the
+                    # label reformat and print skill.
+                    prods = lookUpProductQuantityShortHandInfo(req['order_data']['order_ids'])
+
+
+                    for fi, full_file_name in enumerate(zip_contents):
+                        f_name = os.path.basename(full_file_name)
+                        f_dir = os.path.dirname(full_file_name)
+                        final_f_dir = os.path.dirname(f_dir)
+                        f_name_prefix = f_name.split(".")[0]
+
+                        # use order Id to get products (including variations) and quantity,
+                        # use porduct id to get product name, use variation get variations short hand.
+                        prodq_info = "_"
+                        for pi, pd in enumerate(prods):
+                            prodq_info = prodq_info + "".join(pn.capitalize() for pn in pd['name'].split()) # product name no space, each word's 1st letter capitalized.
+                            if pd['pvs']:             # whether this product has variations
+                                for pvi, pvn in enumerate(pd['pvs'].keys()):            # iterate thru variation dimensions
+                                    prodq_info = prodq_info + str(pd['pvs'][pvn]).capitalize()         #product name + variation1name + variation2name etc. + "_" + quantity
+                                    if pvi == len(pd['pvs'].keys())-1:
+                                        prodq_info = prodq_info + "_"
+
+                            prodq_info = prodq_info + str(pd['quant'])              # MenShirtRedMedium_1_GirsTennisSneakerSmall6_2
+                            if pi < len(prods) -1:
+                                prodq_info = prodq_info + "_"
+
+
+                        new_f_name = f_name_prefix+prodq_info+".pdf"
+                        new_file = final_f_dir+"/"+new_f_name
+
+                        os.rename(full_file_name, new_file)
+
+                # finally set the global flag for the relavant event(s) so that the RPA loop can continue...
+
 
         except Exception as e:
             # Get the traceback information

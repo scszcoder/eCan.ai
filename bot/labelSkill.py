@@ -739,6 +739,7 @@ def processPrepareGSOrder(step, i):
 
         if len(light_orders) > 0:
             ofname1 = file_path+"/"+ec_platform+"OrdersGround"+dt_string+".xlsx"
+            zipped_ofname1 = ec_platform+"OrdersGround"+dt_string+".zip"
             ofname1_unzipped = file_path + "/"+ec_platform+"OrdersGround" + dt_string
             gs_order_data = createLabelOrderFile(seller, "ozs", light_orders, ec_platform, symTab[step["prod_book"]], ofname1)
             gs_label_orders.append({"service":"USPS Ground Advantage (1-15oz)",
@@ -746,6 +747,8 @@ def processPrepareGSOrder(step, i):
                                     "num_orders": len(light_orders),
                                     "dir": os.path.dirname(ofname1),
                                     "file": os.path.basename(ofname1),
+                                    "zip_dir": os.path.dir(ofname1),   #must consider cloud side dir structure and naming scheme
+                                    "zip_file": zipped_ofname1,
                                     "unzipped_dir": ofname1_unzipped,
                                     "order_data": gs_order_data,
                                     "succeed": True,
@@ -758,6 +761,7 @@ def processPrepareGSOrder(step, i):
 
         if len(regular_orders) > 0:
             ofname2 = file_path+"/"+ec_platform+"OrdersPriority"+dt_string+".xlsx"
+            zipped_ofname2 = ec_platform + "OrdersPriority" + dt_string + ".zip"
             ofname2_unzipped =  file_path+"/"+ec_platform+"OrdersPriority"+dt_string
 
             gs_order_data = createLabelOrderFile(seller, "lbs", regular_orders, ec_platform, symTab[step["prod_book"]], ofname2)
@@ -766,6 +770,8 @@ def processPrepareGSOrder(step, i):
                                     "num_orders": len(regular_orders),
                                     "dir": os.path.dirname(ofname2),
                                     "file": os.path.basename(ofname2),
+                                    "zip_dir": os.path.dirname(ofname2),   #must consider cloud side dir structure and naming scheme
+                                    "zip_file": zipped_ofname2,
                                     "unzipped_dir": ofname2_unzipped,
                                     "order_data": gs_order_data,
                                     "succeed": True,
@@ -988,3 +994,36 @@ def calcOrderHeight(order, ec_platform, pbook, unit):
     return total_height
 
 
+def findProdName(pid, catelog):
+    pname = ""
+    for item in catelog:
+        if pid == item['product ID']:
+            pname = item['product name']
+            break
+
+    return pname
+
+
+def lookUpProductQuantityShortHandInfo(order_ids):
+    # symTab['product_book'], symTab['ebay_orders']
+    products = []
+    for oid in order_ids:
+        # look up products in orders.
+        found_order = None
+        for eo in symTab['ebay_orders']:
+            if oid == eo.getOid():
+                found_order = eo
+                break
+
+        if found_order:
+            pds = found_order.getProducts()
+            # for each product, look up variations
+            for prod in pds:
+                product = {
+                    "name": findProdName(prod.getPid(), symTab['product_book']),
+                    "pvs": prod.getVariations(),
+                    "quant": prod.getQuantity()
+                }
+            products.append(product)
+
+    return products

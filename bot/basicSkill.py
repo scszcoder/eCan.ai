@@ -3499,6 +3499,15 @@ def zip_files(files_and_dirs, output_zip_path):
                 # If it's a file, just add it
                 zipf.write(item, os.path.basename(item))
 
+
+def list_zip_file(fullzip):
+    zip_contents = []
+    with zipfile.ZipFile(fullzip, 'r') as zip_ref:
+        # List all the contents of the zip file
+        zip_contents = zip_ref.namelist()
+
+    return zip_contents
+
 def unzip_file(fullzip, extract_to):
     if extract_to:
         # If a directory is specified and it doesn't exist, create it
