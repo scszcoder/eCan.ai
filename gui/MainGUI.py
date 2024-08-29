@@ -66,7 +66,7 @@ from tests.unittests import *
 import pandas as pd
 from gui.encrypt import *
 import keyboard
-from bot.labelSkill import lookUpProductQuantityShortHandInfo
+from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
 
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
@@ -511,6 +511,7 @@ class MainWindow(QMainWindow):
         self.toolsADSProfileConverterAction = self._createToolsADSProfileConverterAction()
         self.toolsADSProfileBatchToSinglesAction = self._createToolsADSProfileBatchToSinglesAction()
         self.toolsWanChatTestAction = self._createToolsWanChatTestAction()
+        self.toolsStopWaitUntilTestAction = self._createToolsStopWaitUntilTestAction()
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
@@ -1122,6 +1123,7 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.toolsADSProfileConverterAction)
         tools_menu.addAction(self.toolsADSProfileBatchToSinglesAction)
         tools_menu.addAction(self.toolsWanChatTestAction)
+        tools_menu.addAction(self.toolsStopWaitUntilTestAction)
 
         menu_bar.addMenu(tools_menu)
 
@@ -1412,6 +1414,13 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.wan_chat_test)
         return new_action
 
+    def _createToolsStopWaitUntilTestAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Stop Wait Until Test"))
+        new_action.triggered.connect(self.stopWaitUntilTest)
+        return new_action
+
 
     def _createHelpCommunityAction(self):
         # File actions
@@ -1482,8 +1491,10 @@ class MainWindow(QMainWindow):
 
         # test_report_skill_run_result(new_mission)
 
-        test_presigned_updownload(new_mission)
+        # test_presigned_updownload(new_mission)
         # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
+        # test_handle_extern_skill_run_report(self.session, self.tokens['AuthenticationResult']['IdToken'])
+        asyncio.ensure_future(test_wait_until8())
 
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
@@ -6020,52 +6031,9 @@ class MainWindow(QMainWindow):
                 setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
             elif  in_message["type"] == "report results":
-                ext_run_results = json.loads(in_message["contents"])
-                for req in ext_run_results:
-                    dl_stat = download_file(self.session, req['zip_dir'], req['zip_file'], req['zip_dir'], self.tokens['AuthenticationResult']['IdToken'], "general")
-                    dl_zip = req['zip_dir']+"/"+req['zip_file']
-                    unzip_file(dl_zip, req['zip_dir'])
-                    rel_zip_contents = list_zip_file(dl_zip)
-                    zip_contents = [req['zip_dir']+"/"+rel_file for rel_file in rel_zip_contents if 'pdf' in rel_file]
-                    # now zip_contents is a list of label files in pdf format. now we need to update
-                    # tracking info and pdf file name into the original ebay_orders data structure,
-                    # this will make the data structure ready for the next stage of the RPA process which is update
-                    # tracking code. and the labels will be need to be further renamed to include product info in it.
-                    # file name should start with ec site like "ebay" then recipient then product then tracking code.pdf
-                    # the files should be moved into ecb_labels dir and this directory name will be put as the input to the
-                    # label reformat and print skill.
-                    prods = lookUpProductQuantityShortHandInfo(req['order_data']['order_ids'])
+                ext_run_results = json.loads(in_message["contents"].replace("\\", "\\\\"))
+                handleExtLabelGenResults(self.session, self.tokens['AuthenticationResult']['IdToken'], ext_run_results)
 
-
-                    for fi, full_file_name in enumerate(zip_contents):
-                        f_name = os.path.basename(full_file_name)
-                        f_dir = os.path.dirname(full_file_name)
-                        final_f_dir = os.path.dirname(f_dir)
-                        f_name_prefix = f_name.split(".")[0]
-
-                        # use order Id to get products (including variations) and quantity,
-                        # use porduct id to get product name, use variation get variations short hand.
-                        prodq_info = "_"
-                        for pi, pd in enumerate(prods):
-                            prodq_info = prodq_info + "".join(pn.capitalize() for pn in pd['name'].split()) # product name no space, each word's 1st letter capitalized.
-                            if pd['pvs']:             # whether this product has variations
-                                for pvi, pvn in enumerate(pd['pvs'].keys()):            # iterate thru variation dimensions
-                                    prodq_info = prodq_info + str(pd['pvs'][pvn]).capitalize()         #product name + variation1name + variation2name etc. + "_" + quantity
-                                    if pvi == len(pd['pvs'].keys())-1:
-                                        prodq_info = prodq_info + "_"
-
-                            prodq_info = prodq_info + str(pd['quant'])              # MenShirtRedMedium_1_GirsTennisSneakerSmall6_2
-                            if pi < len(prods) -1:
-                                prodq_info = prodq_info + "_"
-
-
-                        new_f_name = f_name_prefix+prodq_info+".pdf"
-                        new_file = final_f_dir+"/"+new_f_name
-
-                        os.rename(full_file_name, new_file)
-
-                # finally set the global flag for the relavant event(s) so that the RPA loop can continue...
-                setLabelsReady()
 
         except Exception as e:
             # Get the traceback information
@@ -6533,3 +6501,9 @@ class MainWindow(QMainWindow):
         resp = send_query_chat_request_to_cloud(session, token, qs)
 
         print("THINK RESP:", resp)
+
+    def stopWaitUntilTest(self):
+        print("SETTING LABELS READY")
+        setLabelsReady()
+        setupExtSkillRunReportResultsTestData(self)
+

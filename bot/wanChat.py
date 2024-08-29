@@ -326,8 +326,6 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                                 elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
                                     asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                                 else:
-                                    rx_contents = json.loads(rcvd["payload"]["data"]["onMessageReceived"]["contents"])
-                                    print("type of rx_contents", type(rx_contents))
                                     asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                         else:
                             if "type" in rcvd:
@@ -343,7 +341,9 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                                     else:
                                         last_connected_ts = this_ts
                     except Exception as e:
-                        print("WebSocket connection closed.")
+                        traceback_info = traceback.extract_tb(e.__traceback__)
+                        ex_stat = "ErrorsubscribeReceive:" + traceback.format_exc() + " " + str(e)
+                        log3(ex_stat)
                         break
 
     except Exception as e:

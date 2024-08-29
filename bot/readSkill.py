@@ -25,7 +25,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
-    processWriteFile, processDeleteFile
+    processWriteFile, processDeleteFile, processWaitUntil8
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -234,7 +234,7 @@ RAIS = {
 ARAIS = {
     "Halt": lambda x,y: processHalt(x, y),
     "Wait": lambda x,y: processWait(x, y),
-    "Wait Until": lambda x,y: processWaitUntil(x, y),
+    "Wait Until": lambda x,y: processWaitUntil8(x, y),
     "Save Html": lambda x,y,z,k: processSaveHtml(x, y, z, k),
     "Browse": lambda x,y: processBrowse(x, y),
     "Text To Number": lambda x,y: processTextToNumber(x, y),
