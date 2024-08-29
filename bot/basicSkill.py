@@ -1406,28 +1406,87 @@ def processWaitUntil(step, i):
 
         start_time = time.time()
         while True:
+            print("tick....")
             # Check if all boolean variables are True
             if step["events_relation"] == "all":
                 if all([symTab[e] for e in step["events"]]):
-                    symTab[["flag"]] = True
-                    symTab[["result"]] = "Completed:Event Received"
+                    symTab[step["flag"]] = True
+                    symTab[step["result"]] = "Completed:Event Received"
+                    print(symTab[step["result"]])
                     break
 
             else:
                 if any([symTab[e] for e in step["events"]]):
-                    symTab[["flag"]] = True
-                    symTab[["result"]] = "Completed:Event Received"
+                    symTab[step["flag"]] = True
+                    symTab[step["result"]] = "Completed:Event Received"
+                    print(symTab[step["result"]])
                     break
 
             # Check if timeout has occurred
             elapsed_time = time.time() - start_time
             if elapsed_time > wait_in_s:
-                symTab[["flag"]] = False
-                symTab[["result"]] = "Error:Timed Out"
+                symTab[step["flag"]] = False
+                symTab[step["result"]] = "Error:Timed Out"
+                print(symTab[step["result"]])
                 break
 
             # Sleep for a short duration before checking again
             time.sleep(0.5)  # Adjust sleep duration as needed
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWaitUntil:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWaitUntil traceback information not available:" + str(e)
+        symTab[["flag"]] = False
+        symTab[["result"]] = ex_stat
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+async def processWaitUntil8(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        log3("waiting...... make mouse pointer wonder a little bit!")
+        wtime = 1
+
+        if type(step["time_out"]) == int:
+            wait_in_s = step["time_out"]
+        else:
+            wait_in_s = symTab[step["time_out"]]
+
+        start_time = time.time()
+        while True:
+            print("tick....")
+            # Check if all boolean variables are True
+            if step["events_relation"] == "all":
+                if all([symTab[e] for e in step["events"]]):
+                    symTab[step["flag"]] = True
+                    symTab[step["result"]] = "Completed:Event Received"
+                    print(symTab[step["result"]])
+                    break
+
+            else:
+                if any([symTab[e] for e in step["events"]]):
+                    symTab[step["flag"]] = True
+                    symTab[step["result"]] = "Completed:Event Received"
+                    print(symTab[step["result"]])
+                    break
+
+            # Check if timeout has occurred
+            elapsed_time = time.time() - start_time
+            if elapsed_time > wait_in_s:
+                symTab[step["flag"]] = False
+                symTab[step["result"]] = "Error:Timed Out"
+                print(symTab[step["result"]])
+                break
+
+            # Sleep for a short duration before checking again
+            await asyncio.sleep(wtime)  # Adjust sleep duration as needed
 
     except Exception as e:
         # Get the traceback information
@@ -3508,16 +3567,56 @@ def list_zip_file(fullzip):
 
     return zip_contents
 
+
+def safe_rename(src, dst):
+    """Rename a file or directory, handling long paths on Windows."""
+    src = make_unc_path(src)
+    dst = make_unc_path(dst)
+    os.rename(src, dst)
+
+
+def make_unc_path(path):
+    """Convert a path to UNC format if on Windows and path exceeds 260 characters."""
+    if platform.system() == "Windows" and len(path) > 260:
+        # Convert to UNC path
+        return r"\\?\{}".format(os.path.abspath(path))
+    return path
+
 def unzip_file(fullzip, extract_to):
+    # Convert paths to UNC format on Windows if necessary
+    fullzip = make_unc_path(fullzip)
+    extract_to = make_unc_path(extract_to)
+
     if extract_to:
-        # If a directory is specified and it doesn't exist, create it
+        # Ensure the destination directory exists
         os.makedirs(extract_to, exist_ok=True)
     else:
-        # If extract_to is empty, use the current directory
+        # If no destination directory is provided, use the current directory
         extract_to = os.getcwd()
 
     with zipfile.ZipFile(fullzip, 'r') as zipf:
-        zipf.extractall(extract_to)
+        for zipinfo in zipf.infolist():
+            try:
+                # Construct the full path where the file will be extracted
+                extracted_path = os.path.join(extract_to, zipinfo.filename)
+
+                # Convert the extracted path to UNC format if necessary
+                extracted_path = make_unc_path(extracted_path)
+
+                # Create the directory if it's not already present
+                if not os.path.exists(os.path.dirname(extracted_path)):
+                    os.makedirs(os.path.dirname(extracted_path), exist_ok=True)
+
+                # Extract the file
+                with open(extracted_path, 'wb') as f:
+                    f.write(zipf.read(zipinfo.filename))
+
+                # print(f"Extracted: {extracted_path}")
+
+            except FileNotFoundError as e:
+                print(f"Error extracting {zipinfo.filename}: {e}")
+            except Exception as e:
+                print(f"An unexpected error occurred while extracting {zipinfo.filename}: {e}")
 
 
 def processZipUnzip(step, i):

@@ -12,11 +12,12 @@ from PyPDF2 import PdfReader
 from bot.basicSkill import genStepHeader, genStepStub, genStepOpenApp, genStepCreateData, genStepCheckCondition, \
     genStepTextToNumber, genStepSearchAnchorInfo, genStepLoop, genStepCallExtern, DEFAULT_RUN_STATUS, genStepMouseClick, \
     genStepExtractInfo, genStepKeyInput, get_default_download_dir, genStepWait, genStepCheckExistence, genStepTextInput, \
-    genStepCreateDir, genStep7z, genStepUseSkill, STEP_GAP
+    genStepCreateDir, genStep7z, genStepUseSkill, STEP_GAP, unzip_file, list_zip_file, safe_rename
 from bot.scrapeGoodSupply import genStepGSScrapeLabels
 from bot.Logger import log3
 import traceback
 from bot.readSkill import symTab
+from bot.Cloud import download_file
 
 # https://www.onlinebarcodereader.com/
 # https://online-barcode-reader.inliteresearch.com/
@@ -994,40 +995,146 @@ def calcOrderHeight(order, ec_platform, pbook, unit):
     return total_height
 
 
-def findProdName(pid, catelog):
+def findProdName(pid, catelog, ):
     pname = ""
     for item in catelog:
-        if pid == item['product ID']:
-            pname = item['product name']
+        for listing in item['listings']:
+            if pid == listing['asin']:
+                if 'short name' in item:
+                    pname = item['short name']
+                else:
+                    pname = item['product name']
+                break
+        if pname:
             break
 
-    return pname
+    return pname, listing
 
 
-def lookUpProductQuantityShortHandInfo(order_ids):
+def findVarShortNames(in_vars, book_item):
+    short_vars = {}
+    if in_vars:
+        for in_var in in_vars.keys():
+            var_val = in_vars[in_var]
+
+            if "short" in  book_item['variations'][in_var]['vals'][var_val]:
+                short_vars[in_var] = book_item['variations'][in_var]['vals'][var_val]['short']
+            else:
+                short_vars[in_var] = in_vars[in_var]
+
+    return short_vars
+
+# ebay_orders data structure
+# ebay_orders = [ pagefull_of_orders ....]
+# pagefull_of_orders =  {"page": pidx, "n_new_orders": 0, "num_pages": 0, "ol": [
+# {
+#   order class
+# }
+# ]}
+#
+# order class:
+#    oid
+#    products [ {pid, title, quantity, variations {var_name1: var_value1, var_name2: var_value2 ...}} .... ]
+#    recipient : id, ship addr,
+#    shipping: carrier, method,
+def lookUpProductNameQuantityAndUpdateTracking(order_ids, tracking_code):
     # symTab['product_book'], symTab['ebay_orders']
     products = []
+    found_order = None
     for oid in order_ids:
         # look up products in orders.
         found_order = None
-        for eo in symTab['ebay_orders']:
-            if oid == eo.getOid():
-                found_order = eo
+        for page_of_order in symTab['ebay_orders']:
+            for order in page_of_order["ol"]:
+                if oid == order.getOid():
+                    found_order = order
+                    break
+            if found_order:
                 break
 
         if found_order:
             pds = found_order.getProducts()
             # for each product, look up variations
             for prod in pds:
+                pname, listing = findProdName(prod.getPid(), symTab['product_book'])
                 product = {
-                    "name": findProdName(prod.getPid(), symTab['product_book']),
-                    "pvs": prod.getVariations(),
+                    "name": pname,
+                    "pvs": findVarShortNames(prod.getVariations(), listing),
                     "quant": prod.getQuantity()
                 }
-            products.append(product)
+                products.append(product)
+
+            order.setShippingTracking(tracking_code)
 
     return products
 
 
 def setLabelsReady():
     symTab['labels_ready'] = True
+    print("LABELS READY"+str(symTab['labels_ready']))
+
+
+def handleExtLabelGenResults(session, token, ext_run_results):
+    for req in ext_run_results:  # per batch of orders for one shipping method.
+        # dl_stat = download_file(session, req['zip_dir'], req['zip_file'], req['zip_dir'], token, "general")
+        dl_zip = req['zip_dir'] + "/" + req['zip_file']
+        # print("dl_zip", dl_zip, req['zip_dir'])
+        unzip_file(dl_zip, req['zip_dir'])
+        rel_zip_contents = list_zip_file(dl_zip)  # obtain pdf files from the zipped lable files.
+        zip_contents = [req['zip_dir'] + "/" + rel_file for rel_file in rel_zip_contents if 'pdf' in rel_file]
+        # print("zip_contents:", zip_contents)
+        # now zip_contents is a list of label files in pdf format. now we need to update
+        # tracking info and pdf file name into the original ebay_orders data structure,
+        # this will make the data structure ready for the next stage of the RPA process which is update
+        # tracking code. and the labels will be need to be further renamed to include product info in it.
+        # file name should start with ec site like "ebay" then recipient then product then tracking code.pdf
+        # the files should be moved into ecb_labels dir and this directory name will be put as the input to the
+        # label reformat and print skill.
+
+        for fi, full_file_name in enumerate(zip_contents):  # per each shipping label (i.e. order)
+            f_name = os.path.basename(full_file_name)
+            f_dir = os.path.dirname(full_file_name)
+            final_f_dir = os.path.dirname(f_dir)
+            full_f_name_prefix = f_name.split(".")[0]
+
+            f_name_prefix = full_f_name_prefix.split("_")[0]+"_"+full_f_name_prefix.split("_")[1][-5:]
+
+            # print("f_name_prefix:", f_name_prefix, "f_name:", f_name, "f_dir:", f_dir, "final_f_dir:", final_f_dir)
+            # print("order_ids:", req['order_data'][fi]['order_ids'], "tracking:", req['order_data'][fi]['tracking'])
+            # update tracking code to the origianl ebay_orders data structure, and find the products involved in this order.
+            prods = lookUpProductNameQuantityAndUpdateTracking(req['order_data'][fi]['order_ids'], req['order_data'][fi]['tracking'])
+            # use order Id to get products (including variations) and quantity,
+            # use porduct id to get product name, use variation get variations short hand.
+            prodq_info = "_"
+            for pi, pd in enumerate(prods):
+                prodq_info = prodq_info + "".join(pn.capitalize() for pn in pd['name'].split())  # product name no space, each word's 1st letter capitalized.
+                print("per product prodq_info:[" + prodq_info + "]")
+                if pd['pvs']:  # whether this product has variations
+                    for pvi, pvn in enumerate(pd['pvs'].keys()):  # iterate thru variation dimensions
+                        prodq_info = prodq_info + "".join(pn.capitalize() for pn in str(pd['pvs'][pvn]).split())  # product name + variation1name + variation2name etc. + "_" + quantity
+                        print("per variation, prodq_info:[" + prodq_info + "]")
+                        # if pvi == len(pd['pvs'].keys()) - 1:
+                        #     prodq_info = prodq_info + "_"
+                        #     print("last variation, prodq_info:[" + prodq_info + "]")
+                prodq_info = prodq_info + "_" + str(pd['quant'])  # MenShirtRedMedium_1_GirsTennisSneakerSmall6_2
+                print("add quantity, prodq_info:[" + prodq_info + "]")
+                if pi < len(prods) - 1:
+                    prodq_info = prodq_info + "_"
+                    print("not last product, prodq_info:[" + prodq_info + "]")
+
+            # now ready to put product name + variation + quantity into the label file name.
+            final_prefix = f_name_prefix + prodq_info
+            # make sure file name never too long.
+            if len(final_prefix) > 60:
+                final_prefix = final_prefix[:60]
+            new_f_name = final_prefix + ".pdf"
+            new_file = final_f_dir + "/" + new_f_name
+            # rename the shipping label file and move it to a common dir for this run.
+            print("rename label from: " + full_file_name + " TO: " + new_file)
+            safe_rename(full_file_name, new_file)
+            # os.rename(full_file_name, new_file)
+
+    # finally set the global flag for the relavant event(s) so that the RPA loop can continue...
+    setLabelsReady()
+
+

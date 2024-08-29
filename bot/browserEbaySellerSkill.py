@@ -214,6 +214,9 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCallExtern("global gs_orders, gs_order_files\ngs_order_files = [ord['dir']+'/'+ord['file'] for ord in gs_orders]\nprint('gs_order_files:',gs_order_files)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global gs_orders, bucket_loc\nbucket_loc = ord['dir']\nprint('bucket_loc:',bucket_loc)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepUploadFiles("gs_order_files", "sk_work_settings", "general", "bucket_loc", "ul_result", "ul_succeeded", this_step)
     psk_words = psk_words + step_words
 
@@ -252,10 +255,11 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepUseExternalSkill(87, "req_mid", "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "buy_shipping_input", "start_time", True,"req_results", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWaitUntil(60, ["labels_ready"], "all", "wait_results", "event_happend", this_step)
+    this_step, step_words = genStepWaitUntil(120, ["labels_ready"], "all", "wait_results", "event_happend", this_step)
     psk_words = psk_words + step_words
 
-    # # extract tracking code from labels and update them into etsy_orders data struture.
+    # # extract tracking code from labels and update them into ebay_orders data struture.
+    # this is done in the event handler, not done here..... for code efficiency
     #
     # # gen_etsy_test_data()
     #
@@ -267,19 +271,16 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepUseSkill("browser_update_tracking", "public/win_ads_ebay_orders", "update_tracking_input", "update_tracking_result", this_step)
     psk_words = psk_words + step_words
     # #
-    # this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA",
-    #                                           "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]",
-    #                                           this_step)
+    # this_step, step_words = genStepCreateData("expr", "reformat_print_input", "NA", "['one page', 'labels_dir', printer_name, ebay_orders, product_catelog]", this_step)
     # psk_words = psk_words + step_words
     #
     # # # now reformat and print out the shipping labels, label_list contains a list of { "orig": label pdf files, "output": outfilename, "note", note}
-    # this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "",
-    #                                         this_step)
+    # this_step, step_words = genStepUseSkill("reformat_print", "public/win_printer_local_print", "labels_dir", "", this_step)
     # psk_words = psk_words + step_words
     # #
-    # # end condition for "not_logged_in == False"
-    # this_step, step_words = genStepStub("end condition", "", "", this_step)
-    # psk_words = psk_words + step_words
+    # end condition for "not_logged_in == False"
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
     #
     # # close the browser and exit the skill, assuming at the end of genWinChromeEBAYWalkSteps, the browser tab
     # # should return to top of the ebay home page with the search text box cleared.

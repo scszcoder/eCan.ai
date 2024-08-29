@@ -14,7 +14,7 @@ from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXl
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import symTab, processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
     get_top_visible_window, processExtractInfo, startSaveCSK, processUseExternalSkill, processReportExternalSkillRunStatus,\
-    processDownloadFiles, processUploadFiles, processZipUnzip
+    processDownloadFiles, processUploadFiles, processZipUnzip, processWaitUntil, processWaitUntil8
 from bot.printLabel import processPrintLabels, sync_win_print_labels1
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
@@ -31,6 +31,7 @@ from bot.seleniumScrapeAmzShop import processAmzSeleniumScrapeOrdersBuyLabels, p
 from bot.seleniumScrapeAmz import processAmzSeleniumScrapeSearchResults
 from bot.ragSkill import storeDocToVectorDB
 from bot.wanChat import parseCommandString
+from bot.labelSkill import handleExtLabelGenResults
 
 # global symTab
 import shutil
@@ -1516,5 +1517,85 @@ def test_pyzipunzip():
     }
 
     processZipUnzip(step, 1)
+
+
+def test_handle_extern_skill_run_report(session, token):
+    in_message = {"contents": "[{\"service\":\"USPS Ground Advantage (1-15oz)\",\"price\":6.75,\"num_orders\":3,\"dir\":\"C:\\Users\\songc\\PycharmProjects\\ecbot/songc_yahoo_com/runlogs/songc_yahoo/20240824/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels\",\"file\":\"runlogs/songc_yahoo/20240824/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240824183259.xlsx\",\"zip_file\":\"ebayOrdersGround20240824183259.zip\",\"zip_dir\":\"C:/Users/songc/PycharmProjects/ecbot/songc_yahoo_com/runlogs/songc_yahoo_com/20240824/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels\",\"order_data\":[{\\\"name\":\"Shaker Sediqi\",\"order_ids\":[\"04-11983-43763\"],\"tracking\":\"92346853310287736074040659\"},{\"name\":\"ramez boos\",\"order_ids\":[\"07-11979-59634\"],\"tracking\":\"92346143461007104750277876\"},{\"name\":\"Nicholas bumgardner\",\"order_ids\":[\"20-11961-97395\"],\"tracking\":\"92346407433757614105836042\"}],\"succeed\":false,\"result\":\"Completed\"}]"}
+    ext_run_results = json.loads(in_message['contents'])
+    handleExtLabelGenResults(session, token, ext_run_results)
+
+
+
+async def test_wait_until8():
+    step = {
+        "type": "Wait Until",
+        "events": ["labels_ready"],
+        "events_relation": "all",
+        "time_out": 20,
+        "result": "wait_result",
+        "flag": "wait_flag",
+    }
+    symTab['labels_ready'] = False
+    await processWaitUntil8(step, 1)
+
+
+def setupExtSkillRunReportResultsTestData(mainwin):
+    symTab['product_book'] = mainwin.getSellerProductCatelog()
+    order_list = []
+    # ====================================1===================================
+    new_order = ORDER("", "", "", "", "", "", "")
+    new_order.setOid("04-11983-43763")
+    shipping = Shipping("USPS", "USPS Ground Advantage (1-15oz)", "", "", "", "", "", "")
+    new_order.setShipping(shipping)
+    products = []
+    product = OrderedProduct("", "", "", "")
+    product.setPid("364254906909")
+    product.setQuantity(1)
+    products.append(product)
+    new_order.setProducts(products)
+    # product.addVariation((var_name, var_val))
+    order_list.append(new_order)
+    # ====================================2===================================
+    new_order = ORDER("", "", "", "", "", "", "")
+    new_order.setOid("07-11979-59634")
+    shipping = Shipping("USPS", "USPS Ground Advantage (1-15oz)", "", "", "", "", "", "")
+    new_order.setShipping(shipping)
+    products = []
+    product = OrderedProduct("", "", "", "")
+    product.setPid("364195853481")
+    product.setQuantity(3)
+    product.addVariation(("Model", "iPhone12 Pro Max"))
+    products.append(product)
+    new_order.setProducts(products)
+
+    order_list.append(new_order)
+    # ====================================3===================================
+    new_order = ORDER("", "", "", "", "", "", "")
+    new_order.setOid("20-11961-97395")
+    shipping = Shipping("USPS", "USPS Ground Advantage (1-15oz)", "", "", "", "", "", "")
+    new_order.setShipping(shipping)
+    products = []
+    product = OrderedProduct("", "", "", "")
+    product.setPid("363931490608")
+    product.setQuantity(1)
+    product.addVariation(("Compatible Model", "For Apple iPhone 12 mini"))
+    products.append(product)
+
+    product = OrderedProduct("", "", "", "")
+    product.setPid("363820170833")
+    product.setQuantity(1)
+    product.addVariation(("Color", "Yellow"))
+    product.addVariation(("Length", "15ft"))
+    products.append(product)
+
+    new_order.setProducts(products)
+    print("3rd order:", len(new_order.getProducts()))
+    # product.addVariation((var_name, var_val))
+    order_list.append(new_order)
+
+    order_list.append(new_order)
+    symTab['ebay_orders'] = [{
+        "ol": order_list
+    }]
 
 
