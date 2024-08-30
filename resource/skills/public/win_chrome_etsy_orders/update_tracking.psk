@@ -132,6 +132,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "orders",
+    "theme": "light",
     "page_data_info": null,
     "section": "completion"
 },
@@ -259,6 +260,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "orders",
+    "theme": "light",
     "page_data_info": null,
     "section": "completion"
 },

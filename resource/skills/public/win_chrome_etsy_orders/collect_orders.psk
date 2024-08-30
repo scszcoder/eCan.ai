@@ -147,6 +147,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "orders",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
@@ -364,7 +365,7 @@
     "data_type": "str",
     "data_name": "profile_name",
     "key_name": "NA",
-    "key_value": "etsyOrders1724904436.html"
+    "key_value": "etsyOrders1724978150.html"
 },
 "step 200":
 {
@@ -372,7 +373,7 @@
     "data_type": "str",
     "data_name": "profile_name",
     "key_name": "NA",
-    "key_value": "etsyOrders1724904436.html"
+    "key_value": "etsyOrders1724978150.html"
 },
 "step 205":
 {
@@ -403,7 +404,7 @@
     "pidx": "currentPage",
     "html_dir": "sk_work_settings['log_path']",
     "html_dir_type": "expr",
-    "html_file": "etsyOrders1724904436.html",
+    "html_file": "etsyOrders1724978150.html",
     "result": "pageOfOrders",
     "status": ""
 },
