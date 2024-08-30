@@ -171,6 +171,7 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
         "data_sink": sink,
         "win_title_kw": win_title_kw,
         "page": page,
+        "theme": theme,
         "page_data_info": page_data,
         "section": sect
     }
@@ -3367,6 +3368,7 @@ def processCreateDir(step, i):
 def processReadFile(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     symTab[step["flag"]] = True
+    symTab[step["datasink"]] = ""
     try:
         if step["name_type"] == "direct":
             file_full_path = step["filename"]
@@ -3388,6 +3390,9 @@ def processReadFile(step, i):
             log3("ERROR: File not exists")
             symTab[step["flag"]] = False
 
+        print("read succeeded:", symTab[step["flag"]])
+        print("read result:", step["datasink"], symTab[step["datasink"]])
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -3397,6 +3402,7 @@ def processReadFile(step, i):
         else:
             ex_stat = "ErrorReadFile: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
 
@@ -3407,30 +3413,27 @@ def processWriteFile(step, i):
         if step["name_type"] == "direct":
             file_full_path = step["filename"]
         else:
-            exec("file_full_path = " + step["filename"])
+            file_full_path = symTab[step["filename"]]
 
         log3("Write to file:" + file_full_path)
-        if os.path.exists(file_full_path):
-            # create only if the dir doesn't exist
-            if step["mode"] == "overwrite":
-                with open(file_full_path, 'w') as fileTBW:
-                    if step["filetype"] == "json":
-                        json.dump(symTab[step["datasource"]], fileTBW)
-                    elif step["filetype"] == "text":
-                        fileTBW.writelines(symTab[step["datasource"]])
-                fileTBW.close()
-            else:
-                # append mode
-                with open(file_full_path, 'a') as fileTBW:
-                    if step["filetype"] == "json":
-                        json.dump(symTab[step["datasource"]], fileTBW)
-                    elif step["filetype"] == "text":
-                        fileTBW.writelines(symTab[step["datasource"]])
-
-                fileTBW.close()
+        # create only if the dir doesn't exist
+        if step["mode"] == "overwrite":
+            with open(file_full_path, 'w') as fileTBW:
+                if step["filetype"] == "json":
+                    json.dump(symTab[step["datasource"]], fileTBW)
+                elif step["filetype"] == "txt":
+                    fileTBW.writelines(symTab[step["datasource"]])
+            fileTBW.close()
         else:
-            log3("ERROR: File not exists")
-            symTab[step["result"]] = False
+            # append mode
+            with open(file_full_path, 'a') as fileTBW:
+                if step["filetype"] == "json":
+                    json.dump(symTab[step["datasource"]], fileTBW)
+                elif step["filetype"] == "txt":
+                    fileTBW.writelines(symTab[step["datasource"]])
+
+            fileTBW.close()
+
 
     except Exception as e:
         # Get the traceback information
@@ -3441,6 +3444,7 @@ def processWriteFile(step, i):
         else:
             ex_stat = "ErrorWriteFile: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
 

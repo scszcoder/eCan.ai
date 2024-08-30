@@ -76,6 +76,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
@@ -147,6 +148,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
@@ -232,6 +234,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
