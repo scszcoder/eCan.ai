@@ -28,10 +28,8 @@
     "type": "App Open",
     "action": "cmd",
     "save_rb": true,
-    "target_type": "browser",
-    "target_link": "https://www.etsy.com/your/orders/sold",
-    "anchor_type": "",
-    "anchor_value": "",
+    "app_type": "browser",
+    "app_link": "https://www.etsy.com/your/orders/sold",
     "cargs_type": "expr",
     "cargs": "sk_work_settings['cargs']",
     "wait": 5
@@ -365,7 +363,7 @@
     "data_type": "str",
     "data_name": "profile_name",
     "key_name": "NA",
-    "key_value": "etsyOrders1724978150.html"
+    "key_value": "etsyOrders1725080040.html"
 },
 "step 200":
 {
@@ -373,7 +371,7 @@
     "data_type": "str",
     "data_name": "profile_name",
     "key_name": "NA",
-    "key_value": "etsyOrders1724978150.html"
+    "key_value": "etsyOrders1725080040.html"
 },
 "step 205":
 {
@@ -404,7 +402,7 @@
     "pidx": "currentPage",
     "html_dir": "sk_work_settings['log_path']",
     "html_dir_type": "expr",
-    "html_file": "etsyOrders1724978150.html",
+    "html_file": "etsyOrders1725080040.html",
     "result": "pageOfOrders",
     "status": ""
 },
