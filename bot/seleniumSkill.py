@@ -387,6 +387,16 @@ def genStepWebdriverWaitDownloadDoneAndTransfer(driver_var, dl_dir_var, dl_file_
 
 
 
+def genStepWebdriverCheckConnection(driver_var, url_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Check Connection",
+        "driver_var": driver_var,  # anchor, info, text
+        "url": url_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 # ====== now the processing routines for the step instructions.
 def processWebdriverClick(step, i, mission):
     mainwin = mission.get_main_win()
@@ -1515,6 +1525,33 @@ def processWebdriverWaitDownloadDoneAndTransfer(step, i):
         else:
             ex_stat = "ErrorWebdriverWaitDownloadDoneAndTransfer: traceback information not available:" + str(e)
         log3(ex_stat, "processWebdriverWaitDownloadDoneAndTransfer")
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+
+def processWebdriverCheckConnection(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = True
+
+        # Check if session ID is present
+        if driver.session_id:
+            symTab[step["url"]] = driver.current_url
+        else:
+            symTab[step["url"]] = ""
+            symTab[step["flag"]] = False
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverCheckConnection:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverCheckConnection: traceback information not available:" + str(e)
+        log3(ex_stat)
         symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
