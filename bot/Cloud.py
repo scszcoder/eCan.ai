@@ -178,7 +178,7 @@ def gen_query_report_run_ext_skill_status_string(query):
         rec_string = rec_string + "skid: " + str(query[i]["skid"]) + ", "
         rec_string = rec_string + "runner_mid: " + str(query[i]["runner_mid"]) + ", "
         rec_string = rec_string + "runner_bid: " + str(query[i]["runner_bid"]) + ", "
-        rec_string = rec_string + "requester: " + str(query[i]["requester"]) + ", "
+        rec_string = rec_string + "requester: \"" + str(query[i]["requester"]) + "\", "
         rec_string = rec_string + "status: \"" + query[i]["status"] + "\", "
         rec_string = rec_string + "start_time: \"" + query[i]["start_time"] + "\", "
         rec_string = rec_string + "end_time: \"" + query[i]["end_time"] + "\", "
@@ -1217,11 +1217,12 @@ def send_run_ext_skill_request_to_cloud(session, reqs, token):
 def send_report_run_ext_skill_status_request_to_cloud(session, reps, token):
 
     mutationInfo = gen_query_report_run_ext_skill_status_string(reps)
-
+    print("report status mutation:", mutationInfo)
     jresp = appsync_http_request(mutationInfo, session, token)
 
     if "errors" in jresp:
         screen_error = True
+        print("JRESP:", jresp)
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
 
         jresponse = jresp["errors"][0]

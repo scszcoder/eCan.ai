@@ -31,6 +31,7 @@ from bot.envi import getECBotDataHome
 from PIL import Image
 import shutil
 import zipfile
+import psutil
 
 if sys.platform == 'win32':
     import win32gui
@@ -59,6 +60,7 @@ symTab = globals()
 from pynput.mouse import Controller
 # from bot.envi import *
 
+from config.app_info import app_info
 
 STEP_GAP = 5
 rd_screen_count = 0
@@ -106,15 +108,13 @@ def genStepHeader(skillname, los, ver, author, skid, description, stepN):
 
 
 
-def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, cargs, wait, stepN):
+def genStepOpenApp(action, saverb, app_type, app_link, cargs_type, cargs, wait, stepN):
     stepjson = {
         "type": "App Open",
         "action": action,
         "save_rb": saverb,
-        "target_type": target_type,
-        "target_link": target_link,
-        "anchor_type": anchor_type,
-        "anchor_value": anchor_value,
+        "app_type": app_type,
+        "app_link": app_link,
         "cargs_type": cargs_type,
         "cargs": cargs,
         "wait":wait
@@ -171,6 +171,7 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
         "data_sink": sink,
         "win_title_kw": win_title_kw,
         "page": page,
+        "theme": theme,
         "page_data_info": page_data,
         "section": sect
     }
@@ -725,7 +726,7 @@ def genStepReportExternalSkillRunStatus(run_id, skid, start_time, end_time, mid,
         "status": status,
         "runner_mid": mid,
         "runner_bid": bid,
-        "output": output
+        "result_data": output
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -960,6 +961,13 @@ def genStepReqHumanInLoop(qvar, img_var, type_var, time_var, retry_var, req_id_v
     }
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepKillProcesses(process_name, flag_var, stepN):
+    stepjson = {
+        "type": "Kill Processes",
+        "process_name": process_name,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 def genException():
@@ -1406,28 +1414,87 @@ def processWaitUntil(step, i):
 
         start_time = time.time()
         while True:
+            print("tick....")
             # Check if all boolean variables are True
             if step["events_relation"] == "all":
                 if all([symTab[e] for e in step["events"]]):
-                    symTab[["flag"]] = True
-                    symTab[["result"]] = "Completed:Event Received"
+                    symTab[step["flag"]] = True
+                    symTab[step["result"]] = "Completed:Event Received"
+                    print(symTab[step["result"]])
                     break
 
             else:
                 if any([symTab[e] for e in step["events"]]):
-                    symTab[["flag"]] = True
-                    symTab[["result"]] = "Completed:Event Received"
+                    symTab[step["flag"]] = True
+                    symTab[step["result"]] = "Completed:Event Received"
+                    print(symTab[step["result"]])
                     break
 
             # Check if timeout has occurred
             elapsed_time = time.time() - start_time
             if elapsed_time > wait_in_s:
-                symTab[["flag"]] = False
-                symTab[["result"]] = "Error:Timed Out"
+                symTab[step["flag"]] = False
+                symTab[step["result"]] = "Error:Timed Out"
+                print(symTab[step["result"]])
                 break
 
             # Sleep for a short duration before checking again
             time.sleep(0.5)  # Adjust sleep duration as needed
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWaitUntil:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWaitUntil traceback information not available:" + str(e)
+        symTab[["flag"]] = False
+        symTab[["result"]] = ex_stat
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+async def processWaitUntil8(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        log3("waiting...... make mouse pointer wonder a little bit!")
+        wtime = 1
+
+        if type(step["time_out"]) == int:
+            wait_in_s = step["time_out"]
+        else:
+            wait_in_s = symTab[step["time_out"]]
+
+        start_time = time.time()
+        while True:
+            print("tick....")
+            # Check if all boolean variables are True
+            if step["events_relation"] == "all":
+                if all([symTab[e] for e in step["events"]]):
+                    symTab[step["flag"]] = True
+                    symTab[step["result"]] = "Completed:Event Received"
+                    print(symTab[step["result"]])
+                    break
+
+            else:
+                if any([symTab[e] for e in step["events"]]):
+                    symTab[step["flag"]] = True
+                    symTab[step["result"]] = "Completed:Event Received"
+                    print(symTab[step["result"]])
+                    break
+
+            # Check if timeout has occurred
+            elapsed_time = time.time() - start_time
+            if elapsed_time > wait_in_s:
+                symTab[step["flag"]] = False
+                symTab[step["result"]] = "Error:Timed Out"
+                print(symTab[step["result"]])
+                break
+
+            # Sleep for a short duration before checking again
+            await asyncio.sleep(wtime)  # Adjust sleep duration as needed
 
     except Exception as e:
         # Get the traceback information
@@ -1654,8 +1721,10 @@ def processUploadFiles(step, i, mission):
         for si, sfile in enumerate(sfiles):
             print("uploading....", sfile)
             if type(symTab[step["locs"]]) == list:
+                print("tos....", symTab[step["locs"]][si])
                 upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], ftype)
             else:
+                print("to....", symTab[step["locs"]])
                 upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], ftype)
     except Exception as e:
         # Get the traceback information
@@ -2027,13 +2096,13 @@ def get_clickable_loc(box, off_from, offset, offset_unit):
         box_height = 1
 
     if off_from == "left":
-        click_loc = (box[1] - int(offset[0]*box_length), center[0])
+        click_loc = (box[1] - int(offset[0]*box_length), center[0]+int(offset[1]*box_height))
     elif off_from == "right":
-        click_loc = (box[3] + int(offset[0]*box_length), center[0])
+        click_loc = (box[3] + int(offset[0]*box_length), center[0]+int(offset[1]*box_height))
     elif off_from == "top":
-        click_loc = (center[1], box[0] - int(offset[1]*box_height))
+        click_loc = (center[1] + int(offset[0]*box_length), box[0] - int(offset[1]*box_height))
     elif off_from == "bottom":
-        click_loc = (center[1], box[2] + int(offset[1]*box_height))
+        click_loc = (center[1] + int(offset[0]*box_length), box[2] + int(offset[1]*box_height))
     else:
         #offset from center case
         log3("CENTER: "+json.dumps(center)+"OFFSET:"+json.dumps(offset))
@@ -2302,22 +2371,34 @@ def processMouseScroll(step, i, mission):
     return (i + 1), ex_stat
 
 
+def kill_process_using_port(port):
+    for conn in psutil.net_connections():
+        if conn.laddr.port == port:
+            psutil.Process(conn.pid).terminate()
+            print(f"Terminated process with PID {conn.pid} using port {port}.")
+
+
 def processOpenApp(step, i):
-    log3("Opening App ....." + step["target_link"] + " " + step["cargs"])
+    # log3("Opening App ....." + step["app_link"] + " " + step["cargs"])
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        if step["target_type"] == "browser":
-            url = step["target_link"]
+        if step["app_type"] == "browser":
+            url = step["app_link"]
             webbrowser.open(url, new=0, autoraise=True)
         else:
-            exec("global oa_exe\noa_exe = "+step["target_type"])
+            # exec("global oa_exe\noa_exe = "+step["app_type"])
             if step["cargs_type"] == "direct":
-                subprocess.call(symTab["oa_exe"] + " " + step["cargs"])
+                subprocess.call(step["app_type"] + " " + step["cargs"])
             else:
                 # in case of "expr" type.
-                exec("global oa_args\noa_args = " + step["cargs"])
-                log3("running shell"+symTab["oa_exe"]+"on :"+step["cargs"]+"with val["+symTab["oa_args"]+"]")
-                subprocess.Popen([symTab["oa_exe"], symTab["oa_args"]])
+                # exec("global oa_args\noa_args = " + step["cargs"])
+                # log3("running shell"+symTab["oa_exe"]+"on :"+step["cargs"]+"with val["+symTab["oa_args"]+"]")
+                DETACHED_PROCESS = 0x00000008
+                # subprocess.Popen([step["app_type"], step["cargs"]],creationflags=DETACHED_PROCESS, close_fds=True)
+                cmd = [step["app_type"]] + step["cargs"]
+                subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+                # subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         time.sleep(step["wait"])
 
 
@@ -2941,21 +3022,23 @@ def processReportExternalSkillRunStatus(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         settings = mission.main_win_settings
-
+        print("report reuslt data:", type(symTab[step["result_data"]]), symTab[step["result_data"]])
         req = {
             "run_id": symTab[step["run_id"]],
-            "skid": step["skid"],
+            "skid": step["skill_id"],
             "runner_mid": symTab[step["runner_mid"]],
             "runner_bid": symTab[step["runner_bid"]],
             "requester": symTab[step["requester"]],
             "start_time": symTab[step["start_time"]],
             "end_time": symTab[step["end_time"]],
             "status": symTab[step["status"]],
-            "result_data": symTab[step["result_data"]]
+            # "result_data": "[{\"dir\": \"\"}]"
+            # "result_data": json.dumps(symTab[step["result_data"]])
+            "result_data": json.dumps(symTab[step["result_data"]]).replace('"', '\\"')
         }
         reqs = [req]
 
-        symTab[step["output"]] = send_report_run_ext_skill_status_request_to_cloud(settings["session"], reqs, settings["token"])
+        send_result = send_report_run_ext_skill_status_request_to_cloud(settings["session"], reqs, settings["token"])
 
     except Exception as e:
         # Get the traceback information
@@ -3242,7 +3325,7 @@ def processCheckExistence(step, i):
         else:
             fn = step["file"]
         log3("check existence for :"+fn+" of type:"+step["fntype"])
-        if "dir" in  step["fntype"]:
+        if "dir" in step["fntype"]:
             symTab[step["result"]] = os.path.isdir(fn)
         else:
             symTab[step["result"]] = os.path.isfile(fn)
@@ -3271,21 +3354,16 @@ def processCreateDir(step, i):
         if step["name_type"] == "direct":
             dir_tbc = step["dir"]
         else:
-            exec("global dir_tbc\ndir_tbc = " + step["dir"]+"\nprint('dir_tbc', dir_tbc)")
+            dir_tbc = symTab[step["dir"]]
 
-        subds = dir_tbc.split("/")
-        if len(subds) == 1:
-            newdir = symTab[dir_tbc]
-        else:
-            newdir = dir_tbc
+        newdir = dir_tbc
 
-        log3("Creating dir:"+newdir)
         if not os.path.exists(newdir):
             #create only if the dir doesn't exist
             os.makedirs(newdir)
-            log3("Created.....")
+            log3("Created....." + newdir)
         else:
-            log3("Already existed.")
+            log3(newdir + " already existed.")
 
 
 
@@ -3304,11 +3382,13 @@ def processCreateDir(step, i):
 def processReadFile(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     symTab[step["flag"]] = True
+    symTab[step["datasink"]] = ""
     try:
         if step["name_type"] == "direct":
             file_full_path = step["filename"]
         else:
-            exec("file_full_path = " + step["filename"])
+            # exec("file_full_path = " + step["filename"])
+            file_full_path = symTab[step["filename"]]
 
         log3("Read from file:"+file_full_path)
         if os.path.exists(file_full_path):
@@ -3324,6 +3404,9 @@ def processReadFile(step, i):
             log3("ERROR: File not exists")
             symTab[step["flag"]] = False
 
+        print("read succeeded:", symTab[step["flag"]])
+        print("read result:", step["datasink"], symTab[step["datasink"]])
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -3333,6 +3416,7 @@ def processReadFile(step, i):
         else:
             ex_stat = "ErrorReadFile: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
 
@@ -3343,30 +3427,27 @@ def processWriteFile(step, i):
         if step["name_type"] == "direct":
             file_full_path = step["filename"]
         else:
-            exec("file_full_path = " + step["filename"])
+            file_full_path = symTab[step["filename"]]
 
         log3("Write to file:" + file_full_path)
-        if os.path.exists(file_full_path):
-            # create only if the dir doesn't exist
-            if step["mode"] == "overwrite":
-                with open(file_full_path, 'w') as fileTBW:
-                    if step["filetype"] == "json":
-                        json.dump(symTab[step["datasource"]], fileTBW)
-                    elif step["filetype"] == "text":
-                        fileTBW.writelines(symTab[step["datasource"]])
-                fileTBW.close()
-            else:
-                # append mode
-                with open(file_full_path, 'a') as fileTBW:
-                    if step["filetype"] == "json":
-                        json.dump(symTab[step["datasource"]], fileTBW)
-                    elif step["filetype"] == "text":
-                        fileTBW.writelines(symTab[step["datasource"]])
-
-                fileTBW.close()
+        # create only if the dir doesn't exist
+        if step["mode"] == "overwrite":
+            with open(file_full_path, 'w') as fileTBW:
+                if step["filetype"] == "json":
+                    json.dump(symTab[step["datasource"]], fileTBW)
+                elif step["filetype"] == "txt":
+                    fileTBW.writelines(symTab[step["datasource"]])
+            fileTBW.close()
         else:
-            log3("ERROR: File not exists")
-            symTab[step["result"]] = False
+            # append mode
+            with open(file_full_path, 'a') as fileTBW:
+                if step["filetype"] == "json":
+                    json.dump(symTab[step["datasource"]], fileTBW)
+                elif step["filetype"] == "txt":
+                    fileTBW.writelines(symTab[step["datasource"]])
+
+            fileTBW.close()
+
 
     except Exception as e:
         # Get the traceback information
@@ -3377,6 +3458,7 @@ def processWriteFile(step, i):
         else:
             ex_stat = "ErrorWriteFile: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
 
@@ -3494,16 +3576,65 @@ def zip_files(files_and_dirs, output_zip_path):
                 # If it's a file, just add it
                 zipf.write(item, os.path.basename(item))
 
+
+def list_zip_file(fullzip):
+    zip_contents = []
+    with zipfile.ZipFile(fullzip, 'r') as zip_ref:
+        # List all the contents of the zip file
+        zip_contents = zip_ref.namelist()
+
+    return zip_contents
+
+
+def safe_rename(src, dst):
+    """Rename a file or directory, handling long paths on Windows."""
+    src = make_unc_path(src)
+    dst = make_unc_path(dst)
+    os.rename(src, dst)
+
+
+def make_unc_path(path):
+    """Convert a path to UNC format if on Windows and path exceeds 260 characters."""
+    if platform.system() == "Windows" and len(path) > 260:
+        # Convert to UNC path
+        return r"\\?\{}".format(os.path.abspath(path))
+    return path
+
 def unzip_file(fullzip, extract_to):
+    # Convert paths to UNC format on Windows if necessary
+    fullzip = make_unc_path(fullzip)
+    extract_to = make_unc_path(extract_to)
+
     if extract_to:
-        # If a directory is specified and it doesn't exist, create it
+        # Ensure the destination directory exists
         os.makedirs(extract_to, exist_ok=True)
     else:
-        # If extract_to is empty, use the current directory
+        # If no destination directory is provided, use the current directory
         extract_to = os.getcwd()
 
     with zipfile.ZipFile(fullzip, 'r') as zipf:
-        zipf.extractall(extract_to)
+        for zipinfo in zipf.infolist():
+            try:
+                # Construct the full path where the file will be extracted
+                extracted_path = os.path.join(extract_to, zipinfo.filename)
+
+                # Convert the extracted path to UNC format if necessary
+                extracted_path = make_unc_path(extracted_path)
+
+                # Create the directory if it's not already present
+                if not os.path.exists(os.path.dirname(extracted_path)):
+                    os.makedirs(os.path.dirname(extracted_path), exist_ok=True)
+
+                # Extract the file
+                with open(extracted_path, 'wb') as f:
+                    f.write(zipf.read(zipinfo.filename))
+
+                # print(f"Extracted: {extracted_path}")
+
+            except FileNotFoundError as e:
+                print(f"Error extracting {zipinfo.filename}: {e}")
+            except Exception as e:
+                print(f"An unexpected error occurred while extracting {zipinfo.filename}: {e}")
 
 
 def processZipUnzip(step, i):
@@ -3519,9 +3650,11 @@ def processZipUnzip(step, i):
             out_file = symTab[step["out_var"]]
 
         if step["action"] == "zip":
-            print("Zippping.....")
-            zip_files(input, os.path.join(output_dir, out_file))
-
+            print("Zippping.....", input, output_dir, out_file)
+            if type(input) == list:
+                zip_files(input, os.path.join(output_dir, out_file))
+            else:
+                zip_files([input], os.path.join(output_dir, out_file))
         elif step["action"] == "unzip":
             log3("executing....unzip" + input + " to" + output_dir)
 
@@ -5167,6 +5300,36 @@ def processGetDefault(step, i):
         else:
             ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
         # symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processKillProcesses(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag"]] = True
+
+        if type(step['process_name']) == list:
+            target_names = step['process_name']
+        else:
+            target_names = [symTab[['process_name']]]
+        print("target names:", target_names)
+        for proc in psutil.process_iter():
+            # Check if process name contains 'chrome'
+            if proc.name().lower() in target_names:
+                print("process to be killed:", proc.name())
+                proc.kill()
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorKillProcesses:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorKillProcesses: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
         log3(ex_stat)
 
     return (i + 1), ex_stat

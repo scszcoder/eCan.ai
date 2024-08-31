@@ -36,10 +36,8 @@
     "type": "App Open",
     "action": "run",
     "save_rb": true,
-    "target_type": "sk_work_settings['app_exe']",
-    "target_link": "",
-    "anchor_type": "",
-    "anchor_value": "",
+    "app_type": "sk_work_settings['app_exe']",
+    "app_link": "",
     "cargs_type": "expr",
     "cargs": "sk_work_settings['cargs']",
     "wait": 3
@@ -76,6 +74,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
@@ -147,6 +146,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
@@ -232,6 +232,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },

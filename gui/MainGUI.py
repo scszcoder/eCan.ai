@@ -45,7 +45,7 @@ from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt
-from bot.basicSkill import STEP_GAP, setMissionInput
+from bot.basicSkill import STEP_GAP, setMissionInput, unzip_file, list_zip_file
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
@@ -66,6 +66,8 @@ from tests.unittests import *
 import pandas as pd
 from gui.encrypt import *
 import keyboard
+from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
+
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -509,6 +511,8 @@ class MainWindow(QMainWindow):
         self.toolsADSProfileConverterAction = self._createToolsADSProfileConverterAction()
         self.toolsADSProfileBatchToSinglesAction = self._createToolsADSProfileBatchToSinglesAction()
         self.toolsWanChatTestAction = self._createToolsWanChatTestAction()
+        self.toolsStopWaitUntilTestAction = self._createToolsStopWaitUntilTestAction()
+        self.toolsSimWanRequestAction = self._createToolsSimWanRequestAction()
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
@@ -1120,6 +1124,8 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.toolsADSProfileConverterAction)
         tools_menu.addAction(self.toolsADSProfileBatchToSinglesAction)
         tools_menu.addAction(self.toolsWanChatTestAction)
+        tools_menu.addAction(self.toolsStopWaitUntilTestAction)
+        tools_menu.addAction(self.toolsSimWanRequestAction)
 
         menu_bar.addMenu(tools_menu)
 
@@ -1410,6 +1416,19 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.wan_chat_test)
         return new_action
 
+    def _createToolsStopWaitUntilTestAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Stop Wait Until Test"))
+        new_action.triggered.connect(self.stopWaitUntilTest)
+        return new_action
+
+    def _createToolsSimWanRequestAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Simulate Wan Request"))
+        new_action.triggered.connect(self.simWanRequest)
+        return new_action
 
     def _createHelpCommunityAction(self):
         # File actions
@@ -1480,8 +1499,10 @@ class MainWindow(QMainWindow):
 
         # test_report_skill_run_result(new_mission)
 
-        test_presigned_updownload(new_mission)
+        # test_presigned_updownload(new_mission)
         # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
+        # test_handle_extern_skill_run_report(self.session, self.tokens['AuthenticationResult']['IdToken'])
+        asyncio.ensure_future(test_wait_until8())
 
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
@@ -1597,7 +1618,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest999.json'
+                        file = 'C:/temp/scheduleResultTest99.json'
                         # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
@@ -5997,7 +6018,7 @@ class MainWindow(QMainWindow):
     def update_moitor_gui(self, in_message):
         try:
             # self.showMsg(f"RPA Monitor:"+in_message)
-            if in_message["type"] == "request mission":
+            if in_message["type"] == "request mission" and self.getIP() not in in_message["sender"]:
                 print("request mission:", in_message)
                 new_works = json.loads(in_message["contents"])
                 print("CONFIG:", new_works['added_missions'][0]['config'])
@@ -6017,6 +6038,10 @@ class MainWindow(QMainWindow):
                 new_works['added_missions'][0]['config'].append(in_message['sender'])
                 setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
+            elif  in_message["type"] == "report results":
+                ext_run_results = json.loads(in_message["contents"].replace("\\", "\\\\"))
+                handleExtLabelGenResults(self.session, self.tokens['AuthenticationResult']['IdToken'], ext_run_results)
+
 
         except Exception as e:
             # Get the traceback information
@@ -6484,3 +6509,92 @@ class MainWindow(QMainWindow):
         resp = send_query_chat_request_to_cloud(session, token, qs)
 
         print("THINK RESP:", resp)
+
+    # if some kind of wait until step is running, this would stop the wait with a click.
+    def stopWaitUntilTest(self):
+        print("SETTING LABELS READY")
+        setLabelsReady()
+        setupExtSkillRunReportResultsTestData(self)
+
+    # upon clicking here, it would simulate receiving a websocket message(cmd) and send this
+    # message to the relavant queue which will trigger a mission run.
+    def simWanRequest(self):
+        contents_data = {
+            "task_groups": {
+                "DESKTOP-DLLV0:win":
+                {
+                    "eastern": [],
+                    "central": [],
+                    "mountain": [],
+                    "pacific": [
+                        {
+                            "bid": 73,
+                            "cuspas": "win,ads,ebay",
+                            "tz": "pacific",
+                            "bw_works": [],
+                            "other_works": [{
+                                "name": "sellFullfill_routine",
+                                "mid": 697,
+                                "cuspas": "win,ads,ebay",
+                                "config": {
+                                    "estRunTime": 2,
+                                    "searches": []
+                                },
+                                "start_time": 30
+                            }]
+                        }
+                    ],
+                    "alaska": [],
+                    "hawaii": []
+                }
+            },
+            "added_missions": [
+                {
+                    "mid": 697,
+                    "ticket": 0,
+                    "owner": "songc@yahoo.com",
+                    "botid": 73,
+                    "status": "ASSIGNED",
+                    "createon": "2024-03-31 05:44:15",
+                    "esd": "2024-03-16 05:44:15",
+                    "ecd": "2024-03-16 05:44:15",
+                    "asd": "2124-03-16 05:44:15",
+                    "abd": "2124-03-16 05:44:15",
+                    "aad": "2124-03-16 05:44:15",
+                    "afd": "2124-03-16 05:44:15",
+                    "acd": "2124-03-16 05:44:15",
+                    "esttime": 30,
+                    "runtime": 2,
+                    "trepeat": 3,
+                    "cuspas": "win,ads,ebay",
+                    "category": "",
+                    "phrase": "",
+                    "pseudoStore": "",
+                    "pseudoBrand": "",
+                    "pseudoASIN": "",
+                    "type": "sellFullfill_routine",
+                    "as_server": True,
+                    "config": [
+                        "sale",
+                        [
+                            {
+                                "file": "",
+                                "dir": ""
+                            }
+                        ]
+                    ],
+                    "skills": "87",
+                    "delDate": "2124-03-16 05:44:15"
+                }
+            ]
+        }
+        sim_contents = json.dumps(contents_data)
+
+        in_message = {
+            "type": "request mission",
+            "sender": "",
+            "id": 0,
+            "contents": sim_contents
+        }
+
+        asyncio.ensure_future((self.gui_monitor_msg_queue.put(in_message)))

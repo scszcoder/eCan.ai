@@ -59,10 +59,8 @@
     "type": "App Open",
     "action": "cmd",
     "save_rb": true,
-    "target_type": "shell",
-    "target_link": "explorer",
-    "anchor_type": "",
-    "anchor_value": "",
+    "app_type": "shell",
+    "app_link": "explorer",
     "cargs_type": "expr",
     "cargs": "zipped_full_path",
     "wait": 2
@@ -79,10 +77,8 @@
     "type": "App Open",
     "action": "cmd",
     "save_rb": true,
-    "target_type": "shell",
-    "target_link": "rarexe",
-    "anchor_type": "",
-    "anchor_value": "",
+    "app_type": "shell",
+    "app_link": "rarexe",
     "cargs_type": "expr",
     "cargs": "zipped_full_path",
     "wait": 2
@@ -110,6 +106,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "winrar",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
@@ -205,6 +202,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "winrar",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
@@ -244,6 +242,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "winrar",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },

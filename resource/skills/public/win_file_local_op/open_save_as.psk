@@ -64,6 +64,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "op",
+    "theme": "light",
     "page_data_info": null,
     "section": "top"
 },
