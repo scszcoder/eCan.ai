@@ -25,7 +25,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
-    processWriteFile, processDeleteFile, processWaitUntil8
+    processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -153,6 +153,7 @@ RAIS = {
     "Read File": lambda x, y: processReadFile(x, y),
     "Write File": lambda x, y: processWriteFile(x, y),
     "Delete File": lambda x, y: processDeleteFile(x, y),
+    "Kill Processes": lambda x, y: processKillProcesses(x, y),
     "print Label": lambda x, y: processPrintLabels(x, y),
     "Read Json File": lambda x, y: processReadJsonFile(x, y),
     "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
@@ -280,6 +281,7 @@ ARAIS = {
     "Read File": lambda x, y: processReadFile(x, y),
     "Write File": lambda x, y: processWriteFile(x, y),
     "Delete File": lambda x, y: processDeleteFile(x, y),
+    "Kill Processes": lambda x, y: processKillProcesses(x, y),
     "print Label": lambda x,y: processPrintLabels(x, y),
     "Read Json File": lambda x,y: processReadJsonFile(x, y),
     "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
@@ -600,6 +602,7 @@ def run1step(steps, si, mission, skill, stack):
         elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
             step["type"] == "Web Driver Scroll To" or  step["type"] == "Web Driver Execute Js" or \
+            step["type"] == "Text Input" or \
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
@@ -661,8 +664,9 @@ async def run1step8(steps, si, mission, skill, stack):
              step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
              step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download Files" or \
              step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
+             step["type"] == "Text Input" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-             step["type"] == "Web Driver Select Drop Down" or  "Mouse" in step["type"] or "Key" in step["type"]:
+             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)
             else:
