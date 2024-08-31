@@ -34,7 +34,7 @@ from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, g
     genStepWebdriverQuit, genStepWebdriverExecuteJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
     genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
-    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent
+    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent, genStepWebdriverCheckConnection
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -105,6 +105,7 @@ PUBLIC = {
     "genStepWebdriverSwitchToDefaultContent": genStepWebdriverSwitchToDefaultContent,
     "genStepWebdriverWaitDownloadDoneAndTransfer": genStepWebdriverWaitDownloadDoneAndTransfer,
     "genStepWebdriverSwitchToFrame": genStepWebdriverSwitchToFrame,
+    "genStepWebdriverCheckConnection": genStepWebdriverCheckConnection,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGetDefault': genStepGetDefault,
     'genStepGoto': genStepGoto,
