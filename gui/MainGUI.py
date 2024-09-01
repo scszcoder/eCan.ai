@@ -810,8 +810,8 @@ class MainWindow(QMainWindow):
         self.num_todays_task_groups = 0
         if "Commander" in self.host_role:
             # For commander creates
-            # self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
-            # self.num_todays_task_groups = self.num_todays_task_groups + 1
+            self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
+            self.num_todays_task_groups = self.num_todays_task_groups + 1
 
             print("TEMP HACK HERE, no fetch")
             # point to the 1st task to run for the day.
@@ -1610,7 +1610,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest999.json'
+                        file = 'C:/temp/scheduleResultTest99.json'
                         # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
@@ -6030,7 +6030,7 @@ class MainWindow(QMainWindow):
                 new_works['added_missions'][0]['config'].append(in_message['sender'])
                 setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
-            elif  in_message["type"] == "report results":
+            elif in_message["type"] == "report results":
                 ext_run_results = json.loads(in_message["contents"].replace("\\", "\\\\"))
                 handleExtLabelGenResults(self.session, self.tokens['AuthenticationResult']['IdToken'], ext_run_results)
 
@@ -6319,7 +6319,8 @@ class MainWindow(QMainWindow):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
             ping_msg = {
-                "chatID": sa_chat_id,
+                # "chatID": sa_chat_id,
+                "chatID": self.chat_id,
                 "sender": "Commander",
                 "receiver": sa_chat_id,
                 "type": "pong",
@@ -6327,7 +6328,7 @@ class MainWindow(QMainWindow):
                 "parameters": json.dumps({}),
 
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     def wan_send_log(self, logmsg):
         if self.host_role != "Staff Officer":
@@ -6435,11 +6436,11 @@ class MainWindow(QMainWindow):
             time.sleep(1)
             asyncio.ensure_future(self.wan_self_ping())
         elif self.host_role != "Platoon":
-            # asyncio.ensure_future(self.wan_pong())
+            asyncio.ensure_future(self.wan_pong())
             # asyncio.ensure_future(self.wan_c_send_chat("got it!!!"))
             # time.sleep(1)
             # asyncio.ensure_future(self.wan_self_ping())
-            self.think_about_a_reponse("[abc]'hello?'")
+            # self.think_about_a_reponse("[abc]'hello?'")
 
 
     async def wan_sa_send_chat(self, msg):

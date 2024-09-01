@@ -736,7 +736,10 @@ def processPrepareGSOrder(step, i):
         regular_orders = [o for o in fbs_orders if calcOrderWeight(o, ec_platform, symTab[step["prod_book"]]) >= 16]
 
         # ofname is the order file name, should be etsy_orders+Date.xls
+        # dt_string = datetime.now().strftime('%Y%m%d%H%M%S%f')
         dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
+        # today for testing only:
+        dt_string = "20240831110600"
 
         if len(light_orders) > 0:
             ofname1 = file_path+"/"+ec_platform+"OrdersGround"+dt_string+".xlsx"
@@ -748,7 +751,7 @@ def processPrepareGSOrder(step, i):
                                     "num_orders": len(light_orders),
                                     "dir": os.path.dirname(ofname1),
                                     "file": os.path.basename(ofname1),
-                                    "zip_dir": os.path.dir(ofname1),   #must consider cloud side dir structure and naming scheme
+                                    "zip_dir": os.path.dirname(ofname1),   #must consider cloud side dir structure and naming scheme
                                     "zip_file": zipped_ofname1,
                                     "unzipped_dir": ofname1_unzipped,
                                     "order_data": gs_order_data,
@@ -897,13 +900,19 @@ def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname)
 
     return gs_orders
 
+def compSentences(sent1, sent2):
+    cleaned_sent1 = re.sub(r'\s+', ' ', sent1.strip())
+    cleaned_sent2 = re.sub(r'\s+', ' ', sent2.strip())
+    return (cleaned_sent1 == cleaned_sent2)
+
+
 # if 1 product is not FBS, then the whole order is FBS... requires manual work.....
 def orderIsForFBS(order, ec_platform, pbook):
     fbs = True
     for op in order.getProducts():
-        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])), None)
+        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and compSentences(listing["title"], op.getPTitle()) for listing in p["listings"])), None)
         if prod:
-            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and compSentences(l["title"], op.getPTitle())), None)
             if listing["fullfiller"] != "self":
                 fbs = False
                 break
@@ -912,9 +921,9 @@ def orderIsForFBS(order, ec_platform, pbook):
 def calcOrderWeight(order, ec_platform, pbook, unit="ozs"):
     total_weight = 0
     for op in order.getProducts():
-        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])), None)
+        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and compSentences(listing["title"], op.getPTitle()) for listing in p["listings"])), None)
         if prod:
-            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and compSentences(l["title"], op.getPTitle())), None)
             if listing["variations"]:
                 pv = op.getVariations()
                 vweight = next((vw for i, vw in enumerate(listing["weight"]) if all(pv[pvn] == vw[pvn] for pvn in pv)), None)
@@ -923,12 +932,14 @@ def calcOrderWeight(order, ec_platform, pbook, unit="ozs"):
             else:
                 print("adding weight:", listing["weight"], int(op.getQuantity()))
                 total_weight = total_weight + listing["weight"] * int(op.getQuantity())
+        else:
+            print("WARNING: PRODUCT NOT FOUND["+op.getPTitle()+"]")
 
     if unit == "lbs":
         total_weight = total_weight/16
         print("calculated weight in lbs", total_weight)
     else:
-        print("calculated weight in inches", total_weight)
+        print("calculated weight in ozs", total_weight)
 
     return total_weight
 
@@ -937,13 +948,13 @@ def calcOrderWeight(order, ec_platform, pbook, unit="ozs"):
 def calcOrderLength(order, ec_platform, pbook, unit="inches"):
     total_length = 0
     for op in order.getProducts():
-        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])), None)
+        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and compSentences(listing["title"], op.getPTitle()) for listing in p["listings"])), None)
         if prod:
-            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and compSentences(l["title"], op.getPTitle())), None)
             if listing["variations"]:
                 pv = op.getVariations()
                 vsize = next((vw for i, vw in enumerate(listing["size"]) if all(pv[pvn] == vw[pvn] for pvn in pv)), None)
-                print("adding variation weight:", vsize, int(op.getQuantity()))
+                print("adding variation dimension length:", vsize, int(op.getQuantity()))
                 if vsize["dimension"][0] > total_length:
                     total_length = vsize["dimension"][0]
             else:
@@ -958,14 +969,14 @@ def calcOrderWidth(order, ec_platform, pbook, unit):
     total_width = 0
     for op in order.getProducts():
         prod = next((p for i, p in enumerate(pbook) if any(
-            listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])),
+            listing["platform"] == ec_platform and compSentences(listing["title"], op.getPTitle()) for listing in p["listings"])),
                     None)
         if prod:
-            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and compSentences(l["title"], op.getPTitle())), None)
             if listing["variations"]:
                 pv = op.getVariations()
                 vsize = next((vw for i, vw in enumerate(listing["size"]) if all(pv[pvn] == vw[pvn] for pvn in pv)), None)
-                print("adding variation weight:", vsize, int(op.getQuantity()))
+                print("adding variation dimension width:", vsize, int(op.getQuantity()))
                 if vsize["dimension"][1] > total_width:
                     total_width = vsize["dimension"][1]
             else:
@@ -973,19 +984,19 @@ def calcOrderWidth(order, ec_platform, pbook, unit):
                 if listing["size"][1] > total_width:
                     total_width = listing["size"][1]
 
-    print("calculated length", total_width)
+    print("calculated width", total_width)
     return total_width
 
 def calcOrderHeight(order, ec_platform, pbook, unit):
     total_height = 0
     for op in order.getProducts():
-        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and listing["title"] == op.getPTitle() for listing in p["listings"])), None)
+        prod = next((p for i, p in enumerate(pbook) if any(listing["platform"] == ec_platform and compSentences(listing["title"], op.getPTitle()) for listing in p["listings"])), None)
         if prod:
-            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and l["title"] == op.getPTitle()), None)
+            listing = next((l for i, l in enumerate(prod["listings"]) if l["platform"] == ec_platform and compSentences(l["title"], op.getPTitle())), None)
             if listing["variations"]:
                 pv = op.getVariations()
                 vsize = next((vw for i, vw in enumerate(listing["size"]) if all(pv[pvn] == vw[pvn] for pvn in pv)), None)
-                print("adding variation height:", vsize, int(op.getQuantity()))
+                print("adding variation dimension height:", vsize, int(op.getQuantity()))
                 total_height = total_height + vsize["dimension"][2] * int(op.getQuantity())
             else:
                 print("adding height:", listing["size"], int(op.getQuantity()))
@@ -1076,13 +1087,13 @@ def setLabelsReady():
 
 def handleExtLabelGenResults(session, token, ext_run_results):
     for req in ext_run_results:  # per batch of orders for one shipping method.
-        # dl_stat = download_file(session, req['zip_dir'], req['zip_file'], req['zip_dir'], token, "general")
+        dl_stat = download_file(session, req['zip_dir'], req['zip_file'], req['zip_dir'], token, "general")
         dl_zip = req['zip_dir'] + "/" + req['zip_file']
-        # print("dl_zip", dl_zip, req['zip_dir'])
+        print("dl_zip", dl_zip, req['zip_dir'])
         unzip_file(dl_zip, req['zip_dir'])
         rel_zip_contents = list_zip_file(dl_zip)  # obtain pdf files from the zipped lable files.
         zip_contents = [req['zip_dir'] + "/" + rel_file for rel_file in rel_zip_contents if 'pdf' in rel_file]
-        # print("zip_contents:", zip_contents)
+        print("zip_contents:", zip_contents)
         # now zip_contents is a list of label files in pdf format. now we need to update
         # tracking info and pdf file name into the original ebay_orders data structure,
         # this will make the data structure ready for the next stage of the RPA process which is update

@@ -234,7 +234,8 @@ RAIS = {
 ARAIS = {
     "Halt": lambda x,y: processHalt(x, y),
     "Wait": lambda x,y: processWait(x, y),
-    "Wait Until": lambda x,y: processWaitUntil8(x, y),
+    # "Wait Until": lambda x,y: processWaitUntil8(x, y),
+    "Wait Until": processWaitUntil8,
     "Save Html": lambda x,y,z,k: processSaveHtml(x, y, z, k),
     "Browse": lambda x,y: processBrowse(x, y),
     "Text To Number": lambda x,y: processTextToNumber(x, y),

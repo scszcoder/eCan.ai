@@ -1695,6 +1695,8 @@ async def processExtractInfo8(step, i, mission, skill):
 def processUploadFiles(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
+        symTab[step["flag"]] = True
+        symTab[step["results"]] = []
         settings = mission.main_win_settings
         if "/" in step["files_var"]:
             sfiles = [step["files_var"]]
@@ -1709,15 +1711,14 @@ def processUploadFiles(step, i, mission):
 
         print("SFILES:", sfiles)
         ftype = step["ftype"]
-
         for si, sfile in enumerate(sfiles):
             print("uploading....", sfile)
             if type(symTab[step["locs"]]) == list:
                 print("tos....", symTab[step["locs"]][si])
-                upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], ftype)
+                symTab[step["results"]].append(upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], ftype))
             else:
                 print("to....", symTab[step["locs"]])
-                upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], ftype)
+                symTab[step["results"]].append(upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], ftype))
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -1727,6 +1728,7 @@ def processUploadFiles(step, i, mission):
         else:
             ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i+1), ex_stat
 
@@ -1735,6 +1737,8 @@ def processUploadFiles(step, i, mission):
 def processDownloadFiles(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
+        symTab[step["flag"]] = True
+        symTab[step["results"]] = []
         mainwin = mission.get_main_win()
         dh = ecb_data_homepath + f"/{mainwin.log_user}/"
         settings = mission.main_win_settings
@@ -1751,9 +1755,9 @@ def processDownloadFiles(step, i, mission):
 
         for si, sfile in enumerate(sfiles):
             if type(symTab[step["locs"]]) == list:
-                download_file(settings["session"], dh, sfile, symTab[step["locs"]][si], settings["token"], ftype)
+                symTab[step["results"]].append(download_file(settings["session"], dh, sfile, symTab[step["locs"]][si], settings["token"], ftype))
             else:
-                download_file(settings["session"], dh, sfile, symTab[step["locs"]], settings["token"], ftype)
+                symTab[step["results"]].append(download_file(settings["session"], dh, sfile, symTab[step["locs"]], settings["token"], ftype))
 
     except Exception as e:
         # Get the traceback information
@@ -1764,6 +1768,7 @@ def processDownloadFiles(step, i, mission):
         else:
             ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i+1), ex_stat
 
@@ -5248,8 +5253,12 @@ def processReadXlsxFile(step, i):
 
             # Convert the DataFrame to a list of dictionaries (JSON objects)
             symTab[step["result"]] = df.to_dict(orient='records')
-
+            symTab[step["flag"]] = True
             print("read xlsx reslt data", symTab[step["result"]])
+        else:
+            print("ERROR, file not found."+json_file)
+            symTab[step["result"]] = None
+            symTab[step["flag"]] = False
 
     except Exception as e:
         # Get the traceback information
@@ -5259,6 +5268,7 @@ def processReadXlsxFile(step, i):
             ex_stat = "ErrorReadXlsxFile:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
+        symTab[step["result"]] = None
         symTab[step["flag"]] = False
         log3(ex_stat)
 
