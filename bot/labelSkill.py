@@ -1085,6 +1085,7 @@ def setLabelsReady():
     print("LABELS READY"+str(symTab['labels_ready']))
 
 
+
 def handleExtLabelGenResults(session, token, ext_run_results):
     for req in ext_run_results:  # per batch of orders for one shipping method.
         dl_stat = download_file(session, req['zip_dir'], req['zip_file'], req['zip_dir'], token, "general")
