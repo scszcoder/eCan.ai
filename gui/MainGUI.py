@@ -1618,7 +1618,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest999.json'
+                        file = 'C:/temp/scheduleResultTest99.json'
                         # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:

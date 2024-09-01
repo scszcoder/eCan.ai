@@ -204,10 +204,10 @@ def genStepWebdriverNewTab(driver_var, url_var, result_var, flag_var, stepN):
 
 
 
-def genStepWebdriverCloseTab(driver_var, target_var, text_var, result_var, flag_var, stepN):
+def genStepWebdriverCloseTab(driver_var, method_var, text_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Close Tab",
-        "target_var": target_var,
+        "method": method_var,
         "driver_var": driver_var,  # anchor, info, text
         "text_var": text_var,  # anchor, info, text
         "result": result_var,
@@ -839,12 +839,23 @@ def processWebdriverCloseTab(step, i):
     try:
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
-        tab_title_txt = symTab[step["tab_title_var"]]
-        log3("closing tab")
-        for handle in driver.window_handles:
-            driver.switch_to.window(handle)
-            if tab_title_txt in driver.current_url:
-                break
+
+        if step["driver_var"] == "by name":
+            tab_title_txt = symTab[step["tab_title_var"]]
+            log3("closing tab")
+            for handle in driver.window_handles:
+                driver.switch_to.window(handle)
+                if tab_title_txt in driver.current_url:
+                    break
+        else:
+            # if not "by name", it'll be "by order"
+            all_tabs = driver.window_handles
+
+            # Switch to the second-last tab
+            if type(step["tab_title_var"]) == int:
+                driver.switch_to.window(all_tabs[step["tab_title_var"]])
+                # Close the second-last tab
+
         driver.close()
 
     except Exception as e:
