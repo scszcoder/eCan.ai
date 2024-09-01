@@ -46,8 +46,8 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT", "site_result", "site_flag", this_step)
     psk_words = psk_words + step_words
@@ -158,6 +158,9 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCreateData("obj", "ul_result", "NA", None, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "ul_links", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("boolean", "ul_succeeded", "NA", True, this_step)
     psk_words = psk_words + step_words
 
@@ -214,10 +217,10 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepCallExtern("global gs_orders, gs_order_files\ngs_order_files = [ord['dir']+'/'+ord['file'] for ord in gs_orders]\nprint('gs_order_files:',gs_order_files)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global gs_orders, bucket_loc\nbucket_loc = ord['dir']\nprint('bucket_loc:',bucket_loc)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global gs_orders, bucket_loc\nbucket_loc = gs_orders[0]['dir']\nprint('bucket_loc:',bucket_loc)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepUploadFiles("gs_order_files", "sk_work_settings", "general", "bucket_loc", "ul_result", "ul_succeeded", this_step)
+    this_step, step_words = genStepUploadFiles("gs_order_files", "sk_work_settings", "general", "bucket_loc", "ul_links", "ul_succeeded", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global gs_orders, ul_links\nlist(map(lambda order, new_link: order.update({'file': new_link}), gs_orders, ul_links))\nprint('gs_orders:',gs_orders)", "", "in_line", "", this_step)
@@ -255,7 +258,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     this_step, step_words = genStepUseExternalSkill(87, "req_mid", "my_skills/browser_gen_ecb_labels", "songc@yahoo.com", "buy_shipping_input", "start_time", True,"req_results", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWaitUntil(120, ["labels_ready"], "all", "wait_results", "event_happend", this_step)
+    this_step, step_words = genStepWaitUntil(180, ["labels_ready"], "all", "wait_results", "event_happend", this_step)
     psk_words = psk_words + step_words
 
     # # extract tracking code from labels and update them into ebay_orders data struture.
@@ -714,6 +717,9 @@ def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     this_step, step_words = genStepReadXlsxFile("expr", "sk_work_settings['batch_profile']", "pfjs", "read_file_flag",  this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern( "global open_profile_input, pfjs\nprint('open_profile_input:', open_profile_input, 'pfjs:', pfjs, sk_work_settings['b_email'])", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCallExtern( "global ads_profile_id\nads_profile_id = next((pfjson for pfjson in pfjs if pfjson['username']==sk_work_settings['b_email']), None)['id']", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -1091,7 +1097,7 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepCallExtern("global ebay_orders, n_orders_collected\nebay_orders.append(page_of_orders)\nn_orders_collected = n_orders_collected + len(page_of_orders)\nprint('n_orders_collected', n_orders_collected, len(ebay_orders))", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global ebay_orders, n_orders_collected\nebay_orders.append(page_of_orders)\nn_orders_collected = n_orders_collected + len(page_of_orders['ol'])\nprint('n_orders_collected', n_orders_collected, len(ebay_orders))", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -1600,12 +1606,18 @@ def genStepsWinChromeEbayBrowserUpdateTracking(worksettings, stepN, theme):
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, "s0-14-0-0-7-0-0-2-0-0-10[0]-input", False, "var", "carrier_input", "element_present", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global tracking_code, carrier\ntracking_code='12345'\ncarrier='USPS'", "", "in_line", "", this_step)
+    # obtain tracking code of nth order, since ebay orders are organized as pages. first need to figure out which page is it on, and then
+    # the nth element on that page. use the  declared ealier
+
+    this_step, step_words = genStepCallExtern("global tracking_code, nOrdersUpdated, nth_page, mth_item\nnth_page=math.floor(nOrdersUpdated/ebay_orders[0]['orders_per_page'])\nmth_item=nOrdersUpdated%ebay_orders[0]['orders_per_page']\ntracking_code=ebay_orders[nth_page]['ol'][mth_item].getShippingTracking()\nprint('tracking_code is:', tracking_code, nth_page, mth_item, nOrdersUpdated, ebay_orders[0]['orders_per_page'])", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global tracking_code, carrier\ncarrier='USPS'\nprint('tracking_code is:', tracking_code)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepWebdriverKeyIn("web_driver", "tracking_input", "tracking_code", "action_result", "action_flag", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepWebdriverKeyIn("web_driver", "tracking_input", "tracking_code", "action_result", "action_flag", this_step)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepWebdriverKeyIn("web_driver", "carrier_input", "carrier", "action_result", "action_flag", this_step)
     psk_words = psk_words + step_words
@@ -1640,7 +1652,7 @@ def genStepsWinChromeEbayBrowserUpdateTracking(worksettings, stepN, theme):
     this_step, step_words = genStepCheckCondition("nth_row < len(order_rows)", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # after actioin, web element needs to be refeteched.
+    # after action, web element needs to be refeteched.
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CLASS_NAME, 'table-grid-component', False, "var", "order_table", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
