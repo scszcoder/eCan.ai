@@ -64,7 +64,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, stepN, theme):
 
 
     # open the web page.
-    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "expr", "sk_work_settings['cargs']", 5, this_step)
     psk_words = psk_words + step_words
 
     # fin is the input, which contains usps service type, xls file name, and total price.
@@ -193,7 +193,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # open the web page again.
-    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
+    this_step, step_words = genStepOpenApp("Run", True, "browser", site_url, "expr", "sk_work_settings['cargs']", 5, this_step)
     psk_words = psk_words + step_words
 
 

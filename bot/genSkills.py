@@ -27,14 +27,14 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
-    genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip
+    genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
     genStepWebdriverQuit, genStepWebdriverExecuteJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
     genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
-    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent
+    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent, genStepWebdriverCheckConnection
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -105,6 +105,7 @@ PUBLIC = {
     "genStepWebdriverSwitchToDefaultContent": genStepWebdriverSwitchToDefaultContent,
     "genStepWebdriverWaitDownloadDoneAndTransfer": genStepWebdriverWaitDownloadDoneAndTransfer,
     "genStepWebdriverSwitchToFrame": genStepWebdriverSwitchToFrame,
+    "genStepWebdriverCheckConnection": genStepWebdriverCheckConnection,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGetDefault': genStepGetDefault,
     'genStepGoto': genStepGoto,
@@ -215,6 +216,7 @@ PUBLIC = {
     'genStepWriteFile': genStepWriteFile,
     'genStepDeleteFile': genStepDeleteFile,
     'genStepObtainReviews': genStepObtainReviews,
+    'genStepKillProcesses': genStepKillProcesses,
     # done exposing all methods.....now expose data structure defs.
     'OrderedProduct': OrderedProduct,
     'ORDER': ORDER,

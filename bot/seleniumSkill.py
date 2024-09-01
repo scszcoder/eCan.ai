@@ -6,6 +6,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException
 
 from selenium.webdriver.common.by import By
 import requests
@@ -16,6 +17,7 @@ import os
 from bot.adsAPISkill import startADSWebDriver
 from bot.Logger import log3, log4
 from bot.basicSkill import *
+from config.app_info import app_info
 
 def getChromeOpenTabs():
     response = requests.get('http://localhost:9222/json')
@@ -314,19 +316,21 @@ def genStepWebdriverQuit(driver_var, result_var, flag_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepWebdriverStartExistingChrome(result_var, flag_var, stepN):
+def genStepWebdriverStartExistingChrome(driver_path_var, debug_port, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Start Existing Chrome",
+        "driver_path": driver_path_var,
+        "debug_port": debug_port,
         "result": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepWebdriverStartNewChrome(driver_var, result_var, flag_var, stepN):
+def genStepWebdriverStartNewChrome(driver_path, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Start New Chrome",
-        "driver_var": driver_var,  # anchor, info, text
+        "driver_path": driver_path,
         "result": result_var,
         "flag": flag_var
     }
@@ -383,6 +387,16 @@ def genStepWebdriverWaitDownloadDoneAndTransfer(driver_var, dl_dir_var, dl_file_
 
 
 
+def genStepWebdriverCheckConnection(driver_var, url_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Check Connection",
+        "driver_var": driver_var,  # anchor, info, text
+        "url": url_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 # ====== now the processing routines for the step instructions.
 def processWebdriverClick(step, i, mission):
     mainwin = mission.get_main_win()
@@ -406,55 +420,33 @@ def processWebdriverClick(step, i, mission):
     return (i+1), ex_stat
 
 
-def startExistingChromeDriver():
-    try:
-        driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/chromedriver.exe'
-        absolute_path = os.path.abspath(driver_path)
-        print(f"Absolute path: {absolute_path}")
-        if not os.path.isfile(driver_path):
-            raise ValueError(f"The path is not a valid file: {driver_path}")
-
-        # Set Chrome options if needed
-        chrome_options = Options()
-        # chrome_options.add_argument('--headless')
-        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
-        chrome_options.add_experimental_option('prefs', {
-            'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
-            'savefile.default_directory': os.getcwd()  # Set your download directory here
-        })
-        chrome_options.add_argument('--kiosk-printing')
-
-        # Initialize the WebDriver
-        service = ChromeService(executable_path=driver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorStartExistingChromeDriver:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorStartExistingChromeDriver: traceback information not available:" + str(e)
-        print(ex_stat)
-    return driver
-
 
 def processWebdriverStartExistingChrome(step, i):
     try:
         ex_stat = DEFAULT_RUN_STATUS
 
-        driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/chromedriver.exe'
+        driver_path = step["driver_path"]
+        if driver_path == "":
+            # default path.
+            driver_path = app_info.app_home_path + '/chromedriver-win64/chromedriver.exe'
+        elif "/" not in driver_path:            # this is a variable instead of direct path specification
+            driver_path = symTab[step["driver_path"]]
+
         absolute_path = os.path.abspath(driver_path)
-        print(f"Absolute path: {absolute_path}")
+        print(f"AAbsolute path: {absolute_path}")
         if not os.path.isfile(driver_path):
             raise ValueError(f"The path is not a valid file: {driver_path}")
 
+        if type(step['debug_port']) == int:
+            port = step['debug_port']
+        else:
+            port = symTab[step['debug_port']]
         # Set Chrome options if needed
         chrome_options = Options()
-        # chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox --disable-gpu')
+        chrome_options.add_argument('--headless')
+        # chrome_options.add_argument('--no-sandbox --disable-gpu')
         chrome_options.add_argument("--disable-features=SharedStorage,InterestCohort")
-        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9228")
+        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:"+str(port))
         # chrome_options.add_experimental_option('prefs', {
         #     'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
         #     'savefile.default_directory': os.getcwd()  # Set your download directory here
@@ -463,8 +455,9 @@ def processWebdriverStartExistingChrome(step, i):
 
         # Initialize the WebDriver
         service = ChromeService(executable_path=driver_path)
+        print("ready to drive.......")
         driver = webdriver.Chrome(service=service, options=chrome_options)
-
+        print("still alive?????.......")
         symTab[step["result"]] = driver
 
     except Exception as e:
@@ -482,16 +475,37 @@ def processWebdriverStartExistingChrome(step, i):
 
 def processWebdriverStartNewChrome(step, i):
     try:
-        symTab[step["result"]] = webdriver.Chrome()
+        ex_stat = DEFAULT_RUN_STATUS
+        chrome_options = Options()
+        # chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--remote-debugging-port=9228')
+        chrome_options.add_argument('--user-data-dir=C:\\chrome_data')
+        chrome_options.add_argument("--disable-features=SharedStorage,InterestCohort")
+
+        driver_path = step["driver_path"]
+        if driver_path == "":
+            # default path.
+            driver_path = app_info.app_home_path + '/chromedriver-win64/chromedriver.exe'
+        elif "/" not in driver_path:  # this is a variable instead of direct path specification
+            driver_path = symTab[step["driver_path"]]
+
+        absolute_path = os.path.abspath(driver_path)
+        print(f"Absolute path: {absolute_path}")
+        if not os.path.isfile(driver_path):
+            raise ValueError(f"The path is not a valid file: {driver_path}")
+
+
+        service = ChromeService(executable_path=driver_path)
+        symTab[step["result"]] = webdriver.Chrome(service=service, options=chrome_options)
 
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorStartExistingChromeDriver:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorStartNewChromeDriver:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorStartExistingChromeDriver: traceback information not available:" + str(e)
+            ex_stat = "ErrorStartNewChromeDriver: traceback information not available:" + str(e)
         print(ex_stat)
 
     return (i + 1), ex_stat
@@ -1041,6 +1055,9 @@ def execute_js_script(driver, script, *args):
     :param args: Arguments to pass to the JavaScript code.
     :return: Result of the JavaScript execution.
     """
+    if args is None:
+        args = ()
+
     return driver.execute_script(script, *args)
 
 def processWebdriverExecuteJs(step, i, mission):
@@ -1048,7 +1065,10 @@ def processWebdriverExecuteJs(step, i, mission):
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         script = step["script_var"]
-        target = symTab[step["target_var"]]
+        if step["target_var"]:
+            target = symTab[step["target_var"]]
+        else:
+            target = None
         # script_input = symTab[step["script_var"]]
         # script_output = symTab[step["script_var"]]
         log3("executing js")
@@ -1115,11 +1135,17 @@ def processWebdriverExtractInfo(step, i):
 
             if wait_time != 0:
                 print("wait until:", wait_time)
-                wait = WebDriverWait(driver, wait_time)
-                if not step["multi"]:
-                    web_element = wait.until(EC.presence_of_element_located((element_type, element_name)))
-                else:
-                    web_elements = wait.until(EC.presence_of_all_elements_located((element_type, element_name)))
+                try:
+                    wait = WebDriverWait(driver, wait_time)
+                    if not step["multi"]:
+                        web_element = wait.until(EC.presence_of_element_located((element_type, element_name)))
+                    else:
+                        web_elements = wait.until(EC.presence_of_all_elements_located((element_type, element_name)))
+                except TimeoutException:
+                    print(f"Element was not found within {wait_time} seconds.")
+                    web_elements = []
+                    web_element = None
+                    symTab[step["flag"]] = False
             else:
                 print("no wait....")
                 if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
@@ -1139,12 +1165,14 @@ def processWebdriverExtractInfo(step, i):
             if info_type == "text":
                 print("found text:", web_element.text)
                 if step["result_type"] == "var":
+                    if web_element:
                         symTab[step["result"]] = web_element.text
                 elif step["result_type"] == "expr":
                     to_words = re.split(r'\[|\(|\{', step["result"])
                     sink = to_words[0]
                     if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
-                        exec(f"global {sink}\n{step['result']} = web_element.text\nprint('element text', web_element.text)")
+                        if web_element:
+                            exec(f"global {sink}\n{step['result']} = web_element.text\nprint('element text', web_element.text)")
             elif info_type == "web element":
                 if step["result_type"] == "var":
                     if not step["multi"]:
@@ -1193,11 +1221,15 @@ def processWebdriverWaitUntilClickable(step, i):
         print("element type:", element_type)
         print("element name:", element_name)
 
+        try:
+            print("wait until:", wait_time)
+            wait = WebDriverWait(driver, wait_time)
 
-        print("wait until:", wait_time)
-        wait = WebDriverWait(driver, wait_time)
-
-        symTab[step["result"]] = wait.until(EC.element_to_be_clickable((element_type, element_name)))
+            symTab[step["result"]] = wait.until(EC.element_to_be_clickable((element_type, element_name)))
+        except TimeoutException:
+            print(f"Element was not found clickable within {wait_time} seconds.")
+            symTab[step["result"]] = None
+            symTab[step["flag"]] = False
 
     except Exception as e:
         # Get the traceback information
@@ -1493,6 +1525,33 @@ def processWebdriverWaitDownloadDoneAndTransfer(step, i):
         else:
             ex_stat = "ErrorWebdriverWaitDownloadDoneAndTransfer: traceback information not available:" + str(e)
         log3(ex_stat, "processWebdriverWaitDownloadDoneAndTransfer")
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+
+def processWebdriverCheckConnection(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = True
+
+        # Check if session ID is present
+        if driver.session_id:
+            symTab[step["url"]] = driver.current_url
+        else:
+            symTab[step["url"]] = ""
+            symTab[step["flag"]] = False
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverCheckConnection:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverCheckConnection: traceback information not available:" + str(e)
+        log3(ex_stat)
         symTab[step["flag"]] = False
 
     return (i + 1), ex_stat

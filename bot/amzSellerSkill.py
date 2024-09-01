@@ -171,7 +171,7 @@ def genWinChromeAMZCollectOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "expr", "sk_work_settings['cargs']", 5, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -422,7 +422,7 @@ def genWinChromeAMZUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # open the order page again.
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "expr", "sk_work_settings['cargs']", 5, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(5, 0, 0, this_step)
@@ -628,7 +628,7 @@ def genWinChromeAMZBuyShipmentSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # open the order page again.
-    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "", "", "expr", "sk_work_settings['cargs']", 5, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "expr", "sk_work_settings['cargs']", 5, this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(5, 0, 0, this_step)
