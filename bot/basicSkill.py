@@ -31,6 +31,7 @@ from bot.envi import getECBotDataHome
 from PIL import Image
 import shutil
 import zipfile
+import psutil
 
 if sys.platform == 'win32':
     import win32gui
@@ -59,6 +60,7 @@ symTab = globals()
 from pynput.mouse import Controller
 # from bot.envi import *
 
+from config.app_info import app_info
 
 STEP_GAP = 5
 rd_screen_count = 0
@@ -106,15 +108,13 @@ def genStepHeader(skillname, los, ver, author, skid, description, stepN):
 
 
 
-def genStepOpenApp(action, saverb, target_type, target_link, anchor_type, anchor_value, cargs_type, cargs, wait, stepN):
+def genStepOpenApp(action, saverb, app_type, app_link, cargs_type, cargs, wait, stepN):
     stepjson = {
         "type": "App Open",
         "action": action,
         "save_rb": saverb,
-        "target_type": target_type,
-        "target_link": target_link,
-        "anchor_type": anchor_type,
-        "anchor_value": anchor_value,
+        "app_type": app_type,
+        "app_link": app_link,
         "cargs_type": cargs_type,
         "cargs": cargs,
         "wait":wait
@@ -171,6 +171,7 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
         "data_sink": sink,
         "win_title_kw": win_title_kw,
         "page": page,
+        "theme": theme,
         "page_data_info": page_data,
         "section": sect
     }
@@ -960,6 +961,13 @@ def genStepReqHumanInLoop(qvar, img_var, type_var, time_var, retry_var, req_id_v
     }
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepKillProcesses(process_name, flag_var, stepN):
+    stepjson = {
+        "type": "Kill Processes",
+        "process_name": process_name,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 def genException():
@@ -2093,13 +2101,13 @@ def get_clickable_loc(box, off_from, offset, offset_unit):
         box_height = 1
 
     if off_from == "left":
-        click_loc = (box[1] - int(offset[0]*box_length), center[0])
+        click_loc = (box[1] - int(offset[0]*box_length), center[0]+int(offset[1]*box_height))
     elif off_from == "right":
-        click_loc = (box[3] + int(offset[0]*box_length), center[0])
+        click_loc = (box[3] + int(offset[0]*box_length), center[0]+int(offset[1]*box_height))
     elif off_from == "top":
-        click_loc = (center[1], box[0] - int(offset[1]*box_height))
+        click_loc = (center[1] + int(offset[0]*box_length), box[0] - int(offset[1]*box_height))
     elif off_from == "bottom":
-        click_loc = (center[1], box[2] + int(offset[1]*box_height))
+        click_loc = (center[1] + int(offset[0]*box_length), box[2] + int(offset[1]*box_height))
     else:
         #offset from center case
         log3("CENTER: "+json.dumps(center)+"OFFSET:"+json.dumps(offset))
@@ -2368,22 +2376,34 @@ def processMouseScroll(step, i, mission):
     return (i + 1), ex_stat
 
 
+def kill_process_using_port(port):
+    for conn in psutil.net_connections():
+        if conn.laddr.port == port:
+            psutil.Process(conn.pid).terminate()
+            print(f"Terminated process with PID {conn.pid} using port {port}.")
+
+
 def processOpenApp(step, i):
-    log3("Opening App ....." + step["target_link"] + " " + step["cargs"])
+    # log3("Opening App ....." + step["app_link"] + " " + step["cargs"])
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        if step["target_type"] == "browser":
-            url = step["target_link"]
+        if step["app_type"] == "browser":
+            url = step["app_link"]
             webbrowser.open(url, new=0, autoraise=True)
         else:
-            exec("global oa_exe\noa_exe = "+step["target_type"])
+            # exec("global oa_exe\noa_exe = "+step["app_type"])
             if step["cargs_type"] == "direct":
-                subprocess.call(symTab["oa_exe"] + " " + step["cargs"])
+                subprocess.call(step["app_type"] + " " + step["cargs"])
             else:
                 # in case of "expr" type.
-                exec("global oa_args\noa_args = " + step["cargs"])
-                log3("running shell"+symTab["oa_exe"]+"on :"+step["cargs"]+"with val["+symTab["oa_args"]+"]")
-                subprocess.Popen([symTab["oa_exe"], symTab["oa_args"]])
+                # exec("global oa_args\noa_args = " + step["cargs"])
+                # log3("running shell"+symTab["oa_exe"]+"on :"+step["cargs"]+"with val["+symTab["oa_args"]+"]")
+                DETACHED_PROCESS = 0x00000008
+                # subprocess.Popen([step["app_type"], step["cargs"]],creationflags=DETACHED_PROCESS, close_fds=True)
+                cmd = [step["app_type"]] + step["cargs"]
+                subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+                # subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         time.sleep(step["wait"])
 
 
@@ -3339,21 +3359,16 @@ def processCreateDir(step, i):
         if step["name_type"] == "direct":
             dir_tbc = step["dir"]
         else:
-            exec("global dir_tbc\ndir_tbc = " + step["dir"]+"\nprint('dir_tbc', dir_tbc)")
+            dir_tbc = symTab[step["dir"]]
 
-        subds = dir_tbc.split("/")
-        if len(subds) == 1:
-            newdir = symTab[dir_tbc]
-        else:
-            newdir = dir_tbc
+        newdir = dir_tbc
 
-        log3("Creating dir:"+newdir)
         if not os.path.exists(newdir):
             #create only if the dir doesn't exist
             os.makedirs(newdir)
-            log3("Created.....")
+            log3("Created....." + newdir)
         else:
-            log3("Already existed.")
+            log3(newdir + " already existed.")
 
 
 
@@ -3372,6 +3387,7 @@ def processCreateDir(step, i):
 def processReadFile(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     symTab[step["flag"]] = True
+    symTab[step["datasink"]] = ""
     try:
         if step["name_type"] == "direct":
             file_full_path = step["filename"]
@@ -3393,6 +3409,9 @@ def processReadFile(step, i):
             log3("ERROR: File not exists")
             symTab[step["flag"]] = False
 
+        print("read succeeded:", symTab[step["flag"]])
+        print("read result:", step["datasink"], symTab[step["datasink"]])
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -3402,6 +3421,7 @@ def processReadFile(step, i):
         else:
             ex_stat = "ErrorReadFile: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
 
@@ -3412,30 +3432,27 @@ def processWriteFile(step, i):
         if step["name_type"] == "direct":
             file_full_path = step["filename"]
         else:
-            exec("file_full_path = " + step["filename"])
+            file_full_path = symTab[step["filename"]]
 
         log3("Write to file:" + file_full_path)
-        if os.path.exists(file_full_path):
-            # create only if the dir doesn't exist
-            if step["mode"] == "overwrite":
-                with open(file_full_path, 'w') as fileTBW:
-                    if step["filetype"] == "json":
-                        json.dump(symTab[step["datasource"]], fileTBW)
-                    elif step["filetype"] == "text":
-                        fileTBW.writelines(symTab[step["datasource"]])
-                fileTBW.close()
-            else:
-                # append mode
-                with open(file_full_path, 'a') as fileTBW:
-                    if step["filetype"] == "json":
-                        json.dump(symTab[step["datasource"]], fileTBW)
-                    elif step["filetype"] == "text":
-                        fileTBW.writelines(symTab[step["datasource"]])
-
-                fileTBW.close()
+        # create only if the dir doesn't exist
+        if step["mode"] == "overwrite":
+            with open(file_full_path, 'w') as fileTBW:
+                if step["filetype"] == "json":
+                    json.dump(symTab[step["datasource"]], fileTBW)
+                elif step["filetype"] == "txt":
+                    fileTBW.writelines(symTab[step["datasource"]])
+            fileTBW.close()
         else:
-            log3("ERROR: File not exists")
-            symTab[step["result"]] = False
+            # append mode
+            with open(file_full_path, 'a') as fileTBW:
+                if step["filetype"] == "json":
+                    json.dump(symTab[step["datasource"]], fileTBW)
+                elif step["filetype"] == "txt":
+                    fileTBW.writelines(symTab[step["datasource"]])
+
+            fileTBW.close()
+
 
     except Exception as e:
         # Get the traceback information
@@ -3446,6 +3463,7 @@ def processWriteFile(step, i):
         else:
             ex_stat = "ErrorWriteFile: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
 
@@ -5292,6 +5310,36 @@ def processGetDefault(step, i):
         else:
             ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
         # symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processKillProcesses(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag"]] = True
+
+        if type(step['process_name']) == list:
+            target_names = step['process_name']
+        else:
+            target_names = [symTab[['process_name']]]
+        print("target names:", target_names)
+        for proc in psutil.process_iter():
+            # Check if process name contains 'chrome'
+            if proc.name().lower() in target_names:
+                print("process to be killed:", proc.name())
+                proc.kill()
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorKillProcesses:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorKillProcesses: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
         log3(ex_stat)
 
     return (i + 1), ex_stat

@@ -28,10 +28,8 @@
     "type": "App Open",
     "action": "cmd",
     "save_rb": true,
-    "target_type": "browser",
-    "target_link": "https://www.etsy.com/your/orders/sold",
-    "anchor_type": "",
-    "anchor_value": "",
+    "app_type": "browser",
+    "app_link": "https://www.etsy.com/your/orders/sold",
     "cargs_type": "expr",
     "cargs": "sk_work_settings['cargs']",
     "wait": 5
@@ -132,6 +130,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "orders",
+    "theme": "light",
     "page_data_info": null,
     "section": "completion"
 },
@@ -259,6 +258,7 @@
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "orders",
+    "theme": "light",
     "page_data_info": null,
     "section": "completion"
 },

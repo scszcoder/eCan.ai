@@ -58,14 +58,14 @@ def genWinRARLocalUnzipSkill(worksettings, stepN, theme):
 
     # subprocess.Popen(r'explorer /root,"'+zipped_full_path+'"')
     # rar_file = '/root,"'+zipped_full_path+'"'
-    this_step, step_words = genStepOpenApp("cmd", True, "shell", "explorer", "", "", "expr", "zipped_full_path", 2, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "shell", "explorer", "expr", "zipped_full_path", 2, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepOpenApp("cmd", True, "shell", "rarexe", "", "", "expr", "zipped_full_path", 2, this_step)
+    this_step, step_words = genStepOpenApp("cmd", True, "shell", "rarexe", "expr", "zipped_full_path", 2, this_step)
     psk_words = psk_words + step_words
 
     # # close bracket

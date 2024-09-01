@@ -512,6 +512,7 @@ class MainWindow(QMainWindow):
         self.toolsADSProfileBatchToSinglesAction = self._createToolsADSProfileBatchToSinglesAction()
         self.toolsWanChatTestAction = self._createToolsWanChatTestAction()
         self.toolsStopWaitUntilTestAction = self._createToolsStopWaitUntilTestAction()
+        self.toolsSimWanRequestAction = self._createToolsSimWanRequestAction()
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
@@ -1124,6 +1125,7 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.toolsADSProfileBatchToSinglesAction)
         tools_menu.addAction(self.toolsWanChatTestAction)
         tools_menu.addAction(self.toolsStopWaitUntilTestAction)
+        tools_menu.addAction(self.toolsSimWanRequestAction)
 
         menu_bar.addMenu(tools_menu)
 
@@ -1421,6 +1423,12 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.stopWaitUntilTest)
         return new_action
 
+    def _createToolsSimWanRequestAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Simulate Wan Request"))
+        new_action.triggered.connect(self.simWanRequest)
+        return new_action
 
     def _createHelpCommunityAction(self):
         # File actions
@@ -6503,8 +6511,91 @@ class MainWindow(QMainWindow):
 
         print("THINK RESP:", resp)
 
+    # if some kind of wait until step is running, this would stop the wait with a click.
     def stopWaitUntilTest(self):
         print("SETTING LABELS READY")
         setLabelsReady()
         setupExtSkillRunReportResultsTestData(self)
 
+    # upon clicking here, it would simulate receiving a websocket message(cmd) and send this
+    # message to the relavant queue which will trigger a mission run.
+    def simWanRequest(self):
+        contents_data = {
+            "task_groups": {
+                "DESKTOP-DLLV0:win":
+                {
+                    "eastern": [],
+                    "central": [],
+                    "mountain": [],
+                    "pacific": [
+                        {
+                            "bid": 73,
+                            "cuspas": "win,ads,ebay",
+                            "tz": "pacific",
+                            "bw_works": [],
+                            "other_works": [{
+                                "name": "sellFullfill_routine",
+                                "mid": 697,
+                                "cuspas": "win,ads,ebay",
+                                "config": {
+                                    "estRunTime": 2,
+                                    "searches": []
+                                },
+                                "start_time": 30
+                            }]
+                        }
+                    ],
+                    "alaska": [],
+                    "hawaii": []
+                }
+            },
+            "added_missions": [
+                {
+                    "mid": 697,
+                    "ticket": 0,
+                    "owner": "songc@yahoo.com",
+                    "botid": 73,
+                    "status": "ASSIGNED",
+                    "createon": "2024-03-31 05:44:15",
+                    "esd": "2024-03-16 05:44:15",
+                    "ecd": "2024-03-16 05:44:15",
+                    "asd": "2124-03-16 05:44:15",
+                    "abd": "2124-03-16 05:44:15",
+                    "aad": "2124-03-16 05:44:15",
+                    "afd": "2124-03-16 05:44:15",
+                    "acd": "2124-03-16 05:44:15",
+                    "esttime": 30,
+                    "runtime": 2,
+                    "trepeat": 3,
+                    "cuspas": "win,ads,ebay",
+                    "category": "",
+                    "phrase": "",
+                    "pseudoStore": "",
+                    "pseudoBrand": "",
+                    "pseudoASIN": "",
+                    "type": "sellFullfill_routine",
+                    "as_server": True,
+                    "config": [
+                        "sale",
+                        [
+                            {
+                                "file": "",
+                                "dir": ""
+                            }
+                        ]
+                    ],
+                    "skills": "87",
+                    "delDate": "2124-03-16 05:44:15"
+                }
+            ]
+        }
+        sim_contents = json.dumps(contents_data)
+
+        in_message = {
+            "type": "request mission",
+            "sender": "",
+            "id": 0,
+            "contents": sim_contents
+        }
+
+        asyncio.ensure_future((self.gui_monitor_msg_queue.put(in_message)))
