@@ -4,8 +4,10 @@ import re
 import subprocess
 import time
 from datetime import datetime, timezone
-import win32print
-import win32api
+import sys
+if sys.platform == 'win32':
+    import win32print
+    import win32api
 import pytz
 
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud
