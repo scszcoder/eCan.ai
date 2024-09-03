@@ -771,7 +771,7 @@ def genStepCheckAppRunning(appname, result, stepN):
 
 def genStepBringAppToFront(win_title, result, stepN):
     stepjson = {
-        "type": "Check App Running",
+        "type": "Bring App To Front",
         "win_title": win_title,
         "result": result
     }
@@ -1703,6 +1703,8 @@ async def processExtractInfo8(step, i, mission, skill):
 def processUploadFiles(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
+        symTab[step["flag"]] = True
+        symTab[step["results"]] = []
         settings = mission.main_win_settings
         if "/" in step["files_var"]:
             sfiles = [step["files_var"]]
@@ -1717,15 +1719,14 @@ def processUploadFiles(step, i, mission):
 
         print("SFILES:", sfiles)
         ftype = step["ftype"]
-
         for si, sfile in enumerate(sfiles):
             print("uploading....", sfile)
             if type(symTab[step["locs"]]) == list:
                 print("tos....", symTab[step["locs"]][si])
-                upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], ftype)
+                symTab[step["results"]].append(upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], ftype))
             else:
                 print("to....", symTab[step["locs"]])
-                upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], ftype)
+                symTab[step["results"]].append(upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], ftype))
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -1735,6 +1736,7 @@ def processUploadFiles(step, i, mission):
         else:
             ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i+1), ex_stat
 
@@ -1743,6 +1745,8 @@ def processUploadFiles(step, i, mission):
 def processDownloadFiles(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
+        symTab[step["flag"]] = True
+        symTab[step["results"]] = []
         mainwin = mission.get_main_win()
         dh = ecb_data_homepath + f"/{mainwin.log_user}/"
         settings = mission.main_win_settings
@@ -1759,9 +1763,9 @@ def processDownloadFiles(step, i, mission):
 
         for si, sfile in enumerate(sfiles):
             if type(symTab[step["locs"]]) == list:
-                download_file(settings["session"], dh, sfile, symTab[step["locs"]][si], settings["token"], ftype)
+                symTab[step["results"]].append(download_file(settings["session"], dh, sfile, symTab[step["locs"]][si], settings["token"], ftype))
             else:
-                download_file(settings["session"], dh, sfile, symTab[step["locs"]], settings["token"], ftype)
+                symTab[step["results"]].append(download_file(settings["session"], dh, sfile, symTab[step["locs"]], settings["token"], ftype))
 
     except Exception as e:
         # Get the traceback information
@@ -1772,6 +1776,7 @@ def processDownloadFiles(step, i, mission):
         else:
             ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
 
     return (i+1), ex_stat
 
@@ -2395,10 +2400,13 @@ def processOpenApp(step, i):
                 # log3("running shell"+symTab["oa_exe"]+"on :"+step["cargs"]+"with val["+symTab["oa_args"]+"]")
                 DETACHED_PROCESS = 0x00000008
                 # subprocess.Popen([step["app_type"], step["cargs"]],creationflags=DETACHED_PROCESS, close_fds=True)
-                cmd = [step["app_type"]] + step["cargs"]
-                subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if type(step["cargs"]) == list:
+                    cmd = [step["app_type"]] + step["cargs"]
+                else:
+                    cmd = [step["app_type"]] + symTab[step["cargs"]]
 
-                # subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                # subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         time.sleep(step["wait"])
 
 
@@ -3651,17 +3659,20 @@ def processZipUnzip(step, i):
 
         if step["action"] == "zip":
             print("Zippping.....", input, output_dir, out_file)
+            norm_out = os.path.normpath(os.path.join(output_dir, out_file))
             if type(input) == list:
-                zip_files(input, os.path.join(output_dir, out_file))
+                norm_in = [os.path.normpath(inf) for inf in input]
+                zip_files(norm_in, norm_out)
             else:
-                zip_files([input], os.path.join(output_dir, out_file))
+                zip_files([os.path.normpath(input)], norm_out)
         elif step["action"] == "unzip":
             log3("executing....unzip" + input + " to" + output_dir)
+            norm_out = os.path.normpath(output_dir)
+            if not os.path.exists(norm_out):
+                os.makedirs(norm_out)
 
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-
-            unzip_file(input, output_dir)
+            norm_in = os.path.normpath(input)
+            unzip_file(norm_in, norm_out)
 
 
     except Exception as e:
@@ -4467,16 +4478,26 @@ def processBringAppToFront(step, i):
                         names.append(n)
 
             win32gui.EnumWindows(winEnumHandler, None)
-            win_title = step["win_title"]
-            hwnd = win32gui.FindWindow(None, win_title)
+            win_title_keyword = step["win_title"]
+
+            effective_names = [nm for nm in names if "dummy" not in nm]
+            window_handle = None
+            if win_title_keyword:
+                for wi, wn in enumerate(effective_names):
+                    if win_title_keyword in wn:
+                        win_title = effective_names[wi]
+                        window_handle = win32gui.FindWindow(None, effective_names[wi])
+                        win_rect = win32gui.GetWindowRect(window_handle)
+                        log3("FOUND target window: " + win_title + " rect: " + json.dumps(win_rect))
+                        break
 
             # Bring the window to the foreground
-            if hwnd:
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)  # Restore window if minimized
-                win32gui.SetForegroundWindow(hwnd)
+            if window_handle:
+                win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)  # Restore window if minimized
+                win32gui.SetForegroundWindow(window_handle)
                 symTab[step["result"]] = True
             else:
-                log3(f"Error: Window with title '{win_title}' not found.")
+                log3(f"Error: Window with title '{win_title_keyword}' not found.")
 
     except Exception as e:
         # Get the traceback information
@@ -5266,8 +5287,12 @@ def processReadXlsxFile(step, i):
 
             # Convert the DataFrame to a list of dictionaries (JSON objects)
             symTab[step["result"]] = df.to_dict(orient='records')
-
+            symTab[step["flag"]] = True
             print("read xlsx reslt data", symTab[step["result"]])
+        else:
+            print("ERROR, file not found."+json_file)
+            symTab[step["result"]] = None
+            symTab[step["flag"]] = False
 
     except Exception as e:
         # Get the traceback information
@@ -5277,6 +5302,7 @@ def processReadXlsxFile(step, i):
             ex_stat = "ErrorReadXlsxFile:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorReadXlsxFile: traceback information not available:" + str(e)
+        symTab[step["result"]] = None
         symTab[step["flag"]] = False
         log3(ex_stat)
 

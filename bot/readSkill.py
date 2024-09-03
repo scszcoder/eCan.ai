@@ -25,7 +25,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processMoveDownloadedFileToDestination, processObtainReviews, processReqHumanInLoop, processCloseHumanInLoop,\
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
-    processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses
+    processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
+    processBringAppToFront
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -33,7 +34,8 @@ from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, proce
     processWebdriverExecuteJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
     processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, \
     processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer, \
-    processWebdriverWaitForVisibility, processWebdriverSwitchToFrame, processWebdriverSwitchToDefaultContent
+    processWebdriverWaitForVisibility, processWebdriverSwitchToFrame, processWebdriverSwitchToDefaultContent, \
+    processWebdriverCheckConnection
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -225,8 +227,11 @@ RAIS = {
     "Web Driver Switch To Frame": lambda x, y: processWebdriverSwitchToFrame(x, y),
     "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
+    "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
+    "Check App Running": lambda x, y: processCheckAppRunning(x, y),
+    "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
     "Download Files": lambda x, y, z: processDownloadFiles(x, y, z)
 }
@@ -235,7 +240,8 @@ RAIS = {
 ARAIS = {
     "Halt": lambda x,y: processHalt(x, y),
     "Wait": lambda x,y: processWait(x, y),
-    "Wait Until": lambda x,y: processWaitUntil8(x, y),
+    # "Wait Until": lambda x,y: processWaitUntil8(x, y),
+    "Wait Until": processWaitUntil8,
     "Save Html": lambda x,y,z,k: processSaveHtml(x, y, z, k),
     "Browse": lambda x,y: processBrowse(x, y),
     "Text To Number": lambda x,y: processTextToNumber(x, y),
@@ -353,8 +359,11 @@ ARAIS = {
     "Web Driver Switch To Frame": lambda x, y: processWebdriverSwitchToFrame(x, y),
     "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
+    "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
+    "Check App Running": lambda x, y: processCheckAppRunning(x, y),
+    "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
     "Download Files": lambda x, y, z: processDownloadFiles(x, y, z)
 }

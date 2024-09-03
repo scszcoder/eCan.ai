@@ -5525,9 +5525,10 @@ class MainWindow(QMainWindow):
             for item in self.missionModel.findItems('mission' + str(found_mission.getMid()) + ":Bot" + str(
                 found_mission.getBid()) + ":" + found_mission.pubAttributes.ms_type + ":" + found_mission.pubAttributes.site):
                 # cloned_item = item.clone()
-                self.missionModel.removeRow(item.row())
+                # self.missionModel.removeRow(item.row())
                 # self.completedMissionModel.appendRow(cloned_item)
                 self.completedMissionModel.appendRow(found_mission)
+                self.missionModel.removeRow(item.row())
 
     def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
@@ -6038,7 +6039,7 @@ class MainWindow(QMainWindow):
                 new_works['added_missions'][0]['config'].append(in_message['sender'])
                 setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
-            elif  in_message["type"] == "report results":
+            elif in_message["type"] == "report results":
                 ext_run_results = json.loads(in_message["contents"].replace("\\", "\\\\"))
                 handleExtLabelGenResults(self.session, self.tokens['AuthenticationResult']['IdToken'], ext_run_results)
 
@@ -6327,7 +6328,8 @@ class MainWindow(QMainWindow):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
             ping_msg = {
-                "chatID": sa_chat_id,
+                # "chatID": sa_chat_id,
+                "chatID": self.chat_id,
                 "sender": "Commander",
                 "receiver": sa_chat_id,
                 "type": "pong",
@@ -6335,7 +6337,7 @@ class MainWindow(QMainWindow):
                 "parameters": json.dumps({}),
 
             }
-            self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
     def wan_send_log(self, logmsg):
         if self.host_role != "Staff Officer":
@@ -6443,11 +6445,11 @@ class MainWindow(QMainWindow):
             time.sleep(1)
             asyncio.ensure_future(self.wan_self_ping())
         elif self.host_role != "Platoon":
-            # asyncio.ensure_future(self.wan_pong())
+            asyncio.ensure_future(self.wan_pong())
             # asyncio.ensure_future(self.wan_c_send_chat("got it!!!"))
             # time.sleep(1)
             # asyncio.ensure_future(self.wan_self_ping())
-            self.think_about_a_reponse("[abc]'hello?'")
+            # self.think_about_a_reponse("[abc]'hello?'")
 
 
     async def wan_sa_send_chat(self, msg):

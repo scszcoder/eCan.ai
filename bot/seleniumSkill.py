@@ -204,12 +204,12 @@ def genStepWebdriverNewTab(driver_var, url_var, result_var, flag_var, stepN):
 
 
 
-def genStepWebdriverCloseTab(driver_var, target_var, text_var, result_var, flag_var, stepN):
+def genStepWebdriverCloseTab(driver_var, method_var, tab_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Close Tab",
-        "target_var": target_var,
+        "method": method_var,
         "driver_var": driver_var,  # anchor, info, text
-        "text_var": text_var,  # anchor, info, text
+        "tab_var": tab_var,  # anchor, info, text
         "result": result_var,
         "flag": flag_var
     }
@@ -385,6 +385,16 @@ def genStepWebdriverWaitDownloadDoneAndTransfer(driver_var, dl_dir_var, dl_file_
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+
+
+def genStepWebdriverCheckConnection(driver_var, url_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Check Connection",
+        "driver_var": driver_var,  # anchor, info, text
+        "url": url_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 # ====== now the processing routines for the step instructions.
@@ -825,16 +835,32 @@ def processWebdriverNewTab(step, i):
     return (i + 1), ex_stat
 
 
+# "method": method_var - "by name" or "by order"
+# "driver_var": "chromedriver"
+# "tab_var": tab_var,  # anchor, info, text
+# "result": result_var,
+# "flag": flag_var
 def processWebdriverCloseTab(step, i):
     try:
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
-        tab_title_txt = symTab[step["tab_title_var"]]
-        log3("closing tab")
-        for handle in driver.window_handles:
-            driver.switch_to.window(handle)
-            if tab_title_txt in driver.current_url:
-                break
+
+        if step["method"] == "by name":
+            tab_title_txt = symTab[step["tab_var"]]
+            log3("closing tab")
+            for handle in driver.window_handles:
+                driver.switch_to.window(handle)
+                if tab_title_txt in driver.current_url:
+                    break
+        else:
+            # if not "by name", it'll be "by order"
+            all_tabs = driver.window_handles
+
+            # Switch to the second-last tab
+            if type(step["tab_var"]) == int:
+                driver.switch_to.window(all_tabs[step["tab_var"]])
+                # Close the second-last tab
+
         driver.close()
 
     except Exception as e:
@@ -888,6 +914,32 @@ def processWebdriverGoToTab(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+def processWebdriverGoToURL(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        log3("refresh")
+        if "/" in step["url_var"]:
+            url = step["url_var"]
+        else:
+            url = symTab[step["url_var"]]
+
+        if url:
+            driver.get(url)  # Replace with the new URL
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverRefreshPage:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverRefreshPage: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
 
 
 def processWebdriverRefreshPage(step, i):
@@ -1515,6 +1567,33 @@ def processWebdriverWaitDownloadDoneAndTransfer(step, i):
         else:
             ex_stat = "ErrorWebdriverWaitDownloadDoneAndTransfer: traceback information not available:" + str(e)
         log3(ex_stat, "processWebdriverWaitDownloadDoneAndTransfer")
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+
+def processWebdriverCheckConnection(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        symTab[step["flag"]] = True
+
+        # Check if session ID is present
+        if driver.session_id:
+            symTab[step["url"]] = driver.current_url
+        else:
+            symTab[step["url"]] = ""
+            symTab[step["flag"]] = False
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverCheckConnection:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverCheckConnection: traceback information not available:" + str(e)
+        log3(ex_stat)
         symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
