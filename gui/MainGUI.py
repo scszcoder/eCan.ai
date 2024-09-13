@@ -811,8 +811,8 @@ class MainWindow(QMainWindow):
         self.num_todays_task_groups = 0
         if "Commander" in self.host_role:
             # For commander creates
-            self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
-            self.num_todays_task_groups = self.num_todays_task_groups + 1
+            # self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
+            # self.num_todays_task_groups = self.num_todays_task_groups + 1
 
             print("TEMP HACK HERE, no fetch")
             # point to the 1st task to run for the day.
@@ -5527,9 +5527,10 @@ class MainWindow(QMainWindow):
             for item in self.missionModel.findItems('mission' + str(found_mission.getMid()) + ":Bot" + str(
                 found_mission.getBid()) + ":" + found_mission.pubAttributes.ms_type + ":" + found_mission.pubAttributes.site):
                 # cloned_item = item.clone()
-                self.missionModel.removeRow(item.row())
+                # self.missionModel.removeRow(item.row())
                 # self.completedMissionModel.appendRow(cloned_item)
                 self.completedMissionModel.appendRow(found_mission)
+                self.missionModel.removeRow(item.row())
 
     def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
