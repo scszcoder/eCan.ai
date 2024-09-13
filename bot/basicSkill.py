@@ -3362,7 +3362,12 @@ def processCreateDir(step, i):
         if step["name_type"] == "direct":
             dir_tbc = step["dir"]
         else:
-            dir_tbc = symTab[step["dir"]]
+            if "[" in step["dir"]:
+                src_var_name = step["dir"].split("[")[0]
+            else:
+                src_var_name = step["dir"]
+            exec("global dir_tbc, "+src_var_name+"\ndir_tbc = " + step["dir"])
+            # symTab[step["dir_tbc"]] = step["dir"]
 
         newdir = dir_tbc
 

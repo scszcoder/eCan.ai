@@ -195,6 +195,31 @@ def gen_query_report_run_ext_skill_status_string(query):
     return query_string
 
 
+def gen_query_reg_steps_string(query):
+    logger_helper.debug("in query:"+json.dumps(query))
+    query_string = """
+        query MyQuery {
+      regSteps (inSteps:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
+        rec_string = rec_string + "{ type: \"" + query[i]["type"] + "\", "
+        rec_string = rec_string + "data: \"" + query[i]["data"] + "\", "
+        rec_string = rec_string + "duration: \"" + query[i]["duration"] + "\", "
+        rec_string = rec_string + "end_time: \"" + query[i]["end_time"] + "\" }"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+    ]) 
+    }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
 
 
 def gen_query_chat_request_string(query):
@@ -334,21 +359,21 @@ def gen_obtain_review_request_string(query):
     for i in range(len(query)):
         # rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
         rec_string = rec_string + "{ number: 1, "
-        rec_string = rec_string + "product: " + str(int(query[i]["product"])) + ", "
+        rec_string = rec_string + "product: \"" + query[i]["product"] + "\", "
         rec_string = rec_string + "orderID: \"\", "
         rec_string = rec_string + "payType: \"\", "
-        rec_string = rec_string + "total: \"\", "
+        rec_string = rec_string + "total: 0, "
         rec_string = rec_string + "transactionID: \"\", "
-        rec_string = rec_string + "customerMail: \"\", "
+        rec_string = rec_string + "customerMail: \"songc@yahoo.com\", "
         rec_string = rec_string + "customerPhone: \"\", "
         rec_string = rec_string + "instructions: \"" + query[i]["instructions"] + "\", "
-        rec_string = rec_string + "origin:  \"" + str(query[i]["origin"]) + "\"" + " }"
+        rec_string = rec_string + "origin:  \"ecbot app\"" + " }"
 
         if i != len(query) - 1:
             rec_string = rec_string + ', '
 
     tail_string = """
-        ]) 
+        ])
         }"""
     query_string = query_string + rec_string + tail_string
     logger_helper.debug(query_string)
@@ -427,31 +452,24 @@ def gen_query_bots_string(q_setting):
     return query_string
 
 
-def gen_query_missions_string(q_setting):
-    if q_setting["byowneruser"]:
-        query_string = "query MySkQuery { queryMissions(qm: \"{ \\\"byowneruser\\\": true}\") } "
-    else:
-        query_string = "query MySkQuery { queryMissions(qm: \"{ \\\"byowneruser\\\": false "
-        if "created_date_range" in q_setting:
-            query_string = query_string + ", \\\"created_date_range\\\": \\\"" + q_setting["created_date_range"] + "\\\""
-
-        if "status" in q_setting:
-            query_string = query_string + ", \\\"status\\\":" + q_setting["status"] + "\\\","
-
-        if "type" in q_setting:
-            query_string = query_string + ", \\\"type\\\":" + q_setting["type"] + "\\\","
-
-        if "phrase" in q_setting:
-            query_string = query_string + ", \\\"phrase\\\":" + q_setting["phrase"] + "\\\","
-
-        if "pseudo_store" in q_setting:
-            query_string = query_string + ", \\\"pseudo_store\\\":" + q_setting["pseudo_store"] + "\\\""
-
-        query_string = query_string + "}\") } "
-
-
+def gen_query_missions_string(query):
+    query_string = """
+        query MyQuery {
+      queryMissions (qm:[
+    """
     rec_string = ""
-    tail_string = ""
+    for i in range(len(query)):
+        rec_string = rec_string + "{ mid: " + str(int(query[i]['mid'])) + ", "
+        rec_string = rec_string + "ticket: " + str(int(query[i]['ticket'])) + ", "
+        rec_string = rec_string + "botid: " + str(int(query[i]['botid'])) + ", "
+        rec_string = rec_string + "owner: \"" + query[i]['owner'] + "\", "
+        rec_string = rec_string + "skills: \"" + query[i]['skills'] + "\" }"
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+        ])
+        }"""
     query_string = query_string + rec_string + tail_string
     logger_helper.debug(query_string)
     return query_string
@@ -1135,6 +1153,24 @@ def req_cloud_obtain_review(session, request, token):
 
     if "errors" in jresp:
         screen_error = True
+        print("JRESP:", jresp)
+        logger_helper.debug("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["getFB"])
+
+    return jresponse
+
+
+def req_cloud_obtain_review_w_aipkey(session, request, apikey):
+
+    query = gen_obtain_review_request_string(request)
+
+    jresp = appsync_http_request_w_apikey(query, session, apikey)
+
+    if "errors" in jresp:
+        screen_error = True
+        print("JRESP:", jresp)
         logger_helper.debug("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["errorInfo"]))
         jresponse = jresp["errors"][0]
     else:
@@ -1585,6 +1621,24 @@ def send_account_info_request_to_cloud(session, acct_ops, token):
 
 
 
+def send_reg_steps_to_cloud(session, localSteps, token):
+
+    queryInfo = gen_query_reg_steps_string(localSteps)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    #  logger_helper.debug("file op response:"+json.dumps(jresp))
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["regSteps"])
+
+    return jresponse
+
+
+
 def send_feedback_request_to_cloud(session, fb_reqs, token):
 
     queryInfo = gen_feedback_request_string(fb_reqs)
@@ -1772,7 +1826,34 @@ def appsync_http_request(query_string, session, token):
     headers = {
         'Content-Type': "application/graphql",
         'Authorization': token,
-        'cache-control': "no-cache",
+        'cache-control': "no-cache"
+    }
+
+    # Now we can simply post the request...
+    response = session.request(
+        url=APPSYNC_API_ENDPOINT_URL,
+        method='POST',
+        timeout=300,
+        headers=headers,
+        json={'query': query_string}
+    )
+    # save response to a log file. with a time stamp.
+    print(response)
+
+    jresp = response.json()
+
+    return jresp
+
+def appsync_http_request_w_apikey(query_string, session, apikey):
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    # Use JSON format string for the query. It does not need reformatting.
+
+    headers = {
+        'Content-Type': "application/graphql",
+        'Authorization': apikey,
+        'x-custom-api-key': apikey,
+        'x-api-caller': "songc@yahoo.com",
+        'cache-control': "no-cache"
     }
 
     # Now we can simply post the request...

@@ -739,7 +739,7 @@ def processPrepareGSOrder(step, i):
         # dt_string = datetime.now().strftime('%Y%m%d%H%M%S%f')
         dt_string = datetime.now().strftime('%Y%m%d%H%M%S')
         # today for testing only:
-        dt_string = "20240831110600"
+        dt_string = "20240901202600"
 
         if len(light_orders) > 0:
             ofname1 = file_path+"/"+ec_platform+"OrdersGround"+dt_string+".xlsx"
