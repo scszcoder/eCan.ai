@@ -1502,7 +1502,9 @@ class MainWindow(QMainWindow):
         # test_presigned_updownload(new_mission)
         # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
         # test_handle_extern_skill_run_report(self.session, self.tokens['AuthenticationResult']['IdToken'])
-        asyncio.ensure_future(test_wait_until8())
+        # asyncio.ensure_future(test_wait_until8())
+
+        testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
@@ -1618,7 +1620,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest99.json'
+                        file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:

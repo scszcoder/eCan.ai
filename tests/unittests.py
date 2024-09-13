@@ -8,7 +8,8 @@ import win32print
 import win32api
 import pytz
 
-from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud
+from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud, \
+    req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review
 from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXlsx, covertTxtProfiles2XlsxProfiles, \
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
@@ -1599,3 +1600,20 @@ def setupExtSkillRunReportResultsTestData(mainwin):
     }]
 
 
+
+
+def testCloudAccessWithAPIKey(session, token):
+    apikey = os.getenv('SC_ECB_TEST_API_KEY0')
+    print("apikey:", apikey)
+    req = [
+        {
+            "product":  "coffee mug",
+            "instructions": json.dumps({"features": "", "occasion":""}).replace('"', '\\"')
+        }
+    ]
+
+    # req_cloud_obtain_review(session, req, token)
+
+
+
+    req_cloud_obtain_review_w_aipkey(session, req, apikey)
