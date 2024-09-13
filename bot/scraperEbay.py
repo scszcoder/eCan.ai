@@ -5,7 +5,7 @@ import traceback
 from bs4 import BeautifulSoup
 import esprima
 
-from bot.basicSkill import DEFAULT_RUN_STATUS, STEP_GAP, symTab
+from bot.basicSkill import DEFAULT_RUN_STATUS, STEP_GAP, symTab, regSteps
 from bot.Logger import log3
 from bot.ordersData import OrderedProduct, ORDER, OrderPerson, Shipping
 

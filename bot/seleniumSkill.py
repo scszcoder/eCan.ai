@@ -1104,6 +1104,7 @@ def execute_js_script(driver, script, *args):
 
 def processWebdriverExecuteJs(step, i, mission):
     try:
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         script = step["script_var"]
@@ -1122,6 +1123,7 @@ def processWebdriverExecuteJs(step, i, mission):
         # Execute the JavaScript script
         result = execute_js_script(driver, script, target)
         print(f"Result of the JavaScript execution: {result}")
+        regSteps(step["type"], "", "", 1, mainwin)
 
     except Exception as e:
         # Get the traceback information

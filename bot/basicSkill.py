@@ -22,7 +22,7 @@ from ping3 import ping
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
-    download_file, download_file8
+    download_file, download_file8, send_file_op_request_to_cloud
 from bot.Logger import log3
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -5368,3 +5368,18 @@ def processKillProcesses(step, i):
 
 def setMissionInput(input):
     symTab["fin"] = input
+
+
+def regSteps(stepType, stepData, stepDuration, mainWin):
+    settings = mainWin.main_win_settings
+
+    steps = [
+        {
+            "type": stepType,
+            "data": stepData,
+            "stepDuration": stepDuration,           # in milliseconds
+            "end_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        }
+    ]
+    #upload screen to S3
+    send_file_op_request_to_cloud(settings["session"], steps, settings["token"])
