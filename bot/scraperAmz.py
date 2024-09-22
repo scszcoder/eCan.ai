@@ -312,7 +312,7 @@ def amz_buyer_scrape_product_reviews(html_file,  product):
     return product
 
 
-def processAmzScrapeBuyOrdersHtml(step, i):
+def processAmzScrapeBuyOrdersHtml(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -436,7 +436,7 @@ def processAmzScrapeBuyOrdersHtml(step, i):
     return next_i, ex_stat
 
 
-def processAmzScrapeSoldOrdersHtml(step, i):
+def processAmzScrapeSoldOrdersHtml(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -545,7 +545,7 @@ def processAmzScrapeSoldOrdersHtml(step, i):
     return next_i, ex_stat
 
 
-def processAmzScrapeShipToAddress(step, i):
+def processAmzScrapeShipToAddress(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -666,7 +666,7 @@ def genStepAmzScrapeCustomerMsgThread(html_dir, dir_name_type, html_file, pidx, 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def processAmzScrapeMsgList(step, i):
+def processAmzScrapeMsgList(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -731,7 +731,7 @@ def processAmzScrapeMsgList(step, i):
     return next_i, ex_stat
 
 
-def processAmzScrapeCustomerMsgThread(step, i):
+def processAmzScrapeCustomerMsgThread(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1

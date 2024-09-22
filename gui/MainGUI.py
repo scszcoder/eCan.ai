@@ -34,7 +34,7 @@ from gui.BotGUI import BotNewWin
 from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file
+    send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from gui.LoggerGUI import CommanderLogWin
 from bot.Logger import LOG_SWITCH_BOARD, log3
@@ -1504,7 +1504,9 @@ class MainWindow(QMainWindow):
         # test_handle_extern_skill_run_report(self.session, self.tokens['AuthenticationResult']['IdToken'])
         # asyncio.ensure_future(test_wait_until8())
 
-        testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
+
+        testReportVehicles(self)
 
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
@@ -5991,6 +5993,41 @@ class MainWindow(QMainWindow):
             await asyncio.sleep(1)
 
 
+
+    def prepVehicleReportData(self):
+        report = []
+        for v in self.vehicles:
+            vinfo = {
+                "vid": v.getVid(),
+                "vname": v.getName(),
+                "owner": "",
+                "status": "running",
+                "bids": ",".join(v.getBotIds()),
+                "hardware": v.getArch(),
+                "software": v.getOS(),
+                "ip": v.getIP(),
+                "created_at": ""
+            }
+            report.append(vinfo)
+
+        if "Only" not in self.host_role and "Staff" not in self.host_role:
+            # add myself as a vehicle resource too.
+            vinfo = {
+                "vid": v.getVid(),
+                "vname": v.getName(),
+                "owner": "",
+                "status": "running",
+                "bids": ",".join(v.getBotIds()),
+                "hardware": v.getArch(),
+                "software": v.getOS(),
+                "ip": v.getIP(),
+                "created_at": ""
+            }
+            report.append(vinfo)
+
+        return report
+
+
     # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
     async def runRPAMonitor(self, monitor_msg_queue):
         running = True
@@ -6003,6 +6040,11 @@ class MainWindow(QMainWindow):
             #ping cloud every 8 second to see whether there is any monitor/control internet. use amazon's sqs
             if ticks % 8 == 0:
                 self.showMsg(f"Access Internet Here with Websocket...")
+
+            if ticks % 180 == 0:
+                self.showMsg(f"report vehicle status")
+                vehicle_report = self.prepVehicleReportData()
+                resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], vehicle_report)
 
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
