@@ -427,6 +427,35 @@ def gen_screen_read_icon_request_string(query):
     return query_string
 
 
+def gen_report_vehicles_string(vehicles):
+    query_string = """
+        mutation MyMutation {
+      reportVehicles (input:[
+    """
+    rec_string = ""
+    for i in range(len(vehicles)):
+        rec_string = rec_string + "{ vid: " + str(int(vehicles[i]["vid"])) + ", "
+        rec_string = rec_string + "vname: \"" + vehicles[i]["vname"] + "\", "
+        rec_string = rec_string + "owner: \"" + vehicles[i]["owner"] + "\", "
+        rec_string = rec_string + "status: \"" + vehicles[i]["status"] + "\", "
+        rec_string = rec_string + "bids: \"" + vehicles[i]["bids"] + "\", "
+        rec_string = rec_string + "hardware: \"" + vehicles[i]["hardware"] + "\", "
+        rec_string = rec_string + "software: \"" + vehicles[i]["software"] + "\", "
+        rec_string = rec_string + "ip: \"" + vehicles[i]["ip"] + "\", "
+        rec_string = rec_string + "created_at: \"" + vehicles[i]["created_at"] + "\" }"
+        if i != len(vehicles) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+        ]) {id}
+        }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
+
+
 def gen_query_skills_string(q_setting):
     if q_setting["byowneruser"]:
         query_string = "query MySkQuery { querySkills(qs: \"{ \\\"byowneruser\\\": true}\") } "
@@ -1515,6 +1544,25 @@ def send_query_skills_request_to_cloud(session, token, q_settings):
 
 
     return jresponse
+
+
+def send_report_vehicles_to_cloud(session, token, vehicles):
+
+    queryInfo = gen_report_vehicles_string(vehicles)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["reportVehicles"])
+
+
+    return jresponse
+
+
 
 def send_query_bots_request_to_cloud(session, token, q_settings):
 

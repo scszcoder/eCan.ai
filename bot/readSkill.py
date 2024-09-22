@@ -164,39 +164,39 @@ RAIS = {
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
-    "AMZ Scrape Product Details Html": lambda x, y: processAMZScrapeProductDetailsHtml(x, y),
-    "AMZ Scrape Buy Orders Html": lambda x, y: processAMZScrapeBuyOrdersHtml(x, y),
+    "AMZ Scrape Product Details Html": lambda x, y, z: processAMZScrapeProductDetailsHtml(x, y, z),
+    "AMZ Scrape Buy Orders Html": lambda x, y, z: processAMZScrapeBuyOrdersHtml(x, y, z),
     "AMZ Browse Reviews": lambda x,y: processAMZBrowseReviews(x, y),
-    "AMZ Scrape Reviews Html": lambda x, y: processAMZScrapeReviewsHtml(x, y),
-    "AMZ Scrape Sold Orders Html": lambda x, y: processAMZScrapeSoldOrdersHtml(x, y),
-    "AMZ Scrape Msg Lists": lambda x, y: processAmzScrapeMsgList(x, y),
+    "AMZ Scrape Reviews Html": lambda x, y, z: processAMZScrapeReviewsHtml(x, y, z),
+    "AMZ Scrape Sold Orders Html": lambda x, y, z: processAMZScrapeSoldOrdersHtml(x, y, z),
+    "AMZ Scrape Msg Lists": lambda x, y, z: processAmzScrapeMsgList(x, y, z),
     "AMZ Buy Check Shipping": lambda x, y: processAmzBuyCheckShipping(x, y),
     "AMZ Details Check Position": lambda x, y: processAmzDetailsCheckPosition(x, y),
     "AMZ PL Calc Columns": lambda x, y: processAmzPLCalcNCols(x, y),
     "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
-    "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
-    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersFromHtml(x, y),
-    "EBAY Scrape Orders Javascript": lambda x, y: processEbayScrapeOrdersFromJss(x, y),
-    "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
-    "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
+    "AMZ Scrape Customer Msg": lambda x, y, z: processAmzScrapeCustomerMsgThread(x, y, z),
+    "EBAY Scrape Orders Html": lambda x, y, z: processEbayScrapeOrdersFromHtml(x, y, z),
+    "EBAY Scrape Orders Javascript": lambda x, y, z: processEbayScrapeOrdersFromJss(x, y, z),
+    "EBAY Scrape Msg Lists": lambda x, y, z: processEbayScrapeMsgList(x, y, z),
+    "EBAY Scrape Customer Msg": lambda x, y, z: processEbayScrapeCustomerMsgThread(x, y, z),
     "Ebay Gen Shipping From Order ID": lambda x, y: processEbayGenShippingInfoFromOrderID(x, y),
     "Gen Resp Msg": lambda x, y: processGenRespMsg(x, y),
-    "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
+    "ETSY Scrape Orders": lambda x, y, z: processEtsyScrapeOrders(x, y, z),
     "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
     "Etsy Set Order Clicked Status": lambda x, y: processEtsySetOrderClickedStatus(x, y),
     "Etsy Find Screen Order": lambda x, y: processEtsyFindScreenOrder(x, y),
     "Etsy Remove Expanded": lambda x, y: processEtsyRemoveAlreadyExpanded(x, y),
     "Etsy Extract Tracking": lambda x, y: processEtsyExtractTracking(x, y),
     "Etsy Add Page Of Order": lambda x, y: processEtsyAddPageOfOrder(x, y),
-    "ETSY Scrape Msg Lists": lambda x, y: processEtsyScrapeMsgLists(x, y),
-    "ETSY Scrape Msg Thread": lambda x, y: processEtsyScrapeMsgThread(x, y),
+    "ETSY Scrape Msg Lists": lambda x, y, z: processEtsyScrapeMsgLists(x, y, z),
+    "ETSY Scrape Msg Thread": lambda x, y, z: processEtsyScrapeMsgThread(x, y, z),
     "Create ADS Profile Batches": lambda x, y, z: processADSProfileBatches(x, y, z),
     "Update Buy Mission Result": lambda x, y, z: processUpdateBuyMissionResult(x, y, z),
-    "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
+    "GS Scrape Labels": lambda x, y, z: processGSScrapeLabels(x, y, z),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
-    "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
+    "AMZ Match Products": lambda x, y, z: processAMZMatchProduct(x, y, z),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
     "Gen Shipping From Msg Responses": lambda x,y: processGenShippingOrdersFromMsgResponses(x, y),
     "Go To Window": lambda x,y: processGoToWindow(x, y),
@@ -221,9 +221,9 @@ RAIS = {
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
-    "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
-    "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
-    "Web Driver Wait For Visibility": lambda x, y: processWebdriverWaitForVisibility(x, y),
+    "Web Driver Extract Info": lambda x, y, z: processWebdriverExtractInfo(x, y, z),
+    "Web Driver Wait Until Clickable": lambda x, y, z: processWebdriverWaitUntilClickable(x, y, z),
+    "Web Driver Wait For Visibility": lambda x, y, z: processWebdriverWaitForVisibility(x, y, z),
     "Web Driver Switch To Frame": lambda x, y: processWebdriverSwitchToFrame(x, y),
     "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
@@ -296,35 +296,35 @@ ARAIS = {
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
-    "AMZ Scrape Product Details Html": lambda x, y: processAMZScrapeProductDetailsHtml(x, y),
-    "AMZ Scrape Buy Orders Html": lambda x, y: processAMZScrapeBuyOrdersHtml(x, y),
+    "AMZ Scrape Product Details Html": lambda x, y, z: processAMZScrapeProductDetailsHtml(x, y, z),
+    "AMZ Scrape Buy Orders Html": lambda x, y, z: processAMZScrapeBuyOrdersHtml(x, y, z),
     "AMZ Browse Reviews": lambda x,y: processAMZBrowseReviews(x, y),
-    "AMZ Scrape Reviews Html": lambda x, y: processAMZScrapeReviewsHtml(x, y),
-    "AMZ Scrape Sold Orders Html": lambda x, y: processAMZScrapeSoldOrdersHtml(x, y),
-    "AMZ Scrape Msg Lists": lambda x, y: processAmzScrapeMsgList(x, y),
+    "AMZ Scrape Reviews Html": lambda x, y, z: processAMZScrapeReviewsHtml(x, y, z),
+    "AMZ Scrape Sold Orders Html": lambda x, y, z: processAMZScrapeSoldOrdersHtml(x, y, z),
+    "AMZ Scrape Msg Lists": lambda x, y, z: processAmzScrapeMsgList(x, y, z),
     "AMZ Buy Check Shipping": lambda x, y: processAmzBuyCheckShipping(x, y),
     "AMZ Details Check Position": lambda x, y: processAmzDetailsCheckPosition(x, y),
     "AMZ PL Calc Columns": lambda x, y: processAmzPLCalcNCols(x, y),
     "Sell Check Shipping": lambda x, y: processSellCheckShipping(x, y),
-    "AMZ Scrape Customer Msg": lambda x, y: processAmzScrapeCustomerMsgThread(x, y),
-    "EBAY Scrape Orders Html": lambda x, y: processEbayScrapeOrdersFromHtml(x, y),
-    "EBAY Scrape Orders Javascript": lambda x, y: processEbayScrapeOrdersFromJss(x, y),
-    "EBAY Scrape Msg Lists": lambda x, y: processEbayScrapeMsgList(x, y),
-    "EBAY Scrape Customer Msg": lambda x, y: processEbayScrapeCustomerMsgThread(x, y),
+    "AMZ Scrape Customer Msg": lambda x, y, z: processAmzScrapeCustomerMsgThread(x, y, z),
+    "EBAY Scrape Orders Html": lambda x, y, z: processEbayScrapeOrdersFromHtml(x, y, z),
+    "EBAY Scrape Orders Javascript": lambda x, y, z: processEbayScrapeOrdersFromJss(x, y, z),
+    "EBAY Scrape Msg Lists": lambda x, y, z: processEbayScrapeMsgList(x, y, z),
+    "EBAY Scrape Customer Msg": lambda x, y, z: processEbayScrapeCustomerMsgThread(x, y, z),
     "Ebay Gen Shipping From Order ID": lambda x, y: processEbayGenShippingInfoFromOrderID(x, y),
     "Gen Resp Msg": lambda x, y: processGenRespMsg(x, y),
-    "ETSY Scrape Orders": lambda x, y: processEtsyScrapeOrders(x, y),
+    "ETSY Scrape Orders": lambda x, y, z: processEtsyScrapeOrders(x, y, z),
     "Etsy Get Order Clicked Status": lambda x, y: processEtsyGetOrderClickedStatus(x, y),
     "Etsy Set Order Clicked Status": lambda x, y: processEtsySetOrderClickedStatus(x, y),
     "Etsy Find Screen Order": lambda x, y: processEtsyFindScreenOrder(x, y),
     "Etsy Remove Expanded": lambda x, y: processEtsyRemoveAlreadyExpanded(x, y),
     "Etsy Extract Tracking": lambda x, y: processEtsyExtractTracking(x, y),
     "Etsy Add Page Of Order": lambda x, y: processEtsyAddPageOfOrder(x, y),
-    "ETSY Scrape Msg Lists": lambda x, y: processEtsyScrapeMsgLists(x, y),
-    "ETSY Scrape Msg Thread": lambda x, y: processEtsyScrapeMsgThread(x, y),
+    "ETSY Scrape Msg Lists": lambda x, y, z: processEtsyScrapeMsgLists(x, y, z),
+    "ETSY Scrape Msg Thread": lambda x, y, z: processEtsyScrapeMsgThread(x, y, z),
     "Create ADS Profile Batches": lambda x, y, z: processADSProfileBatches(x, y, z),
     "Update Buy Mission Result": lambda x, y, z: processUpdateBuyMissionResult(x, y, z),
-    "GS Scrape Labels": lambda x, y: processGSScrapeLabels(x, y),
+    "GS Scrape Labels": lambda x, y, z: processGSScrapeLabels(x, y, z),
     "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
     "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
     "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
@@ -353,9 +353,9 @@ ARAIS = {
     "Web Driver Start Existing Chrome": lambda x, y: processWebdriverStartExistingChrome(x, y),
     "Web Driver Start Existing ADS": lambda x, y: processWebdriverStartExistingADS(x, y),
     "Web Driver Start New Chrome": lambda x, y: processWebdriverStartNewChrome(x, y),
-    "Web Driver Extract Info": lambda x, y: processWebdriverExtractInfo(x, y),
-    "Web Driver Wait Until Clickable": lambda x, y: processWebdriverWaitUntilClickable(x, y),
-    "Web Driver Wait For Visibility": lambda x, y: processWebdriverWaitForVisibility(x, y),
+    "Web Driver Extract Info": lambda x, y, z: processWebdriverExtractInfo(x, y, z),
+    "Web Driver Wait Until Clickable": lambda x, y, z: processWebdriverWaitUntilClickable(x, y, z),
+    "Web Driver Wait For Visibility": lambda x, y, z: processWebdriverWaitForVisibility(x, y, z),
     "Web Driver Switch To Frame": lambda x, y: processWebdriverSwitchToFrame(x, y),
     "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
@@ -608,10 +608,11 @@ def run1step(steps, si, mission, skill, stack):
             si,isat = RAIS[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = RAIS[step["type"]](step, si, mission, skill)
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
+        elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
-            step["type"] == "Web Driver Scroll To" or  step["type"] == "Web Driver Execute Js" or \
-            step["type"] == "Text Input" or \
+            step["type"] == "Web Driver Scroll To" or step["type"] == "Web Driver Execute Js" or \
+            step["type"] == "Web Driver Wait Until Clickable" or \
+            step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait For Visibility" or\
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
@@ -669,11 +670,12 @@ async def run1step8(steps, si, mission, skill, stack):
             else:
                 si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
-        elif step["type"] == "AMZ Scrape PL Html" or step["type"] == "Create ADS Profile Batches" or \
+        elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
              step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
              step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download Files" or \
              step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
-             step["type"] == "Text Input" or \
+             step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
+             step["type"] == "Web Driver Wait For Visibility" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
              step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):

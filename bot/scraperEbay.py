@@ -247,7 +247,7 @@ def genStepEbayScrapeCustomerMsgThread(html_dir, source_type, html_file, pidx, o
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def processEbayScrapeMsgList(step, i):
+def processEbayScrapeMsgList(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -277,7 +277,7 @@ def processEbayScrapeMsgList(step, i):
 
 
 
-def processEbayScrapeCustomerMsgThread(step, i):
+def processEbayScrapeCustomerMsgThread(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -557,7 +557,7 @@ def genStepEbayScrapeOrdersFromJss(jss_var, jss_var_type, pidx, outvar, statusva
 
 
 html_dir = ""
-def processEbayScrapeOrdersFromHtml(step, i):
+def processEbayScrapeOrdersFromHtml(step, i, mission):
     global html_dir
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -592,7 +592,7 @@ def processEbayScrapeOrdersFromHtml(step, i):
 
 
 
-def processEbayScrapeOrdersFromJss(step, i):
+def processEbayScrapeOrdersFromJss(step, i, mission):
     global html_dir
     ex_stat = DEFAULT_RUN_STATUS
     try:
