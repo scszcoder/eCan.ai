@@ -190,6 +190,8 @@ class M_Pub_Attributes():
         self.buy_type = ""
         self.sell_type = ""
         self.as_server = False
+        self.error = ""
+        self.intermediate_data = None
 
     def getAsServer(self):
         return self.as_server
@@ -223,6 +225,12 @@ class M_Pub_Attributes():
     def get_all_steps(self):
         # load skill file.
         return self.all_steps
+
+    def setError(self, err):
+        self.error = err
+
+    def setIntermediateData(self,idata):
+        self.intermediate_data = idata
 
     def loadJson(self, dj):
         self.missionId = dj["missionId"]
@@ -868,6 +876,12 @@ class EBMISSION(QStandardItem):
 
     def setPlatoon(self, pid):
         self.pubAttributes.platoon_id = pid
+
+    def setError(self, err):
+        self.pubAttributes.setError(err)
+
+    def setIntermediateData(self, idata):
+        self.pubAttributes.setIntermediateData(idata)
 
     def getNRetries(self):
         return self.pubAttributes.n_retries

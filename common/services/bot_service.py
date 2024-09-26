@@ -7,7 +7,7 @@ from Cloud import send_query_bots_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.bot import BotModel
 from utils.logger_helper import logger_helper
-
+import traceback
 
 BOT_TABLE_DEF = [ {'name': 'botid', 'type': 'INTEGER', 'nullable': True, 'default': 0 },
                       {'name': 'owner', 'type': 'TEXT', 'nullable': True, 'default': ""},
@@ -142,28 +142,37 @@ class BotService:
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_bot.to_dict()))
 
     def sync_cloud_bot_data(self, session, tokens):
-        jresp = send_query_bots_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
-                                                 {"byowneruser": True})
-        all_bots = json.loads(jresp['body'])
-        for bot in all_bots:
-            bid = bot['bid']
-            result: BotModel = self.session.query(BotModel).filter(BotModel.botid == bid).first()
-            insert = False
-            if result is None:
-                result = BotModel()
-                insert = True
-            result.botid = bot['bid']
-            result.owner = bot['owner']
-            result.levels = bot['levels']
-            result.gender = bot['gender']
-            result.birthday = bot['birthday']
-            result.interests = bot['interests']
-            result.location = bot['location']
-            result.roles = bot['roles']
-            result.status = bot['status']
-            if insert:
-                self.session.add(result)
-        self.session.commit()
+        try:
+            jresp = send_query_bots_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
+                                                     {"byowneruser": True})
+            all_bots = json.loads(jresp['body'])
+            for bot in all_bots:
+                bid = bot['bid']
+                result: BotModel = self.session.query(BotModel).filter(BotModel.botid == bid).first()
+                insert = False
+                if result is None:
+                    result = BotModel()
+                    insert = True
+                result.botid = bot['bid']
+                result.owner = bot['owner']
+                result.levels = bot['levels']
+                result.gender = bot['gender']
+                result.birthday = bot['birthday']
+                result.interests = bot['interests']
+                result.location = bot['location']
+                result.roles = bot['roles']
+                result.status = bot['status']
+                if insert:
+                    self.session.add(result)
+            self.session.commit()
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "Errorsync_cloud_bot_data:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "Errorsync_cloud_bot_data: traceback information not available:" + str(e)
 
     def describe_table(self):
         inspector = inspect(BotModel)
