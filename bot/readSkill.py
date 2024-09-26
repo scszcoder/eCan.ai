@@ -26,7 +26,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
-    processBringAppToFront
+    processBringAppToFront, processUpdateMissionStatus
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -233,7 +233,8 @@ RAIS = {
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
     "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
-    "Download Files": lambda x, y, z: processDownloadFiles(x, y, z)
+    "Download Files": lambda x, y, z: processDownloadFiles(x, y, z),
+    "Update Mission Status": lambda x, y, z: processUpdateMissionStatus(x, y, z)
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
@@ -365,7 +366,8 @@ ARAIS = {
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
     "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
-    "Download Files": lambda x, y, z: processDownloadFiles(x, y, z)
+    "Download Files": lambda x, y, z: processDownloadFiles(x, y, z),
+    "Update Mission Status": lambda x, y, z: processUpdateMissionStatus(x, y, z)
 }
 
 # read an psk fill into steps (json data structure)
@@ -615,6 +617,7 @@ def run1step(steps, si, mission, skill, stack):
             step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait For Visibility" or\
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
+            step["type"] == "Update Mission Status" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
@@ -675,7 +678,7 @@ async def run1step8(steps, si, mission, skill, stack):
              step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download Files" or \
              step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
              step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
-             step["type"] == "Web Driver Wait For Visibility" or \
+             step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
              step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):

@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
             self.homepath = homepath
         self.gui_net_msg_queue = gui_msg_queue
         self.gui_rpa_msg_queue = asyncio.Queue()
+        self.virtual_cloud_task_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
         self.lang = lang
         self.tz = self.obtainTZ()
@@ -204,7 +205,6 @@ class MainWindow(QMainWindow):
         self.machine_role = machine_role
         self.ip = ip
         self.main_key = main_key
-
         self.user = user
         self.chat_id = user.split("@")[0] + "_" + user.split("@")[1].replace(".", "_")
         self.log_user = self.chat_id
@@ -220,7 +220,7 @@ class MainWindow(QMainWindow):
             self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
         print("my chatId:", self.chat_id)
         self.staff_officer_on_line = False
-        self.workingState = "Idle"
+        self.working_state = "running_idle"
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
@@ -1523,8 +1523,8 @@ class MainWindow(QMainWindow):
 
         # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
-        testReportVehicles(self)
-        # testDequeue(self)
+        # testReportVehicles(self)
+        testDequeue(self)
 
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
@@ -3205,7 +3205,7 @@ class MainWindow(QMainWindow):
 
 
     def runBotTask(self, task):
-        self.workingState = "Working"
+        self.working_state = "running_working"
         task_mission = self.missions[task.mid]
         # run all the todo steps
         # (steps, mission, skill, mode="normal"):
@@ -5201,11 +5201,20 @@ class MainWindow(QMainWindow):
                 if (current_time - pre_time).total_seconds() > 60:
                     print("about to send heartbeat")
                     pre_time = current_time
-                    await self.wan_send_heartbeat()
+                    hbInfo = self.stateCapture()
+                    await self.wan_send_heartbeat(hbInfo)
+
+                # check whether there is vehicle for hire, if so, check any contract work in the queue
+                # if so grab it.
+                contractWorks = self.checkCloudWorkQueue()
+
+                # if there is actual work, 1) deque from virutal cloud queue, 2) put it into local unassigned work list.
+                # and the rest will be taken care of by the work dispatcher...
+                self.arrangeContractWorks(contractWorks)
 
                 print("real work starts here....")
                 botTodos = None
-                if self.workingState == "Idle":
+                if self.working_state == "running_idle":
                     print("idle checking.....")
                     if self.getNumUnassignedWork() > 0:
                         self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
@@ -5215,7 +5224,7 @@ class MainWindow(QMainWindow):
                     botTodos = self.checkNextToRun()
                     if not botTodos == None:
                         self.showMsg("working on..... "+botTodos["name"])
-                        self.workingState = "Working"
+                        self.working_state = "running_working"
                         if botTodos["name"] == "fetch schedule":
                             self.showMsg("fetching schedule.........."+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                             last_start = int(datetime.now().timestamp()*1)
@@ -5289,9 +5298,9 @@ class MainWindow(QMainWindow):
                             if len(self.todays_work["tbd"]) == 0:
                                 self.doneWithToday()
 
-                if self.workingState != "Idle":
+                if self.working_state != "running_idle":
                     # clear to make next round ready to work
-                    self.workingState = "Idle"
+                    self.working_state = "running_idle"
 
                 print("running bot works whenever there is some to run....")
                 await asyncio.sleep(1)
@@ -5458,6 +5467,9 @@ class MainWindow(QMainWindow):
 
                 self.showMsg("len todays's reports: "+str(len(self.todaysPlatoonReports))+" len todays's completed:"+str(len(self.todays_completed)))
                 self.showMsg("completd: "+json.dumps(self.todays_completed))
+
+                # update vehicle status, now becomes idle again.
+                self.updateVehicleStatus(msg["ip"])
 
                 # keep statistics on all platoon runs.
                 if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
@@ -6023,7 +6035,7 @@ class MainWindow(QMainWindow):
         self.showMsg("bids on this vehicle:"+thisBidsString)
         return thisBidsString
 
-    def prepVehicleReportData(self):
+    def prepFullVehicleReportData(self):
         report = []
         for v in self.vehicles:
             if v.getStatus() == "":
@@ -6047,13 +6059,11 @@ class MainWindow(QMainWindow):
                     "created_at": ""
                 }
             else:
-                vstat = "running"
-                # vstat = "online"
                 vinfo = {
                     "vid": 0,
                     "vname": self.machine_name+":"+self.os_short,
                     "owner": self.user,
-                    "status": vstat,
+                    "status": self.working_state,
                     "lastseen": "1900-01-01 00:00:00",
                     "bids": self.getBidsOnThisVehicle(),
                     "hardware": self.processor,
@@ -6070,7 +6080,7 @@ class MainWindow(QMainWindow):
                     "vid": 0,
                     "vname": self.machine_name+":"+self.os_short,
                     "owner": self.user,
-                    "status": "running",
+                    "status": self.working_state,
                     "lastseen": "1900-01-01 00:00:00",
                     "bids": self.getBidsOnThisVehicle(),
                     "hardware": self.processor,
@@ -6080,6 +6090,40 @@ class MainWindow(QMainWindow):
                 }
 
                 report.append(vinfo)
+
+        return report
+
+
+    def prepVehicleReportData(self, v):
+        report = []
+
+        if v:
+            vinfo = {
+                "vid": v.getVid(),
+                "vname": v.getName(),
+                "owner": self.user,
+                "status": v.getStatus(),
+                "lastseen": "1900-01-01 00:00:00",
+                "bids": ",".join(v.getBotIds()),
+                "hardware": v.getArch(),
+                "software": v.getOS(),
+                "ip": v.getIP(),
+                "created_at": ""
+            }
+        else:
+            vinfo = {
+                "vid": 0,
+                "vname": self.machine_name+":"+self.os_short,
+                "owner": self.user,
+                "status": self.working_state,
+                "lastseen": "1900-01-01 00:00:00",
+                "bids": self.getBidsOnThisVehicle(),
+                "hardware": self.processor,
+                "software": self.platform,
+                "ip": self.ip,
+                "created_at": ""
+            }
+        report.append(vinfo)
 
         return report
 
@@ -6099,7 +6143,7 @@ class MainWindow(QMainWindow):
 
             if ticks % 180 == 0:
                 self.showMsg(f"report vehicle status")
-                vehicle_report = self.prepVehicleReportData()
+                vehicle_report = self.prepFullVehicleReportData()
                 resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], vehicle_report)
 
             if not monitor_msg_queue.empty():
@@ -6139,6 +6183,16 @@ class MainWindow(QMainWindow):
                 new_works['added_missions'][0]['config'].append(in_message['sender'])
                 setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
+            elif in_message["type"] == "request queued":
+                # a request received on the cloud queue side. here what we will do:
+                # enqueue an item on local mirror (we call it virtual cloud queue)
+                requester_info = json.loads(in_message["contents"])
+                asyncio.create_task(self.virtual_cloud_task_queue.put(requester_info))
+
+                #then whenever a task group is finished either local or from remote. in that handler.
+                # we will probe virtual cloud queue whethere there is something to work on.
+                # if not empty, we will dequeue something from the cloud, once received work, we will deque local
+                # and dispatch the work into scheduler.
             elif in_message["type"] == "report results":
                 ext_run_results = json.loads(in_message["contents"].replace("\\", "\\\\"))
                 handleExtLabelGenResults(self.session, self.tokens['AuthenticationResult']['IdToken'], ext_run_results)
@@ -6518,7 +6572,7 @@ class MainWindow(QMainWindow):
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
 
-    async def wan_send_heartbeat(self):
+    async def wan_send_heartbeat(self, heartbeatInfo):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
             ping_msg = {
@@ -6526,7 +6580,7 @@ class MainWindow(QMainWindow):
                 "sender": self.user.split("@")[0] + "_Commander",
                 "receiver": sa_chat_id,
                 "type": "heartbeat",
-                "contents": json.dumps({}),
+                "contents": json.dumps(heartbeatInfo).replace('"', '\\"'),
                 "parameters": json.dumps({}),
             }
             # self.wan_sub_task = asyncio.create_task(wanSendMessage8(ping_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
@@ -6588,13 +6642,15 @@ class MainWindow(QMainWindow):
     def c_send_chat(self, msg):
         asyncio.ensure_future(self.wan_c_send_chat(msg))
 
-
+        current_time = datetime.now(timezone.utc)
         # Convert to the required AWSDateTime format
         aws_datetime_string = current_time.isoformat()
+
 
     def think_about_a_reponse(self, thread):
         print("Thinking about response.")
         current_time = datetime.now(timezone.utc)
+        aws_datetime_string = current_time.isoformat()
 
         session = self.session
         token = self.tokens['AuthenticationResult']['IdToken']
@@ -6618,8 +6674,66 @@ class MainWindow(QMainWindow):
         setLabelsReady()
         setupExtSkillRunReportResultsTestData(self)
 
+    # from ip find vehicle, and update its status, and
+    def updateVehicleStatus(self, ip):
+        found_vehicles = [v for v in self.vehicles if v.getIP() == ip]
+        if found_vehicles:
+            found_vehicle = found_vehicles[0]
+            found_vehicle.setStatus("running")
+            vehicle_report = self.prepVehicleReportData(found_vehicle)
+            log3("vehicle status report"+json.dumps(vehicle_report))
+            resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
+                                                 vehicle_report)
+
+    # capture current state and send in heartbeat signal to the cloud
+    def stateCapture(self):
+        stateInfo = {"vehiclesInfo": [{"vehicles_status": v.getStatus(), "vname": v.getName()} for v in self.vehicles]}
+
+        # we'll capture these info:
+        # all vehicle status running_idle/running_working/offline
+        # all the mission running status.??? may be this is not the good place for that, we'd have to ping vehicles
+        # plus, don't they update periodically already?
+
+
+        return stateInfo
+
+    # check whether there is vehicle for hire, if so, check any contract work in the queue
+    # if so grab it.
+    def checkCloudWorkQueue(self):
+        try:
+            idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if v.getStatus() == "running_idle"]
+            resp = send_dequeue_tasks_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], idle_vehicles)
+            taskGroups = json.loads(resp['body'])
+
+            # dequeue the virutal cloud task queue
+            if not self.virtual_cloud_task_queue.empty():
+                item = await self.virtual_cloud_task_queue.get()
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorCheckCloudWorkQueue:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorCheckCloudWorkQueue: traceback information not available:" + str(e)
+            log3(ex_stat)
+            taskGroups = {"task_groups": None, "added_missions": []}
+
+        return taskGroups
+
+    # if there is actual work, 1) deque from virutal cloud queue, 2) put it into local unassigned work list.
+    # and the rest will be taken care of by the work dispatcher...
+    # works organized as following....
+    # { win: {computer1: {"estern": ..... "central":...} , computer2: ...} , mac:, linux:...}
+    def arrangeContractWorks(self, contractWorks):
+        if contractWorks["added_missions"] and contractWorks["task_groups"]:
+            for platform_os in self.unassigned_task_groups:
+                self.unassigned_task_groups[platform_os].update(contractWorks["added_missions"][platform_os])
+
+
     # upon clicking here, it would simulate receiving a websocket message(cmd) and send this
-    # message to the relavant queue which will trigger a mission run.
+    # message to the relavant queue which will trigger a mission run. (For unit testing purpose)
     def simWanRequest(self):
         contents_data = {
             "task_groups": {
