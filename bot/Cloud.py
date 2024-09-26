@@ -438,20 +438,49 @@ def gen_report_vehicles_string(vehicles):
         rec_string = rec_string + "vname: \"" + vehicles[i]["vname"] + "\", "
         rec_string = rec_string + "owner: \"" + vehicles[i]["owner"] + "\", "
         rec_string = rec_string + "status: \"" + vehicles[i]["status"] + "\", "
+        rec_string = rec_string + "lastseen: \"" + vehicles[i]["lastseen"] + "\", "
         rec_string = rec_string + "bids: \"" + vehicles[i]["bids"] + "\", "
         rec_string = rec_string + "hardware: \"" + vehicles[i]["hardware"] + "\", "
         rec_string = rec_string + "software: \"" + vehicles[i]["software"] + "\", "
         rec_string = rec_string + "ip: \"" + vehicles[i]["ip"] + "\", "
         rec_string = rec_string + "created_at: \"" + vehicles[i]["created_at"] + "\" }"
+
         if i != len(vehicles) - 1:
             rec_string = rec_string + ', '
+        else:
+            rec_string = rec_string + ']'
 
     tail_string = """
-        ]) {id}
-        }"""
+        ) 
+        } """
     query_string = query_string + rec_string + tail_string
+
     logger_helper.debug(query_string)
     return query_string
+
+
+
+def gen_dequeue_tasks_string(vehicles):
+    vnames = ",".join([v["vname"] for v in vehicles])
+
+    query_string = """
+        mutation MyMutation {
+      dequeueTasks (input:[
+    """
+    rec_string = ""
+    rec_string = rec_string + "{ "
+    rec_string = rec_string + "vehicles: \"" + vnames + "\" }"
+
+    rec_string = rec_string + ']'
+
+    tail_string = """
+        ) 
+        } """
+    query_string = query_string + rec_string + tail_string
+
+    logger_helper.debug(query_string)
+    return query_string
+
 
 
 
@@ -1554,10 +1583,29 @@ def send_report_vehicles_to_cloud(session, token, vehicles):
 
     if "errors" in jresp:
         screen_error = True
+        print("JRESP:", jresp)
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["reportVehicles"])
+
+
+    return jresponse
+
+
+def send_dequeue_tasks_to_cloud(session, token, vehicles):
+
+    queryInfo = gen_dequeue_tasks_string(vehicles)
+
+    jresp = appsync_http_request(queryInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        print("JRESP:", jresp)
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["dequeueTasks"])
 
 
     return jresponse

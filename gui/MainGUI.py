@@ -67,6 +67,8 @@ import pandas as pd
 from gui.encrypt import *
 import keyboard
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
+import cpuinfo
+import psutil
 
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
@@ -222,7 +224,22 @@ class MainWindow(QMainWindow):
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
+        system = platform.system()
+        release = platform.release()
+        version = platform.version()
+        architecture = platform.architecture()[0]
+        self.os_info = f"{system} {release} ({architecture}), Version: {version}"
+
         self.platform = platform.system().lower()[0:3]
+        self.cpuinfo = cpuinfo.get_cpu_info()
+        self.processor = self.cpuinfo.get('brand_raw', 'Unknown Processor')
+        self.cpu_cores = psutil.cpu_count(logical=False)  # Physical cores
+        self.cpu_threads = psutil.cpu_count(logical=True)  # Logical cores (including hyper-threading)
+        self.cpu_speed = self.cpuinfo.get('hz_advertised_friendly', 'Unknown Speed')
+
+        # Memory Information
+        self.virtual_memory = psutil.virtual_memory()
+        self.total_memory = self.virtual_memory.total / (1024 ** 3)  # Convert bytes to GB
 
         self.std_item_font = QFont('Arial', 10)
 
@@ -237,9 +254,9 @@ class MainWindow(QMainWindow):
         self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "ads_port": 0, "ads_api_key": ""}
 
         # self.readBotJsonFile()
-        self.vehicles = []                      # computers on LAN that can carry out bots's tasks.， basically tcp transports
+        self.vehicles = []                              # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
-        self.missions = []              # mission 0 will always default to be the fetch schedule mission
+        self.missions = []                              # mission 0 will always default to be the fetch schedule mission
         self.trMission = self.createTrialRunMission()
         self.skills = []
         self.missionsToday = []
@@ -749,9 +766,9 @@ class MainWindow(QMainWindow):
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
             self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
-            # print("hohohohohohoho")
+            print("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
-            # print("hahahahahahah")
+            print("find all bots")
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
@@ -1507,6 +1524,7 @@ class MainWindow(QMainWindow):
         # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         testReportVehicles(self)
+        # testDequeue(self)
 
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
@@ -1622,7 +1640,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest999.json'
+                        file = 'C:/temp/scheduleResultTest99.json'
                         # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
@@ -3640,6 +3658,7 @@ class MainWindow(QMainWindow):
             # should add this machine to vehicle list.
             newVehicle = VEHICLE(self)
             newVehicle.setIP(self.ip)
+            newVehicle.setStatus("running")
             newVehicle.setName(self.machine_name+":"+self.os_short)
             self.saveVehicle(newVehicle)
             self.vehicles.append(newVehicle)
@@ -5993,37 +6012,74 @@ class MainWindow(QMainWindow):
             await asyncio.sleep(1)
 
 
+    def getBotsOnThisVehicle(self):
+        thisBots = [b for b in self.bots if self.machine_name in b.getVehicle()]
+        return thisBots
+
+    def getBidsOnThisVehicle(self):
+        thisBots = self.getBotsOnThisVehicle()
+        thisBids = [b.getBid() for b in thisBots]
+        thisBidsString = ",".join(thisBids)
+        self.showMsg("bids on this vehicle:"+thisBidsString)
+        return thisBidsString
 
     def prepVehicleReportData(self):
         report = []
         for v in self.vehicles:
-            vinfo = {
-                "vid": v.getVid(),
-                "vname": v.getName(),
-                "owner": "",
-                "status": "running",
-                "bids": ",".join(v.getBotIds()),
-                "hardware": v.getArch(),
-                "software": v.getOS(),
-                "ip": v.getIP(),
-                "created_at": ""
-            }
-            report.append(vinfo)
+            if v.getStatus() == "":
+                vstat = "offline"
+                # vstat = "online"
+            else:
+                vstat = v.getStatus()
+                # vstat = "online"
 
-        if "Only" not in self.host_role and "Staff" not in self.host_role:
-            # add myself as a vehicle resource too.
-            vinfo = {
-                "vid": v.getVid(),
-                "vname": v.getName(),
-                "owner": "",
-                "status": "running",
-                "bids": ",".join(v.getBotIds()),
-                "hardware": v.getArch(),
-                "software": v.getOS(),
-                "ip": v.getIP(),
-                "created_at": ""
-            }
+            if self.machine_name not in v.getName():
+                vinfo = {
+                    "vid": v.getVid(),
+                    "vname": v.getName(),
+                    "owner": self.user,
+                    "status": vstat,
+                    "lastseen": "1900-01-01 00:00:00",
+                    "bids": ",".join(v.getBotIds()),
+                    "hardware": v.getArch(),
+                    "software": v.getOS(),
+                    "ip": v.getIP(),
+                    "created_at": ""
+                }
+            else:
+                vstat = "running"
+                # vstat = "online"
+                vinfo = {
+                    "vid": 0,
+                    "vname": self.machine_name+":"+self.os_short,
+                    "owner": self.user,
+                    "status": vstat,
+                    "lastseen": "1900-01-01 00:00:00",
+                    "bids": self.getBidsOnThisVehicle(),
+                    "hardware": self.processor,
+                    "software": self.platform,
+                    "ip": self.ip,
+                    "created_at": ""
+                }
             report.append(vinfo)
+        print("vnames:", [v["vname"] for v in report])
+        if (self.machine_name+":"+self.os_short) not in [v["vname"] for v in report]:
+            if "Only" not in self.host_role and "Staff" not in self.host_role:
+                # add myself as a vehicle resource too.
+                vinfo = {
+                    "vid": 0,
+                    "vname": self.machine_name+":"+self.os_short,
+                    "owner": self.user,
+                    "status": "running",
+                    "lastseen": "1900-01-01 00:00:00",
+                    "bids": self.getBidsOnThisVehicle(),
+                    "hardware": self.processor,
+                    "software": self.platform,
+                    "ip": self.ip,
+                    "created_at": ""
+                }
+
+                report.append(vinfo)
 
         return report
 
