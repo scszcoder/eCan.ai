@@ -22,7 +22,7 @@ from ping3 import ping
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
-    download_file, download_file8
+    download_file, download_file8, send_file_op_request_to_cloud, send_update_missions_request_to_cloud
 from bot.Logger import log3
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -203,6 +203,21 @@ def genStepDownloadFiles(files_var, settings, ftype, locs_var, results_var, flag
         "settings": settings,
         "ftype": ftype,
         "locs": locs_var,
+        "results": results_var,
+        "flag": flag_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepUpdateMissionStatus(status_var_type, status_var, err_var_type, err_var, data_var, results_var, flag_var, stepN):
+    stepjson = {
+        "type": "Update Mission Status",
+        "status_var_type": status_var_type,
+        "status_var": status_var,
+        "err_var_type": err_var_type,
+        "err_var": err_var,
+        "data_var": data_var,
         "results": results_var,
         "flag": flag_var
     }
@@ -1775,6 +1790,47 @@ def processDownloadFiles(step, i, mission):
             ex_stat = "ErrorExtractInfo:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i+1), ex_stat
+
+
+
+def processUpdateMissionStatus(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["results"]] = []
+        settings = mission.main_win_settings
+
+        session = settings["session"]
+        token = settings["token"]
+
+        settings = mission.main_win_settings
+        if step["status_var_type"] == "direct":
+            status = step["status_var"]
+        else:
+            status = symTab[step["status_var"]]
+
+        if step["err_var_type"] == "direct":
+            error = step["err_var"]
+        else:
+            error = symTab[step["err_var"]]
+
+        mission.setStatus(status)
+        mission.setError(error)
+        mission.setIntermediateData(symTab[step["data_var"]])
+        symTab[step["results"]] = send_update_missions_request_to_cloud(session, [mission], token)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorUpdateMissionStatus:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorUpdateMissionStatus traceback information not available:" + str(e)
         log3(ex_stat)
         symTab[step["flag"]] = False
 
@@ -3362,7 +3418,12 @@ def processCreateDir(step, i):
         if step["name_type"] == "direct":
             dir_tbc = step["dir"]
         else:
-            dir_tbc = symTab[step["dir"]]
+            if "[" in step["dir"]:
+                src_var_name = step["dir"].split("[")[0]
+            else:
+                src_var_name = step["dir"]
+            exec("global dir_tbc, "+src_var_name+"\ndir_tbc = " + step["dir"])
+            # symTab[step["dir_tbc"]] = step["dir"]
 
         newdir = dir_tbc
 
@@ -5363,3 +5424,18 @@ def processKillProcesses(step, i):
 
 def setMissionInput(input):
     symTab["fin"] = input
+
+
+def regSteps(stepType, stepData, stepDuration, mainWin):
+    settings = mainWin.main_win_settings
+
+    steps = [
+        {
+            "type": stepType,
+            "data": stepData,
+            "stepDuration": stepDuration,           # in milliseconds
+            "end_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        }
+    ]
+    #upload screen to S3
+    send_file_op_request_to_cloud(settings["session"], steps, settings["token"])

@@ -10,7 +10,8 @@ if sys.platform == 'win32':
     import win32api
 import pytz
 
-from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud
+from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud, \
+    req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review, send_report_vehicles_to_cloud, send_dequeue_tasks_to_cloud
 from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXlsx, covertTxtProfiles2XlsxProfiles, \
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
@@ -1600,4 +1601,33 @@ def setupExtSkillRunReportResultsTestData(mainwin):
         "ol": order_list
     }]
 
+
+
+
+def testCloudAccessWithAPIKey(session, token):
+    apikey = os.getenv('SC_ECB_TEST_API_KEY0')
+    print("apikey:", apikey)
+    req = [
+        {
+            "product":  "coffee mug",
+            "instructions": json.dumps({"features": "", "occasion":""}).replace('"', '\\"')
+        }
+    ]
+
+    # req_cloud_obtain_review(session, req, token)
+
+
+
+    req_cloud_obtain_review_w_aipkey(session, req, apikey)
+
+
+
+def testReportVehicles(mwinwin):
+    vehicle_report = mwinwin.prepVehicleReportData()
+    resp = send_report_vehicles_to_cloud(mwinwin.session, mwinwin.tokens['AuthenticationResult']['IdToken'], vehicle_report)
+
+
+def testDequeue(mwinwin):
+    vehicle_report = mwinwin.prepVehicleReportData()
+    resp = send_dequeue_tasks_to_cloud(mwinwin.session, mwinwin.tokens['AuthenticationResult']['IdToken'], vehicle_report)
 

@@ -1104,6 +1104,7 @@ def execute_js_script(driver, script, *args):
 
 def processWebdriverExecuteJs(step, i, mission):
     try:
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         script = step["script_var"]
@@ -1122,6 +1123,7 @@ def processWebdriverExecuteJs(step, i, mission):
         # Execute the JavaScript script
         result = execute_js_script(driver, script, target)
         print(f"Result of the JavaScript execution: {result}")
+        regSteps(step["type"], "", "", 1, mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -1137,8 +1139,9 @@ def processWebdriverExecuteJs(step, i, mission):
 
 
 
-def processWebdriverExtractInfo(step, i):
+def processWebdriverExtractInfo(step, i, mission):
     try:
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         symTab[step["flag"]] = True
@@ -1232,6 +1235,7 @@ def processWebdriverExtractInfo(step, i):
                     else:
                         exec(f"global {sink}\n{step['result']} = web_elements\nprint('found elements-', web_elements)")
 
+        regSteps(step["type"], "", "", 1, mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -1247,8 +1251,9 @@ def processWebdriverExtractInfo(step, i):
     return (i + 1), ex_stat
 
 
-def processWebdriverWaitUntilClickable(step, i):
+def processWebdriverWaitUntilClickable(step, i, mission):
     try:
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         symTab[step["flag"]] = True
@@ -1272,6 +1277,8 @@ def processWebdriverWaitUntilClickable(step, i):
             print(f"Element was not found clickable within {wait_time} seconds.")
             symTab[step["result"]] = None
             symTab[step["flag"]] = False
+
+        regSteps(step["type"], "", "", 1, mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -1345,8 +1352,9 @@ def processWebdriverSwitchToFrame(step, i):
     return (i + 1), ex_stat
 
 
-def processWebdriverWaitForVisibility(step, i):
+def processWebdriverWaitForVisibility(step, i, mission):
     try:
+        mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         symTab[step["flag"]] = True
@@ -1366,6 +1374,8 @@ def processWebdriverWaitForVisibility(step, i):
         wait = WebDriverWait(driver, wait_time)
 
         symTab[step["result"]] = wait.until(EC.visibility_of_element_located((element_type, element_name)))
+
+        regSteps(step["type"], "", "", 1, mainwin)
 
     except Exception as e:
         # Get the traceback information

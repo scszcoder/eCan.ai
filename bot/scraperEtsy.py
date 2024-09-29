@@ -29,7 +29,7 @@ def genStepEtsyScrapeOrders(html_dir, dir_name_type, html_file, pidx, outvar, st
 # # order id...... revenue(price) .... ship by date ..... break-word : product title    <li....> quantity  .... "break-word" - name, city, state....
 # with address details
 # order id...... revenue(price) .... ship by date ..... break-word : product title    <li....> quantity  .... "address break-word" - all name address details....
-def processEtsyScrapeOrders(step, i):
+def processEtsyScrapeOrders(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -272,7 +272,7 @@ def genStepEtsyScrapeMsgThread(html_dir, dir_name_type, html_file, pidx, outvar,
     }
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def processEtsyScrapeMsgLists(step, i):
+def processEtsyScrapeMsgLists(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -490,7 +490,7 @@ def processEtsyScrapeMsgLists(step, i):
     return next_i, ex_stat
 
 
-def processEtsyScrapeMsgThread(step, i):
+def processEtsyScrapeMsgThread(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
@@ -571,7 +571,7 @@ def processEtsyScrapeMsgThread(step, i):
     return next_i, ex_stat
 
 
-def processEtsyScrapeNewMsgs(step, i):
+def processEtsyScrapeNewMsgs(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         next_i = i + 1
