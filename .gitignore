@@ -8,4 +8,7 @@
 test.py
 *.psk
 *.pyc
+*.db
+__pycache__/
 /songc_yahoo_com/
+/249511118_qq_com/
