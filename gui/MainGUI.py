@@ -729,8 +729,8 @@ class MainWindow(QMainWindow):
         self.showMsg("================= DONE with GUI Setup ==============================")
 
 
-        self.todays_scheduled_task_groups = {"win": [], "mac": [], "linux": []}
-        self.unassigned_task_groups = {"win": [], "mac": [], "linux": []}
+        self.todays_scheduled_task_groups = {}
+        self.unassigned_task_groups = {}
         self.checkVehicles()
 
         print("Check Vehicles:", len(self.vehicles))
@@ -2630,6 +2630,7 @@ class MainWindow(QMainWindow):
             # generate walk skills on the fly.
             running_mission = self.missions[worksettings["midx"]]
 
+            # no finger print profile, no run for ads.
             if 'ads' in running_mission.getCusPAS() and running_mission.getFingerPrintProfile() == "":
                 self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()) + " " + running_mission.getCusPAS() + " " + running_mission.getFingerPrintProfile())
                 runResult = "ErrorRPA ADS mission has no profile " + str(running_mission.getMid())
@@ -2726,7 +2727,7 @@ class MainWindow(QMainWindow):
                     # of the mission will come from the another computer, and there might even be
                     # files to be downloaded first as the input to the mission.
                     if worksettings["as_server"]:
-                        print("AS Server")
+                        setMissionInput(running_mission.getConfig())
 
 
                     # (steps, mission, skill, mode="normal"):
@@ -5946,15 +5947,24 @@ class MainWindow(QMainWindow):
     # this list will be used to filter out cookies of unrelated site, otherwise the
     # naturally saved cookie file by ADS will be too large to fit into an xlsx cell.
     # and the ADS profile import only access xlsx file format.
-    def build_cookie_site_lists(self):
+    def build_cookie_site_lists(self, added=[]):
         today = datetime.today()
         formatted_today = today.strftime('%Y-%m-%d')
         # first, filter out today's missions by createon parameter.
-        for m in self.missions:
+
+        if added:
+            print("for ADDED only")
+            targetMissions = added
+        else:
+            targetMissions = self.missions
+            self.bot_cookie_site_lists = {}
+
+        for m in targetMissions:
             self.showMsg("mission" + str(m.getMid()) + " created ON:" + m.getBD().split(" ")[0] + " today:" + formatted_today)
-        missions_today = list(filter(lambda m: formatted_today == m.getBD().split(" ")[0], self.missions))
+
+        missions_today = list(filter(lambda m: formatted_today == m.getBD().split(" ")[0], targetMissions))
         # first ,clear today's bot cookie site list dictionary
-        self.bot_cookie_site_lists = {}
+
         for mission in missions_today:
             bots = [b for b in self.bots if b.getBid() == mission.getBid()]
             if len(bots) > 0:
@@ -6173,20 +6183,10 @@ class MainWindow(QMainWindow):
                 print("CONFIG:", new_works['added_missions'][0]['config'])
 
                 # downloaded files if any so that we don't have to do this later on....
-                if new_works['added_missions'][0]['config'][0] == "sale":
-                    for batch in new_works['added_missions'][0]['config'][1]:
-                        if batch['file']:
-                            print("about to download....", batch['file'])
-                            local_file = download_file(self.session, self.my_ecb_data_homepath, batch['file'], "", self.tokens['AuthenticationResult']['IdToken'], "general")
-                            batch['dir'] = os.path.dirname(local_file)
-
-                            # update the config in task_groups too. bascially go thru
-                            # may be no need to do it here, just do it in skill when needed.
-                # add useful key
-                new_works['added_missions'][0]['config'].append(in_message['id'])
-                new_works['added_missions'][0]['config'].append(in_message['sender'])
-                setMissionInput(new_works['added_missions'][0]['config'])
+                # and set up mission input parameters.
+                self.prepareMissionRunAsServer(new_works)
                 self.handleCloudScheduledWorks(new_works)
+
             elif in_message["type"] == "request queued":
                 print("processing enqueue notification")
                 # a request received on the cloud queue side. here what we will do:
@@ -6194,7 +6194,6 @@ class MainWindow(QMainWindow):
                 requester_info = json.loads(in_message["contents"])
 
                 print("requester info:", requester_info)
-
 
                 asyncio.create_task(self.virtual_cloud_task_queue.put(requester_info))
 
@@ -6217,6 +6216,32 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorupdate_moitor_gui:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "Errorupdate_moitor_gui traceback information not available:" + str(e)
+            print(ex_stat)
+
+
+    def prepareMissionRunAsServer(self, new_works):
+        try:
+            if new_works['added_missions'][0]['type'] == "sellFullfill_genECBLabels":
+                for batch in new_works['added_missions'][0]['config'][1]:
+                    if batch['file']:
+                        print("about to download....", batch['file'])
+                        local_file = download_file(self.session, self.my_ecb_data_homepath, batch['file'], "",
+                                                   self.tokens['AuthenticationResult']['IdToken'], "general")
+                        batch['dir'] = os.path.dirname(local_file)
+
+                        # update the config in task_groups too. bascially go thru
+                        # may be no need to do it here, just do it in skill when needed.
+
+
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorPrepareMissionRunAsServer:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorPrepareMissionRunAsServer traceback information not available:" + str(e)
             print(ex_stat)
 
     # note recipient could be a group ID.
@@ -6690,7 +6715,7 @@ class MainWindow(QMainWindow):
         found_vehicles = [v for v in self.vehicles if v.getIP() == ip]
         if found_vehicles:
             found_vehicle = found_vehicles[0]
-            found_vehicle.setStatus("running")
+            found_vehicle.setStatus("running_idle")       # this vehicle is ready to take more work if needed.
             vehicle_report = self.prepVehicleReportData(found_vehicle)
             log3("vehicle status report"+json.dumps(vehicle_report))
             resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
@@ -6751,18 +6776,23 @@ class MainWindow(QMainWindow):
     # works organized as following....
     # { win: {computer1: {"estern": ..... "central":...} , computer2: ...} , mac:, linux:...}
     def arrangeContractWorks(self, contractWorks):
-        if contractWorks["added_missions"] and contractWorks["task_groups"]:
-            # first flatten timezone.
-            newTaskGroups = self.reGroupByBotVehicles(contractWorks["task_groups"])
-            self.unassigned_task_groups = self.todays_scheduled_task_groups
-            for vname in contractWorks["task_groups"]:
-                if vname in self.unassigned_task_groups:
-                    if self.unassigned_task_groups[vname]:
-                        self.unassigned_task_groups[vname].update(newTaskGroups[vname])
+        if "added_missions" in contractWorks:
+            if contractWorks["added_missions"] and contractWorks["task_groups"]:
+                # first flatten timezone.
+                self.addNewlyAddedMissions(contractWorks)
+
+                newTaskGroups = self.reGroupByBotVehicles(contractWorks["task_groups"])
+                self.unassigned_task_groups = self.todays_scheduled_task_groups
+                for vname in contractWorks["task_groups"]:
+                    if vname in self.unassigned_task_groups:
+                        if self.unassigned_task_groups[vname]:
+                            self.unassigned_task_groups[vname].update(newTaskGroups[vname])
+                        else:
+                            self.unassigned_task_groups[vname] = newTaskGroups[vname]
                     else:
                         self.unassigned_task_groups[vname] = newTaskGroups[vname]
-                else:
-                    self.unassigned_task_groups[vname] = newTaskGroups[vname]
+
+                self.build_cookie_site_lists(contractWorks["added_missions"])
 
 
     # upon clicking here, it would simulate receiving a websocket message(cmd) and send this
