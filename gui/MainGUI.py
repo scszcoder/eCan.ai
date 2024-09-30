@@ -2026,6 +2026,8 @@ class MainWindow(QMainWindow):
 
     def getUnassignedVehiclesByOS(self):
         self.showMsg("N vehicles " + str(len(self.vehicles)))
+
+        # divid all vehicles by OS
         result = {
             "win": [v for v in self.vehicles if v.getOS().lower() in "Windows".lower() and len(v.getBotIds()) == 0],
             "mac": [v for v in self.vehicles if v.getOS().lower() in "Mac".lower() and len(v.getBotIds()) == 0],
@@ -5684,8 +5686,8 @@ class MainWindow(QMainWindow):
             self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
 
             platform_os = self.platform            # win, mac or linux
-            self.todays_scheduled_task_groups[platform_os] = localworks
-            self.unassigned_task_groups[platform_os] = localworks
+            self.todays_scheduled_task_groups = localworks
+            self.unassigned_task_groups = localworks
 
             # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
@@ -6699,7 +6701,7 @@ class MainWindow(QMainWindow):
 
     # check whether there is vehicle for hire, if so, check any contract work in the queue
     # if so grab it.
-    def checkCloudWorkQueue(self):
+    async def checkCloudWorkQueue(self):
         try:
             idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if v.getStatus() == "running_idle"]
             resp = send_dequeue_tasks_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], idle_vehicles)
@@ -6728,8 +6730,17 @@ class MainWindow(QMainWindow):
     # { win: {computer1: {"estern": ..... "central":...} , computer2: ...} , mac:, linux:...}
     def arrangeContractWorks(self, contractWorks):
         if contractWorks["added_missions"] and contractWorks["task_groups"]:
-            for platform_os in self.unassigned_task_groups:
-                self.unassigned_task_groups[platform_os].update(contractWorks["added_missions"][platform_os])
+            # first flatten timezone.
+            newTaskGroups = self.reGroupByBotVehicles(contractWorks["task_groups"])
+            self.unassigned_task_groups = self.todays_scheduled_task_groups
+            for vname in contractWorks["task_groups"]:
+                if vname in self.unassigned_task_groups:
+                    if self.unassigned_task_groups[vname]:
+                        self.unassigned_task_groups[vname].update(newTaskGroups[vname])
+                    else:
+                        self.unassigned_task_groups[vname] = newTaskGroups[vname]
+                else:
+                    self.unassigned_task_groups[vname] = newTaskGroups[vname]
 
 
     # upon clicking here, it would simulate receiving a websocket message(cmd) and send this
