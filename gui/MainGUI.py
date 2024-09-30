@@ -733,6 +733,10 @@ class MainWindow(QMainWindow):
         self.unassigned_task_groups = {"win": [], "mac": [], "linux": []}
         self.checkVehicles()
 
+        print("Check Vehicles:", len(self.vehicles))
+        for v in self.vehicles:
+            print("vname:", v.getName(), "status:", v.getStatus(), )
+
         # get current wifi ssid and store it.
         self.showMsg("Checking Wifi on OS platform: "+self.platform)
         wifi_info = None
@@ -1641,7 +1645,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
                         file = 'C:/temp/scheduleResultTest99.json'
-                        # file = 'C:/temp/scheduleResultTest6.json'               # ads amz buy test.
+                        # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
                                 bodyobj = json.load(test_schedule_file)
@@ -2026,8 +2030,6 @@ class MainWindow(QMainWindow):
 
     def getUnassignedVehiclesByOS(self):
         self.showMsg("N vehicles " + str(len(self.vehicles)))
-
-        # divid all vehicles by OS
         result = {
             "win": [v for v in self.vehicles if v.getOS().lower() in "Windows".lower() and len(v.getBotIds()) == 0],
             "mac": [v for v in self.vehicles if v.getOS().lower() in "Mac".lower() and len(v.getBotIds()) == 0],
@@ -3660,7 +3662,7 @@ class MainWindow(QMainWindow):
             # should add this machine to vehicle list.
             newVehicle = VEHICLE(self)
             newVehicle.setIP(self.ip)
-            newVehicle.setStatus("running")
+            newVehicle.setStatus("running_idle")
             newVehicle.setName(self.machine_name+":"+self.os_short)
             self.saveVehicle(newVehicle)
             self.vehicles.append(newVehicle)
@@ -5208,7 +5210,7 @@ class MainWindow(QMainWindow):
 
                 # check whether there is vehicle for hire, if so, check any contract work in the queue
                 # if so grab it.
-                contractWorks = self.checkCloudWorkQueue()
+                contractWorks = await self.checkCloudWorkQueue()
 
                 # if there is actual work, 1) deque from virutal cloud queue, 2) put it into local unassigned work list.
                 # and the rest will be taken care of by the work dispatcher...
@@ -5686,8 +5688,8 @@ class MainWindow(QMainWindow):
             self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
 
             platform_os = self.platform            # win, mac or linux
-            self.todays_scheduled_task_groups = localworks
-            self.unassigned_task_groups = localworks
+            self.todays_scheduled_task_groups[platform_os] = localworks
+            self.unassigned_task_groups[platform_os] = localworks
 
             # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
@@ -6186,10 +6188,17 @@ class MainWindow(QMainWindow):
                 setMissionInput(new_works['added_missions'][0]['config'])
                 self.handleCloudScheduledWorks(new_works)
             elif in_message["type"] == "request queued":
+                print("processing enqueue notification")
                 # a request received on the cloud queue side. here what we will do:
                 # enqueue an item on local mirror (we call it virtual cloud queue)
                 requester_info = json.loads(in_message["contents"])
+
+                print("requester info:", requester_info)
+
+
                 asyncio.create_task(self.virtual_cloud_task_queue.put(requester_info))
+
+                print("done local enqueue....")
 
                 #then whenever a task group is finished either local or from remote. in that handler.
                 # we will probe virtual cloud queue whethere there is something to work on.
@@ -6703,13 +6712,26 @@ class MainWindow(QMainWindow):
     # if so grab it.
     async def checkCloudWorkQueue(self):
         try:
-            idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if v.getStatus() == "running_idle"]
-            resp = send_dequeue_tasks_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], idle_vehicles)
-            taskGroups = json.loads(resp['body'])
-
-            # dequeue the virutal cloud task queue
+            taskGroups = {}
+            print("N vehicles:", len(self.vehicles))
+            if len(self.vehicles) > 0:
+                for v in self.vehicles:
+                    print("vname:", v.getName(), "status:", v.getStatus(), )
+            # check whether there is any thing in the local mirror: virutal cloud task queue
             if not self.virtual_cloud_task_queue.empty():
+                print("something on queue...")
                 item = await self.virtual_cloud_task_queue.get()
+
+                # in case there is anything, go ahead and dequeue the cloud side.
+
+                idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if v.getStatus() == "running_idle"]
+                resp = send_dequeue_tasks_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], idle_vehicles)
+                print("RESP:", resp)
+                if "body" in resp:
+                    cloudQSize = resp['body']['remainingQSize']
+                    taskGroups = resp['body']['task_groups']
+                    print("cloudQSize:", cloudQSize)
+                    print("newTaskGroups:", taskGroups)
 
         except Exception as e:
             # Get the traceback information
