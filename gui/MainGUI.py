@@ -1528,8 +1528,10 @@ class MainWindow(QMainWindow):
         # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         # testReportVehicles(self)
-        testDequeue(self)
+        # testDequeue(self)
+        # testUpdateMissionsExStatus(self)
 
+        testRegSteps(self)
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
         # test_run_group_of_tasks(self)
@@ -1585,7 +1587,7 @@ class MainWindow(QMainWindow):
         # self.showMsg("bodyobj: " + json.dumps(bodyobj))
         if len(bodyobj) > 0:
             print("BEGIN ASSIGN INCOMING MISSION....")
-            self.addNewlyAddedMissions(bodyobj)
+            newlyAdded = self.addNewlyAddedMissions(bodyobj)
             # now that todays' newly added missions are in place, generate the cookie site list for the run.
             self.build_cookie_site_lists()
             self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
@@ -1821,7 +1823,7 @@ class MainWindow(QMainWindow):
 
         print(mb_words)
 
-
+        newAdded = []
         newly_added_missions = resp_data["added_missions"]
         print("Added MS:"+json.dumps(["M"+str(m["mid"])+"B"+str(m["botid"]) for m in newly_added_missions]))
         for m in newly_added_missions:
@@ -1831,6 +1833,9 @@ class MainWindow(QMainWindow):
             self.missions.append(new_mission)
             self.missionModel.appendRow(new_mission)
             self.showMsg("adding mission.... "+str(new_mission.getRetry()))
+            newAdded.append(new_mission)
+
+        return(newAdded)
 
     def getBotByID(self, bid):
         found_bot = next((bot for i, bot in enumerate(self.bots) if bot.getBid() == bid), None)
@@ -6779,7 +6784,7 @@ class MainWindow(QMainWindow):
         if "added_missions" in contractWorks:
             if contractWorks["added_missions"] and contractWorks["task_groups"]:
                 # first flatten timezone.
-                self.addNewlyAddedMissions(contractWorks)
+                newlyAddedMissions = self.addNewlyAddedMissions(contractWorks)
 
                 newTaskGroups = self.reGroupByBotVehicles(contractWorks["task_groups"])
                 self.unassigned_task_groups = self.todays_scheduled_task_groups
@@ -6792,7 +6797,7 @@ class MainWindow(QMainWindow):
                     else:
                         self.unassigned_task_groups[vname] = newTaskGroups[vname]
 
-                self.build_cookie_site_lists(contractWorks["added_missions"])
+                self.build_cookie_site_lists(newlyAddedMissions)
 
 
     # upon clicking here, it would simulate receiving a websocket message(cmd) and send this
