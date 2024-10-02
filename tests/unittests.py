@@ -9,13 +9,14 @@ import win32api
 import pytz
 
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud, \
-    req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review, send_report_vehicles_to_cloud, send_dequeue_tasks_to_cloud
+    req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review, send_report_vehicles_to_cloud, send_dequeue_tasks_to_cloud, \
+    send_update_missions_ex_status_to_cloud
 from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXlsx, covertTxtProfiles2XlsxProfiles, \
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import symTab, processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
     get_top_visible_window, processExtractInfo, startSaveCSK, processUseExternalSkill, processReportExternalSkillRunStatus,\
-    processDownloadFiles, processUploadFiles, processZipUnzip, processWaitUntil, processWaitUntil8
+    processDownloadFiles, processUploadFiles, processZipUnzip, processWaitUntil, processWaitUntil8, regSteps
 from bot.printLabel import processPrintLabels, sync_win_print_labels1
 from config.app_settings import ecb_data_homepath
 from bot.ebbot import EBBOT
@@ -1629,3 +1630,17 @@ def testDequeue(mwinwin):
     vehicle_report = mwinwin.prepVehicleReportData()
     resp = send_dequeue_tasks_to_cloud(mwinwin.session, mwinwin.tokens['AuthenticationResult']['IdToken'], vehicle_report)
 
+def testUpdateMissionsExStatus(mwin):
+    print("entering test....")
+    mstats = [{
+        "mid": 11098,
+        "status": "started"
+    }]
+    resp = send_update_missions_ex_status_to_cloud(mwin.session, mstats, mwin.tokens['AuthenticationResult']['IdToken'])
+    print("test done!!!")
+
+
+def testRegSteps(mwin):
+    print("entering test....")
+    resp = regSteps("Web Driver Wait Until Clickable", "", "2024-10-02 12:46:00.000", True, mwin)
+    print("test done!!!")
