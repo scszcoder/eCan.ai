@@ -55,3 +55,4 @@ selenium~=4.23.1
 webdriver-manager~=4.0.2
 watchdog~=4.0.1
 chardet~=5.2.0
+deepdiff~=8.0.1

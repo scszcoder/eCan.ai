@@ -27,7 +27,8 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
-    genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus
+    genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
+    genStepCheckSublist, genStepCheckAlreadyProcessed
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -134,6 +135,8 @@ PUBLIC = {
     'genException': genException,
     "genStepUploadFiles": genStepUploadFiles,
     "genStepDownloadFiles": genStepDownloadFiles,
+    "genStepCheckSublist": genStepCheckSublist,
+    "genStepCheckAlreadyProcessed": genStepCheckAlreadyProcessed,
     "genStepUpdateMissionStatus": genStepUpdateMissionStatus,
     'genWinChromeEtsyCollectOrderListSkill': genWinChromeEtsyCollectOrderListSkill,
     'genStepEtsySearchOrders': genStepEtsySearchOrders,
