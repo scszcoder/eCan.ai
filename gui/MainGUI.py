@@ -2325,7 +2325,7 @@ class MainWindow(QMainWindow):
                         self.showMsg("arranged for today on this machine...."+vname)
                         self.add_buy_searchs(batched_tasks)
                         # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
-                        self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
+                        self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "vname": vname, "completed": [], "aborted": []})
                         vidx = 0
                         self.rpa_work_assigned_for_today = True
                 else:
@@ -2350,7 +2350,7 @@ class MainWindow(QMainWindow):
                         # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
                         self.todays_work["tbd"].append(
                             {"name": "automation", "works": batched_tasks, "ip": vehicle.getIP(), "status": "yet to start",
-                             "current widx": 0, "completed": [], "aborted": []})
+                             "current widx": 0, "vname": vname, "completed": [], "aborted": []})
 
                         for profile in ads_profiles:
                             self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
@@ -2732,6 +2732,7 @@ class MainWindow(QMainWindow):
                     # of the mission will come from the another computer, and there might even be
                     # files to be downloaded first as the input to the mission.
                     if worksettings["as_server"]:
+                        print("SETTING MISSSION INPUT:", running_mission.getConfig())
                         setMissionInput(running_mission.getConfig())
 
 
@@ -2753,7 +2754,7 @@ class MainWindow(QMainWindow):
                     # the timer tick will trigger the run of the next mission on the list....
                     self.showMsg("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult)
                     self.update1MStat(worksettings["midx"], runResult)
-
+                    self.updateUnassigned(worksTBD["vname"], self.missions[worksettings["midx"]])
                     self.update1WorkRunStatus(worksTBD, worksettings["midx"])
                 else:
                     self.showMsg("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1")
@@ -2783,6 +2784,14 @@ class MainWindow(QMainWindow):
         retry_count = self.missions[midx].getNRetries()
         self.missions[midx].setNRetries(retry_count + 1)
         self.showMsg("update1MStat:"+str(midx)+":"+str(self.missions[midx].getMid())+":"+str(self.missions[midx].getNRetries()))
+        bid = self.missions[midx].getBid()
+
+
+    def updateUnassigned(self, vname, mission):
+        self.unassigned_task_groups[vname] = [tsk for tsk in self.unassigned_task_groups[vname] if tsk['mid'] != mission.getMid()]
+        if not self.unassigned_task_groups[vname]:
+            del self.unassigned_task_groups[vname]
+        # find and delete mission from the work group.
 
     #update next mission pointer, return -1 if exceed the end of it.
     def update1WorkRunStatus(self, worksTBD, midx):
@@ -2796,8 +2805,11 @@ class MainWindow(QMainWindow):
             worksTBD["current widx"] = self.checkTaskGroupCompleteness(worksTBD)
             self.showMsg("current widx pointer after checking retries:"+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])))
             if worksTBD["current widx"] >= len(worksTBD["works"]):
+                self.showMsg("current work group is COMPLETED.")
                 worksTBD["status"] = "Completed"
-        self.showMsg("current widx pointer now at:"+str(worksTBD["current widx"])+"worksTBD status: "+worksTBD["status"])
+
+
+        self.showMsg("current widx pointer now at:"+str(worksTBD["current widx"])+" worksTBD status: "+worksTBD["status"])
 
 
     def checkTaskGroupCompleteness(self, worksTBD):
@@ -2809,7 +2821,7 @@ class MainWindow(QMainWindow):
                 this_stat = self.missions[midx].getStatus()
                 n_2b_retried = self.missions[midx].getRetry()
                 retry_count = self.missions[midx].getNRetries()
-                self.showMsg("check retries: "+str(mid)+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
+                self.showMsg("check retries: "+str(mid)+" "+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count))
                 if "Complete" not in this_stat and retry_count < n_2b_retried:
                     self.showMsg("scheduing retry#:"+str(j)+" MID: "+str(mid))
                     next_run_index = j
@@ -5690,12 +5702,13 @@ class MainWindow(QMainWindow):
             self.showMsg("received work request:"+json.dumps(localworks))
             # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
-            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
+            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
             self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
 
             platform_os = self.platform            # win, mac or linux
             self.todays_scheduled_task_groups[platform_os] = localworks
-            self.unassigned_task_groups[platform_os] = localworks
+            vname = self.machine_name + ":" + self.os_short
+            self.unassigned_task_groups[vname] = localworks
 
             # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
@@ -6227,17 +6240,23 @@ class MainWindow(QMainWindow):
     def prepareMissionRunAsServer(self, new_works):
         try:
             if new_works['added_missions'][0]['type'] == "sellFullfill_genECBLabels":
-                for batch in new_works['added_missions'][0]['config'][1]:
+                for bi, batch in enumerate(new_works['added_missions'][0]['config'][1]):
                     if batch['file']:
+                        print("batch....", batch)
                         print("about to download....", batch['file'])
-                        local_file = download_file(self.session, self.my_ecb_data_homepath, batch['file'], "",
+                        local_file = download_file(self.session, self.my_ecb_data_homepath, batch['dir']+"/"+batch['file'], "",
                                                    self.tokens['AuthenticationResult']['IdToken'], "general")
                         batch['dir'] = os.path.dirname(local_file)
+                        new_works['added_missions'][0]['config'][1][bi]['dir'] = os.path.dirname(local_file)
 
+                        first_v = next(iter(new_works['task_groups']))
+                        new_works['task_groups'][first_v]['eastern'][0]['other_works'][0]['config'][1][0]['dir'] = os.path.dirname(local_file)
+                        print("local file....", local_file)
+                        print("local dir:", os.path.dirname(local_file))
                         # update the config in task_groups too. bascially go thru
                         # may be no need to do it here, just do it in skill when needed.
 
-
+                print("updated new work:", new_works)
 
         except Exception as e:
             # Get the traceback information
@@ -6783,15 +6802,23 @@ class MainWindow(QMainWindow):
     def arrangeContractWorks(self, contractWorks):
         if "added_missions" in contractWorks:
             if contractWorks["added_missions"] and contractWorks["task_groups"]:
+                # first, download the files.
+
+                log3("ARRANGE external contract work.....")
+                self.prepareMissionRunAsServer(contractWorks)
+
+                print("updated contract works....", contractWorks)
                 # first flatten timezone.
                 newlyAddedMissions = self.addNewlyAddedMissions(contractWorks)
+
+                print("newlyAddedMissions config:", newlyAddedMissions[0].getConfig())
 
                 newTaskGroups = self.reGroupByBotVehicles(contractWorks["task_groups"])
                 self.unassigned_task_groups = self.todays_scheduled_task_groups
                 for vname in contractWorks["task_groups"]:
                     if vname in self.unassigned_task_groups:
                         if self.unassigned_task_groups[vname]:
-                            self.unassigned_task_groups[vname].update(newTaskGroups[vname])
+                            self.unassigned_task_groups[vname] = self.merge_dicts(self.unassigned_task_groups[vname], newTaskGroups[vname])
                         else:
                             self.unassigned_task_groups[vname] = newTaskGroups[vname]
                     else:
@@ -6799,6 +6826,11 @@ class MainWindow(QMainWindow):
 
                 self.build_cookie_site_lists(newlyAddedMissions)
 
+    def merge_dicts(self, dict1, dict2):
+        merged_dict = {}
+        for key in dict1.keys():
+            merged_dict[key] = dict1[key] + dict2.get(key, [])
+        return merged_dict
 
     # upon clicking here, it would simulate receiving a websocket message(cmd) and send this
     # message to the relavant queue which will trigger a mission run. (For unit testing purpose)

@@ -26,7 +26,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
-    processBringAppToFront, processUpdateMissionStatus
+    processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist
 
 from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -234,6 +234,8 @@ RAIS = {
     "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
     "Download Files": lambda x, y, z: processDownloadFiles(x, y, z),
+    "Check Sublist": lambda x, y: processCheckSublist(x, y),
+    "Check Already Processed": lambda x, y: processCheckAlreadyProcessed(x, y),
     "Update Mission Status": lambda x, y, z: processUpdateMissionStatus(x, y, z)
 }
 
@@ -367,6 +369,8 @@ ARAIS = {
     "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
     "Download Files": lambda x, y, z: processDownloadFiles(x, y, z),
+    "Check Sublist": lambda x, y: processCheckSublist(x, y),
+    "Check Already Processed": lambda x, y: processCheckAlreadyProcessed(x, y),
     "Update Mission Status": lambda x, y, z: processUpdateMissionStatus(x, y, z)
 }
 

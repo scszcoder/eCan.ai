@@ -6,7 +6,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from selenium.webdriver.common.by import By
 import requests
@@ -713,6 +713,7 @@ def processWebdriverKeyIn(step, i, mission):
         # wait.until(EC.presence_of_element_located(target))
         target.clear()
         target.send_keys(text)
+        print("TEXT::", text)
         log3("WebdriverKeyIn:["+step["target_var"]+"]'"+text+"'", "processWebdriverKeyIn", mainwin)
 
     except Exception as e:
@@ -1195,21 +1196,36 @@ def processWebdriverExtractInfo(step, i, mission):
                     web_elements = []
                     web_element = None
                     symTab[step["flag"]] = False
+                except NoSuchElementException:
+                    print(f"Element was not found")
+                    web_elements = []
+                    web_element = None
+                    symTab[step["flag"]] = False
             else:
                 print("no wait....")
-                if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
-                    print("find in page")
-                    if not step["multi"]:
-                        web_element = driver.find_element(element_type, element_name)
-                    else:
-                        web_elements = driver.find_elements(element_type, element_name)
-                elif step["source_var_type"] == "var":
-                    print("find within an element")
-                    if not step["multi"]:
-                        web_element = symTab[step["source_var"]].find_element(element_type, element_name)
-                    else:
-                        web_elements = symTab[step["source_var"]].find_elements(element_type, element_name)
-
+                try:
+                    if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
+                        print("find in page")
+                        if not step["multi"]:
+                            web_element = driver.find_element(element_type, element_name)
+                        else:
+                            web_elements = driver.find_elements(element_type, element_name)
+                    elif step["source_var_type"] == "var":
+                        print("find within an element")
+                        if not step["multi"]:
+                            web_element = symTab[step["source_var"]].find_element(element_type, element_name)
+                        else:
+                            web_elements = symTab[step["source_var"]].find_elements(element_type, element_name)
+                except TimeoutException:
+                    print(f"Element was not found within {wait_time} seconds.")
+                    web_elements = []
+                    web_element = None
+                    symTab[step["flag"]] = False
+                except NoSuchElementException:
+                    print(f"Element was not found")
+                    web_elements = []
+                    web_element = None
+                    symTab[step["flag"]] = False
 
             if info_type == "text":
                 print("found text:", web_element.text)
