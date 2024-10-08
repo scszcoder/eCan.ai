@@ -11,6 +11,9 @@ from PySide6.QtWidgets import QStyle, QToolButton, QItemDelegate, QHeaderView
 
 from bot.Cloud import send_query_skills_request_to_cloud
 from gui.FlowLayout import DragPanel
+from bot.Logger import LOG_SWITCH_BOARD, log3
+
+import traceback
 
 
 class IconDelegate(QStyledItemDelegate):
@@ -711,13 +714,26 @@ class SkillManagerWindow(QMainWindow):
 
     def fetchMySkills(self):
         self.parent.showMsg("Start fetching my skills......")
-        if self.skill_search_edit.text() == "":
-            qsettings = {"byowneruser": True, "qphrase": ""}
-        else:
-            qsettings = {"byowneruser": False, "qphrase": self.skill_search_edit.text()}
 
-        resp = send_query_skills_request_to_cloud(self.parent.session, self.parent.tokens['AuthenticationResult']['IdToken'], qsettings)
-        # self.parent.showMsg("fetch skills results:", resp)
+        try:
+            if self.skill_search_edit.text() == "":
+                qsettings = {"byowneruser": True, "qphrase": ""}
+            else:
+                qsettings = {"byowneruser": False, "qphrase": self.skill_search_edit.text()}
+
+            resp = send_query_skills_request_to_cloud(self.parent.session, self.parent.tokens['AuthenticationResult']['IdToken'], qsettings)
+            # self.parent.showMsg("fetch skills results:", resp)
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorFetchMySkills:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorFetchMySkills traceback information not available:" + str(e)
+            log3(ex_stat)
+            resp = {}
+
         return resp
 
 

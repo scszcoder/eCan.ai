@@ -184,7 +184,7 @@ class M_Pub_Attributes():
         self.pseudo_brand = ""
         self.pseudo_asin = ""
         self.del_date = ""
-        self.skills = []
+        self.skills = ""
         self.current_sk_idx = 0
         self.platoon_id = ""
         self.buy_type = ""
@@ -220,7 +220,7 @@ class M_Pub_Attributes():
         self.skills = sks
 
     def addSkill(self, sk):
-        self.skills.append(sk)
+        self.skills = self.skills+","+str(sk)
 
     def get_all_steps(self):
         # load skill file.
@@ -1064,12 +1064,13 @@ class EBMISSION(QStandardItem):
     async def run(self):
         run_result = None
         log3("running.....")
-        for si in range(len(self.pubAttributes.skills)):
+        sks = self.pubAttributes.skills.split(",")
+        sks = [int(sk.strip()) for sk in sks]
+        for si in range(len(sks)):
             log3("si:"+str(si))
-            log3("skill:"+json.dumps(self.pubAttributes.skills[si]))
-            self.pubAttributes.skills[si].loadSkill()
-            log3("run all steps ....."+json.dumps(self.pubAttributes.skills[si].get_all_steps()))
+            log3("skill:"+str(sks[si]))
+            log3("run all steps ....."+json.dumps(self.pubAttributes.get_all_steps()))
             log3("settings:"+json.dumps(self.main_win_settings))
-            await runAllSteps(self.pubAttributes.skills[si].get_all_steps(), self.main_win_settings)
+            await runAllSteps(self.pubAttributes.get_all_steps(), self.main_win_settings)
 
         return run_result

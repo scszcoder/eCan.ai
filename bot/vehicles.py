@@ -15,7 +15,7 @@ class VEHICLE(QStandardItem):
         self.icon = QIcon(parent.file_resource.vehicle_icon_path)
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
-        self.status = "Idle";
+        self.status = "running_idle";
         self.mstats = []
         self.field_link = None
         self.daily_mids = []

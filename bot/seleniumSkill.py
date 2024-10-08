@@ -1104,6 +1104,7 @@ def execute_js_script(driver, script, *args):
 
 def processWebdriverExecuteJs(step, i, mission):
     try:
+        start = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
         mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
@@ -1123,7 +1124,7 @@ def processWebdriverExecuteJs(step, i, mission):
         # Execute the JavaScript script
         result = execute_js_script(driver, script, target)
         print(f"Result of the JavaScript execution: {result}")
-        regSteps(step["type"], "", "", 1, mainwin)
+        regSteps(step["type"], "", start, True, mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -1133,7 +1134,9 @@ def processWebdriverExecuteJs(step, i, mission):
             ex_stat = "ErrorWebdriverExJs:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverExJs: traceback information not available:" + str(e)
+
         log3(ex_stat)
+        regSteps(step["type"], "", start, False, mainwin)
 
     return (i + 1), ex_stat
 
@@ -1141,6 +1144,7 @@ def processWebdriverExecuteJs(step, i, mission):
 
 def processWebdriverExtractInfo(step, i, mission):
     try:
+        start = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
         mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
@@ -1235,7 +1239,7 @@ def processWebdriverExtractInfo(step, i, mission):
                     else:
                         exec(f"global {sink}\n{step['result']} = web_elements\nprint('found elements-', web_elements)")
 
-        regSteps(step["type"], "", "", 1, mainwin)
+        regSteps(step["type"], "", start, True, mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -1247,12 +1251,14 @@ def processWebdriverExtractInfo(step, i, mission):
             ex_stat = "ErrorWebdriverQuit: traceback information not available:" + str(e)
         log3(ex_stat)
         symTab[step["flag"]] = False
+        regSteps(step["type"], "", start, False, mainwin)
 
     return (i + 1), ex_stat
 
 
 def processWebdriverWaitUntilClickable(step, i, mission):
     try:
+        start = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
         mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
@@ -1278,7 +1284,7 @@ def processWebdriverWaitUntilClickable(step, i, mission):
             symTab[step["result"]] = None
             symTab[step["flag"]] = False
 
-        regSteps(step["type"], "", "", 1, mainwin)
+        regSteps(step["type"], "", start, True, mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -1290,6 +1296,7 @@ def processWebdriverWaitUntilClickable(step, i, mission):
             ex_stat = "ErrorWebdriverWaitUntilClickable: traceback information not available:" + str(e)
         log3(ex_stat)
         symTab[step["flag"]] = False
+        regSteps(step["type"], "", start, False, mainwin)
 
     return (i + 1), ex_stat
 
@@ -1354,6 +1361,7 @@ def processWebdriverSwitchToFrame(step, i):
 
 def processWebdriverWaitForVisibility(step, i, mission):
     try:
+        start = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
         mainwin = mission.get_main_win()
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
@@ -1375,7 +1383,7 @@ def processWebdriverWaitForVisibility(step, i, mission):
 
         symTab[step["result"]] = wait.until(EC.visibility_of_element_located((element_type, element_name)))
 
-        regSteps(step["type"], "", "", 1, mainwin)
+        regSteps(step["type"], "", start, True, mainwin)
 
     except Exception as e:
         # Get the traceback information
@@ -1387,6 +1395,7 @@ def processWebdriverWaitForVisibility(step, i, mission):
             ex_stat = "ErrorWebdriverWaitForVisibility: traceback information not available:" + str(e)
         log3(ex_stat)
         symTab[step["flag"]] = False
+        regSteps(step["type"], "", start, False, mainwin)
 
     return (i + 1), ex_stat
 
