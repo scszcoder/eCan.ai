@@ -55,6 +55,7 @@ import openpyxl
 from datetime import timedelta
 import platform
 from pynput.mouse import Controller
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from bot.network import myname, fieldLinks, commanderIP
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running
@@ -69,7 +70,8 @@ import keyboard
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
 import cpuinfo
 import psutil
-
+from gui.gradioChat import start_gradio_chat_in_background, launchChat
+from gui.BrowserGUI import BrowserWindow
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -271,6 +273,8 @@ class MainWindow(QMainWindow):
         self.BotNewWin = None
         self.missionWin = None
         self.chatWin = None
+        self.gradioWin = BrowserWindow(self)
+
         self.trainNewSkillWin = None
         self.reminderWin = None
         self.platoonWin = None
@@ -863,6 +867,13 @@ class MainWindow(QMainWindow):
         self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
         self.showMsg("spawned runbot task")
 
+
+        # self.gchat_task = asyncio.create_task(start_gradio_chat_in_background(self))
+        self.gradio_thread = threading.Thread(target=launchChat, args=(self,), daemon=True)
+        self.gradio_thread.start()
+
+        self.showMsg("spawned runbot task")
+
         # the message queue are
         # asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
         # self.showMsg("spawned runbot task")
@@ -956,6 +967,9 @@ class MainWindow(QMainWindow):
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
             print("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
 
+
+    def updateTokens(self, tokens):
+        self.tokens = tokens
 
     def getHomePath(self):
         return self.homepath
@@ -1528,8 +1542,9 @@ class MainWindow(QMainWindow):
         # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
         # testReportVehicles(self)
-        testDequeue(self)
-
+        # testDequeue(self)
+        # Start Gradio in a separate thread
+        self.gradioWin.show()
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
         # test_run_group_of_tasks(self)
