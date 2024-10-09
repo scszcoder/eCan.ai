@@ -206,8 +206,9 @@ def gen_query_reg_steps_string(query):
         #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
         rec_string = rec_string + "{ type: \"" + query[i]["type"] + "\", "
         rec_string = rec_string + "data: \"" + query[i]["data"] + "\", "
-        rec_string = rec_string + "duration: \"" + query[i]["duration"] + "\", "
-        rec_string = rec_string + "end_time: \"" + query[i]["end_time"] + "\" }"
+        rec_string = rec_string + "start_time: \"" + query[i]["start_time"] + "\", "
+        rec_string = rec_string + "end_time: \"" + query[i]["end_time"] + "\", "
+        rec_string = rec_string + "result: \"" + str(query[i]["result"]) + "\" }"
 
         if i != len(query) - 1:
             rec_string = rec_string + ', '
@@ -831,7 +832,7 @@ def gen_update_missions_string(missions):
     logger_helper.debug(query_string)
     return query_string
 
-def gen_daily_update_string(missionsStats):
+def gen_daily_update_string(missionsStats, full):
     query_string = """
             mutation MyUMMutation {
           reportStatus (input:[
@@ -840,16 +841,24 @@ def gen_daily_update_string(missionsStats):
     for i in range(len(missionsStats)):
         if isinstance(missionsStats[i], dict):
             rec_string = rec_string + "{ mid:\"" + str(missionsStats[i]["mid"]) + "\", "
-            rec_string = rec_string + "bid:\"" + str(missionsStats[i]["bid"]) + "\", "
-            rec_string = rec_string + "status:\"" + missionsStats[i]["status"] + "\", "
-            rec_string = rec_string + "starttime:" + str(missionsStats[i]["starttime"]) + ", "
-            rec_string = rec_string + "endtime:" + str(missionsStats[i]["endtime"]) + "} "
+
+            if full:
+                rec_string = rec_string + "bid:\"" + str(missionsStats[i]["bid"]) + "\", "
+                rec_string = rec_string + "status:\"" + missionsStats[i]["status"] + "\", "
+                rec_string = rec_string + "starttime:" + str(missionsStats[i]["starttime"]) + ", "
+                rec_string = rec_string + "endtime:" + str(missionsStats[i]["endtime"]) + "} "
+            else:
+                rec_string = rec_string + "status:\"" + missionsStats[i]["status"] + "\"}"
         else:
             rec_string = rec_string + "{ mid:\"" + str(missionsStats[i].getMid()) + "\", "
-            rec_string = rec_string + "bid:\"" + str(missionsStats[i].getBid()) + "\", "
-            rec_string = rec_string + "status:\"" + missionsStats[i].getStatus() + "\", "
-            rec_string = rec_string + "starttime:\"" + missionsStats[i].getStartTime() + "\", "
-            rec_string = rec_string + "endtime:\"" + missionsStats[i].getEndTime() + "\"} "
+            if full:
+                rec_string = rec_string + "bid:\"" + str(missionsStats[i].getBid()) + "\", "
+                rec_string = rec_string + "status:\"" + missionsStats[i].getStatus() + "\", "
+                rec_string = rec_string + "starttime:\"" + missionsStats[i].getStartTime() + "\", "
+                rec_string = rec_string + "endtime:\"" + missionsStats[i].getEndTime() + "\"} "
+            else:
+                rec_string = rec_string + "status:\"" + missionsStats[i].getStatus() + "\"} "
+
 
         if i != len(missionsStats) - 1:
             rec_string = rec_string + ', '
@@ -862,6 +871,35 @@ def gen_daily_update_string(missionsStats):
     query_string = query_string + rec_string + tail_string
     logger_helper.debug("DAILY REPORT QUERY STRING:"+query_string)
     return query_string
+
+
+def gen_update_missions_ex_status_string(missionsStats):
+    query_string = """
+            mutation updateMissionsExStatus {
+          updateMissionsExStatus (input:[
+        """
+    rec_string = ""
+    for i in range(len(missionsStats)):
+        if isinstance(missionsStats[i], dict):
+            rec_string = rec_string + "{ mid:" + str(missionsStats[i]["mid"]) + ", "
+            rec_string = rec_string + "status:\"" + missionsStats[i]["status"] + "\"}"
+        else:
+            rec_string = rec_string + "{ mid:" + str(missionsStats[i].getMid()) + ", "
+            rec_string = rec_string + "status:\"" + missionsStats[i].getStatus() + "\"} "
+
+
+        if i != len(missionsStats) - 1:
+            rec_string = rec_string + ', '
+        else:
+            rec_string = rec_string + ']'
+
+    tail_string = """
+        ) 
+        } """
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug("DAILY REPORT QUERY STRING:"+query_string)
+    return query_string
+
 
 def gen_remove_missions_string(removeOrders):
     query_string = """
@@ -1016,20 +1054,20 @@ def gen_remove_skills_string(removeOrders):
     return query_string
 
 
-def gen_train_request_string(mStats):
+def gen_train_request_string(skills):
     query_string = """
             mutation MyUBMutation {
-          updateMissionsExStatus (input:[
+          reqTrain (input:[
         """
     rec_string = ""
-    for i in range(len(mStats)):
-        rec_string = rec_string + "{ mid: " + str(mStats[i]["mid"]) + ", "
-        rec_string = rec_string + "bid: '" + str(mStats[i]["bid"]) + "', "
-        rec_string = rec_string + "status: \"" + mStats[i]["status"] + "\", "
-        rec_string = rec_string + "starttime: \"" + mStats[i]["starttime"] + "\", "
-        rec_string = rec_string + "endtime: \"" + mStats[i]["endtime"] + "\"} "
+    for i in range(len(skills)):
+        rec_string = rec_string + "{ mid: " + str(skills[i]["mid"]) + ", "
+        rec_string = rec_string + "bid: '" + str(skills[i]["bid"]) + "', "
+        rec_string = rec_string + "status: \"" + skills[i]["status"] + "\", "
+        rec_string = rec_string + "starttime: \"" + skills[i]["starttime"] + "\", "
+        rec_string = rec_string + "endtime: \"" + skills[i]["endtime"] + "\"} "
 
-        if i != len(mStats) - 1:
+        if i != len(skills) - 1:
             rec_string = rec_string + ', '
         else:
             rec_string = rec_string + ']'
@@ -1045,7 +1083,7 @@ def gen_train_request_string(mStats):
 def gen_feedback_request_string(fbReq):
     query_string = """
             mutation MyUBMutation {
-          updateMissionsExStatus (input:[
+          getFB (input:[
         """
     rec_string = ""
     for i in range(len(fbReq)):
@@ -1255,11 +1293,30 @@ def req_train_read_screen(session, request, token):
     return jresponse
 
 
+def send_update_missions_ex_status_to_cloud(session, missionStats, token):
+    if len(missionStats) > 0:
+        query = gen_update_missions_ex_status_string(missionStats)
+
+        jresp = appsync_http_request(query, session, token)
+
+        if "errors" in jresp:
+            screen_error = True
+            jresponse = jresp["errors"][0]
+            logger_helper.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
+        else:
+            jresponse = json.loads(jresp["data"]["updateMissionsExStatus"])
+    else:
+        logger_helper.error("ERROR Type: EMPTY DAILY REPORTS")
+        jresponse = "ERROR: EMPTY REPORTS"
+    return jresponse
+
+
+
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_completion_status_to_cloud(session, missionStats, token):
+def send_completion_status_to_cloud(session, missionStats, token, full=True):
     if len(missionStats) > 0:
-        query = gen_daily_update_string(missionStats)
+        query = gen_daily_update_string(missionStats, full)
 
         jresp = appsync_http_request(query, session, token)
 
@@ -1747,7 +1804,7 @@ def send_feedback_request_to_cloud(session, fb_reqs, token):
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["reqAccountInfo"])
+        jresponse = json.loads(jresp["data"]["getFB"])
 
     return jresponse
 
