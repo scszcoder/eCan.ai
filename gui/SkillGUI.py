@@ -1349,12 +1349,12 @@ class SkillGUI(QMainWindow):
 
         # ------ main layout ------- #
         self.vsplitter1 = QSplitter(Qt.Horizontal)
-        self.webview = QWebEngineView()
-        self.setCentralWidget(self.webview)
-        self.webview.load("http://localhost:" + str(parent.main_win.server_port) + "/#/skill/en")
-        # self.webview.load('http://localhost:3000/#/skill/en')  # 加载指定的网页
-        # self.vsplitter1.addWidget(self.pbrunWidget)
-        self.vsplitter1.addWidget(self.webview)
+        # self.webview = QWebEngineView()
+        # self.setCentralWidget(self.webview)
+        # self.webview.load("http://localhost:" + str(parent.main_win.server_port) + "/#/skill/en")
+        # # self.webview.load('http://localhost:3000/#/skill/en')  # 加载指定的网页
+        # # self.vsplitter1.addWidget(self.pbrunWidget)
+        # self.vsplitter1.addWidget(self.webview)
         self.vsplitter1.addWidget(self.skWidget)
         self.vsplitter1.setStretchFactor(0, 3)
         self.vsplitter1.setStretchFactor(1, 1)
