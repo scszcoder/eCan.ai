@@ -516,6 +516,10 @@ class Login(QDialog):
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
                 self.main_win.show()
+
+            refresh_token = self.tokens["AuthenticationResult"]["RefreshToken"]
+            asyncio.create_task(self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client))
+
         except botocore.errorfactory.ClientError as e:
             # except ClientError as e:
             print("Exception Error:", e)
@@ -531,6 +535,35 @@ class Login(QDialog):
             ret = msgBox.exec()
         except Exception as e:
             print("Exception Error:", e)
+
+    async def refresh_tokens_periodically(self, refresh_token, client_id, client, interval=1800):
+        """Refresh tokens periodically using the refresh token (async version)"""
+        while True:
+            await asyncio.sleep(interval)  # Wait for 55 minutes (3300 seconds)
+
+            try:
+                response = client.initiate_auth(
+                    ClientId=client_id,
+                    AuthFlow='REFRESH_TOKEN_AUTH',
+                    AuthParameters={
+                        'REFRESH_TOKEN': refresh_token
+                    }
+                )
+
+                # Get the new tokens
+                self.tokens["AuthenticationResult"]["IdToken"] = response['AuthenticationResult']['IdToken']
+                self.tokens["AuthenticationResult"]["AccessToken"] = response['AuthenticationResult']['AccessToken']
+                if self.main_win:
+                    self.main_win.updateTokens(self.tokens)
+                print("Tokens refreshed successfully")
+
+
+                # Use the new tokens for your logic
+                # For example, update the headers in your requests with the new access token
+            except Exception as e:
+                print(f"Error refreshing tokens: {e}")
+                break
+
 
     def fakeLogin(self):
         print("logging in....")

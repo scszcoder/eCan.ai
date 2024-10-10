@@ -56,3 +56,5 @@ webdriver-manager~=4.0.2
 watchdog~=4.0.1
 psutil==6.0.0
 python-Levenshtein==0.25.1
+chardet~=5.2.0
+gradio~=4.44.1
