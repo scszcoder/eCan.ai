@@ -30,7 +30,7 @@ from bot.Logger import log3
 
 
 def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
-    print("fullfill using ebay labels")
+    print("genWinADSEbayBrowserFullfillOrdersSkill")
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_ads_ebay_browser_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY011",
@@ -129,7 +129,7 @@ def genTestGSOrdersData():
 
 
 def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, theme):
-    print("fullfill using ebay labels")
+    print("genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill")
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_ads_ebay_browser_fullfill_orders", "win", "1.0", "AIPPS LLC",
@@ -315,7 +315,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
 
 
 def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
-    print("fullfill using ebay labels")
+    print("genWinADSEbayBrowserBuyShippingSkill")
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_ads_ebay_browser_buy_shipping", "win", "1.0", "AIPPS LLC",
@@ -583,7 +583,7 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
 
 
 def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
-    print("fullfill using ebay labels")
+    print("genWinADSEbayBrowserBuyECBLabelsSkill")
     psk_words = "{"
 
     this_step, step_words = genStepHeader("win_ads_ebay_browser_buy_ecb_labels", "win", "1.0", "AIPPS LLC",

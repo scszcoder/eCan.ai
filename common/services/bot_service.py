@@ -105,7 +105,7 @@ class BotService:
                 result.backemail = api_bot["backemail"]
                 result.backemail_site = api_bot["backemail_site"]
                 result.epw = api_bot["epw"]
-                result.createon = api_bot["createon"]
+                # result.createon = api_bot["createon"]
                 result.vehicle = api_bot["vehicle"]
                 self.session.commit()
                 self.main_win.showMsg("update_bots_batch: " + json.dumps(result.to_dict()))

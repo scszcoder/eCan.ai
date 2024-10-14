@@ -4,6 +4,7 @@ import json
 from models import VehicleModel
 from server import HttpServer
 from utils.time_util import TimeUtil
+from LocalServer import start_local_server_in_thread
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -780,9 +781,11 @@ class MainWindow(QMainWindow):
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
-            # self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
-            # missions_data = self.mission_service.find_missions_by_createon()
-            missions_data = []      # test hack
+            self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
+            print("mission cloud synced")
+            missions_data = self.mission_service.find_missions_by_createon()
+            print("local mission data:", missions_data)
+            # missions_data = []      # test hack
             self.loadLocalMissions(missions_data)
             self.showMsg("missions loaded")
             self.dailySkillsetUpdate()
@@ -836,10 +839,25 @@ class MainWindow(QMainWindow):
         self.num_todays_task_groups = 0
         if "Commander" in self.host_role:
             # For commander creates
-            # self.todays_work["tbd"].append({"name": "fetch schedule", "works": self.gen_default_fetch(), "status": "yet to start", "current widx": 0, "completed" : [], "aborted": []})
-            # self.num_todays_task_groups = self.num_todays_task_groups + 1
+            # add fetch to self.unassigned_task_groups[vname]
+            fetchCloudScheduledWork = {
+                "name": "fetch schedule",
+               "works": self.gen_default_fetch(),
+               "status": "yet to start",
+               "current widx": 0,
+               "completed" : [],
+               "aborted": []
+            }
 
-            print("TEMP HACK HERE, no fetch")
+            self.todays_work["tbd"].append(fetchCloudScheduledWork)
+            # vname = self.machine_name+":"+self.os_short
+            # if vname not in self.unassigned_task_groups:
+            #     self.unassigned_task_groups[vname] = []
+            #
+            # # this will trigger runbotworks() to
+            # self.unassigned_task_groups[vname].append(fetchCloudScheduledWork)
+
+            # print("TEMP HACK HERE, no fetch")
             # point to the 1st task to run for the day.
             # self.update1WorkRunStatus(self.todays_work["tbd"][0], 0)
 
@@ -867,10 +885,10 @@ class MainWindow(QMainWindow):
         self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
         self.showMsg("spawned runbot task")
 
-
+        start_local_server_in_thread(self)
         # self.gchat_task = asyncio.create_task(start_gradio_chat_in_background(self))
-        self.gradio_thread = threading.Thread(target=launchChat, args=(self,), daemon=True)
-        self.gradio_thread.start()
+        # self.gradio_thread = threading.Thread(target=launchChat, args=(self,), daemon=True)
+        # self.gradio_thread.start()
 
         self.showMsg("spawned runbot task")
 
@@ -895,7 +913,7 @@ class MainWindow(QMainWindow):
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
 
-
+    # SC note - really need to have
     async def run_async_tasks(self):
         if self.host_role != "Staff Officer":
             self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
@@ -1422,12 +1440,6 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.newSkillFromFile)
         return new_action
 
-    def _createHelpUGAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&User Guide"))
-        return new_action
-
 
     def _createToolsADSProfileConverterAction(self):
         # File actions
@@ -1464,6 +1476,15 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Simulate Wan Request"))
         new_action.triggered.connect(self.simWanRequest)
         return new_action
+
+
+    def _createHelpUGAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&User Guide"))
+        new_action.triggered.connect(self.gotoUserGuide)
+        return new_action
+
 
     def _createHelpCommunityAction(self):
         # File actions
@@ -1600,6 +1621,7 @@ class MainWindow(QMainWindow):
         # self.showMsg("bodyobj: " + json.dumps(bodyobj))
         if len(bodyobj) > 0:
             print("BEGIN ASSIGN INCOMING MISSION....")
+            # convert new added mission json to MISSIONs object
             newlyAdded = self.addNewlyAddedMissions(bodyobj)
             # now that todays' newly added missions are in place, generate the cookie site list for the run.
             self.build_cookie_site_lists()
@@ -1607,9 +1629,14 @@ class MainWindow(QMainWindow):
             # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
             self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
             self.unassigned_task_groups = self.todays_scheduled_task_groups
-
+            # print("current unassigned task groups:", self.unassigned_task_groups)
+            # print("current work to do:", self.todays_work)
             # for works on this host, add to the list of todos, otherwise send to the designated vehicle.
             self.assignWork()
+
+            print("current unassigned task groups after assignwork:", self.unassigned_task_groups)
+            print("current work to do after assignwork:", self.todays_work)
+
             self.logDailySchedule(json.dumps(bodyobj))
         else:
             print("WARN: empty obj")
@@ -1659,7 +1686,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
                         # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest99.json'
+                        file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
@@ -1818,7 +1845,8 @@ class MainWindow(QMainWindow):
         blank_m.setConfig(mconfig)
 
     # after fetching today's schedule, update missions data structure since some walk/buy routine will be created.
-    # as well as some daily routines.... will be generated either....
+    # as well as some daily routines.... will be generated as well....
+    # one of the key thing to do here is the fill out the private attribute from the most recent past similar missions.
     def addNewlyAddedMissions(self, resp_data):
         # for each received work mission, check whether they're in the self.missions already, if not, create them and
         # add to the missions list.
@@ -1838,17 +1866,44 @@ class MainWindow(QMainWindow):
 
         newAdded = []
         newly_added_missions = resp_data["added_missions"]
+        true_newly_added = []       # newly_added_missions includes some previous incompleted missions, they're not really NEW.
         print("Added MS:"+json.dumps(["M"+str(m["mid"])+"B"+str(m["botid"]) for m in newly_added_missions]))
+        loadedMids = [m.getMid() for m in self.missions]
         for m in newly_added_missions:
-            new_mission = EBMISSION(self)
-            self.fill_mission(new_mission, m, task_groups)
-            new_mission.updateDisplay()
-            self.missions.append(new_mission)
-            self.missionModel.appendRow(new_mission)
-            self.showMsg("adding mission.... "+str(new_mission.getRetry()))
-            newAdded.append(new_mission)
+            if m["mid"] not in loadedMids:
+                new_mission = EBMISSION(self)
+                self.fill_mission(new_mission, m, task_groups)
+                self.setPrivateAttributesBasedOnPast(new_mission)
+                new_mission.updateDisplay()
+                self.missions.append(new_mission)
+                self.missionModel.appendRow(new_mission)
+                self.showMsg("adding mission.... "+str(new_mission.getRetry()))
+                true_newly_added.append(new_mission)
+                newAdded.append(new_mission)
+            else:
+                print("this mission already exists:", m["mid"])
+                # in such a case, simply sync up the data
+                existingMission = self.getMissionByID(m["mid"])
+                # now, update data from cloud...
+                existingMission.loadNetRespJson(m)
+                newAdded.append(existingMission)
+
+        self.addMissionsToLocalDB(true_newly_added)
 
         return(newAdded)
+
+
+    def setPrivateAttributesBasedOnPast(self, newMission):
+        print("new mission type and cuspas:", newMission.getType(), newMission.getCusPAS())
+        similar = [m for m in self.missions if m.getType() == newMission.getType() and m.getCusPAS() == newMission.getCusPAS()]
+        similarWithFingerPrintProfile = [m for m in similar if m.getFingerPrintProfile()]
+
+        print("similar w fpp: ", [m.getFingerPrintProfile() for m in similarWithFingerPrintProfile])
+        if similarWithFingerPrintProfile:
+            mostRecent = similarWithFingerPrintProfile[-1]
+
+            newMission.setFingerPrintProfile(mostRecent.getFingerPrintProfile())
+            print("newy set fpp:", newMission.getFingerPrintProfile())
 
     def getBotByID(self, bid):
         found_bot = next((bot for i, bot in enumerate(self.bots) if bot.getBid() == bid), None)
@@ -2120,8 +2175,8 @@ class MainWindow(QMainWindow):
     def gen_new_buy_search(self, work, mission):
         # simply modify mission's search configuration to fit our need.
         # we'll randomely pick one of the searches and modify its parameter.
-        # nth_search = random.randrange(0, len(work["config"]["searches"]))
-        nth_search = 0                  # quick hack for speeding up unit test. should be removed in release code.
+        nth_search = random.randrange(0, len(work["config"]["searches"]))
+        # nth_search = 0                  # quick hack for speeding up unit test. should be removed in release code.
         n_pages = len(work["config"]["searches"][nth_search]["prodlist_pages"])
 
         work["config"]["searches"][nth_search]["entry_paths"]["type"] = "Search"
@@ -2295,7 +2350,6 @@ class MainWindow(QMainWindow):
         # tasks should already be sorted by botid,
         nsites = 0
         v_groups = self.getUnassignedVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
-
         # print some debug info.
         for key in v_groups:
             print("num vehicles in "+key+" :"+str(len(v_groups[key])))
@@ -2333,10 +2387,17 @@ class MainWindow(QMainWindow):
 
                     if vehicle:
                         # if commander participate work, give the first(0th) work to self.
+
+                        # in case this is an e-commerce work that requires finger print browser, then prepare here.
+                        # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
+                        # SC - at this point, p_task_groups should already be a flattened list of tasks
                         batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                         # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
                         self.showMsg("arranged for today on this machine...."+vname)
+
+                        # handle any buy-side tasks.
                         self.add_buy_searchs(batched_tasks)
+
                         # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
                         self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "completed": [], "aborted": []})
                         vidx = 0
@@ -2358,6 +2419,7 @@ class MainWindow(QMainWindow):
                     if vehicle:
                         self.showMsg("working on task group vehicle : " + vname)
                         # flatten tasks and regroup them based on sites, and divide them into batches
+                        # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
                         batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                         self.add_buy_searchs(batched_tasks)
                         # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
@@ -3273,19 +3335,24 @@ class MainWindow(QMainWindow):
 
     def showAbout(self):
         msgBox = QMessageBox()
-        msgBox.setText(QApplication.translate("QMessageBox", "E-Commerce Bots. \n (V1.0 2024-01-12 AIPPS LLC) \n"))
+        msgBox.setWindowTitle(QApplication.translate("QMessageBox", "ECBot About"))
+        msgBox.setText(QApplication.translate("QMessageBox", "MAIPPS LLC E-Commerce Bots. \n (V1.01 2024-10-11 AIPPS LLC) \n"))
         # msgBox.setInformativeText("Do you want to save your changes?")
         # msgBox.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
         # msgBox.setDefaultButton(QMessageBox.Save)
         ret = msgBox.exec()
 
+    def gotoUserGuide(self):
+        url="https://www.maipps.com"
+        webbrowser.open(url, new=0, autoraise=True)
+
 
     def gotoForum(self):
-        url="https://www.maipps.com/forum.html"
+        url="https://www.maipps.com"
         webbrowser.open(url, new=0, autoraise=True)
 
     def gotoMyAccount(self):
-        url="https://www.maipps.com/my.html"
+        url="https://www.maipps.com"
         webbrowser.open(url, new=0, autoraise=True)
 
     def newBotView(self):
@@ -3362,7 +3429,9 @@ class MainWindow(QMainWindow):
                 "epw": new_bot.getEmPW(),
                 "backemail": new_bot.getBackEm(),
                 "ebpw": new_bot.getAcctPw(),
-                "backemail_site": new_bot.getBackEmSite()
+                "backemail_site": new_bot.getBackEmSite(),
+                "createon": new_bot.getCreateOn(),
+                "vehicle": new_bot.getVehicle()
             })
         jresp = send_add_bots_request_to_cloud(self.session, new_bots, self.tokens['AuthenticationResult']['IdToken'])
 
@@ -3379,7 +3448,7 @@ class MainWindow(QMainWindow):
                 new_bots[i].setInterests(resp_rec["interests"])
                 self.bots.append(new_bots[i])
                 self.botModel.appendRow(new_bots[i])
-                self.updateVehicles(new_bots[i])
+                self.updateBotRelatedVehicles(new_bots[i])
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
@@ -3416,7 +3485,7 @@ class MainWindow(QMainWindow):
                 "ebpw": abot.getAcctPw(),
                 "backemail_site": abot.getAcctPw()
             })
-            self.updateVehicles(abot)
+            self.updateBotRelatedVehicles(abot)
 
         jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
@@ -3431,28 +3500,51 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
 
-    def updateVehicles(self, bot):
+    def updateBotRelatedVehicles(self, bot):
         if bot.getVehicle() is not None and bot.getVehicle() != "" and bot.getVehicle() != "NA":
-            ip = bot.getVehicle().split("-")[2].split(" ")[0]
-            vehicle = self.vehicle_service.find_vehicle_by_ip(ip)
-            if vehicle is not None:
-                bot_ids = ast.literal_eval(vehicle.bot_ids)
-                if bot.getBid() not in bot_ids:
-                    bot_ids.append(bot.getBid())
-                    vehicle.bot_ids = str(bot_ids)
-                    self.vehicle_service.update_vehicle(vehicle, bot.getBid())
-        vehicles = self.vehicle_service.findAllVehicle()
-        self.vehicles = []
-        for v in vehicles:
-            vehicle = VEHICLE(self)
-            vehicle.setVid(v.id)
-            vehicle.setName(v.name)
-            vehicle.setIP(v.ip)
-            vehicle.setBotIds(v.bot_ids)
-            vehicle.setMids(v.daily_mids)
-            vehicle.setOS(v.os)
-            vehicle.setMStats(v.mstats)
-            self.vehicles.append(vehicle)
+            # if last assigned vehicle is changed. remove botid from last assigned vehicle and botid to the new vehicle.
+            vname = bot.getVehicle().split(":")[0]
+
+            # update local DB
+            currentVehicleInLocalDB = self.vehicle_service.find_vehicle_by_name(vname)
+            previousVehicleInLocalDB = self.vehicle_service.find_vehicle_by_botid(str(bot.getBid()))
+
+            if currentVehicleInLocalDB is not None:
+                if previousVehicleInLocalDB is not None:
+                    if currentVehicleInLocalDB.name != previousVehicleInLocalDB.name:
+                        # update the current vehicle in local DB
+                        bot_ids = ast.literal_eval(currentVehicleInLocalDB.bot_ids)
+                        if bot.getBid() not in bot_ids:
+                            bot_ids.append(bot.getBid())
+                            currentVehicleInLocalDB.bot_ids = str(bot_ids)
+                            self.vehicle_service.update_vehicle(currentVehicleInLocalDB)
+
+                        # update the previous vehicle in local DB
+                        self.vehicle_service.remove_bot_from_current_vehicle(str(bot.getBid()), previousVehicleInLocalDB)
+                else:
+                    bot_ids = ast.literal_eval(currentVehicleInLocalDB.bot_ids)
+                    if bot.getBid() not in bot_ids:
+                        bot_ids.append(bot.getBid())
+                        currentVehicleInLocalDB.bot_ids = str(bot_ids)
+                        self.vehicle_service.update_vehicle(currentVehicleInLocalDB)
+            else:
+                log3("ERROR: bot's vehicle non-exists in local DB...")
+
+            # update local data structure.
+            currentVehicle = next((v for i, v in enumerate(self.vehicles) if vname in v.getName()), None)
+            previousVehicle = next((v for i, v in enumerate(self.vehicles) if bot.getBid() in v.getBotIds()), None)
+
+            # update vehicle data structure
+            if previousVehicle:
+                if currentVehicle:
+                    if previousVehicle.getName() != currentVehicle.getName():
+                        previousVehicle.removeBot(bot.getBid())
+                        currentVehicle.addBot(bot.getBid())
+                else:
+                    log3("ERROR: bot's vehicle non-exists...")
+            else:
+                if currentVehicle:
+                    currentVehicle.addBot(bot.getBid())
 
     def addNewMissions(self, new_missions):
         # Logic for creating a new mission:
@@ -3502,6 +3594,7 @@ class MainWindow(QMainWindow):
                 "customer": new_mission.getCustomerID(),
                 "platoon": new_mission.getPlatoonID(),
                 "fingerprint_profile": new_mission.getFingerPrintProfile(),
+                "as_server": new_mission.getAsServer(),
                 "result": ""
             })
         jresp = send_add_missions_request_to_cloud(self.session, new_missions,
@@ -3575,6 +3668,7 @@ class MainWindow(QMainWindow):
                 "customer": amission.getCustomerID(),
                 "platoon": amission.getPlatoonID(),
                 "result": amission.getResult(),
+                "as_server": amission.getAsServer(),
                 "fingerprint_profile": amission.getFingerPrintProfile()
             })
 
@@ -4254,7 +4348,7 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("populating a newly created mission GUI............")
             self.missionWin = MissionNewWin(self)
-            self.showMsg("done create mission win............"+str(self.selected_cus_mission_item.getMid()))
+            self.showMsg("done create mission win............"+str(self.selected_cus_mission_item.getMid())+" skills:"+self.selected_cus_mission_item.getSkills())
             self.missionWin.setMission(self.selected_cus_mission_item)
 
         self.missionWin.setMode("update")
@@ -4540,30 +4634,31 @@ class MainWindow(QMainWindow):
             local_mission.est_runtime = new_mission.getEstimatedRunTime()
             local_mission.n_retries = new_mission.getNRetries()
             local_mission.cuspas = new_mission.getCusPAS()
-            local_mission.category = new_mission.getCategory()
-            local_mission.phrase = new_mission.getPhrase()
+            local_mission.category = new_mission.getSearchCat()
+            local_mission.phrase = new_mission.getSearchKW()
             local_mission.pseudoStore = new_mission.getPseudoStore()
             local_mission.pseudoBrand = new_mission.getPseudoBrand()
             local_mission.pseudoASIN = new_mission.getPseudoASIN()
             local_mission.type = new_mission.getType()
-            local_mission.config = new_mission.getConfig()
+            local_mission.config = json.dumps(new_mission.getConfig())
             local_mission.skills = new_mission.getSkills()
             local_mission.delDate = new_mission.getDelDate()
-            local_mission.asin = new_mission.getAsin()
+            local_mission.asin = new_mission.getASIN()
             local_mission.store = new_mission.getStore()
             local_mission.follow_seller = new_mission.getFollowSeller()
             local_mission.brand = new_mission.getBrand()
-            local_mission.img = new_mission.getImg()
+            local_mission.img = new_mission.getImagePath()
             local_mission.title = new_mission.getTitle()
             local_mission.rating = new_mission.getRating()
             local_mission.feedbacks = new_mission.getFeedbacks()
             local_mission.price = new_mission.getPrice()
             local_mission.follow_price = new_mission.getFollowPrice()
             local_mission.fingerprint_profile = new_mission.getFingerPrintProfile()
-            local_mission.customer = new_mission.getCustomer()
-            local_mission.platoon = new_mission.getPlatoon()
+            local_mission.customer = new_mission.getCustomerID()
+            local_mission.platoon = new_mission.getPlatoonID()
             local_mission.result = new_mission.getResult()
             local_mission.variations = new_mission.getVariations()
+            local_mission.as_server = new_mission.getAsServer()
             local_missions.append(local_mission)
         self.mission_service.insert_missions_batch_(local_missions)
 
@@ -4704,6 +4799,7 @@ class MainWindow(QMainWindow):
         new_mission.loadAMZReqData(reqJson)
         return new_mission
 
+    # sc - 10/11/2024 - add new missions are they in todays_work?
     def newBuyMissionFromFiles(self):
         dtnow = datetime.now()
         date_word = dtnow.strftime("%Y%m%d")
@@ -4729,7 +4825,7 @@ class MainWindow(QMainWindow):
                             new_buy_missions.append(self.newMissionFromNewReq(buy_req))
 
         # now that we have created all the new missions,
-        # create the in the cloud and local DB.
+        # create the mission in the cloud and local DB.
         # cloud side first
 
         if len(new_buy_missions) > 0:
@@ -5090,7 +5186,7 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("WARNING: bot vehicle NOT ASSIGNED!")
 
-    # load locally stored mission, but only for the past 3 days, otherwise, there would be too much......
+    # load locally stored mission, but only for the past 7 days, otherwise, there would be too much......
     def loadLocalMissions(self, db_data: [MissionModel]):
         dict_results = [result.to_dict() for result in db_data]
         self.showMsg("get local missions from db::" + json.dumps(dict_results))
@@ -5492,7 +5588,7 @@ class MainWindow(QMainWindow):
                 self.showMsg("completd: "+json.dumps(self.todays_completed))
 
                 # update vehicle status, now becomes idle again.
-                self.updateVehicleStatus(msg["ip"])
+                self.updateVehicleStatusToRunningIdel(msg["ip"])
 
                 # keep statistics on all platoon runs.
                 if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
@@ -5575,17 +5671,19 @@ class MainWindow(QMainWindow):
         for midx in sorted_finished_midxs:
             found_mission = self.missions[midx]
             self.showMsg("just finished mission ["+str(found_mission.getMid())+"] status:"+found_mission.getStatus())
-            if "Completed" in found_mission.getStatus():
-                found_mission.setMissionIcon(QIcon(self.file_resource.mission_success_icon_path))
-            else:
-                found_mission.setMissionIcon(QIcon(self.file_resource.mission_failed_icon_path))
+            # if "Completed" in found_mission.getStatus():
+            #     found_mission.setMissionIcon(QIcon(self.file_resource.mission_success_icon_path))
+            # else:
+            #     print("failed icon path:", self.file_resource.mission_failed_icon_path, self.file_resource.mission_success_icon_path)
+            #     found_mission.setMissionIcon(QIcon(self.file_resource.mission_failed_icon_path))
+
 
             for item in self.missionModel.findItems('mission' + str(found_mission.getMid()) + ":Bot" + str(
                 found_mission.getBid()) + ":" + found_mission.pubAttributes.ms_type + ":" + found_mission.pubAttributes.site):
                 # cloned_item = item.clone()
                 # self.missionModel.removeRow(item.row())
                 # self.completedMissionModel.appendRow(cloned_item)
-                self.completedMissionModel.appendRow(found_mission)
+                self.completedMissionModel.appendRow(item)
                 self.missionModel.removeRow(item.row())
 
     def genMissionStatusReport(self, mids, test_mode=True):
@@ -6729,7 +6827,7 @@ class MainWindow(QMainWindow):
         setupExtSkillRunReportResultsTestData(self)
 
     # from ip find vehicle, and update its status, and
-    def updateVehicleStatus(self, ip):
+    def updateVehicleStatusToRunningIdel(self, ip):
         found_vehicles = [v for v in self.vehicles if v.getIP() == ip]
         if found_vehicles:
             found_vehicle = found_vehicles[0]
@@ -6756,10 +6854,11 @@ class MainWindow(QMainWindow):
     async def checkCloudWorkQueue(self):
         try:
             taskGroups = {}
-            print("N vehicles:", len(self.vehicles))
-            if len(self.vehicles) > 0:
-                for v in self.vehicles:
-                    print("vname:", v.getName(), "status:", v.getStatus(), )
+            # some debugging here
+            # print("N vehicles:", len(self.vehicles))
+            # if len(self.vehicles) > 0:
+            #     for v in self.vehicles:
+            #         print("vname:", v.getName(), "status:", v.getStatus(), )
             # check whether there is any thing in the local mirror: virutal cloud task queue
             if not self.virtual_cloud_task_queue.empty():
                 print("something on queue...")

@@ -156,13 +156,13 @@ class BotNewWin(QMainWindow):
         self.age_edit = QLineEdit()
         self.age_edit.setReadOnly(True)
         self.pfn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input age here"))
-        self.vehicle_label = QLabel(QApplication.translate("QLabel", "Vehicle:"), alignment=Qt.AlignLeft)
+        self.vehicle_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Vehicle:</b>"), alignment=Qt.AlignLeft)
         self.vehicle_combo_box = QComboBox()
         self.vehicle_list = []
         for p in self.main_win.vehicles:
             combined_value = f"{p.getOS()}-{p.getName()}-{p.getIP()} {len(p.getBotIds())}"
-            self.vehicle_list.append(combined_value)
-            item = QApplication.translate("QComboBox", combined_value)
+            self.vehicle_list.append(p.getName())
+            item = QApplication.translate("QComboBox", p.getName())
             self.vehicle_combo_box.addItem(item)
             if len(p.bot_ids) > p.CAP:
                 index = self.vehicle_combo_box.findText(item)
@@ -170,6 +170,9 @@ class BotNewWin(QMainWindow):
                     self.vehicle_combo_box.model().item(index).setEnabled(False)
         self.vehicle_combo_box.setCurrentIndex(-1)
         self.vehicle_combo_box.currentTextChanged.connect(self.vehicle_combo_box_changed)
+
+        self.private_attribute_note_label = QLabel(QApplication.translate("QLabel", "<b style='color:Blue;'>Private Attributes will NOT be sent to the cloud, they will ONLY stay on this computer.</b>"), alignment=Qt.AlignLeft)
+        self.private_attribute_note_label.setFixedHeight(30)
 
         self.mf_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Gender:</b>"),
                                alignment=Qt.AlignLeft)
@@ -432,9 +435,12 @@ class BotNewWin(QMainWindow):
         self.ln_edit = QLineEdit()
         self.ln_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Last Name here"))
 
-        self.addr_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Address:</b>"),
-                                 alignment=Qt.AlignLeft)
+        self.addr_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Address:</b>"), alignment=Qt.AlignLeft)
+        self.addr_label.setFixedHeight(30)
+
         self.shipaddr_label = QLabel(QApplication.translate("QLabel", "Shipping Address:"), alignment=Qt.AlignLeft)
+        self.shipaddr_label.setFixedHeight(30)
+
         self.addr_l1_label = QLabel(QApplication.translate("QLabel", "Address Line1:"), alignment=Qt.AlignLeft)
         self.addr_l1_edit = QLineEdit()
 
@@ -495,6 +501,10 @@ class BotNewWin(QMainWindow):
             QApplication.translate("QLabel", "<b style='color:red;'>Backup Email Site:</b>"), alignment=Qt.AlignLeft)
         self.backem_site_edit = QLineEdit("")
         self.backem_site_edit.setPlaceholderText(QApplication.translate("QLineEdit", "website for access backup email"))
+
+        self.prvpflLine0Layout = QHBoxLayout(self)
+        self.prvpflLine0Layout.addWidget(self.private_attribute_note_label)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine0Layout)
 
         self.prvpflLine1Layout = QHBoxLayout(self)
         self.prvpflLine1Layout.addWidget(self.fn_label)

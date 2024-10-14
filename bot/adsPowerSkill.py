@@ -982,27 +982,12 @@ def getBotEMail(bid, bots):
 def formADSProfileBatchesFor1Vehicle(vTasks, vehicle, commander):
     # vTasks, allbots, all_profiles_csv, run_data_dir):
     try:
-        # tgbs = []
-
-        # flatten across time zone
-        # for tz in vTasks.keys():
-        #     tgbs = tgbs + vTasks[tz]
 
         all_works = vTasks
-        # all_works = []
-        # for tgb in tgbs:
-        #     bid = tgb["bid"]
-        #
-        #     for bw in tgb["bw_works"]:
-        #         bw["bid"] = bid
-        #         all_works.append(bw)
-        #
-        #     for other in tgb["other_works"]:
-        #         other["bid"] = bid
-        #         all_works.append(other)
-
+        print("all_works:", all_works)
         log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
+        print("time_ordered_works:", time_ordered_works)
 
         ads_profile_batches_fnames = genAdsProfileBatchs(commander, vehicle.getIP(), time_ordered_works)
 
@@ -1259,7 +1244,7 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
             found_mision = found_missions[0]
             bot_work["fingerprint_profile"] = batch_file
             found_mision.setFingerPrintProfile(batch_file)
-            log3("found mission fingerprint profile:"+found_mision.getFingerPrintProfile())
+            log3("reset found mission fingerprint profile:"+found_mision.getFingerPrintProfile())
         else:
             bot_work["fingerprint_profile"] = ""
 
@@ -1270,8 +1255,9 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
             if found_bot.getEmail():
                 bot_txt_profile_name = ads_profile_dir + "/" + found_bot.getEmail().split("@")[0]+".txt"
                 bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
-                log3("bot_mid_key:"+bot_mid_key+"bot_txt_profile_name:"+bot_txt_profile_name)
+                log3("bot_mid_key: "+bot_mid_key+" bot_txt_profile_name:"+bot_txt_profile_name)
 
+                print("batch_bot_profiles_read:", batch_bot_profiles_read)
                 if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
                     newly_read = readTxtProfile(bot_txt_profile_name)
                     batch_bot_profiles_read.append(bot_txt_profile_name)

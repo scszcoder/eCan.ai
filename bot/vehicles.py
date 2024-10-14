@@ -83,6 +83,10 @@ class VEHICLE(QStandardItem):
 
         return nAdded
 
+    def removeBot(self, bid):
+        self.bot_ids.remove(bid)
+
+
     def setBotIds(self, bot_ids):
         self.bot_ids = bot_ids
 
