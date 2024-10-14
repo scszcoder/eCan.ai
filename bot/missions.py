@@ -203,6 +203,9 @@ class M_Pub_Attributes():
         self.assign_type = atype
         self.ms_type = mtype
 
+    def getType(self):
+        return self.ms_type
+
     def setBot(self, bid):
         self.bot_id = bid
 
@@ -913,6 +916,8 @@ class EBMISSION(QStandardItem):
     def setAsServer(self, ias):
         self.pubAttributes.as_server = ias
 
+    def getType(self):
+        return self.pubAttributes.getType()
     # self.
     def setJsonData(self, ppJson):
         self.pubAttributes.loadJson(ppJson["pubAttributes"])

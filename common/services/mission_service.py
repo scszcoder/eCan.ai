@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text, TEXT, REAL, INTEGER
 
-from Cloud import send_query_missions_request_to_cloud
+from Cloud import send_query_missions_by_time_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.mission import MissionModel
 from utils.logger_helper import logger_helper
@@ -46,6 +46,7 @@ MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'defa
                           {'name': 'feedbacks', 'type': 'INTEGER', 'nullable': True, 'default': -1},
                           {'name': 'price', 'type': 'REAL', 'nullable': True, 'default': 0.0},
                           {'name': 'follow_price', 'type': 'REAL', 'nullable': True, 'default': 0.0},
+                          {'name': 'fingerprint_profile', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'customer', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'platoon', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'result', 'type': 'TEXT', 'nullable': True, 'default': ""},
@@ -59,7 +60,7 @@ class MissionService:
 
     def find_missions_by_createon(self):
         current_time = datetime.now()
-        three_days_ago = current_time - timedelta(days=3)
+        three_days_ago = current_time - timedelta(days=7)
         missions = self.session.query(MissionModel).filter(MissionModel.createon >= three_days_ago).all()
         return missions
 
@@ -95,7 +96,7 @@ class MissionService:
 
     def insert_missions_batch(self, jbody, api_missions):
         for i, jb in enumerate(jbody):
-            messions = api_missions[i]
+            mission = api_missions[i]
             local_mission = MissionModel()
             local_mission.mid = jb["mid"]
             local_mission.ticket = jb["ticket"]
@@ -109,11 +110,11 @@ class MissionService:
             local_mission.aad = jb["aad"]
             local_mission.afd = jb["afd"]
             local_mission.acd = jb["acd"]
-            local_mission.actual_start_time = messions["actual_start_time"]
+            local_mission.actual_start_time = mission["actual_start_time"]
             local_mission.est_start_time = jb["esttime"]
-            local_mission.actual_runtime = messions["actual_run_time"]
+            local_mission.actual_runtime = mission["actual_run_time"]
             local_mission.est_runtime = jb["runtime"]
-            local_mission.n_retries = messions["n_retries"]
+            local_mission.n_retries = mission["n_retries"]
             local_mission.cuspas = jb["cuspas"]
             local_mission.category = jb["category"]
             local_mission.phrase = jb["phrase"]
@@ -124,25 +125,26 @@ class MissionService:
             local_mission.config = str(jb["config"])
             local_mission.skills = str(jb["skills"])
             local_mission.delDate = jb["delDate"]
-            local_mission.asin = messions["asin"]
-            local_mission.store = messions["store"]
-            local_mission.brand = messions["brand"]
-            local_mission.img = messions["image"]
-            local_mission.title = messions["title"]
-            local_mission.variations = messions["variations"]
-            local_mission.rating = messions["rating"]
-            local_mission.feedbacks = messions["feedbacks"]
-            local_mission.price = messions["price"]
-            local_mission.customer = messions["customer"]
-            local_mission.platoon = messions["platoon"]
-            local_mission.result = messions["result"]
-            local_mission.follow_seller = messions["follow_seller"]
-            local_mission.follow_price = messions["follow_price"]
-            local_mission.fingerprint_profile = messions["fingerprint_profile"]
-            local_mission.as_server = messions["as_server"]
+            local_mission.asin = mission["asin"]
+            local_mission.store = mission["store"]
+            local_mission.brand = mission["brand"]
+            local_mission.img = mission["image"]
+            local_mission.title = mission["title"]
+            local_mission.variations = mission["variations"]
+            local_mission.rating = mission["rating"]
+            local_mission.feedbacks = mission["feedbacks"]
+            local_mission.price = mission["price"]
+            local_mission.customer = mission["customer"]
+            local_mission.platoon = mission["platoon"]
+            local_mission.result = mission["result"]
+            local_mission.follow_seller = mission["follow_seller"]
+            local_mission.follow_price = mission["follow_price"]
+            local_mission.fingerprint_profile = mission["fingerprint_profile"]
+            local_mission.as_server = mission["as_server"]
             self.session.add(local_mission)
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
         self.session.commit()
+
 
     def update_missions_by_id(self, api_missions):
         for i, amission in enumerate(api_missions):
@@ -216,8 +218,9 @@ class MissionService:
         delete_stmt = delete(MissionModel).where(MissionModel.mid == mid)
         # 执行删除
         result = self.session.execute(delete_stmt)
+        print("result:", result)
         self.session.commit()
-        if result.rowcount() > 0:
+        if result.rowcount > 0:
             print(f"Mission with mid {mid} deleted successfully.")
         else:
             print(f"No Mission found with mid {mid} to delete.")
@@ -230,8 +233,10 @@ class MissionService:
         return mission_instance
 
     def sync_cloud_mission_data(self, session, tokens):
-        jresp = send_query_missions_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
-                                                     {"byowneruser": True})
+
+        print("sending query missions.....")
+        jresp = send_query_missions_by_time_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
+                                                     [{"byowneruser": True}])
         all_missions = json.loads(jresp['body'])
         for mission in all_missions:
             mid = mission['mid']

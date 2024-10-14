@@ -511,6 +511,38 @@ def gen_query_bots_string(q_setting):
     return query_string
 
 
+
+def gen_query_missions_by_time_string(query):
+
+    query_string = """
+        query MyQuery {
+      queryMissions (qm:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        rec_string = rec_string + "{"
+        if "byowneruser" in query[i]:
+            rec_string = rec_string + "byowneruser: " + str(query[i]['byowneruser']).lower()
+        else:
+            rec_string = rec_string + "owner: \"" + str(query[i]['owner']).lower() + "\""
+
+        if "created_date_range" in query[i]:
+            rec_string = rec_string + ", "
+            rec_string = rec_string + "created_date_range: \"" + query[i]['created_date_range'] + "\" }"
+        else:
+            rec_string = rec_string + "}"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+        ])
+        }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
 def gen_query_missions_string(query):
     query_string = """
         query MyQuery {
@@ -636,7 +668,7 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
             rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
             rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i].getv() + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i].getVehicle() + "\", "
             rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
 
 
@@ -742,8 +774,9 @@ def gen_add_missions_string(missions, test_settings={}):
             rec_string = rec_string + "asin:\"" + missions[i]["pubAttributes"]["pseudo_asin"] + "\", "
             rec_string = rec_string + "brand:\"" + missions[i]["pubAttributes"]["pseudo_brand"] + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i]["pubAttributes"]["ms_type"] + "\", "
+            rec_string = rec_string + "as_server:" + str(int(missions[i]["pubAttributes"]["as_server"])) + ", "
             rec_string = rec_string + "skills:\"" + missions[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"] + "\"} "
+            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
         else:
             rec_string = rec_string + "{ mid:" + str(missions[i].getMid()) + ", "
             rec_string = rec_string + "ticket:" + str(missions[i].getTicket()) + ", "
@@ -758,8 +791,9 @@ def gen_add_missions_string(missions, test_settings={}):
             rec_string = rec_string + "asin:\"" + missions[i].getPseudoASIN() + "\", "
             rec_string = rec_string + "brand:\"" + missions[i].getPseudoBrand() + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i].getMtype() + "\", "
+            rec_string = rec_string + "as_server:" + str(int(missions[i].getAsServer())) + ", "
             rec_string = rec_string + "skills:\"" + missions[i].getSkills() + "\", "
-            rec_string = rec_string + "config:\"" + missions[i].getConfig() + "\"} "
+            rec_string = rec_string + "config:\"" + missions[i].getConfig().replace('"', '\\"') + "\"} "
 
         if i != len(missions) - 1:
             rec_string = rec_string + ', '
@@ -801,8 +835,9 @@ def gen_update_missions_string(missions):
             rec_string = rec_string + "asin:" + str(missions[i]["pubAttributes"]["pseudo_asin"]) + ", "
             rec_string = rec_string + "brand:\"" + missions[i]["pubAttributes"]["pseudo_brand"] + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i]["pubAttributes"]["mtype"] + "\", "
+            rec_string = rec_string + "as_server:" + str(int(missions[i]["pubAttributes"]["as_server"])) + ", "
             rec_string = rec_string + "skills:\"" + missions[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"] + "\"} "
+            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
         else:
             rec_string = rec_string + "{ mid: " + str(missions[i].getMid()) + ", "
             rec_string = rec_string + "ticket: " + str(missions[i].getTicket()) + ", "
@@ -817,8 +852,9 @@ def gen_update_missions_string(missions):
             rec_string = rec_string + "asin: \"" + missions[i].getPseudoASIN() + "\", "
             rec_string = rec_string + "brand: \"" + missions[i].getPseudoBrand() + "\", "
             rec_string = rec_string + "mtype: \"" + missions[i].getMtype() + "\", "
+            rec_string = rec_string + "as_server: " + str(int(missions[i].getAsServer())) + ", "
             rec_string = rec_string + "skills: \"" + missions[i].getSkills() + "\", "
-            rec_string = rec_string + "config: \"" + missions[i].getConfig() + "\"} "
+            rec_string = rec_string + "config: \"" + missions[i].getConfig().replace('"', '\\"') + "\"} "
 
         if i != len(missions) - 1:
             rec_string = rec_string + ', '
@@ -1700,6 +1736,34 @@ def send_query_missions_request_to_cloud(session, token, q_settings):
 
 
     return jresponse
+
+
+def send_query_missions_by_time_request_to_cloud(session, token, q_settings):
+    try:
+        queryInfo = gen_query_missions_by_time_string(q_settings)
+
+        jresp = appsync_http_request(queryInfo, session, token)
+
+        if "errors" in jresp:
+            screen_error = True
+            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+            jresponse = jresp["errors"][0]
+        else:
+            jresponse = json.loads(jresp["data"]["queryMissions"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorQueryMissionByTime:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorQueryMissionByTime traceback information not available:" + str(e)
+        print(ex_stat)
+        jresponse = {}
+
+    return jresponse
+
 
 
 
