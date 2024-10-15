@@ -520,14 +520,16 @@ def setWorkSettingsSkill(worksettings, sk):
         worksettings["skfname"] = worksettings["local_data_path"] + sk.getPskFileName()
     else:
         worksettings["skfname"] = worksettings["root_path"] + "" + sk.getPskFileName()
+
     worksettings["platform"] = sk.getPlatform()
     worksettings["app"] = sk.getApp()
-    # worksettings["app_exe"] = sk.getAppLink()
+    worksettings["app_exe"] = sk.getAppLink()
+    worksettings["cargs"] = sk.getAppArgs()
 
     worksettings["site"] = sk.getSiteName()
 
     worksettings["page"] = sk.getPage()
-    log3("settings skill app_exe: "+worksettings["app_exe"]+" "+worksettings["app"]+" "+worksettings["platform"]+" "+worksettings["site"]+" "+worksettings["page"])
+    log3("settings skill app_exe: "+worksettings["app_exe"]+" "+worksettings["app"]+" "+worksettings["cargs"]+" "+worksettings["platform"]+" "+worksettings["site"]+" "+worksettings["page"])
 
     worksettings["skname"] = os.path.basename(sk.getName())
     log3("GENERATING STEPS into: "+" "+worksettings["skfname"]+" "+"  skill name: "+" "+worksettings["skname"])
@@ -538,7 +540,6 @@ def setWorkSettingsSkill(worksettings, sk):
 
     worksettings["name_space"] = "B" + str(worksettings["botid"]) + "M" + str(worksettings["mid"]) + "!" + pas + "!" + worksettings["skname"] + "!"
 
-    worksettings["cargs"] = sk.getAppArgs()
 
 # generate pubilc skills on windows platform.
 def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
