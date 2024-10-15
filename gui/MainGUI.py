@@ -45,7 +45,7 @@ from gui.ScheduleGUI import ScheduleWin
 from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
-from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
 from bot.basicSkill import STEP_GAP, setMissionInput, unzip_file, list_zip_file
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
@@ -326,7 +326,7 @@ class MainWindow(QMainWindow):
         self.product_catelog_file = f"{self.my_ecb_data_homepath}/resource/data/product_catelog.json"
         self.general_settings_file = f"{self.my_ecb_data_homepath}/resource/data/settings.json"
         self.general_settings = {}
-        self.debug_mode = False
+        self.debug_mode = True
         self.readSellerInventoryJsonFile("")
 
         self.showMsg("main window ip:" + self.ip)
@@ -774,14 +774,16 @@ class MainWindow(QMainWindow):
             self.readVehicleJsonFile()
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
-            self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
+            if not self.debug_mode:
+                self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
             print("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
             print("find all bots")
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
-            self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
+            if not self.debug_mode:
+                self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
             print("mission cloud synced")
             missions_data = self.mission_service.find_missions_by_createon()
             print("local mission data:", missions_data)
@@ -849,7 +851,8 @@ class MainWindow(QMainWindow):
                "aborted": []
             }
 
-            self.todays_work["tbd"].append(fetchCloudScheduledWork)
+            if not self.debug_mode:
+                self.todays_work["tbd"].append(fetchCloudScheduledWork)
             # vname = self.machine_name+":"+self.os_short
             # if vname not in self.unassigned_task_groups:
             #     self.unassigned_task_groups[vname] = []
@@ -944,10 +947,21 @@ class MainWindow(QMainWindow):
                     self.showMsg("db skill:" + json.dumps(cloud_skill))
                     cloud_work_skill = WORKSKILL(self, cloud_skill["name"])
                     cloud_work_skill.loadJson(cloud_skill)
+
+                    # now read the cloud skill's local definition file to get
+
+
                     self.skills.append(cloud_work_skill)
 
+            # read public skills from local json files and merge with what's just read from the cloud.
+            # if there is any conlict will use the cloud data as the true data.
+            self.loadPublicSkills()
+
+            # now add to skill manager display
+            for skill in self.skills:
                     # update skill manager display...
-                    self.SkillManagerWin.addSkillRows([cloud_work_skill])
+                    self.SkillManagerWin.addSkillRows([skill])
+
 
             # for sanity immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
             # when a skill is selected, its dependencies will added to mission's skills list.
@@ -2369,19 +2383,7 @@ class MainWindow(QMainWindow):
             p_task_groups = self.unassigned_task_groups[vname]      # flattend per vehicle tasks.
             print("p_task_groups: ", p_task_groups)
             if len(p_task_groups) > 0:
-                # if len(p_task_groups) > p_nsites:
-                #     # there will be unserved tasks due to over capacity
-                #     self.showMsg("Run Capacity Spilled, some tasks will NOT be served!!!"+str(len(p_task_groups))+"::"+str(p_nsites))
-                #     # save capacity spill into unassigned_task_groups
-                #     self.unassigned_task_groups[platform] = self.unassigned_task_groups[platform][p_nsites:]
-                # else:
-                #     self.showMsg("No under-capacity")
-                #     self.unassigned_task_groups[platform] = []
 
-                # distribute work to all available sites, which is the limit for the total capacity.
-                # if p_nsites > 0:
-                #     for i in range(p_nsites):
-                # if i == 0 and not self.rpa_work_assigned_for_today and not self.host_role == "Commander Only" and platform in self.platform.lower():
                 if self.machine_name in vname:
                     vehicle = self.getVehicleByName(vname)
 
@@ -2403,15 +2405,6 @@ class MainWindow(QMainWindow):
                         vidx = 0
                         self.rpa_work_assigned_for_today = True
                 else:
-                    # #otherwise, send work to platoons in the field
-                    # if self.host_role == "Commander Only":
-                    #     # in case of commanderonly. grouptask index is the same as the platoon vehicle index.
-                    #     vidx = i
-                    # else:
-                    #     # in case of n > 0 and not commander only. grouptask index is one more than the platoon vehicle index.
-                    #     # because the first group is assigned to self. starting the 2nd task group, the 2nd task group will
-                    #     # be send to the 1st vehicle , the 3rd will be send the 2nd vehicle and so .....
-                    #     vidx = i - 1
 
                     # vidx = i
                     vehicle = self.getVehicleByName(vname)
@@ -4252,6 +4245,7 @@ class MainWindow(QMainWindow):
             if selected_act:
                 self.selected_mission_row = source.indexAt(event.pos()).row()
                 self.selected_cus_mission_item = self.missionModel.item(self.selected_mission_row)
+
                 if selected_act == self.cusMissionEditAction:
                     print("edit mission clicked....")
                     self.editCusMission()
@@ -4262,6 +4256,8 @@ class MainWindow(QMainWindow):
                 elif selected_act == self.cusMissionUpdateAction:
                     self.updateCusMissionStatus(self.selected_cus_mission_item)
                 elif selected_act == self.cusMissionRunAction:
+                    print("selected_mission_row: ", self.selected_mission_row)
+                    print("selected_cus_mission_item: ", self.selected_cus_mission_item)
                     asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
 
             return True
@@ -4338,6 +4334,8 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Run Now"))
+        new_action.triggered.connect(self.runCusMissionNowSync)
+
         return new_action
 
     def editCusMission(self):
@@ -4425,21 +4423,29 @@ class MainWindow(QMainWindow):
         #     # now that delete is successfull, update local file as well.
         #     self.writeMissionJsonFile()
 
+    def runCusMissionNowSync(self):
+        print("")
+        # asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+
     async def runCusMissionNow(self, amission, gui_rpa_queue, gui_monitor_queue):
         # check if psk is already there, if not generate psk, then run it.
         self.showMsg("run mission now....")
         executor = self.getBotByID(amission.getBid())
 
-        worksTBD = {"works": [{
+        tempMissionTasks = [{
+            "name": amission.getType(),
             "mid": amission.getMid(),
-            "name": "automation",
-            "start_time": 1,            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
+            "cuspas": amission.getCusPAS(),
             "bid": amission.getBid(),
             "config": amission.getConfig(),
-            "fingerprint_profile": amission.getFingerPrintProfile()
-        }], "current widx":0}
+            "fingerprint_profile": amission.getFingerPrintProfile(),
+            "start_time": 1            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
+        }]
 
-        current_bid, current_mid, run_result = await self.runRPA(worksTBD, gui_rpa_queue, gui_monitor_queue)
+        ads_profile_batches_fnames = genAdsProfileBatchs(self, self.ip, tempMissionTasks)
+        print("updated tempMissionTasks:", tempMissionTasks)
+
+        self.todays_work["tbd"].append({"name": "automation", "works": tempMissionTasks, "status": "Assigned", "current widx": 0, "completed": [], "aborted": []})
 
 
     def _createBotRCEditAction(self):
@@ -5020,6 +5026,52 @@ class MainWindow(QMainWindow):
         else:
             return -1
 
+    def loadPublicSkills(self):
+        skill_def_files = []
+        skid_files = []
+        psk_files = []
+        csk_files = []
+        json_files = []
+
+        skdir = self.homepath + "/resource/skills/public/"
+        print("LISTING myskills:", skdir, os.walk(skdir))
+        # Iterate over all files in the directory
+        # Walk through the directory tree recursively
+        for root, dirs, files in os.walk(skdir):
+            for file in files:
+                if file.endswith(".json"):
+                    file_path = os.path.join(root, file)
+                    skill_def_files.append(file_path)
+                    print("load all public skill definition json file:" + file + "::" + file_path)
+
+        # self.showMsg("local skill files: "+json.dumps(skill_def_files))
+
+        # if json exists, use json to guide what to do
+        existing_skids = [sk.getSkid() for sk in self.skills]
+        print("existing public skids:", existing_skids)
+        for file_path in skill_def_files:
+            print("working on:", file_path)
+            with open(file_path) as json_file:
+                sk_data = json.load(json_file)
+                json_file.close()
+                self.showMsg("loading public skill f: " + str(sk_data["skid"]) + " " + file_path)
+                if sk_data["skid"] not in existing_skids:
+                    new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
+                    new_skill.loadJson(sk_data)
+                    self.skills.append(new_skill)
+                    print("added public new skill:", sk_data["skid"], new_skill.getSkid(), new_skill.getPskFileName(),
+                          new_skill.getPath())
+                else:
+                    existingSkill = next((x for i, x in enumerate(self.skills) if x.getSkid() == sk_data["skid"]), None)
+                    if existingSkill:
+                        # these are the only attributes that could be local only.
+                        existingSkill.setAppLink(sk_data['app_link'])
+                        existingSkill.setAppArgs(sk_data['app_args'])
+                        existingSkill.add_procedural_skill(sk_data['procedural_skill'])
+                        existingSkill.add_cloud_skill(sk_data['cloud_skill'])
+
+
+        self.showMsg("Added Local public Skills:" + str(len(self.skills)))
 
 
     # load locally stored skills
@@ -5071,6 +5123,8 @@ class MainWindow(QMainWindow):
 
         self.showMsg("Added Local Private Skills:"+str(len(self.skills)))
 
+
+    #  in case private skill use certain external functions, load them
     def load_external_functions(self, sk_dir, sk_name, gen_string, generator):
         try:
             generator_script = sk_dir+sk_name+".py"

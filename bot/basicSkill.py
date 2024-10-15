@@ -2446,6 +2446,18 @@ def kill_process_using_port(port):
             print(f"Terminated process with PID {conn.pid} using port {port}.")
 
 
+def is_app_running(process_name):
+    """Check if a process with the given name is running."""
+    for proc in psutil.process_iter(['name']):
+        if process_name.lower() in proc.info['name'].lower():
+            return proc
+    return None
+
+
+# step['app_link'] full path location of the executable, it could be variable.
+# step['app_type'] short name for the app, used to locate app window, so must be a substring of window title.
+# step['cargs_type'] -  "direct" "expr"
+# step['cargs'] - command arguments could be string, could be a list of strings, could be a variable holding the arguments....
 def processOpenApp(step, i):
     # log3("Opening App ....." + step["app_link"] + " " + step["cargs"])
     ex_stat = DEFAULT_RUN_STATUS
@@ -2454,22 +2466,39 @@ def processOpenApp(step, i):
             url = step["app_link"]
             webbrowser.open(url, new=0, autoraise=True)
         else:
-            # exec("global oa_exe\noa_exe = "+step["app_type"])
-            if step["cargs_type"] == "direct":
-                subprocess.call(step["app_type"] + " " + step["cargs"])
+            if ("/" in step["app_link"] or "\\" in step["app_link"] or ".exe" in step["app_link"]) and "[" not in step["app_link"] and "{" not in step["app_link"]:
+                executable = step["app_link"]
+            elif (("[" not in step["app_link"]) or ("{" not in step["app_link"])):
+                # this is an expression, so need to eval
+                exec("global oa_exe\noa_exe = " + step['app_link'] + "\nprint('oa_exe: ', oa_exe)")
+                executable = oa_exe
             else:
-                # in case of "expr" type.
-                # exec("global oa_args\noa_args = " + step["cargs"])
-                # log3("running shell"+symTab["oa_exe"]+"on :"+step["cargs"]+"with val["+symTab["oa_args"]+"]")
-                DETACHED_PROCESS = 0x00000008
-                # subprocess.Popen([step["app_type"], step["cargs"]],creationflags=DETACHED_PROCESS, close_fds=True)
-                if type(step["cargs"]) == list:
-                    cmd = [step["app_type"]] + step["cargs"]
-                else:
-                    cmd = [step["app_type"]] + symTab[step["cargs"]]
+                executable = symTab[step["app_link"]]
 
-                # subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if is_app_running(step["app_type"]):
+                #simply bring the process/window to the front.
+                switchToWindow(step["app_type"])
+            else:
+                # start the app afresh
+                # exec("global oa_exe\noa_exe = "+step["app_type"])
+                if step["cargs_type"] == "direct":
+                    subprocess.call(executable + " " + step["cargs"])
+                else:
+                    # in case of "expr" type.
+                    DETACHED_PROCESS = 0x00000008
+                    # subprocess.Popen([step["app_type"], step["cargs"]],creationflags=DETACHED_PROCESS, close_fds=True)
+                    if type(step["cargs"]) == list or step["cargs"] == "":
+                        cmd = [executable] + step["cargs"]
+                    else:
+                        exec("global oa_args\noa_args = "+step['cargs']+"\nprint('oa_args: ', oa_args)")
+                        if type(oa_args) == str:
+                            cmd = [executable] + [oa_args]
+                        elif type(oa_args) == list:
+                            cmd = [executable] + oa_args
+
+                    # subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
         time.sleep(step["wait"])
 
 
@@ -4530,42 +4559,51 @@ def processCheckAppRunning(step, i):
 
     return (i + 1), ex_stat
 
+def switchToWindow(winTitle):
+    result = False
+
+    if sys.platform == 'win32':
+        names = []
+
+        def winEnumHandler(hwnd, ctx):
+            if win32gui.IsWindowVisible(hwnd):
+                n = win32gui.GetWindowText(hwnd)
+                # log3("windows: "+str(n))
+                if n:
+                    names.append(n)
+
+        win32gui.EnumWindows(winEnumHandler, None)
+        win_title_keyword = winTitle
+
+        effective_names = [nm for nm in names if "dummy" not in nm]
+        window_handle = None
+        if win_title_keyword:
+            for wi, wn in enumerate(effective_names):
+                if win_title_keyword in wn:
+                    win_title = effective_names[wi]
+                    window_handle = win32gui.FindWindow(None, effective_names[wi])
+                    win_rect = win32gui.GetWindowRect(window_handle)
+                    log3("FOUND target window: " + win_title + " rect: " + json.dumps(win_rect))
+                    break
+
+        # Bring the window to the foreground
+        if window_handle:
+            win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)  # Restore window if minimized
+            win32gui.SetForegroundWindow(window_handle)
+            result = True
+        else:
+            log3(f"Error: Window with title '{win_title_keyword}' not found.")
+
+    return result
+
 
 def processBringAppToFront(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     symTab[step["result"]] = False
+    winTitle = step["win_title"]
+
     try:
-        if sys.platform == 'win32':
-            names = []
-
-            def winEnumHandler(hwnd, ctx):
-                if win32gui.IsWindowVisible(hwnd):
-                    n = win32gui.GetWindowText(hwnd)
-                    # log3("windows: "+str(n))
-                    if n:
-                        names.append(n)
-
-            win32gui.EnumWindows(winEnumHandler, None)
-            win_title_keyword = step["win_title"]
-
-            effective_names = [nm for nm in names if "dummy" not in nm]
-            window_handle = None
-            if win_title_keyword:
-                for wi, wn in enumerate(effective_names):
-                    if win_title_keyword in wn:
-                        win_title = effective_names[wi]
-                        window_handle = win32gui.FindWindow(None, effective_names[wi])
-                        win_rect = win32gui.GetWindowRect(window_handle)
-                        log3("FOUND target window: " + win_title + " rect: " + json.dumps(win_rect))
-                        break
-
-            # Bring the window to the foreground
-            if window_handle:
-                win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)  # Restore window if minimized
-                win32gui.SetForegroundWindow(window_handle)
-                symTab[step["result"]] = True
-            else:
-                log3(f"Error: Window with title '{win_title_keyword}' not found.")
+        symTab[step["result"]] = switchToWindow(winTitle)
 
     except Exception as e:
         # Get the traceback information
