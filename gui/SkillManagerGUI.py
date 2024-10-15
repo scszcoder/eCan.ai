@@ -524,10 +524,10 @@ class SkillManagerWindow(QMainWindow):
         print(f"Adding {nskills} skills to table starting from row {rows}...")
 
         for i in range(nskills):
-            print("adding 1 row....")
             new_row_index = rows + i  # Insert at the correct row index
+            print(f"adding 1 row....{new_row_index}.....{self.skillModel.rowCount()}")
             self.skillModel.insertRow(new_row_index)  # Insert a new empty row
-            self.fill1TableRow(new_row_index, skillData[i], self.skillModel)  # Pass only the current row's data
+            self.fill1TableRow(new_row_index, skillData, self.skillModel)  # Pass only the current row's data
             self.skillTableView.setRowHeight(new_row_index, 32)  # Set row height
         print("done add a rows.....")
 
@@ -560,26 +560,22 @@ class SkillManagerWindow(QMainWindow):
         self.tabs.setCurrentIndex(tab_index)
 
     def fill1TableRow(self, rowIdx, rowData, model):
-        # if rowIdx >= len(rowData):
-        #     print(f"Invalid row index: {rowIdx}. Skipping.")
-        #     return
-
-        print(f"Setting row {rowIdx}...")
-
+        print(f"Setting row {rowIdx}...{len(rowData)}")
+        rdIdx = 0
         try:
             # Safely access data from rowData
-            skid = str(rowData[rowIdx].getSkid()) if rowData[rowIdx].getSkid() else "N/A"
-            name = rowData[rowIdx].getName() or "N/A"
-            owner = rowData[rowIdx].getOwner() or "Unknown"
-            created_on = rowData[rowIdx].getCreatedOn() or "N/A"
-            privacy = rowData[rowIdx].getPrivacy() or "N/A"
-            platform = rowData[rowIdx].getPlatform() or "N/A"
-            app = rowData[rowIdx].getApp() or "N/A"
-            app_link = rowData[rowIdx].getAppLink() or "N/A"
-            app_args = rowData[rowIdx].getAppArgs() or "N/A"
-            site_name = rowData[rowIdx].getSiteName() or "N/A"
-            site_link = rowData[rowIdx].getSite() or "N/A"
-            page = rowData[rowIdx].getPage() or "N/A"
+            skid = str(rowData[rdIdx].getSkid()) if rowData[rdIdx].getSkid() else "N/A"
+            name = rowData[rdIdx].getName() or "N/A"
+            owner = rowData[rdIdx].getOwner() or "Unknown"
+            created_on = rowData[rdIdx].getCreatedOn() or "N/A"
+            privacy = rowData[rdIdx].getPrivacy() or "N/A"
+            platform = rowData[rdIdx].getPlatform() or "N/A"
+            app = rowData[rdIdx].getApp() or "N/A"
+            app_link = rowData[rdIdx].getAppLink() or "N/A"
+            app_args = rowData[rdIdx].getAppArgs() or "N/A"
+            site_name = rowData[rdIdx].getSiteName() or "N/A"
+            site_link = rowData[rdIdx].getSite() or "N/A"
+            page = rowData[rdIdx].getPage() or "N/A"
 
             # Set Skill ID
             model.setItem(rowIdx, 0, QStandardItem(skid))
