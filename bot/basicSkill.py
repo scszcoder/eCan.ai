@@ -16,6 +16,7 @@ import glob
 import chardet
 import pandas as pd
 import numpy as np
+from deepdiff import DeepDiff
 
 from ping3 import ping
 
@@ -958,6 +959,29 @@ def genStepReadXlsxFile(file_name_type, file_name, result_var, flag_var, stepN):
         "flag": flag_var
     }
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+# check whether a list of sublist of another, the list could be a list of complicated jsons or list of list.
+def genStepCheckSublist(main_list_name, sub_list_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Check Sublist",
+        "main_list": main_list_name,
+        "sub_list": sub_list_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepCheckAlreadyProcessed(in_list_name, record_dir_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Check Already Processed",
+        "in_list": in_list_name,
+        "record_dir": record_dir_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 def genStepReqHumanInLoop(qvar, img_var, type_var, time_var, retry_var, req_id_var, site_var, site_key_var, expected_var, result_var, flag_var, stepN):
@@ -3604,7 +3628,7 @@ def processObtainReviews(step, i, mission):
     try:
         settings = mission.main_win_settings
         resp = req_cloud_obtain_review(settings["session"], review_request, settings["token"])
-        symTab[step["review"]]
+        symTab[step["review"]] = json.loads(resp['body'])
 
     except Exception as e:
         # Get the traceback information
@@ -5461,6 +5485,111 @@ def processKillProcesses(step, i):
             ex_stat = "ErrorKillProcesses:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorKillProcesses: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processCheckSublist(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag"]] = False
+        main_list = symTab[step['main_list']]
+        sub_list = symTab[step['sub_list']]
+
+        main_len = len(main_list)
+        sub_len = len(sub_list)
+
+        # Track the position of where we are in the sub_list
+        sub_index = 0
+
+        for main_item in main_list:
+            # Compare the current element in the main list with the current element in the sub list
+            if not DeepDiff(main_item, sub_list[sub_index], ignore_order=True):
+                # If they match, move to the next element in the sub list
+                sub_index += 1
+                # If we've matched all elements in the sub list, return True
+                if sub_index == sub_len:
+                    symTab[step["flag"]] = True
+                    break
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckSublist:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckSublist: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def load_json_files(directory):
+    json_data = []
+    # os.walk generates the file names in a directory tree, recursively
+    for root, dirs, files in os.walk(directory):
+        # print("checking files:", files)
+        for filename in files:
+
+            if filename.endswith(".json"):
+                file_path = os.path.join(root, filename)
+                with open(file_path, 'r') as json_file:
+                    data = json.load(json_file)
+                    json_data.append({"data": data, "file": file_path})
+    print("json data and files:", json_data)
+    return json_data
+
+def processCheckAlreadyProcessed(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag"]] = False
+        found_file = ""
+        in_list = symTab[step['in_list']]
+        record_dir = symTab[step['record_dir']]
+
+        processed = load_json_files(record_dir)
+        # print("in_list:", in_list)
+        # print("found json:", processed)
+
+        if processed:
+            for shipping_info in in_list[:]:  # Iterate through selenium_shipping_info
+                found = False
+                for data in processed:
+                    if data["data"].get("paid") is True:
+                        orders = data["data"].get("orders", [])
+                        for order in orders:
+                            if DeepDiff(order, shipping_info, ignore_order=True) == {}:
+                                found = True
+                                found_file = data["file"]
+                                print("Found match:", shipping_info)
+                                break
+                    if found:
+                        break
+                # If a matching order is found, remove the item from selenium_shipping_info
+                if found:
+                    print("removing matched...")
+                    in_list.remove(shipping_info)
+
+            if not in_list:
+                symTab[step["flag"]] = True
+                symTab[step["result"]] = found_file
+                print("all found meaning already processed.", symTab[step["result"]])
+            else:
+                print("orders not yet processed.")
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckAlreadyProcessed:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckAlreadyProcessed: traceback information not available:" + str(e)
         symTab[step["flag"]] = False
         log3(ex_stat)
 
