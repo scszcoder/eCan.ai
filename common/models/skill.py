@@ -9,6 +9,7 @@ class SkillModel(Base):
     platform = Column(Text)
     app = Column(Text)
     applink = Column(Text)
+    app_args = Column(Text)
     site = Column(Text)
     sitelink = Column(Text)
     name = Column(Text)
@@ -25,6 +26,7 @@ class SkillModel(Base):
             'platform': self.platform,
             'app': self.app,
             'applink': self.applink,
+            'app_args': self.app_args,
             'site': self.site,
             'sitelink': self.sitelink,
             'name': self.name,

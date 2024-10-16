@@ -327,10 +327,11 @@ def genStepWebdriverStartExistingChrome(driver_path_var, debug_port, result_var,
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepWebdriverStartNewChrome(driver_path, result_var, flag_var, stepN):
+def genStepWebdriverStartNewChrome(driver_path, port, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Start New Chrome",
         "driver_path": driver_path,
+        "port": port,
         "result": result_var,
         "flag": flag_var
     }
@@ -478,7 +479,9 @@ def processWebdriverStartNewChrome(step, i):
         ex_stat = DEFAULT_RUN_STATUS
         chrome_options = Options()
         # chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--remote-debugging-port=9228')
+        if step["port"] == "":
+            step["port"] = "9228"       # set to default
+        chrome_options.add_argument('--remote-debugging-port='+str(step["port"]))
         chrome_options.add_argument('--user-data-dir=C:\\chrome_data')
         chrome_options.add_argument("--disable-features=SharedStorage,InterestCohort")
 

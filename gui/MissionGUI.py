@@ -469,14 +469,13 @@ class MissionNewWin(QMainWindow):
         self.follow_seller_edit = QLineEdit()
         self.follow_seller_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Follow Seller here"))
 
-        self.fingerprint_profile_label = QLabel(QApplication.translate("QLabel", "Fingerprint Profile:"), alignment=Qt.AlignLeft)
+        self.fingerprint_profile_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Fingerprint Profile:</b>"), alignment=Qt.AlignLeft)
         self.fingerprint_profile_edit = QLineEdit()
         self.fingerprint_profile_edit.setReadOnly(True)
         self.fingerprint_profile_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Please select files of type Text, xls, xlsx or csv."))
         self.fingerprint_profile_button = QPushButton("...")
         self.fingerprint_profile_button.clicked.connect(self.fingerprint_profile_file)
-        self.cus_sm_type_label = QLabel(QApplication.translate("QLabel", "Customer Messenging Type:"),
-                                        alignment=Qt.AlignLeft)
+        self.cus_sm_type_label = QLabel(QApplication.translate("QLabel", "Customer Messenging Type:"), alignment=Qt.AlignLeft)
         self.cus_sm_type_sel = QComboBox()
 
         self.cus_sm_type_sel.addItem(QApplication.translate("QComboBox", "QQ"))
@@ -791,28 +790,39 @@ class MissionNewWin(QMainWindow):
 
         self.close()
 
+    # load skillModel(GUI skill items) from a comma separated skill id string.
     def loadSkills(self, mission):
         skp_options = ['win', 'mac', 'linux']
         skapp_options = ['chrome', 'edge', 'firefox', 'safari', 'ads', 'multilogin']
         sksite_options = ['amz', 'etsy', 'ebay']
-        all_skids = mission.getSkills().split(",")
 
-        for skidw in all_skids:
-            skid = skidw.strip()
-            this_skill = next((x for x in self.main_win.skills if x.getSkid() == skid), None)
+        print("all mission skills string:", mission.getMid(), mission.getSkills(), len(self.main_win.skills), [x.getSkid() for x in self.main_win.skills])
 
-            if this_skill:
-                self.skillModel.appendRow(this_skill)
+        if mission.getSkills().strip():
+            all_skids = mission.getSkills().split(",")
+            self.skillModel.clear()
+            for skidw in all_skids:
+                skid = int(skidw.strip())
+                this_skill = next((x for x in self.main_win.skills if x.getSkid() == skid), None)
 
-        self.selected_skill_row = 0
-        self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
+                if this_skill:
+                    self.skillModel.appendRow(this_skill)
 
+            self.selected_skill_row = 0
+            self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
+
+    # convert skills selected on GUI to a string format that can be stored in Mission data object
+    # this comma separated skill id format will be stored on the cloud and on local DB.
     def fillSkills(self):
         sk_word = ""
-        for i in range(self.skillModel.rowCount()):
-            self.selected_skill_item = self.skillModel.item(i)
-            skid = self.selected_skill_item.getSkid()
-            sk_word = sk_word + "," + str(skid)
+        print("# skills in GUI:", self.skillModel.rowCount())
+        if self.skillModel.rowCount() > 0:
+            for i in range(self.skillModel.rowCount()):
+                self.selected_skill_item = self.skillModel.item(i)
+                skid = self.selected_skill_item.getSkid()
+                sk_word = sk_word + str(skid)
+                if i != self.skillModel.rowCount()-1:
+                    sk_word = sk_word + ","
 
         self.main_win.showMsg("skills>>>>>" + sk_word)
 
@@ -831,6 +841,7 @@ class MissionNewWin(QMainWindow):
     def setMission(self, mission):
 
         try:
+            print("filling mission GUI data...")
             self.newMission = mission
             self.mid_edit.setText(str(self.newMission.getMid()))
             self.ticket_edit.setText(str(self.newMission.getTicket()))
@@ -893,7 +904,7 @@ class MissionNewWin(QMainWindow):
             self.cus_sm_id_edit.setText(self.newMission.getCustomerSMID())
             self.veriations_edit.setText(self.newMission.getVariations())
             self.follow_seller_edit.setText(self.newMission.getFollowSeller())
-            self.follow_price_edit.setText(self.newMission.getFollowPrice())
+            self.follow_price_edit.setText(str(self.newMission.getFollowPrice()))
             self.fingerprint_profile_edit.setText(self.newMission.getFingerPrintProfile())
 
             if self.newMission.getCustomerSMPlatform() in self.static_resource.SM_PLATFORMS:
@@ -1023,8 +1034,11 @@ class MissionNewWin(QMainWindow):
         sk_page = sk_words[3]
         sk_name = "_".join(sk_words[4:])
 
+        print("main has # of skills:", len(self.main_win.skills), sk_platform, sk_app, sk_site, sk_page, sk_name)
+        for x in self.main_win.skills:
+            print("main skill:", x.getPlatform(), x.getApp(), x.getSiteName(), x.getPage(), x.getName())
         this_skill = next((x for x in self.main_win.skills if
-                           x.getPlatform() == sk_platform and x.getApp() == sk_app and x.getSite() == sk_site and x.getPage() == sk_page and x.getName() == sk_name),
+                           x.getPlatform() == sk_platform and x.getApp() == sk_app and x.getSiteName() == sk_site and x.getPage() == sk_page and x.getName() == sk_name),
                           None)
         if this_skill:
             self.skillNoteLabel.setText("")
