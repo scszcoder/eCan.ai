@@ -183,7 +183,7 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, loginout_gui, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, lang):
+    def __init__(self, loginout_gui, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
         super(MainWindow, self).__init__()
         self.loginout_gui = loginout_gui
         if homepath[len(homepath)-1] == "/":
@@ -206,6 +206,7 @@ class MainWindow(QMainWindow):
         self.session = set_up_cloud()
         self.tokens = inTokens
         self.machine_role = machine_role
+        self.schedule_mode = schedule_mode
         self.ip = ip
         self.main_key = main_key
         self.user = user
@@ -326,7 +327,7 @@ class MainWindow(QMainWindow):
         self.product_catelog_file = f"{self.my_ecb_data_homepath}/resource/data/product_catelog.json"
         self.general_settings_file = f"{self.my_ecb_data_homepath}/resource/data/settings.json"
         self.general_settings = {}
-        self.debug_mode = True
+        self.debug_mode = False
         self.readSellerInventoryJsonFile("")
 
         self.showMsg("main window ip:" + self.ip)
@@ -344,6 +345,9 @@ class MainWindow(QMainWindow):
                 self.general_settings = json.load(gen_settings_f)
                 if "debug_mode" in self.general_settings:
                     self.debug_mode = self.general_settings["debug_mode"]
+                if "schedule_mode" in self.general_settings:
+                    self.schedule_mode = self.general_settings["schedule_mode"]
+
         self.showMsg("Debug Mode:" + str(self.debug_mode))
         self.showMsg("self.platform==================================================>" + self.platform)
         if os.path.exists(self.ads_settings_file):
@@ -774,7 +778,7 @@ class MainWindow(QMainWindow):
             self.readVehicleJsonFile()
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
-            if not self.debug_mode:
+            if not self.debug_mode or self.schedule_mode == "auto":
                 self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
             print("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
@@ -782,7 +786,7 @@ class MainWindow(QMainWindow):
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
-            if not self.debug_mode:
+            if not self.debug_mode or self.schedule_mode == "auto":
                 self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
             print("mission cloud synced")
             missions_data = self.mission_service.find_missions_by_createon()
@@ -851,7 +855,7 @@ class MainWindow(QMainWindow):
                "aborted": []
             }
 
-            if not self.debug_mode:
+            if not self.debug_mode or self.schedule_mode == "auto":
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
             # vname = self.machine_name+":"+self.os_short
             # if vname not in self.unassigned_task_groups:
@@ -886,7 +890,7 @@ class MainWindow(QMainWindow):
 
         # the message queue are
         self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
-        self.showMsg("spawned runbot task")
+        self.showMsg("spawned RPA Monitor task")
 
         start_local_server_in_thread(self)
         # self.gchat_task = asyncio.create_task(start_gradio_chat_in_background(self))
@@ -1089,6 +1093,14 @@ class MainWindow(QMainWindow):
     #async def networking(self, platoonCallBack):
     def set_host_role(self, role):
         self.host_role = role
+
+    def set_schedule_mode(self, sm):
+        self.schedule_mode = sm
+
+
+    def get_schedule_mode(self):
+        return self.schedule_mode
+
 
     def get_host_role(self):
         return self.host_role
@@ -1641,6 +1653,7 @@ class MainWindow(QMainWindow):
             self.build_cookie_site_lists()
             self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
             # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
+            #  turn this into a per-vehicle flattend list of tasks (vehicle name based dictionary).
             self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
             self.unassigned_task_groups = self.todays_scheduled_task_groups
             # print("current unassigned task groups:", self.unassigned_task_groups)
@@ -1666,7 +1679,7 @@ class MainWindow(QMainWindow):
             self.showMsg("Done handling today's new Buy orders...")
 
             # next line commented out for testing purpose....
-            if not self.debug_mode:
+            if not self.debug_mode or self.schedule_mode == "auto":
                 jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
                 print("schedule JRESP:", jresp)
             else:
@@ -1678,7 +1691,7 @@ class MainWindow(QMainWindow):
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
-                if not self.debug_mode:
+                if not self.debug_mode or self.schedule_mode == "auto":
                     uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
                 else:
                     uncompressed = "{}"
@@ -1693,7 +1706,7 @@ class MainWindow(QMainWindow):
 
                     bodyobj = {"task_groups": {}, "added_missions": []}
 
-                    if not self.debug_mode:
+                    if not self.debug_mode or self.schedule_mode == "auto":
                         bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
                     else:
                         # file = 'C:/software/scheduleResultTest7.json'
@@ -2818,11 +2831,15 @@ class MainWindow(QMainWindow):
                     self.showMsg("BEFORE RUN: " + worksettings["b_email"])
                     runResult = await runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
 
+                    # for retry test purpose:
+                    # runResult = "Incomplete Error"
+
                     # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
                     # the timer tick will trigger the run of the next mission on the list....
                     self.showMsg("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult)
                     self.update1MStat(worksettings["midx"], runResult)
-                    self.updateUnassigned(worksTBD["vname"], self.missions[worksettings["midx"]])
+                    if "vname" in worksTBD:
+                        self.updateUnassigned(worksTBD["vname"], self.missions[worksettings["midx"]])
                     self.update1WorkRunStatus(worksTBD, worksettings["midx"])
                 else:
                     self.showMsg("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1")
@@ -2855,10 +2872,16 @@ class MainWindow(QMainWindow):
         bid = self.missions[midx].getBid()
 
 
+
     def updateUnassigned(self, vname, mission):
-        self.unassigned_task_groups[vname] = [tsk for tsk in self.unassigned_task_groups[vname] if tsk['mid'] != mission.getMid()]
-        if not self.unassigned_task_groups[vname]:
-            del self.unassigned_task_groups[vname]
+        if vname in self.unassigned_task_groups:
+            self.unassigned_task_groups[vname] = [tsk for tsk in self.unassigned_task_groups[vname] if tsk['mid'] != mission.getMid()]
+            if not self.unassigned_task_groups[vname]:
+                del self.unassigned_task_groups[vname]
+                self.showMsg("Remove finished mission from unassigned list")
+        else:
+            self.showMsg(vname+" NOT FOUND in unassigned work group")
+
         # find and delete mission from the work group.
 
     #update next mission pointer, return -1 if exceed the end of it.
@@ -5449,12 +5472,17 @@ class MainWindow(QMainWindow):
                                 # if all tasks in the task group are done, we're done with this group.
                                 if botTodos["current widx"] >= len(botTodos["works"]):
                                     self.showMsg("POP a finished task from queue after runRPA")
-                                    finished = self.todays_work["tbd"].pop(0)
-                                    self.showMsg("JUST FINISHED A WORK GROUP:"+json.dumps(finished))
-                                    self.todays_completed.append(finished)
-
                                     # update GUI display to move missions in this task group to the completed missions list.
-                                    self.updateCompletedMissions(finished)
+                                    if self.todays_work["tbd"][0]:
+                                        self.showMsg("None empty first WORK GROUP" )
+                                        just_finished = copy.deepcopy(self.todays_work["tbd"][0])
+                                        self.updateCompletedMissions(just_finished)
+                                        self.todays_completed.append(just_finished)
+
+                                        finished = self.todays_work["tbd"].pop(0)
+                                        self.showMsg("JUST FINISHED A WORK GROUP:"+json.dumps(finished))
+                                    else:
+                                        self.showMsg("empty first WORK GROUP" )
 
 
                                 if len(self.todays_work["tbd"]) == 0:
@@ -5710,47 +5738,70 @@ class MainWindow(QMainWindow):
             file.write(file_contents)
             file.close()
 
-
-
     def updateCompletedMissions(self, finished):
         finished_works = finished["works"]
         finished_mids = []
         finished_midxs = []
         finished_missions = []
 
-        self.showMsg("all mission ids:"+json.dumps([m.getMid() for m in self.missions]))
+        # Log all current mission IDs
+        self.showMsg("All mission ids: " + json.dumps([m.getMid() for m in self.missions]))
 
+        # Collect all finished mission IDs
         if len(finished_works) > 0:
             for bi in range(len(finished_works)):
                 finished_mids.append(finished_works[bi]["mid"])
-        self.showMsg("finished MIDS:"+json.dumps(finished_mids))
+        self.showMsg("Finished MIDS: " + json.dumps(finished_mids))
 
+        # Find the indexes of the finished missions in the missions list
         for mid in finished_mids:
             found_i = next((i for i, mission in enumerate(self.missions) if mission.getMid() == mid), -1)
-            self.showMsg("found midx:"+str(found_i))
+            self.showMsg("Found midx: " + str(found_i))
             if found_i >= 0:
                 finished_midxs.append(found_i)
 
+        # Sort the finished mission indexes
         sorted_finished_midxs = sorted(finished_midxs, key=lambda midx: midx, reverse=True)
-        self.showMsg("finished MID INDEXS:"+json.dumps(sorted_finished_midxs))
+        self.showMsg("Finished MID INDEXES: " + json.dumps(sorted_finished_midxs))
 
+        # Iterate through the sorted mission indexes
         for midx in sorted_finished_midxs:
             found_mission = self.missions[midx]
-            self.showMsg("just finished mission ["+str(found_mission.getMid())+"] status:"+found_mission.getStatus())
-            # if "Completed" in found_mission.getStatus():
-            #     found_mission.setMissionIcon(QIcon(self.file_resource.mission_success_icon_path))
-            # else:
-            #     print("failed icon path:", self.file_resource.mission_failed_icon_path, self.file_resource.mission_success_icon_path)
-            #     found_mission.setMissionIcon(QIcon(self.file_resource.mission_failed_icon_path))
+
+            # Log the mission status
+            self.showMsg(f"Just finished mission [{found_mission.getMid()}] status: {found_mission.getStatus()}")
+
+            # Ensure the mission is still valid and not deleted
+            if found_mission is None or not found_mission:
+                self.showMsg("Mission object is invalid or already deleted.")
+                continue  # Skip to the next mission if this one is invalid
+
+            # Try to update the mission icon safely
+            try:
+                if "Completed" in found_mission.getStatus():
+                    found_mission.setMissionIcon(QIcon(self.file_resource.mission_success_icon_path))
+                else:
+                    found_mission.setMissionIcon(QIcon(self.file_resource.mission_failed_icon_path))
+            except RuntimeError as e:
+                self.showMsg(f"Error setting mission icon: {str(e)}")
+                continue  # Skip to the next mission if there's an error
+
+            # Safely handle the removal from missionModel and addition to completedMissionModel
+            try:
+                for item in self.missionModel.findItems(
+                        'mission' + str(found_mission.getMid()) + ":Bot" + str(found_mission.getBid()) + ":" +
+                        found_mission.pubAttributes.ms_type + ":" + found_mission.pubAttributes.site):
+                    # Clone the item before removing it from missionModel
+                    cloned_item = item.clone()
+                    self.completedMissionModel.appendRow(cloned_item)
+
+                    # Remove the original item from missionModel safely
+                    self.missionModel.removeRow(item.row())
+
+            except Exception as e:
+                self.showMsg(f"Error moving mission from missionModel to completedMissionModel: {str(e)}")
 
 
-            for item in self.missionModel.findItems('mission' + str(found_mission.getMid()) + ":Bot" + str(
-                found_mission.getBid()) + ":" + found_mission.pubAttributes.ms_type + ":" + found_mission.pubAttributes.site):
-                # cloned_item = item.clone()
-                # self.missionModel.removeRow(item.row())
-                # self.completedMissionModel.appendRow(cloned_item)
-                self.completedMissionModel.appendRow(item)
-                self.missionModel.removeRow(item.row())
 
     def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.

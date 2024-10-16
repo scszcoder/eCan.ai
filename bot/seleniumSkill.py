@@ -712,11 +712,11 @@ def processWebdriverKeyIn(step, i, mission):
         text = symTab[step["text_var"]]
         log3("wait for target to load")
         wait = WebDriverWait(driver, 10)
-
+        print("TEXT::", text)
         # wait.until(EC.presence_of_element_located(target))
         target.clear()
         target.send_keys(text)
-        print("TEXT::", text)
+
         log3("WebdriverKeyIn:["+step["target_var"]+"]'"+text+"'", "processWebdriverKeyIn", mainwin)
 
     except Exception as e:
@@ -806,8 +806,9 @@ def processWebdriverNewTab(step, i):
         driver = symTab[step["driver_var"]]
         url = step["url_var"]
         log3("opening a new tab")
-
-        driver.execute_script("window.open('');")
+        driver.switch_to.window(driver.window_handles[0])
+        time.sleep(3)
+        driver.execute_script(f"window.open('{url}', '_blank');")
 
         # Switch to the new tab
         driver.switch_to.window(driver.window_handles[-1])

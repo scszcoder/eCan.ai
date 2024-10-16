@@ -439,7 +439,7 @@ class EBMISSION(QStandardItem):
         # self.destroyed.connect(lambda: print(f"{self} is being destroyed"))
 
     def __del__(self):
-        print(f"{self} EBMISSION deleted")
+        print(f"EBMISSION {self.getMid()} is being deleted")
 
     def setFingerPrintProfile(self, axpf):
         self.privateAttributes.fingerprint_profile = axpf

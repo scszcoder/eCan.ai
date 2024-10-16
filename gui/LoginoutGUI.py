@@ -47,6 +47,8 @@ class Login(QDialog):
         self.gui_net_msg_queue = asyncio.Queue()
         self.aws_srp = None
         self.role_list = ["Staff Officer", "Commander", "Commander Only", "Platoon"]
+        self.schedule_mode_list = ["manual", "auto"]
+        self.schedule_mode = "manual"
         self.mode = "Sign In"
         self.machine_role = "Platoon"
         self.read_role()
@@ -81,7 +83,7 @@ class Login(QDialog):
         self.lan_select.addItem('中文')
         self.lan_select.currentIndexChanged.connect(self.on_lan_selected)
 
-        self.role_label = QLabel(QApplication.translate("QLabel", "Role"))
+        self.role_label = QLabel(QApplication.translate("QLabel", "Role"), alignment=Qt.AlignRight)
         self.role_select = QComboBox(self)
         for role in self.role_list:
             self.role_select.addItem(QApplication.translate("QComboBox", role))
@@ -92,6 +94,18 @@ class Login(QDialog):
         else:
             self.role_select.setCurrentIndex(1)         #commander will be set if file based machine role is unknown
         self.role_select.currentIndexChanged.connect(self.on_role_selected)
+
+        self.schedule_mode_label = QLabel(QApplication.translate("QLabel", "Schedule Mode"), alignment=Qt.AlignLeft)
+        self.schedule_mode_select = QComboBox(self)
+        for schedule_mode in self.schedule_mode_list:
+            self.schedule_mode_select.addItem(QApplication.translate("QComboBox", schedule_mode))
+
+        found_schedule_mode_idx = next((i for i, smode in enumerate(self.schedule_mode_list) if smode == self.schedule_mode), -1)
+        if found_schedule_mode_idx > 0:
+            self.schedule_mode_select.setCurrentIndex(found_schedule_mode_idx)
+        else:
+            self.schedule_mode_select.setCurrentIndex(1)         #commander will be set if file based machine role is unknown
+        self.schedule_mode_select.currentIndexChanged.connect(self.on_schedule_mode_selected)
 
 
         self.logo0 = QLabel(self)
@@ -163,8 +177,11 @@ class Login(QDialog):
         if exists(ACCT_FILE):
             with open(ACCT_FILE, 'r') as file:
                 data = json.load(file)
+                print("acct data:", data, ACCT_FILE)
                 self.show_visibility = data["mem_cb"]
                 self.textName.setText(data["user"])
+                if "schedule_mode" in data:
+                    self.schedule_mode = data["schedule_mode"]
                 if self.show_visibility:
                     stored_encrypted_password = bytes.fromhex(self.settings.value(self.pwd_key, ""))
                     if stored_encrypted_password is not None and len(stored_encrypted_password) > 0:
@@ -220,7 +237,15 @@ class Login(QDialog):
         self.headline_layout.addWidget(self.role_label)
         self.headline_layout.addWidget(self.role_select)
 
+        self.headline2_layout = QHBoxLayout(self)
+        self.headline2_layout.setSpacing(0)
+        self.headline2_layout.setAlignment(self.schedule_mode_select, Qt.AlignLeft)
+        self.headline2_layout.addWidget(self.schedule_mode_label)
+        self.headline2_layout.addWidget(self.schedule_mode_select)
+
+
         log_layout.addLayout(self.headline_layout)
+        log_layout.addLayout(self.headline2_layout)
         log_layout.addWidget(self.logo0)
         log_layout.addWidget(self.login_label)
         log_layout.addWidget(self.user_label)
@@ -328,6 +353,13 @@ class Login(QDialog):
         print("Index changed", index)
         self.machine_role = self.role_select.currentText()
         print("new role selected: "+self.machine_role)
+
+
+    def on_schedule_mode_selected(self, index):
+        print("Index changed", index)
+        self.schedule_mode = self.schedule_mode_select.currentText()
+        print("new schedule mode selected: "+self.schedule_mode)
+
 
     def changeEvent(self, event):
         print("event occured....", event.type())
@@ -499,7 +531,7 @@ class Login(QDialog):
 
                 self.main_win = MainWindow(self, main_key, self.tokens, commanderServer, self.ip,
                                            self.textName.text(), ecbhomepath,
-                                           self.gui_net_msg_queue, self.machine_role, self.lang)
+                                           self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
                 print("Running as a commander...", commanderServer)
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
@@ -510,7 +542,7 @@ class Login(QDialog):
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
                 self.main_win = MainWindow(self, main_key, self.tokens, self.xport, self.ip, self.textName.text(),
                                            ecbhomepath,
-                                           self.gui_net_msg_queue, self.machine_role, self.lang)
+                                           self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
                 print("Running as a platoon...", self.xport)
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
@@ -592,7 +624,7 @@ class Login(QDialog):
         print(self.tokens)
 
         self.main_win = MainWindow(self, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
-                                   self.machine_role, self.lang)
+                                   self.machine_role, self.schedule_mode, self.lang)
         print("faker...")
         self.main_win.setOwner("Nobody")
         self.main_win.show()

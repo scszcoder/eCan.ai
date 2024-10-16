@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QWidget, QPushButton, QMainWindow, QFormLayout, QL
 class SettingsWidget(QMainWindow):
     def __init__(self, parent):
         super(SettingsWidget, self).__init__(parent)
-
+        self.parent = parent
         self.hello = ["Hallo Welt", "Hei maailma", "Hola Mundo", "Привет мир"]
         # self.
         self.commander_run = False
@@ -42,6 +42,8 @@ class SettingsWidget(QMainWindow):
         self.browser_path_line_edit = QLineEdit()
         self.browser_path_line_edit.setPlaceholderText("input full path here")
 
+        self.auto_schedule_cb = QCheckBox("Auto Schedule Mode")
+
         self.commander_run_cb = QCheckBox("Commander Self Run Tasks")
         self.overcapcity_warning_cb = QCheckBox("Warning If Over-capacity")
         self.overcapcity_force_cb = QCheckBox("Force Commander To Run If Over-capacity")
@@ -52,6 +54,7 @@ class SettingsWidget(QMainWindow):
         # self.layout.addWidget(self.text)
         self.layout.addRow(self.browser_path_label, self.browser_path_line_edit);
         self.layout.addRow(self.num_vehicle_label, self.num_vehicle_text)
+        self.layout.addRow(self.auto_schedule_cb)
         self.layout.addRow(self.commander_run_cb)
         self.layout.addRow(self.overcapcity_warning_cb)
         self.layout.addRow(self.overcapcity_force_cb)
@@ -67,3 +70,4 @@ class SettingsWidget(QMainWindow):
         self.commander_run = (self.commander_run_cb.checkState() == Qt.Checked)
         self.overcapcity_warning = (self.overcapcity_warning_cb.checkState() == Qt.Checked)
         self.overcapcity_force = (self.overcapcity_force_cb.checkState() == Qt.Checked)
+        self.parent.set_schedule_mode("auto" if self.auto_schedule_cb.checkState() == Qt.Checked else "manual")
