@@ -36,8 +36,8 @@
     "type": "App Open",
     "action": "run",
     "save_rb": true,
-    "app_type": "sk_work_settings['app_exe']",
-    "app_link": "",
+    "app_type": "ads",
+    "app_link": "sk_work_settings['app_exe']",
     "cargs_type": "expr",
     "cargs": "sk_work_settings['cargs']",
     "wait": 3

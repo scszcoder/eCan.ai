@@ -310,18 +310,27 @@ class CustomItemModel(QStandardItemModel):
     def data(self, index, role=Qt.DisplayRole):
         if role == Qt.FontRole or role == Qt.TextColorRole:
             row = index.row()
-            column0_value = self.item(row, 0).text()  # Value in column 1 of the current row
+            item = self.item(row, 0)  # Get the item from column 0
 
-            # Compare column1_value with the parent's skills skids
+            # Check if item is None and skip processing
+            if item is None:
+                print(f"Warning: item at row {row} is None.")
+                return super().data(index, role)
+
+            column0_value = item.text().strip()  # Safely get text and strip leading/trailing spaces
+            if not column0_value.isdigit():  # Skip non-numeric skids
+                return super().data(index, role)
+
             found_sk = next((x for x in self.sks if x.getSkid() == int(column0_value)), None)
-            if found_sk:
-                if found_sk.getIsMain():
-                    font = QFont()
-                    font.setBold(True)
-                    color = QColor(0, 0, 255)  # Blue color
-                    return font if role == Qt.FontRole else color
+            if found_sk and found_sk.getIsMain():
+                font = QFont()
+                font.setBold(True)
+                color = QColor(0, 0, 255)  # Blue color
+                return font if role == Qt.FontRole else color
 
         return super().data(index, role)
+
+
 
 # class MainWindow(QWidget):
 class SkillManagerWindow(QMainWindow):
@@ -342,11 +351,19 @@ class SkillManagerWindow(QMainWindow):
         # self.refresh_button.clicked.connect(self.fetchVehicleStatus)
 
         self.cancel_button = QPushButton(QApplication.translate("QPushButton", "Cancel"))
-        # self.cancel_button.clicked.connect(self.cancelMission)
+        self.save_button = QPushButton(QApplication.translate("QPushButton", "Save"))
+
+        self.cancel_button.clicked.connect(self.closeSkillManager)
+        self.cancel_button.clicked.connect(self.saveSkillAttributes)
+
         self.layout = QVBoxLayout(self)
 
         self.sm_layout = QVBoxLayout(self)
         self.tp_layout = QHBoxLayout(self)
+
+        self.button_row_layout = QHBoxLayout(self)
+        self.button_row_layout.addWidget(self.cancel_button)
+        self.button_row_layout.addWidget(self.save_button)
 
         self.sk_info_label = QLabel(QApplication.translate("QLabel", "Skill Info:"), alignment=Qt.AlignLeft)
         self.skill_search_edit = QLineEdit()
@@ -372,12 +389,13 @@ class SkillManagerWindow(QMainWindow):
         # self.skillModel = SkillTableModel(self.parent)
         # self.skillModel = QStandardItemModel(0, 8)
         self.skillModel = CustomItemModel(0, 8, self.parent.skills)
-        self.skillModel.setHorizontalHeaderLabels(['Skill ID', 'Name', 'Owner', 'Users', 'Created On', 'Privacy', 'Platform_App_Site_page', ''])
+        colLabels = ['Skill ID', 'Name', 'Owner', 'Users', 'Created On', 'Platform', 'App Name', 'App Exe', 'App Args', 'Site Name', 'Site URL', 'page', 'Privacy', '']
+        self.skillModel.setHorizontalHeaderLabels(colLabels)
         self.skillTableView.setModel(self.skillModel)
 
         i = 0
         # self.parent.showMsg("skills:::"+str(len(self.parent.skills)))
-        # self.fillTable()
+        # self.fillTable()              #no need to do this, table will be filled in MainGUI
 
         # Replace "Arial" and 12 with your desired font family and size
         self.skillTableView.resizeColumnsToContents()
@@ -385,7 +403,7 @@ class SkillManagerWindow(QMainWindow):
         self.skillTableView.setFont(font)
         self.skillTableView.installEventFilter(self)
         # column 6 could be either an icon or an animating gif....
-        self.skillTableView.setItemDelegateForColumn(7, IconDelegate())
+        self.skillTableView.setItemDelegateForColumn(len(colLabels), IconDelegate())
         # completedMissionTableView.setItemDelegateForColumn(6, MovieDelegate())
         # self.skillTableView.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.skillTableView.doubleClicked.connect(self.handleRowDoubleClick)
@@ -394,7 +412,7 @@ class SkillManagerWindow(QMainWindow):
         self.delegate = SkillCellDelegate(self.parent)
         # self.skillTableView.setItemDelegate(delegate)
 
-        self.infoConsoleBox = Expander(self, QApplication.translate("QWidget", "Skill Info Console:"))
+        self.infoConsoleBox = Expander(self, QApplication.translate("QWidget", "Skill Description:"))
         self.skillInfoConsole = QTextEdit()
         # self.skillInfoConsole.setLineWrapMode(QTextEdit.FixedPixelWidth)
         self.skillInfoConsole.setLineWrapMode(QTextEdit.WidgetWidth)
@@ -412,7 +430,9 @@ class SkillManagerWindow(QMainWindow):
         self.tp_layout.addWidget(self.show_all_local_button)
         self.layout.addLayout(self.tp_layout)
         self.layout.addLayout(self.sm_layout)
+
         self.layout.addWidget(self.infoConsoleBox)
+        self.layout.addLayout(self.button_row_layout)
 
 
         self.main_menu_font = QFont("Helvetica", 10)
@@ -435,6 +455,33 @@ class SkillManagerWindow(QMainWindow):
         self.setCentralWidget(self.mainWidget)
 
         self.setWindowTitle(QApplication.translate("QtWidget", "Skill Manager"))
+
+    def closeSkillManager(self):
+        self.close()
+
+
+    def saveSkillAttributes(self):
+        print("Saving skill attributes...")
+
+        # Loop through the rows and save the data
+        for rowIdx in range(self.skillModel.rowCount()):
+            try:
+                skill = next(
+                    (x for x in self.parent.skills if x.getSkid() == int(self.skillModel.item(rowIdx, 0).text())),
+                    None)
+                if skill:
+                    # Update the app_link value
+                    app_link = self.skillModel.item(rowIdx, 7).text()
+                    skill.setAppLink(app_link)
+
+                    # Update other skill attributes if necessary
+                    # (example: skill.setName(self.skillModel.item(rowIdx, 1).text()))
+
+            except Exception as e:
+                print(f"Error saving row {rowIdx}: {e}")
+
+        print("Skills saved successfully.")
+        self.closeSkillManager()  # Close the window
 
 
     def handleRowDoubleClick(self, index):
@@ -472,13 +519,18 @@ class SkillManagerWindow(QMainWindow):
             i = i + 1
 
     def addSkillRows(self, skillData):
-        rows = self.skillModel.rowCount()
+        rows = self.skillModel.rowCount()  # Get current row count
         nskills = len(skillData)
+        print(f"Adding {nskills} skills to table starting from row {rows}...")
 
-        if nskills > rows:
-            for i in range(rows, nskills):
-                self.fill1TableRow(i, skillData, self.skillModel)
-                self.skillTableView.setRowHeight(i, 32)
+        for i in range(nskills):
+            new_row_index = rows + i  # Insert at the correct row index
+            print(f"adding 1 row....{new_row_index}.....{self.skillModel.rowCount()}")
+            self.skillModel.insertRow(new_row_index)  # Insert a new empty row
+            self.fill1TableRow(new_row_index, skillData, self.skillModel)  # Pass only the current row's data
+            self.skillTableView.setRowHeight(new_row_index, 32)  # Set row height
+        print("done add a rows.....")
+
 
 
     def showAllLocalSkills(self):
@@ -507,66 +559,69 @@ class SkillManagerWindow(QMainWindow):
 
         self.tabs.setCurrentIndex(tab_index)
 
-
     def fill1TableRow(self, rowIdx, rowData, model):
-        # self.parent.showMsg("filling table row #"+str(rowIdx))
-        items = []
-        text_item = QStandardItem(str(rowData[rowIdx].getSkid()))
-        model.setItem(rowIdx, 0, text_item)
-        items.append(text_item)
+        print(f"Setting row {rowIdx}...{len(rowData)}")
+        rdIdx = 0
+        try:
+            # Safely access data from rowData
+            skid = str(rowData[rdIdx].getSkid()) if rowData[rdIdx].getSkid() else "N/A"
+            name = rowData[rdIdx].getName() or "N/A"
+            owner = rowData[rdIdx].getOwner() or "Unknown"
+            created_on = rowData[rdIdx].getCreatedOn() or "N/A"
+            privacy = rowData[rdIdx].getPrivacy() or "N/A"
+            platform = rowData[rdIdx].getPlatform() or "N/A"
+            app = rowData[rdIdx].getApp() or "N/A"
+            app_link = rowData[rdIdx].getAppLink() or "N/A"
+            app_args = rowData[rdIdx].getAppArgs() or "N/A"
+            site_name = rowData[rdIdx].getSiteName() or "N/A"
+            site_link = rowData[rdIdx].getSite() or "N/A"
+            page = rowData[rdIdx].getPage() or "N/A"
 
-        text_item = QStandardItem(rowData[rowIdx].getName())
-        model.setItem(rowIdx, 1, text_item)
-        items.append(text_item)
+            # Set Skill ID
+            model.setItem(rowIdx, 0, QStandardItem(skid))
+            model.setItem(rowIdx, 1, QStandardItem(name))
+            model.setItem(rowIdx, 2, QStandardItem(owner))
+            model.setItem(rowIdx, 3, QStandardItem(owner))  # Assuming re-using owner for "Users"
+            model.setItem(rowIdx, 4, QStandardItem(created_on))
+            model.setItem(rowIdx, 5, QStandardItem(platform))
+            model.setItem(rowIdx, 6, QStandardItem(app))
 
-        text_item = QStandardItem(rowData[rowIdx].getOwner())
-        model.setItem(rowIdx, 2, text_item)
-        items.append(text_item)
+            # app_link column (index 7) always editable
+            app_link_item = QStandardItem(app_link)
+            model.setItem(rowIdx, 7, app_link_item)  # Make sure the app_link column is always editable
 
-        # text_item = QStandardItem(rowData[rowIdx].getUsers())
-        text_item = QStandardItem(rowData[rowIdx].getOwner())
-        model.setItem(rowIdx, 3, text_item)
-        items.append(text_item)
+            model.setItem(rowIdx, 8, QStandardItem(app_args))
+            model.setItem(rowIdx, 9, QStandardItem(site_name))
+            model.setItem(rowIdx, 10, QStandardItem(site_link))
+            model.setItem(rowIdx, 11, QStandardItem(page))
 
-        text_item = QStandardItem(rowData[rowIdx].getCreatedOn())
-        model.setItem(rowIdx, 4, text_item)
-        items.append(text_item)
+            # Set Privacy Icon
+            icon_item = QStandardItem()
+            icon_path = {
+                "PUB": self.parent.getHomePath() + '/resource/images/icons/skills_78.png',
+                "PRV": self.parent.getHomePath() + '/resource/images/icons/private_skills_78.png'
+            }.get(privacy, self.parent.getHomePath() + '/resource/images/icons/private_usable_skills_78.png')
 
-        text_item = QStandardItem(rowData[rowIdx].getPrivacy())
-        model.setItem(rowIdx, 5, text_item)
-        items.append(text_item)
-
-        pasp = rowData[rowIdx].getPlatform() + "_" + rowData[rowIdx].getApp() + "_" + rowData[rowIdx].getSiteName() + "_" + rowData[rowIdx].getPage()
-        text_item = QStandardItem(pasp)
-        model.setItem(rowIdx, 6, text_item)
-        items.append(text_item)
-
-        icon_item = QStandardItem()
-        if rowData[rowIdx].getPrivacy() == "PUB":
-            icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/skills_78.png'))
+            icon_item.setIcon(QIcon(icon_path))
             icon_item.setSizeHint(QSize(32, 32))
-            model.setItem(rowIdx, 7, icon_item)
-        elif rowData[rowIdx].getPrivacy() == "PRV":
-            icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/private_skills_78.png'))
-            icon_item.setSizeHint(QSize(32, 32))
-            model.setItem(rowIdx, 7, icon_item)
-        else:
-            icon_item.setIcon(QIcon(self.parent.getHomePath() + '/resource/images/icons/private_usable_skills_78.png'))
-            icon_item.setSizeHint(QSize(32, 32))
-            model.setItem(rowIdx, 7, icon_item)
-        items.append(icon_item)
+            model.setItem(rowIdx, 12, icon_item)
 
-        if (rowData[rowIdx].getOwner() != self.parent.user):
-            for item in items:
-                # item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                item.setFlags(item.flags() | Qt.ItemIsSelectable)
+            # Disable editing if the owner is not the current user, except for the app_link column
+            if owner != self.parent.user:
+                for col in range(0, 13):  # Iterate over all columns to disable editing
+                    if col != 7:  # Exclude app_link column from being disabled
+                        item = model.item(rowIdx, col)
+                        if item is not None:
+                            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                            item.setFlags(item.flags() | Qt.ItemIsSelectable)
 
-
+        except Exception as e:
+            print(f"Error setting row {rowIdx}: {e}")
 
     def fillTable(self):
+        print("filling table with ", len(self.parent.skills), "skills.")
         i = 0
-        self.addColTitleRow()
+        # self.addColTitleRow()
         for sk in self.parent.skills:
             self.parent.showMsg("FILL ADD 1 ROW..."+str(i))
             self.add1TableRow(i, self.parent.skills)
@@ -577,11 +632,11 @@ class SkillManagerWindow(QMainWindow):
 
 
     def addColTitleRow(self):
-        new_data = ['Skill ID', 'Name', 'Owner', 'Users', 'Created On', 'Privacy', 'Platform/App/Site/page', '']
+        new_data = ['Skill ID', 'Name', 'Owner', 'Users', 'Created On', 'Platform', 'App Name', 'App Exe', 'App Args', 'Site Name', 'Site URL', 'page', 'Privacy', '']
         self.skillModel.addRow(new_data)
 
     def add1TableRow(self, rowIdx, rowData):
-        new_data = [str(rowData[rowIdx].getSkid()), rowData[rowIdx].getName(), rowData[rowIdx].getOwner(), rowData[rowIdx].getOwner(), rowData[rowIdx].getCreatedOn(), rowData[rowIdx].getPrivacy(), rowData[rowIdx].getPlatform()+"/"+rowData[rowIdx].getApp()+"/"+rowData[rowIdx].getSiteName()+"/"+rowData[rowIdx].getPage()]
+        new_data = [str(rowData[rowIdx].getSkid()), rowData[rowIdx].getName(), rowData[rowIdx].getOwner(), rowData[rowIdx].getOwner(), rowData[rowIdx].getCreatedOn(), rowData[rowIdx].getPlatform(), rowData[rowIdx].getApp(), rowData[rowIdx].getAppLink(), rowData[rowIdx].getAppArgs(), rowData[rowIdx].getSiteName(), rowData[rowIdx].getSite(), rowData[rowIdx].getPage(), rowData[rowIdx].getPrivacy()]
         self.parent.showMsg("New ROW:"+json.dumps(new_data))
         self.skillModel.addRow(new_data)
 
