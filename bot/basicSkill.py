@@ -1596,11 +1596,11 @@ def processExtractInfo(step, i, mission, skill):
 
         if type(step["settings"]) == str:
             step_settings = symTab[step["settings"]]
-            log3("SETTINGS FROM STRING...."+json.dumps(step_settings))
+            # log3("SETTINGS FROM STRING...."+json.dumps(step_settings))
         else:
             step_settings = step["settings"]
 
-        log3("STEP SETTINGS"+json.dumps(step_settings))
+        # log3("STEP SETTINGS"+json.dumps(step_settings))
         platform = step_settings["platform"]
         app = step_settings["app"]
         site = step_settings["site"]
@@ -2255,11 +2255,13 @@ def processMouseClick(step, i, mission):
             # log3("from data: "+json.dumps(sd))
             obj_box = find_clickable_object(sd, target_name, step["text"], step["target_type"], step["nth"])
             log3("obj_box: "+json.dumps(obj_box))
-            loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
-            post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
-            post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
-            log3("indirect calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset[0])+","+str(post_offset[1])+") post_loc:"+json.dumps(post_loc))
-
+            if obj_box:
+                loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
+                post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
+                post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
+                log3("indirect calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset[0])+","+str(post_offset[1])+") post_loc:"+json.dumps(post_loc))
+            else:
+                loc = None
         else:
             # the location is already calculated directly and stored here.
             if step["target_type"] == "direct":
@@ -2285,46 +2287,47 @@ def processMouseClick(step, i, mission):
         window_name, window_rect = get_top_visible_window("")
         log3("top windows rect:"+json.dumps(window_rect))
 
-        # loc[0] = int(loc[0]) + window_rect[0]
-        loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
-        log3("global loc@ "+str(loc[0])+" ,  "+str(loc[1]))
+        if loc:
+            # loc[0] = int(loc[0]) + window_rect[0]
+            loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
+            log3("global loc@ "+str(loc[0])+" ,  "+str(loc[1]))
 
-        pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
+            pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
 
-        time.sleep(step["move_pause"])
+            time.sleep(step["move_pause"])
 
-        if step["action"] == "Single Click":
-            pyautogui.click()
-            # pyautogui.click()
-        elif step["action"] == "Double Click":
-            if is_float(step["action_args"]):
-                pyautogui.click(clicks=2, interval=float(step["action_args"]))
-            else:
-                pyautogui.click(clicks=2, interval=0.3)
-        elif step["action"] == "Triple Click":
-            if is_float(step["action_args"]):
-                pyautogui.click(clicks=3, interval=float(step["action_args"]))
-            else:
-                pyautogui.click(clicks=3, interval=0.3)
-        elif step["action"] == "Right CLick":
-            pyautogui.click(button='right')
-        elif step["action"] == "Drag Drop":
-            # code drop location is embedded in action_args, the code need to added later to process that....
-            pyautogui.dragTo(loc[0], loc[1], duration=2)
+            if step["action"] == "Single Click":
+                pyautogui.click()
+                # pyautogui.click()
+            elif step["action"] == "Double Click":
+                if is_float(step["action_args"]):
+                    pyautogui.click(clicks=2, interval=float(step["action_args"]))
+                else:
+                    pyautogui.click(clicks=2, interval=0.3)
+            elif step["action"] == "Triple Click":
+                if is_float(step["action_args"]):
+                    pyautogui.click(clicks=3, interval=float(step["action_args"]))
+                else:
+                    pyautogui.click(clicks=3, interval=0.3)
+            elif step["action"] == "Right CLick":
+                pyautogui.click(button='right')
+            elif step["action"] == "Drag Drop":
+                # code drop location is embedded in action_args, the code need to added later to process that....
+                pyautogui.dragTo(loc[0], loc[1], duration=2)
 
-        time.sleep(1)
-        log3("post click moveto :("+str(int(post_loc[0]) + window_rect[0])+","+str(int(post_loc[1]) + window_rect[1])+")")
-        pyautogui.moveTo(int(post_loc[0]) + window_rect[0], int(post_loc[1]) + window_rect[1])
-        if step["post_wait"] > 0:
-            time.sleep(step["post_wait"]-1)
+            time.sleep(1)
+            log3("post click moveto :("+str(int(post_loc[0]) + window_rect[0])+","+str(int(post_loc[1]) + window_rect[1])+")")
+            pyautogui.moveTo(int(post_loc[0]) + window_rect[0], int(post_loc[1]) + window_rect[1])
+            if step["post_wait"] > 0:
+                time.sleep(step["post_wait"]-1)
 
-        # now save for roll back if ever needed.
-        # first remove the previously save rollback point, but leave up to 3 rollback points
-        while len(page_stack) > 3:
-            page_stack.pop()
-        # now save the current juncture.
-        current_context = build_current_context()
-        page_stack.append({"pc": i, "context": current_context})
+            # now save for roll back if ever needed.
+            # first remove the previously save rollback point, but leave up to 3 rollback points
+            while len(page_stack) > 3:
+                page_stack.pop()
+            # now save the current juncture.
+            current_context = build_current_context()
+            page_stack.append({"pc": i, "context": current_context})
 
 
     except Exception as e:

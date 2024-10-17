@@ -521,15 +521,14 @@ class SkillManagerWindow(QMainWindow):
     def addSkillRows(self, skillData):
         rows = self.skillModel.rowCount()  # Get current row count
         nskills = len(skillData)
-        print(f"Adding {nskills} skills to table starting from row {rows}...")
+        # print(f"Adding {nskills} skills to table starting from row {rows}...")
 
         for i in range(nskills):
             new_row_index = rows + i  # Insert at the correct row index
-            print(f"adding 1 row....{new_row_index}.....{self.skillModel.rowCount()}")
+            # print(f"adding 1 row....{new_row_index}.....{self.skillModel.rowCount()}")
             self.skillModel.insertRow(new_row_index)  # Insert a new empty row
             self.fill1TableRow(new_row_index, skillData, self.skillModel)  # Pass only the current row's data
             self.skillTableView.setRowHeight(new_row_index, 32)  # Set row height
-        print("done add a rows.....")
 
 
 
@@ -560,7 +559,7 @@ class SkillManagerWindow(QMainWindow):
         self.tabs.setCurrentIndex(tab_index)
 
     def fill1TableRow(self, rowIdx, rowData, model):
-        print(f"Setting row {rowIdx}...{len(rowData)}")
+        # print(f"Setting row {rowIdx}...{len(rowData)}")
         rdIdx = 0
         try:
             # Safely access data from rowData
@@ -619,7 +618,7 @@ class SkillManagerWindow(QMainWindow):
             print(f"Error setting row {rowIdx}: {e}")
 
     def fillTable(self):
-        print("filling table with ", len(self.parent.skills), "skills.")
+        # print("filling table with ", len(self.parent.skills), "skills.")
         i = 0
         # self.addColTitleRow()
         for sk in self.parent.skills:

@@ -2055,8 +2055,7 @@ def appsync_http_request(query_string, session, token):
         json={'query': query_string}
     )
     # save response to a log file. with a time stamp.
-    print(response)
-
+    # print(response)
     jresp = response.json()
 
     return jresp
@@ -2082,7 +2081,7 @@ def appsync_http_request_w_apikey(query_string, session, apikey):
         json={'query': query_string}
     )
     # save response to a log file. with a time stamp.
-    print(response)
+    # print(response)
 
     jresp = response.json()
 
@@ -2108,7 +2107,7 @@ def appsync_http_request2(query_string, session, token):
         json={'query': query_string}
     )
     # save response to a log file. with a time stamp.
-    print(response)
+    # print(response)
 
     jresp = response.json()
 
@@ -2131,7 +2130,7 @@ async def appsync_http_request8(query_string, session, token):
                 json={'query': query_string}
         ) as response:
             jresp = await response.json()
-            print(jresp)
+            # print(jresp)
             return jresp
 
 
