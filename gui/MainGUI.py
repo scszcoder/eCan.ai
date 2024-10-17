@@ -303,7 +303,7 @@ class MainWindow(QMainWindow):
         self.logConsoleBox.setContentLayout(self.logConsoleLayout)
 
         self.SkillManagerWin = SkillManagerWindow(self)
-        self.SettingsWin = SettingsWidget(self)
+
         self.netLogWin = CommanderLogWin(self)
         self.machine_name = myname
         self.system = platform.system()
@@ -348,6 +348,10 @@ class MainWindow(QMainWindow):
                 if "schedule_mode" in self.general_settings:
                     self.schedule_mode = self.general_settings["schedule_mode"]
 
+                self.default_wifi = self.general_settings["default_wifi"]
+                self.default_printer = self.general_settings["default_printer"]
+
+        self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
         self.showMsg("Debug Mode:" + str(self.debug_mode))
         self.showMsg("self.platform==================================================>" + self.platform)
         if os.path.exists(self.ads_settings_file):
@@ -768,10 +772,12 @@ class MainWindow(QMainWindow):
             if len(ssidline) == 1:
                 ssid = ssidline[0].split(":")[1].strip()
                 self.wifis.append(ssid)
+                self.default_wifi = self.wifis[0]
         else:
             print("***wifi info is None!")
+            self.default_wifi = ""
 
-
+        self.SettingsWin = SettingsWidget(self)
         self.showMsg("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
             fix_localDB(self)
@@ -1095,8 +1101,32 @@ class MainWindow(QMainWindow):
         self.host_role = role
 
     def set_schedule_mode(self, sm):
-        self.schedule_mode = sm
+        self.general_settings["schedule_mode"] = sm
 
+    def get_schedule_mode(self):
+        return self.general_settings["schedule_mode"]
+
+    def set_default_wifi(self, default_wifi):
+        self.general_settings["default_wifi"] = default_wifi
+
+    def get_default_wifi(self):
+        return self.general_settings["default_wifi"]
+
+    def set_default_printer(self, default_printer):
+        self.general_settings["default_printer"] = default_printer
+
+    def get_default_printer(self):
+        return self.general_settings["default_printer"]
+
+
+    def saveSettings(self):
+        try:
+            self.showMsg("saving general settings:" + json.dumps(self.general_settings))
+            with open(self.general_settings_file, 'w') as f:
+                json.dump(self.general_settings, f)
+            # self.rebuildHTML()
+        except IOError:
+            QMessageBox.information(self, f"Unable to open settings file {self.general_settings_file}")
 
     def get_schedule_mode(self):
         return self.schedule_mode
