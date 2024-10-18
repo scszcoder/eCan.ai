@@ -1120,7 +1120,7 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
             pfJson["cookie"]=json.dumps(pfJson["cookie"])
             new_pfJsons.append(pfJson)
         else:
-            log3("ERROR user not found..."+one_un+"  "+un)
+            log3("WARNING: user not found in ADS profile txt..."+one_un+"  "+un)
 
     df = pd.DataFrame(new_pfJsons)
     log3("genProfileXlsx writing to xlsx:"+fname)

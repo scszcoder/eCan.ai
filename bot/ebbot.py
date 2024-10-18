@@ -316,6 +316,7 @@ class BOT_PUB_PROFILE():
         self.gender = ""
         self.interests = ""
         self.roles = ""
+        self.org = ""
         self.owner = ""
         self.levels = ""
         self.status = "active"
@@ -333,6 +334,9 @@ class BOT_PUB_PROFILE():
 
     def setRoles(self, roles):
         self.roles = roles
+
+    def setOrg(self, org):
+        self.org = org
 
     def setPseudoFirstLastName(self, pfn, pln):
         self.pseudo_first_name = pfn
@@ -434,6 +438,7 @@ class BOT_PUB_PROFILE():
         self.gender = dj["gender"]
         self.interests = dj["interests"]
         self.roles = dj["roles"]
+        self.org = dj["org"]
         self.levels = dj["levels"]
         self.levelStart = dj["levelStart"]
         self.vname = dj["vehicle"]
@@ -445,6 +450,7 @@ class BOT_PUB_PROFILE():
         self.gender = dj["gender"]
         self.interests = dj["interests"]
         self.roles = dj["roles"]
+        self.org = dj["org"]
         self.levels = dj["levels"]
         self.status = dj["status"]
         self.bid = dj["bid"]
@@ -462,6 +468,7 @@ class BOT_PUB_PROFILE():
             "mf": self.gender,
             "interests": self.interests,
             "roles": self.roles,
+            "org": self.org,
             "levels": self.levels,
             "bid": self.bid,
             "vehicle": self.vehicle,
@@ -600,6 +607,9 @@ class EBBOT(QStandardItem):
 
     def getRoles(self):
         return self.pubProfile.roles
+
+    def getOrg(self):
+        return self.pubProfile.org
 
     def getAge(self):
         if self.pubProfile.pubbirthday != "":
@@ -772,6 +782,10 @@ class EBBOT(QStandardItem):
     def setRoles(self, rw):
         self.pubProfile.roles = rw
 
+    def setOrg(self, org):
+        self.pubProfile.org = org
+
+
     def setInterests(self, interests):
         self.pubProfile.setInterests(interests)
 
@@ -829,6 +843,7 @@ class EBBOT(QStandardItem):
         self.pubProfile.setInterests(dbd.interests)
         self.pubProfile.setLoc(dbd.location)
         self.pubProfile.setRoles(dbd.roles)
+        self.pubProfile.setOrg(dbd.org)
         self.pubProfile.setStatus(dbd.status)
         self.pubProfile.setDelDate(dbd.delDate)
         self.pubProfile.setVehicle(dbd.vehicle)
