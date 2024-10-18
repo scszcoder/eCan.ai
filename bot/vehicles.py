@@ -16,7 +16,7 @@ class VEHICLE(QStandardItem):
         self.setIcon(self.icon)
         self.setFont(parent.std_item_font)
         self.status = "running_idle"
-        self.last_update_time = "1900-01-01 00:00:00"
+        self.last_update_time = datetime.strptime("1900-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
         self.mstats = []
         self.field_link = None
         self.daily_mids = []
