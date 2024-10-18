@@ -652,6 +652,7 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "{ bid: \"" + str(bots[i]["pubProfile"]["bid"]) + "\", "
             rec_string = rec_string + "owner: \"" + str(bots[i]["pubProfile"]["owner"]) + "\", "
             rec_string = rec_string + "roles: \"" + bots[i]["pubProfile"]["roles"] + "\", "
+            rec_string = rec_string + "org: \"" + bots[i]["pubProfile"]["org"] + "\", "
             rec_string = rec_string + "birthday: \"" + bots[i]["pubProfile"]["pubbirthday"] + "\", "
             rec_string = rec_string + "gender: \"" + bots[i]["pubProfile"]["gender"] + "\", "
             rec_string = rec_string + "interests: \"" + bots[i]["pubProfile"]["interests"] + "\", "
@@ -663,6 +664,7 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "{ bid: \"" + str(bots[i].getBid()) + "\", "
             rec_string = rec_string + "owner: \"" + str(bots[i].getOwner()) + "\", "
             rec_string = rec_string + "roles: \"" + bots[i].getRoles() + "\", "
+            rec_string = rec_string + "org: \"" + bots[i].getOrg() + "\", "
             rec_string = rec_string + "birthday: \"" + bots[i].getPubBirthday() + "\", "
             rec_string = rec_string + "gender: \"" + bots[i].getGender() + "\", "
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
@@ -694,6 +696,7 @@ def gen_update_bots_string(bots):
             rec_string = rec_string + "{ bid: \"" + str(bots[i]["pubProfile"]["bid"]) + "\", "
             rec_string = rec_string + "owner: \"" + str(bots[i]["pubProfile"]["owner"]) + "\", "
             rec_string = rec_string + "roles: \"" + bots[i]["pubProfile"]["roles"] + "\", "
+            rec_string = rec_string + "org: \"" + bots[i]["pubProfile"]["org"] + "\", "
             rec_string = rec_string + "birthday: " + bots[i]["pubProfile"]["pubbirthday"] + ", "
             rec_string = rec_string + "gender: \"" + bots[i]["pubProfile"]["gender"] + "\", "
             rec_string = rec_string + "interests: \"" + bots[i]["pubProfile"]["interests"] + "\", "
@@ -702,9 +705,14 @@ def gen_update_bots_string(bots):
             rec_string = rec_string + "vehicle: \"" + bots[i]["pubProfile"]["vehicle"] + "\", "
             rec_string = rec_string + "location: \"" + bots[i]["pubProfile"]["location"] + "\"} "
         else:
+            if bots[i].getOrg():
+                org = bots[i].getOrg()
+            else:
+                org = ""
             rec_string = rec_string + "{ bid: " + str(bots[i].getBid()) + ", "
             rec_string = rec_string + "owner: \"" + bots[i].getOwner() + "\", "
             rec_string = rec_string + "roles: \"" + bots[i].getRoles() + "\", "
+            rec_string = rec_string + "org: \"" + org + "\", "
             rec_string = rec_string + "birthday: \"" + bots[i].getPubBirthday() + "\", "
             rec_string = rec_string + "gender: \"" + bots[i].getGender() + "\", "
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "

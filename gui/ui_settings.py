@@ -116,8 +116,8 @@ class SettingsWidget(QMainWindow):
         self.overcapcity_warning = (self.overcapcity_warning_cb.checkState() == Qt.Checked)
         self.overcapcity_force = (self.overcapcity_force_cb.checkState() == Qt.Checked)
         self.parent.set_schedule_mode("auto" if self.auto_schedule_cb.checkState() == Qt.Checked else "manual")
-        self.parent.set_default_wifi(self.default_wifi)
-        self.parent.set_default_printer(self.default_printer)
+        self.parent.set_default_wifi(self.wifi_select.currentText())
+        self.parent.set_default_printer(self.printer_select.currentText())
         self.parent.saveSettings()
         self.close()
 

@@ -232,6 +232,9 @@ class M_Pub_Attributes():
     def setError(self, err):
         self.error = err
 
+    def getError(self):
+        return self.error
+
     def setIntermediateData(self,idata):
         self.intermediate_data = idata
 
@@ -882,6 +885,9 @@ class EBMISSION(QStandardItem):
 
     def setError(self, err):
         self.pubAttributes.setError(err)
+
+    def getError(self):
+        self.pubAttributes.getError()
 
     def setIntermediateData(self, idata):
         self.pubAttributes.setIntermediateData(idata)

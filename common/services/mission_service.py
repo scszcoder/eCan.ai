@@ -52,6 +52,8 @@ MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'defa
                           {'name': 'result', 'type': 'TEXT', 'nullable': True, 'default': ""},
                         {'name': 'as_server', 'type': 'INTEGER', 'nullable': True, 'default': 0}
                      ]
+
+
 class MissionService:
     def __init__(self, main_win, session):
         self.main_win = main_win

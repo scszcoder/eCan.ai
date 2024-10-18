@@ -41,7 +41,6 @@ class VehicleService:
     def find_vehicle_by_name(self, name: str) -> VehicleModel:
         return self.session.query(VehicleModel).filter(VehicleModel.name == name).first()
 
-
     def findAllVehicle(self) -> List[VehicleModel]:
         return self.session.query(VehicleModel).all()
 
