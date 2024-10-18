@@ -15,6 +15,7 @@ from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
 import websockets
 import traceback
+from config.constants import API_DEV_MODE
 
 ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
@@ -2045,7 +2046,10 @@ def cloud_rm(session, f2rm, token):
     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
 def appsync_http_request(query_string, session, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     # Use JSON format string for the query. It does not need reformatting.
 
     headers = {
@@ -2069,7 +2073,10 @@ def appsync_http_request(query_string, session, token):
     return jresp
 
 def appsync_http_request_w_apikey(query_string, session, apikey):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     # Use JSON format string for the query. It does not need reformatting.
 
     headers = {
@@ -2097,7 +2104,10 @@ def appsync_http_request_w_apikey(query_string, session, apikey):
 
 
 def appsync_http_request2(query_string, session, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     # Use JSON format string for the query. It does not need reformatting.
 
     headers = {
@@ -2123,7 +2133,10 @@ def appsync_http_request2(query_string, session, token):
 
 
 async def appsync_http_request8(query_string, session, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
 
     headers = {
         'Content-Type': "application/graphql",
@@ -2200,7 +2213,10 @@ async def upload_file8(session, f2ul, token, ftype="general"):
 
 
 async def send_wan_chat_message(content, sender, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     variables = {
         "content": content,
         "sender": sender
@@ -2305,7 +2321,10 @@ def local_http_request(query_string, session, api_Key, url):
 
 
 async def wanSendRequestSolvePuzzle(msg_req, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     variables = {
         "input": {
             "content": msg_req["content"],
@@ -2336,7 +2355,10 @@ async def wanSendRequestSolvePuzzle(msg_req, token):
             return jresp
 
 async def wanSendConfirmSolvePuzzle(msg_req, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     variables = {
         "input": {
             "content": msg_req["content"],

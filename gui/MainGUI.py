@@ -73,6 +73,7 @@ import cpuinfo
 import psutil
 from gui.gradioChat import start_gradio_chat_in_background, launchChat
 from gui.BrowserGUI import BrowserWindow
+from config.constants import API_DEV_MODE
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -7331,7 +7332,7 @@ class MainWindow(QMainWindow):
             if contractWorks["added_missions"] and contractWorks["task_groups"]:
                 # first, download the files.
 
-                log3("ARRANGE external contract work.....")
+                log3("ARRANGE external contract work....")
                 self.prepareMissionRunAsServer(contractWorks)
 
                 print("updated contract works....", contractWorks)
