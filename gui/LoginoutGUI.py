@@ -509,8 +509,10 @@ class Login(QDialog):
         # global commanderXport
 
         try:
+            # self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
+            #                       client_id=CLIENT_ID, client_secret=CLIENT_SECRET, client=self.aws_client)
             self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
-                                  client_id=CLIENT_ID, client_secret=CLIENT_SECRET, client=self.aws_client)
+                                  client_id=CLIENT_ID, client=self.aws_client)
             self.tokens = self.aws_srp.authenticate_user()
 
 
@@ -534,7 +536,8 @@ class Login(QDialog):
             #                    refresh_token=self.tokens["AuthenticationResult"]["RefreshToken"],
             #                    access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
 
-            self.cog = Cognito(USER_POOL_ID, CLIENT_ID,  client_secret=CLIENT_SECRET, username=self.cognito_user_id, refresh_token=refresh_token)
+            # self.cog = Cognito(USER_POOL_ID, CLIENT_ID,  client_secret=CLIENT_SECRET, username=self.cognito_user_id, refresh_token=refresh_token)
+            self.cog = Cognito(USER_POOL_ID, CLIENT_ID,  username=self.cognito_user_id, refresh_token=refresh_token)
             # print("cog access token:", self.cog.access_token)
             # self.cog.check_tokens()
             # response = self.cog.authenticate(password=self.textPass.text())
@@ -593,7 +596,7 @@ class Login(QDialog):
                 self.main_win.setCogClient(self.aws_client)
                 self.main_win.show()
 
-            print("refrsh tokeN:", refresh_token)
+            # print("refrsh tokeN:", refresh_token)
             asyncio.create_task(self.refresh_tokens_periodically(refresh_token))
             # self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client, self.cognito_user_id)
 
@@ -613,7 +616,7 @@ class Login(QDialog):
         except Exception as e:
             print("Exception Error:", e)
 
-    async def refresh_tokens_periodically(self, refresh_token, interval=2700):
+    async def refresh_tokens_periodically(self, refresh_token, interval=27):
         """Refresh tokens periodically using the refresh token (async version)"""
 
         while True:
@@ -626,14 +629,15 @@ class Login(QDialog):
                     ClientId=CLIENT_ID,
                     AuthFlow='REFRESH_TOKEN_AUTH',
                     AuthParameters={
-                        'REFRESH_TOKEN': refresh_token,
-                        "USERNAME": self.cognito_user_id,
-                        "SECRET_HASH": secret_hash
+                        'REFRESH_TOKEN': refresh_token
+                        # 'REFRESH_TOKEN': refresh_token,
+                        # "USERNAME": self.cognito_user_id,
+                        # "SECRET_HASH": secret_hash
                     }
                 )
 
                 # self.cog.renew_access_token()
-                print("refresh response:", response)
+                # print("refresh response:", response)
                 # Get the new tokens
                 if 'AuthenticationResult' in response:
                     self.tokens["AuthenticationResult"]["IdToken"] = response['AuthenticationResult']['IdToken']
