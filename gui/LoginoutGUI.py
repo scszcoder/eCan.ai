@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from os.path import exists
 from pycognito import Cognito, AWSSRP
+from pycognito.utils import RequestsSrpAuth
 
 import boto3
 from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, Qt, QEvent, QSettings
@@ -20,11 +21,16 @@ import botocore
 import locale
 
 from gui.MainGUI import MainWindow
-from bot.signio import CLIENT_ID, USER_POOL_ID
+from bot.signio import CLIENT_ID, USER_POOL_ID, CLIENT_SECRET
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP, commanderServer, commanderXport
 from utils.fernet import encrypt_password, decrypt_password
+import traceback
+import base64
+import hmac
+import hashlib
+import jwt
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 
@@ -474,6 +480,29 @@ class Login(QDialog):
 
     def getLogUser(self):
         return self.current_user.split("@")[0] + "_" + self.current_user.split("@")[1].replace(".", "_")
+
+    def decode_jwt(self, token):
+        """Decodes a JWT and returns the payload as a dictionary."""
+        # Split the token and take the payload part (second part of the JWT)
+        payload_part = token.split('.')[1]
+        # JWT uses base64url encoding, which requires proper padding
+        padding = '=' * (4 - len(payload_part) % 4)
+        # Decode the payload
+        decoded_bytes = base64.urlsafe_b64decode(payload_part + padding)
+        # Convert the decoded bytes into a dictionary
+        payload = json.loads(decoded_bytes.decode('utf-8'))
+        return payload
+
+    def get_secret_hash(self, username):
+        """
+        Generate a secret hash using the username, client ID, and client secret.
+        """
+        message = username + CLIENT_ID
+        dig = hmac.new(CLIENT_SECRET.encode('utf-8'), message.encode('utf-8'), hashlib.sha256).digest()
+        secret_hash = base64.b64encode(dig).decode()
+        return secret_hash
+
+
     def handleLogin(self):
         print("logging in....")
         # global commanderServer
@@ -481,18 +510,31 @@ class Login(QDialog):
 
         try:
             self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
-                                  client_id=CLIENT_ID, client=self.aws_client)
+                                  client_id=CLIENT_ID, client_secret=CLIENT_SECRET, client=self.aws_client)
             self.tokens = self.aws_srp.authenticate_user()
 
+
             # print("token: ", self.tokens)
+            # Decode the ID Token to extract user information
+            id_token = self.tokens['AuthenticationResult']['IdToken']
+            self.old_access_token = self.tokens["AuthenticationResult"]["AccessToken"]
+            refresh_token = self.tokens["AuthenticationResult"]["RefreshToken"]
+            decoded_id_token = self.decode_jwt(id_token)
+
+            # Extract the Cognito User ID (sub claim)
+            self.cognito_user_id = decoded_id_token.get('sub')
+
+            DecodedUsername = decoded_id_token["cognito:username"]
+            print("DecodeUserName:", DecodedUsername, decoded_id_token)
 
             # cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com", botocore_config=Config(signature_version=UNSIGNED))
             # cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com")
-            self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(),
-                               access_token=self.tokens["AuthenticationResult"]["AccessToken"],
-                               refresh_token=self.tokens["AuthenticationResult"]["RefreshToken"],
-                               access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
+            # self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(),
+            #                    access_token=self.tokens["AuthenticationResult"]["AccessToken"],
+            #                    refresh_token=self.tokens["AuthenticationResult"]["RefreshToken"],
+            #                    access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
 
+            self.cog = Cognito(USER_POOL_ID, CLIENT_ID,  client_secret=CLIENT_SECRET, username=self.cognito_user_id, refresh_token=refresh_token)
             # print("cog access token:", self.cog.access_token)
             # self.cog.check_tokens()
             # response = self.cog.authenticate(password=self.textPass.text())
@@ -503,7 +545,8 @@ class Login(QDialog):
             # self.cog.verify_tokens()
             # print(self.cog.id_token)
             # print(self.cog.access_token)
-            # print(self.cog.refresh_token)
+            refresh_token = self.cog.refresh_token
+
             # print(user)
             print("timezone:", datetime.now().astimezone().tzinfo)
             # now make this window dissappear and bring out the main windows.
@@ -526,6 +569,7 @@ class Login(QDialog):
             print("hello hello hello")
             main_key = self.scramble(self.textPass.text())
             self.current_user = self.textName.text()
+            self.current_user_pw = self.textPass.text()
             if self.machine_role == "Commander Only" or self.machine_role == "Commander":
                 # global commanderServer
 
@@ -549,8 +593,9 @@ class Login(QDialog):
                 self.main_win.setCogClient(self.aws_client)
                 self.main_win.show()
 
-            refresh_token = self.tokens["AuthenticationResult"]["RefreshToken"]
-            asyncio.create_task(self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client))
+            print("refrsh tokeN:", refresh_token)
+            asyncio.create_task(self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client, self.cognito_user_id))
+            # self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client, self.cognito_user_id)
 
         except botocore.errorfactory.ClientError as e:
             # except ClientError as e:
@@ -568,33 +613,52 @@ class Login(QDialog):
         except Exception as e:
             print("Exception Error:", e)
 
-    async def refresh_tokens_periodically(self, refresh_token, client_id, client, interval=1800):
+    async def refresh_tokens_periodically(self, refresh_token, client_id, client, username, interval=60):
         """Refresh tokens periodically using the refresh token (async version)"""
+
         while True:
             await asyncio.sleep(interval)  # Wait for 55 minutes (3300 seconds)
 
+            NewHash = self.get_secret_hash(username)
+            print("refresh token:", refresh_token, "UN:", username, "client id:", client_id, "new hash:", NewHash)
             try:
-                response = client.initiate_auth(
-                    ClientId=client_id,
-                    AuthFlow='REFRESH_TOKEN_AUTH',
-                    AuthParameters={
-                        'REFRESH_TOKEN': refresh_token
-                    }
-                )
+                # response = client.initiate_auth(
+                #     ClientId=client_id,
+                #     AuthFlow='REFRESH_TOKEN_AUTH',
+                #     AuthParameters={
+                #         'REFRESH_TOKEN': refresh_token,
+                #         # "USERNAME": username,
+                #         "SECRET_HASH": NewHash
+                #     }
+                # )
 
+                self.cog.renew_access_token()
+
+                print("Tokens refreshed successfully", self.cog.access_token)
+                print("old access token:", self.old_access_token)
                 # Get the new tokens
-                self.tokens["AuthenticationResult"]["IdToken"] = response['AuthenticationResult']['IdToken']
-                self.tokens["AuthenticationResult"]["AccessToken"] = response['AuthenticationResult']['AccessToken']
+                # if 'AuthenticationResult' in response:
+                #     self.tokens["AuthenticationResult"]["IdToken"] = response['AuthenticationResult']['IdToken']
+                #     self.tokens["AuthenticationResult"]["AccessToken"] = response['AuthenticationResult']['AccessToken']
+                # else:
+                #     raise Exception("AuthenticationResult not found in the response")
+
                 if self.main_win:
                     self.main_win.updateTokens(self.tokens)
-                print("Tokens refreshed successfully")
+
 
 
                 # Use the new tokens for your logic
                 # For example, update the headers in your requests with the new access token
             except Exception as e:
-                print(f"Error refreshing tokens: {e}")
-                break
+                # Get the traceback information
+                traceback_info = traceback.extract_tb(e.__traceback__)
+                # Extract the file name and line number from the last entry in the traceback
+                if traceback_info:
+                    ex_stat = "ErrorPeriodicRefreshingToken:" + traceback.format_exc() + " " + str(e)
+                else:
+                    ex_stat = "ErrorPeriodicRefreshingToken: traceback information not available:" + str(e)
+                print(ex_stat)
 
 
     def fakeLogin(self):

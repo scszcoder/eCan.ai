@@ -785,7 +785,8 @@ class EBBOT(QStandardItem):
     def setOrg(self, org):
         self.pubProfile.org = org
 
-
+    def setStatus(self, stat):
+        self.pubProfile.setStatus(stat)
     def setInterests(self, interests):
         self.pubProfile.setInterests(interests)
 
@@ -869,7 +870,7 @@ class EBBOT(QStandardItem):
         self.pubProfile.setInterests(jd["Interests"])
         self.pubProfile.setLoc(jd["Proxy City"] + "," + jd["State"])
         self.pubProfile.setRoles(jd["Roles"])
-        self.pubProfile.setStatus("")
+        self.pubProfile.setStatus(jd["status"])
         self.pubProfile.setDelDate("2121-01-01")
         self.privateProfile.setName(jd["New First Name"] + " " + jd["Last Name"])
         self.pubProfile.setPseudoName(jd["PseudoFN"] + " " + jd["PseudoLN"])
