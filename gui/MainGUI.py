@@ -257,7 +257,7 @@ class MainWindow(QMainWindow):
 
         self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
         self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "ads_port": 0, "ads_api_key": ""}
-
+        self.bot_states = ["active", "disabled", "banned", "deleted"]
         # self.readBotJsonFile()
         self.vehicles = []                              # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
@@ -865,7 +865,7 @@ class MainWindow(QMainWindow):
                "aborted": []
             }
 
-            if not self.debug_mode or self.schedule_mode == "auto":
+            if not self.debug_mode and self.schedule_mode == "auto":
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
 
@@ -1100,13 +1100,19 @@ class MainWindow(QMainWindow):
         self.general_settings["default_wifi"] = default_wifi
 
     def get_default_wifi(self):
-        return self.general_settings["default_wifi"]
+        if "default_wifi" in self.general_settings:
+            return self.general_settings["default_wifi"]
+        else:
+            return "unknown"
 
     def set_default_printer(self, default_printer):
         self.general_settings["default_printer"] = default_printer
 
     def get_default_printer(self):
-        return self.general_settings["default_printer"]
+        if "default_printer" in self.general_settings:
+            return self.general_settings["default_printer"]
+        else:
+            return "unknown"
 
 
     def saveSettings(self):

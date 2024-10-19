@@ -624,14 +624,19 @@ class BotNewWin(QMainWindow):
 
         self.setngsWidget.setLayout(self.setngsWidget_layout)
 
-        self.state_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Enabled:</b>"),
+        self.state_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Status:</b>"),
                                   alignment=Qt.AlignLeft)
-        self.state_en = QCheckBox()
-        self.state_en.setCheckState(Qt.CheckState.Checked)
+        self.state_select = QComboBox()
+        for botstat in self.main_win.bot_states:
+            self.state_select.addItem(QApplication.translate("QComboBox", botstat))
+
+        self.state_select.setCurrentIndex(0)    # make active as default, this will corrected by the actual data.
+        self.state_select.currentTextChanged.connect(self.state_select_changed)
+
 
         self.statLine1Layout = QHBoxLayout(self)
         self.statLine1Layout.addWidget(self.state_label)
-        self.statLine1Layout.addWidget(self.state_en)
+        self.statLine1Layout.addWidget(self.state_select)
         self.statWidget_layout.addLayout(self.statLine1Layout)
 
         self.statWidget.setLayout(self.statWidget_layout)
@@ -721,6 +726,9 @@ class BotNewWin(QMainWindow):
     # def show_interest_custom_sub_category5(self):
     #     self.interest_custom_sub_category5_label.setVisible(True)
     #     self.interest_custom_sub_category5_edit.setVisible(True)
+
+    def state_select_changed(self):
+        self.botStatus = self.state_select.currentText()
 
     def saveRole(self):
         if self.role_platform_sel.currentText() == QApplication.translate("QComboBox", "Custom"):
@@ -824,6 +832,11 @@ class BotNewWin(QMainWindow):
             self.vehicle_combo_box.setCurrentIndex(index)
         self.load_role(bot)
         self.load_interests(bot)
+        state_index = next((i for i, bs in enumerate(self.main_win.bot_states) if self.newBot.getStatus() == bs), -1)
+        if state_index >= 0:
+            self.state_select.setCurrentIndex(state_index)
+        else:
+            self.state_select.setCurrentIndex(0)              # active is the default state.
 
     def load_role(self, bot):
         self.roleTableModel.clear()
@@ -928,6 +941,7 @@ class BotNewWin(QMainWindow):
         print("set shipping addr:", self.shipaddr_l1_edit.text(), self.shipaddr_l2_edit.text(),
                                                    self.shipaddr_city_edit.text(), self.shipaddr_state_edit.text(),
                                                    self.shipaddr_zip_edit.text())
+        self.newBot.setStatus(self.state_select.currentText())
         self.newBot.updateDisplay()
 
         self.fillRoles()

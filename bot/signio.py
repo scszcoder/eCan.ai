@@ -4,8 +4,12 @@ username = "abc.xyz@gmail.com"
 password = "#Abc1234"
 
 USER_POOL_ID = 'us-east-1_uUmKJUfB3'
-CLIENT_ID = '5400r8q5p9gfdhln2feqcpljsh'
-
+# CLIENT_ID = '5400r8q5p9gfdhln2feqcpljsh'
+# CLIENT_SECRET = ''
+# CLIENT_ID = '46161uqkecob0c4netn36fuuaa'
+# CLIENT_SECRET = ''
+CLIENT_ID = '5bc4dq3ac6ga2f57hkbohsur3c'
+CLIENT_SECRET = '1qohbck0k8n41ann5nrtc9fou999vnlnrrubgtdheo3l8kf814qc'
 
 # auth_client = boto3.client("cognito-idp", region_name="us-east-1")
 
