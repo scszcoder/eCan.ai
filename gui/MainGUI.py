@@ -1,10 +1,10 @@
 import ast
 import json
 
-from models import VehicleModel
-from server import HttpServer
+from common.models import VehicleModel
+from utils.server import HttpServer
 from utils.time_util import TimeUtil
-from LocalServer import start_local_server_in_thread
+from gui.LocalServer import start_local_server_in_thread
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -2403,6 +2403,7 @@ class MainWindow(QMainWindow):
         # tasks should already be sorted by botid,
         try:
             nsites = 0
+            
             v_groups = self.getUnassignedVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
             # print some debug info.
             for key in v_groups:
@@ -2417,7 +2418,7 @@ class MainWindow(QMainWindow):
             #
             #     self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
             print("unassigned_scheduled_task_groups: ", self.unassigned_scheduled_task_groups)
-
+            tbd_unassigned = []
             for vname in self.unassigned_scheduled_task_groups:
                 print("assignwork scheduled checking vehicle: ", vname)
                 p_task_groups = self.unassigned_scheduled_task_groups[vname]      # flattend per vehicle tasks.
@@ -2444,7 +2445,7 @@ class MainWindow(QMainWindow):
                             self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "vname": vname, "completed": [], "aborted": []})
                             vidx = 0
                             self.rpa_work_assigned_for_today = True
-                            self.updateUnassigned("scheduled", vname, p_task_groups)
+                            self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
                     else:
 
                         # vidx = i
@@ -2487,7 +2488,7 @@ class MainWindow(QMainWindow):
                                 # send over skills to platoon
                                 self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
 
-                                self.updateUnassigned("scheduled", vname, p_task_groups)
+                                self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
 
                             else:
                                 self.showMsg(get_printable_datetime() + "vehicle "+vname+" is not FOUND on LAN.")
@@ -2498,6 +2499,13 @@ class MainWindow(QMainWindow):
                     #     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
 
 
+            if tbd_unassigned:
+                print("deleting alread assigned schedule task groups")
+                for vname in tbd_unassigned:
+                    del self.unassigned_scheduled_task_groups[vname]
+
+                tbd_unassigned = []
+                
             for vname in self.unassigned_reactive_task_groups:
                 print("assignwork reactive checking vehicle: ", vname)
                 p_task_groups = self.unassigned_reactive_task_groups[vname]      # flattend per vehicle tasks.
@@ -2524,7 +2532,7 @@ class MainWindow(QMainWindow):
                             self.reactive_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "vname": vname, "completed": [], "aborted": []})
                             vidx = 0
                             self.rpa_work_assigned_for_today = True
-                            self.updateUnassigned("reactive", vname, p_task_groups)
+                            self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
                     else:
 
                         # vidx = i
@@ -2566,14 +2574,18 @@ class MainWindow(QMainWindow):
                                 # send over skills to platoon
                                 self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
 
-                                self.updateUnassigned("reactive", vname, p_task_groups)
+                                self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
 
                             else:
                                 self.showMsg(get_printable_datetime() + "vehicle "+vname+" is not FOUND on LAN.")
                         else:
                             print("WARNING: vehicle not found on network at the moment: "+vname)
 
-
+            if tbd_unassigned:
+                print("deleting alread assigned reactive task groups")
+                for vname in tbd_unassigned:
+                    del self.unassigned_reactive_task_groups[vname]
+                    
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
@@ -2630,7 +2642,8 @@ class MainWindow(QMainWindow):
     # in case of 2 elements, the 0th element will be the fetch schedule, the 1st element will be the bot tasks(as a whole)
     # self.todays_work = {"tbd": [], "allstat": "working"}
     def checkNextToRun(self):
-        # log3("checkNextToRun:checking todos...... "+json.dumps(self.todays_work["tbd"]), "checkNextToRun", self)
+        log3("checkNextToRun: todays tbd... "+json.dumps(self.todays_work["tbd"]))
+        log3("checkNextToRun: reactive tbd... " + json.dumps(self.reactive_work["tbd"]))
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
@@ -2669,6 +2682,10 @@ class MainWindow(QMainWindow):
                 if self.reactive_work["tbd"]:
                     nextrun = self.reactive_work["tbd"][0]
                 self.showMsg("nextRUN reactive>>>>>: " + json.dumps(nextrun))
+        else:
+            # if there is no schedule task to run, check whether there is reactive tasks to do, if so, do it asap.
+            if self.reactive_work["tbd"]:
+                nextrun = self.reactive_work["tbd"][0]
 
         return nextrun
 
@@ -3059,7 +3076,7 @@ class MainWindow(QMainWindow):
         send_update_missions_ex_status_to_cloud(self.session, mstats, self.tokens['AuthenticationResult']['IdToken'])
 
 
-    def updateUnassigned(self, tg_type, vname, task_group):
+    def updateUnassigned(self, tg_type, vname, task_group, tbd):
         tg_mids = [tsk["mid"] for tsk in task_group]
         if tg_type == "scheduled":
             if vname in self.unassigned_scheduled_task_groups:
@@ -3068,8 +3085,8 @@ class MainWindow(QMainWindow):
 
                 # if this vehcle no longer has unassigned work, then remove this vehicle from unassigned_task_group
                 if not self.unassigned_scheduled_task_groups[vname]:
-                    del self.unassigned_scheduled_task_groups[vname]
-                    self.showMsg("Remove finished mission from unassigned list")
+                    tbd.append(vname)
+                    self.showMsg("Remove alredy assigned mission from unassigned scheduled list")
             else:
                 self.showMsg(vname+" NOT FOUND in unassigned scheduled work group")
         elif tg_type == "reactive":
@@ -3079,8 +3096,8 @@ class MainWindow(QMainWindow):
 
                 # if this vehcle no longer has unassigned work, then remove this vehicle from unassigned_task_group
                 if not self.unassigned_reactive_task_groups[vname]:
-                    del self.unassigned_reactive_task_groups[vname]
-                    self.showMsg("Remove finished mission from unassigned list")
+                    tbd.append(vname)
+                    self.showMsg("Remove already assigned mission from unassigned reactive list")
             else:
                 self.showMsg(vname+" NOT FOUND in unassigned reactive work group")
 
@@ -7358,6 +7375,7 @@ class MainWindow(QMainWindow):
                     else:
                         self.unassigned_reactive_task_groups[vname] = newTaskGroups[vname]
 
+                print("unassigned_reactive_task_groups after adding contract:", self.unassigned_reactive_task_groups)
                 self.build_cookie_site_lists(newlyAddedMissions)
 
     def merge_dicts(self, dict1, dict2):

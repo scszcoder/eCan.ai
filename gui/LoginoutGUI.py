@@ -616,7 +616,7 @@ class Login(QDialog):
         except Exception as e:
             print("Exception Error:", e)
 
-    async def refresh_tokens_periodically(self, refresh_token, interval=27):
+    async def refresh_tokens_periodically(self, refresh_token, interval=2700):
         """Refresh tokens periodically using the refresh token (async version)"""
 
         while True:

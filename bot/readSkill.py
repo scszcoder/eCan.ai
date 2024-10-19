@@ -28,7 +28,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
     processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist
 
-from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
+from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
     processWebdriverExecuteJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
