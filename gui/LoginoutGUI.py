@@ -516,10 +516,10 @@ class Login(QDialog):
 
             # print("token: ", self.tokens)
             # Decode the ID Token to extract user information
-            id_token = self.tokens['AuthenticationResult']['IdToken']
+            self.id_token = self.tokens['AuthenticationResult']['IdToken']
             self.old_access_token = self.tokens["AuthenticationResult"]["AccessToken"]
             refresh_token = self.tokens["AuthenticationResult"]["RefreshToken"]
-            decoded_id_token = self.decode_jwt(id_token)
+            decoded_id_token = self.decode_jwt(self.id_token)
 
             # Extract the Cognito User ID (sub claim)
             self.cognito_user_id = decoded_id_token.get('sub')
@@ -594,7 +594,7 @@ class Login(QDialog):
                 self.main_win.show()
 
             print("refrsh tokeN:", refresh_token)
-            asyncio.create_task(self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client, self.cognito_user_id))
+            asyncio.create_task(self.refresh_tokens_periodically(refresh_token))
             # self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client, self.cognito_user_id)
 
         except botocore.errorfactory.ClientError as e:
@@ -613,40 +613,36 @@ class Login(QDialog):
         except Exception as e:
             print("Exception Error:", e)
 
-    async def refresh_tokens_periodically(self, refresh_token, client_id, client, username, interval=60):
+    async def refresh_tokens_periodically(self, refresh_token, interval=2700):
         """Refresh tokens periodically using the refresh token (async version)"""
 
         while True:
             await asyncio.sleep(interval)  # Wait for 55 minutes (3300 seconds)
 
-            NewHash = self.get_secret_hash(username)
-            print("refresh token:", refresh_token, "UN:", username, "client id:", client_id, "new hash:", NewHash)
+            secret_hash = self.get_secret_hash(self.cognito_user_id)
+
             try:
-                # response = client.initiate_auth(
-                #     ClientId=client_id,
-                #     AuthFlow='REFRESH_TOKEN_AUTH',
-                #     AuthParameters={
-                #         'REFRESH_TOKEN': refresh_token,
-                #         # "USERNAME": username,
-                #         "SECRET_HASH": NewHash
-                #     }
-                # )
+                response = self.aws_client.initiate_auth(
+                    ClientId=CLIENT_ID,
+                    AuthFlow='REFRESH_TOKEN_AUTH',
+                    AuthParameters={
+                        'REFRESH_TOKEN': refresh_token,
+                        "USERNAME": self.cognito_user_id,
+                        "SECRET_HASH": secret_hash
+                    }
+                )
 
-                self.cog.renew_access_token()
-
-                print("Tokens refreshed successfully", self.cog.access_token)
-                print("old access token:", self.old_access_token)
+                # self.cog.renew_access_token()
+                print("refresh response:", response)
                 # Get the new tokens
-                # if 'AuthenticationResult' in response:
-                #     self.tokens["AuthenticationResult"]["IdToken"] = response['AuthenticationResult']['IdToken']
-                #     self.tokens["AuthenticationResult"]["AccessToken"] = response['AuthenticationResult']['AccessToken']
-                # else:
-                #     raise Exception("AuthenticationResult not found in the response")
+                if 'AuthenticationResult' in response:
+                    self.tokens["AuthenticationResult"]["IdToken"] = response['AuthenticationResult']['IdToken']
+                    self.tokens["AuthenticationResult"]["AccessToken"] = response['AuthenticationResult']['AccessToken']
+                else:
+                    raise Exception("AuthenticationResult not found in the response")
 
                 if self.main_win:
                     self.main_win.updateTokens(self.tokens)
-
-
 
                 # Use the new tokens for your logic
                 # For example, update the headers in your requests with the new access token
