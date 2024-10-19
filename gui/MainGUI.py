@@ -71,7 +71,6 @@ import keyboard
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
 import cpuinfo
 import psutil
-from gui.gradioChat import start_gradio_chat_in_background, launchChat
 from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
 
