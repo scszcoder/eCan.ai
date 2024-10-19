@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QPushButton, QTextBrows
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor, QAction, QTextBlockFormat, QImage, QPixmap, QIcon
 
-from Cloud import send_query_chat_request_to_cloud
+from bot.Cloud import send_query_chat_request_to_cloud
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 
