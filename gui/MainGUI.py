@@ -18,7 +18,7 @@ import webbrowser
 from _csv import reader
 from os.path import exists
 
-from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent
+from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent, QSize
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
 from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
@@ -608,6 +608,7 @@ class MainWindow(QMainWindow):
 
         self.vehicleListView.setModel(self.runningVehicleModel)
         self.vehicleListView.setViewMode(QListView.ListMode)
+        self.vehicleListView.setIconSize(QSize(48, 48))
         self.vehicleListView.setMovement(QListView.Snap)
 
         self.completed_missionListView.setModel(self.completedMissionModel)
@@ -3964,23 +3965,23 @@ class MainWindow(QMainWindow):
             # self.skillModel.appendRow(self.newSkill)
 
 
-    def addVehicle(self, vip):
+    def addVehicle(self, vname, vip):
         try:
             # ipfields = vinfo.peername[0].split(".")
-            ipfields = vip.split(".")
-            ip = ipfields[len(ipfields) - 1]
+
             if len(self.vehicles) > 0:
-                vids = [v.getVid() for v in self.vehicles]
-                print("existing Vids "+ip+":"+json.dumps(vids))
+                v_host_names = [v.getName().split(":")[0] for v in self.vehicles]
+                print("existing vehicle "+json.dumps(v_host_names))
             else:
                 vids = []
 
-            if ip not in vids:
-                self.showMsg("adding a new vehicle..... "+vip)
+            if vname not in v_host_names:
+                self.showMsg("adding a new vehicle..... "+vname+" "+vip)
                 newVehicle = VEHICLE(self)
                 newVehicle.setIP(vip)
-                newVehicle.setVid(ip)
-                found_fl = next((fl for i, fl in enumerate(fieldLinks) if fl["ip"][0] == vip), None)
+                newVehicle.setVid(vip.split(".")[3])
+                newVehicle.setName(vname+":")
+                found_fl = next((fl for i, fl in enumerate(fieldLinks) if vname in fl["name"]), None)
                 print("FL0 IP:", fieldLinks[0]["ip"])
                 newVehicle.setFieldLink(found_fl)
                 self.saveVehicle(newVehicle)
@@ -4019,28 +4020,28 @@ class MainWindow(QMainWindow):
     # add vehicles based on fieldlinks.
     def checkVehicles(self):
         self.showMsg("adding self as a vehicle if is Commander.....")
+        existing_names = [v.getName().split(":")[0] for v in self.vehicles]
         if self.machine_role == "Commander":
             # should add this machine to vehicle list.
-            newVehicle = VEHICLE(self)
-            newVehicle.setIP(self.ip)
+            newVehicle = VEHICLE(self, self.machine_name+":"+self.os_short, self.ip)
             newVehicle.setStatus("running_idle")
-            newVehicle.setName(self.machine_name+":"+self.os_short)
             self.saveVehicle(newVehicle)
             self.vehicles.append(newVehicle)
             self.runningVehicleModel.appendRow(newVehicle)
 
         self.showMsg("adding already linked vehicles.....")
         for i in range(len(fieldLinks)):
-            self.showMsg("a fieldlink....."+json.dumps(fieldLinks[i]["ip"]))
-            newVehicle = VEHICLE(self)
-            newVehicle.setIP(fieldLinks[i]["ip"][0])
-            newVehicle.setFieldLink(fieldLinks[i])
-            ipfields = fieldLinks[i]["ip"][0].split(".")
-            ip = ipfields[len(ipfields)-1]
-            newVehicle.setVid(ip)
-            self.saveVehicle(newVehicle)
-            self.vehicles.append(newVehicle)
-            self.runningVehicleModel.appendRow(newVehicle)
+            if fieldLinks[i]["name"].split(":")[0] not in existing_names:
+                self.showMsg("a fieldlink....."+json.dumps(fieldLinks[i]["ip"]))
+                newVehicle = VEHICLE(self, fieldLinks[i]["name"], fieldLinks[i]["ip"][0])
+                newVehicle.setFieldLink(fieldLinks[i])
+                newVehicle.setStatus("running_idle")        # if already has a fieldlink, that means it's tcp connected.
+                ipfields = fieldLinks[i]["ip"][0].split(".")
+                ip = ipfields[len(ipfields)-1]
+                newVehicle.setVid(ip)
+                self.saveVehicle(newVehicle)
+                self.vehicles.append(newVehicle)
+                self.runningVehicleModel.appendRow(newVehicle)
 
     def saveVehicle(self, vehicle: VEHICLE):
         v = self.vehicle_service.find_vehicle_by_ip(vehicle.ip)
@@ -4202,13 +4203,15 @@ class MainWindow(QMainWindow):
 
     def translateVehiclesJson(self, vjds):
         all_vnames = [v.getName() for v in self.vehicles]
+        print("vehicles names in the vehicle json file:", all_vnames)
         for vjd in vjds:
             if vjd["name"] not in all_vnames:
+                print("add new vehicle to local vehicle data structure but no yet added to GUI", vjd["name"])
                 new_v = VEHICLE(self)
                 new_v.loadJson(vjd)
                 self.saveVehicle(new_v)
                 self.vehicles.append(new_v)
-                # self.runningVehicleModel.appendRow(new_v)             # can't do this because if in file but not in data, that means no communication yet.
+                self.runningVehicleModel.appendRow(new_v)             # initially set to be offline state and will be updated later when network status is updated
 
 
     def saveVehiclesJsonFile(self):
@@ -5594,13 +5597,14 @@ class MainWindow(QMainWindow):
                         self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
                     elif msg_parts[1] == "connection":
                         # this is the initial connection msg from a client
-                        print("recevied connection message: "+msg_parts[0])
+                        print("recevied connection message: "+msg_parts[0]+" "+msg_parts[2])
+
                         if self.platoonWin == None:
                             self.platoonWin = PlatoonWindow(self, "conn")
 
                         # vinfo = json.loads(msg_parts[2])
 
-                        self.addVehicle(msg_parts[0])
+                        self.addVehicle(msg_parts[2], msg_parts[0])
 
                         # after adding a vehicle, try to get this vehicle's info
                         if len(self.vehicles) > 0:
