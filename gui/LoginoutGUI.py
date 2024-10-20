@@ -270,6 +270,7 @@ class Login(QDialog):
         log_layout.addWidget(self.buttonLogin)
         log_layout.addWidget(self.signup_label)
         layout.addLayout(log_layout)
+        self.signed_in = False
 
     # async def launchLAN(self):
     def checkState(self, state):
@@ -298,6 +299,7 @@ class Login(QDialog):
             with open(ROLE_FILE, 'r') as file:
                 mr_data = json.load(file)
                 self.machine_role = mr_data["machine_role"]
+                print("role file contents:", mr_data)
         else:
             logger_helper.info(f"role file {ROLE_FILE} is not existed!")
 
@@ -308,6 +310,14 @@ class Login(QDialog):
     def set_role(self, role):
         # is function is for testing purpose only
         self.machine_role = role
+        
+        # set role_select to the item that matches role here.
+        found_role_idx = self.role_select.findText(role)
+        if found_role_idx != -1:
+            self.role_select.setCurrentIndex(found_role_idx)
+        else:
+            print(f"Role '{role}' not found in role_select combobox.")
+
 
     def isCommander(self):
         if self.machine_role == "Commander" or self.machine_role == "Commander Only":
@@ -502,6 +512,9 @@ class Login(QDialog):
         secret_hash = base64.b64encode(dig).decode()
         return secret_hash
 
+    def getSignedIn(self):
+        return self.signed_in
+
 
     def handleLogin(self):
         print("logging in....")
@@ -573,6 +586,7 @@ class Login(QDialog):
             main_key = self.scramble(self.textPass.text())
             self.current_user = self.textName.text()
             self.current_user_pw = self.textPass.text()
+            self.signed_in = True
             if self.machine_role == "Commander Only" or self.machine_role == "Commander":
                 # global commanderServer
 
