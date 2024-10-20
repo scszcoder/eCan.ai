@@ -66,8 +66,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         if not self.topgui.main_win == None:
             print("Queueing TCP recevied message:", message)
             asyncio.create_task(self.msg_queue.put(self.peername[0]+"!net data!"+message))
-            # self.topgui.mainwin.appendNetLogs(['Data received: {!r}'.format(message)])
-            # self.topgui.mainwin.processPlatoonMsgs(message, self.peername)
+
 
         #print('Send: {!r}'.format(message))
         #self.transport.write(data)
@@ -152,37 +151,13 @@ class communicatorProtocol(asyncio.Protocol):
                     else:
                         print('Data received: {!r}'.format(message.decode('utf-8')))
                         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message.decode('utf-8')))
-                        # self.topgui.mainwin.processCommanderMsgs(message)
+
                 except json.JSONDecodeError as e:
                     print("JSON decode error:", e)
             else:
                 # Not enough data has been received yet
                 print("filling buffer::" + str(len(self.buffer)))
                 break
-
-        # json_data = json.loads(data.decode('utf-8'))
-        #
-        # if json_data['cmd'] == "reqSendFile":
-        #     print('file received: '+json_data['file_name'])
-        #     file_data = base64.b64decode(json_data['file_contents'])
-        #
-        #     # Save the file data to a new file
-        #     fdir = os.path.dirname(json_data['file_name'])
-        #     fname = os.path.basename(json_data['file_name'])
-        #     fullfname = fdir + "/temp/" + fname
-        #
-        #     # Ensure the directory exists
-        #     if not os.path.exists(fdir + "/temp/"):
-        #         os.makedirs(fdir + "/temp/")  # Create any missing directories
-        #
-        #     with open(fullfname, 'wb') as file:
-        #         file.write(file_data)
-        #     print(f'File {fullfname} saved')
-        # else:
-        #     message = data.decode()
-        #     print('Data received: {!r}'.format(message))
-        #     asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message))
-        #     # self.topgui.mainwin.processCommanderMsgs(message)
 
 
         # print('Send: {!r}'.format(message))
@@ -243,8 +218,6 @@ async def udpBroadcaster(topgui):
     usock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     while not over:
-        # if not topgui.mainwin == None:
-        #     topgui.mainwin.appendNetLogs(["broadcast"])
         print("Broadcasting...", 'Commander Calling:' + myip + " " + topgui.getCurrentUser())
         message = str.encode('Commander Calling:' + myip+":"+topgui.getCurrentUser())
         usock.sendto(message, ('192.168.0.255', UDP_PORT))
