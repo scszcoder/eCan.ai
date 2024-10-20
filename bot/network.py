@@ -75,13 +75,16 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         # self.transport.close()
 
     def connection_lost(self, exc):
-        self.on_con_lost.set_result(True)
+        print(f"Connection to {self.peername[0]} lost")
         #find and delete from fieldLinks
         lostone = next((x for x in fieldLinks if x["ip"] == self.peername[0]), None)
         fieldLinks.remove(lostone)
         self.on_con_lost.set_result(True)
         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net loss!"))
 
+        # Signal that the connection was lost
+        if not self.on_con_lost.done():  # Only set if not already set
+            self.on_con_lost.set_result(True)
 
 # main platoon side communication protocol
 class communicatorProtocol(asyncio.Protocol):
@@ -326,7 +329,8 @@ class UDPServerProtocol:
         message = data.decode("utf-8")
         print(f"platoon received: {message}")
 
-        if "Commander" in message and commanderXport is None:
+        myBoss = self.topgui.getCurrentUser()
+        if "Commander" in message and  myBoss in message and commanderXport is None:
             rxmsg_parts = message.split(":")
             commanderIP = rxmsg_parts[1]
             print(f"received: {commanderIP}")
@@ -337,46 +341,55 @@ class UDPServerProtocol:
                     self.topgui.set_role("Platoon")
 
                 print("create task to start tcp conn to commander....")
-                self.loop.create_task(self.connect_to_commander(commanderIP))
+                self.loop.create_task(self.reconnect_to_commander(commanderIP))
 
 
-    async def connect_to_commander(self, commanderIP):
+    async def reconnect_to_commander(self, commanderIP):
         global commanderXport
         print(f"Attempting to connect to Commander at IP: {commanderIP}, PORT: {TCP_PORT}")
 
-        # sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # sock.settimeout(10)
-        # sock.connect((commanderIP, TCP_PORT))  # Blocking connection
-        # print("commander IP:", commanderIP, "tcp port:", TCP_PORT)
-        # # Set the socket to non-blocking and integrate it into the asyncio loop
-        # sock.setblocking(False)
-        loop = asyncio.get_running_loop()
-        on_con_lost = loop.create_future()
+        reconnect_attempts = 0
+        max_retries = 17280    # 17280 x 5 = 86400 which is 24hrs. if net is lost for 24hrs, we really should restart the whole program......
 
-        commanderXport, platoonProtocol = await loop.create_connection(
-            lambda: communicatorProtocol(self.topgui, '', on_con_lost),
-            commanderIP, TCP_PORT)
+        while reconnect_attempts < max_retries:
+            try:
+                loop = asyncio.get_running_loop()
+                on_con_lost = loop.create_future()
 
-        # # Use the socket directly in the create_connection call (without specifying host/port)
-        # commanderXport, platoonProtocol = await self.loop.create_connection(
-        #     lambda: CommunicatorProtocol(self.topgui, '', self.on_con_lost),
-        #     sock=sock)
-        hostname = socket.gethostname()
-        myips = socket.gethostbyname_ex(hostname)[-1]
-        self.topgui.set_xport(commanderXport)
-        self.topgui.set_ip(myips[-1])
-        print(f"commanderXport created: {commanderXport}")
+                commanderXport, platoonProtocol = await loop.create_connection(
+                    lambda: communicatorProtocol(self.topgui, '', on_con_lost),
+                    commanderIP, TCP_PORT)
 
-        try:
-            await self.on_con_lost
-        finally:
-            commanderXport.close()
+                # # Use the socket directly in the create_connection call (without specifying host/port)
+                # commanderXport, platoonProtocol = await self.loop.create_connection(
+                #     lambda: CommunicatorProtocol(self.topgui, '', self.on_con_lost),
+                #     sock=sock)
+                hostname = socket.gethostname()
+                myips = socket.gethostbyname_ex(hostname)[-1]
+                self.topgui.set_xport(commanderXport)
+                self.topgui.set_ip(myips[-1])
+                print(f"commanderXport created: {commanderXport}")
 
-    # def error_received(self, exc):
-    #     print(f"Error received: {exc}")
-    #
-    # def connection_lost(self, exc):
-    #     print("Connection lost")
+                # Wait for the connection to be lost
+                await on_con_lost
+                print("Connection to commander lost...")
+
+            except Exception as e:
+                print(f"Failed to connect to commander: {e}")
+                reconnect_attempts += 1
+                # Optionally add a delay between reconnection attempts
+                await asyncio.sleep(5)
+
+            finally:
+                if commanderXport:
+                    commanderXport.close()
+                    commanderXport = None
+
+            # Retry if the connection is lost
+            print("Retrying connection...")
+
+        print(f"Failed to reconnect after {max_retries} attempts.")
+        # If max retri
 
 async def platoonUDPServer(thisloop, topgui):
     print("Setting up UDP server...")

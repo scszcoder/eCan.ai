@@ -691,6 +691,8 @@ class Login(QDialog):
                     ex_stat = "ErrorPeriodicRefreshingToken: traceback information not available:" + str(e)
                 print(ex_stat)
 
+    def getCurrentUser(self):
+        return self.current_user
 
     def fakeLogin(self):
         print("logging in....")

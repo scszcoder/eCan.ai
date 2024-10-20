@@ -3991,6 +3991,9 @@ class MainWindow(QMainWindow):
                     self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
             else:
                 self.showMsg("Reconnected: "+vip)
+                foundV = next((v for i, v in enumerate(self.vehicles) if v.getIP() == vip), None)
+
+                foundV.setStatus("running_idle")
 
         except Exception as e:
             # Get the traceback information
@@ -4005,17 +4008,14 @@ class MainWindow(QMainWindow):
 
 
 
-    def removeVehicle(self, peername):
-        self.showMsg("removing vehicle: "+peername)
-        found_v_idx = next((i for i, v in enumerate(self.vehicles) if v.getVid == peername), -1)
+    def markVehicleOffline(self, vip):
+        self.showMsg("marking vehicle offline: "+vip)
+        found_v_idx = next((i for i, v in enumerate(self.vehicles) if v.getIP() == vip), -1)
 
         if found_v_idx > 0:
             found_v = self.vehicles[found_v_idx]
-            self.runningVehicleModel.removeRow(found_v.row())
-            self.vehicles.pop(found_v_idx)
+            found_v.setStatus("offline")
 
-            if self.platoonWin:
-                self.platoonWin.updatePlatoonWinWithMostRecentlyRemovedVehicle()
 
     # add vehicles based on fieldlinks.
     def checkVehicles(self):
@@ -5614,8 +5614,11 @@ class MainWindow(QMainWindow):
 
                     elif msg_parts[1] == "net loss":
                         print("received net loss")
-                        # remove this link from the link list
-                        self.removeVehicle()
+                        # field link is already removed in the network.py
+                        # here we simply update the vehicle's display and gray it out.
+                        # also inform cloud about.
+                        # we don't really delete this vehicle.
+                        self.markVehicleOffline(msg_parts[0])
 
                 msgQueue.task_done()
 
