@@ -22,7 +22,8 @@ sel = selectors.DefaultSelector()
 # UDP pack broadcasted every 15 second.
 TICK = 30
 COMMANDER_UDP_PERIOD = 10
-PLATOON_UDP_PERIOD = 10
+PLATOON_UDP_PERIOD = 8
+COMMANDER_WAIT_TIMEOUT = 8      # 8x8 = 64 seconds.
 
 commanderXport = None
 commanderIP = "0.0.0.0"
@@ -309,9 +310,9 @@ async def commanderFinder(topgui, thisloop, waitwin):
     message = b'Commander Calling:'
     usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     usock.bind(('', UDP_PORT))
-
+    commander_wait_not_timeout = COMMANDER_WAIT_TIMEOUT
     while not over:
-        print("listening....")
+        print("listening for commander")
         data, addr = await thisloop.run_in_executor(None, usock.recvfrom, 1024)
 
         # rxmsg = usock.recvfrom(512)
@@ -337,10 +338,6 @@ async def commanderFinder(topgui, thisloop, waitwin):
             topgui.set_ip(myip)
             print("commanderXport created::", commanderXport)
 
-            # tell commander about self.
-            # msg = {"ip": myip, "type": "intro", "contents": {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}}
-            # send to commander
-            # commanderXport.write(str.encode(json.dumps(msg)))
 
             try:
                 await on_con_lost
@@ -349,27 +346,119 @@ async def commanderFinder(topgui, thisloop, waitwin):
             break
 
         await asyncio.sleep(PLATOON_UDP_PERIOD)
+        if commander_wait_not_timeout:
+            commander_wait_not_timeout = commander_wait_not_timeout - 1
 
-# top level work scheduler on the commander side.
-# async def topScheduler(topgui, net_queue):
-#     executor = ThreadPoolExecutor(max_workers=1)
-#     running = True
-#
-#     while running:
-#         if not topgui.mainwin == None:
-#             await asyncio.get_running_loop().run_in_executor(executor, topgui.mainwin.runbotworks)
-#             # topgui.mainwin.runbotworks()
-#         await asyncio.sleep(TICK)
 
-# async def topScheduler(topgui, net_queue):
-#     executor = ThreadPoolExecutor(max_workers=1)
-#     running = True
-#
-#     while running:
-#         if not topgui.mainwin == None:
-#             await asyncio.get_running_loop().run_in_executor(executor, topgui.mainwin.runbotworks)
-#             # topgui.mainwin.runbotworks()
-#         await asyncio.sleep(TICK)
+class UDPServerProtocol:
+    def __init__(self, loop, topgui, waitwin):
+        self.loop = loop
+        self.topgui = topgui
+        self.waitwin = waitwin
+        self.on_con_lost = loop.create_future()
+
+    def connection_made(self, transport):
+        self.transport = transport
+        print("Listenting for Commander...")
+
+    def datagram_received(self, data, addr):
+        print(f"Received data: {data.decode()} from {addr}")
+        global commanderXport
+        message = data.decode("utf-8")
+        print(f"platoon received: {message}")
+
+        if "Commander" in message and commanderXport is None:
+            rxmsg_parts = message.split(":")
+            commanderIP = rxmsg_parts[1]
+            print(f"received: {commanderIP}")
+            if not self.topgui.getSignedIn():
+                if self.waitwin.isVisible():
+                    print("shut wait win...")
+                    self.waitwin.close()
+                if not self.topgui.isVisible():
+                    print("show login win...")
+                    self.topgui.show()
+                    self.topgui.set_role("Platoon")
+
+                print("create task to start tcp conn to commander....")
+                self.loop.create_task(self.connect_to_commander(commanderIP))
+
+
+    async def connect_to_commander(self, commanderIP):
+        global commanderXport
+        print(f"Attempting to connect to Commander at IP: {commanderIP}, PORT: {TCP_PORT}")
+
+        # sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # sock.settimeout(10)
+        # sock.connect((commanderIP, TCP_PORT))  # Blocking connection
+        # print("commander IP:", commanderIP, "tcp port:", TCP_PORT)
+        # # Set the socket to non-blocking and integrate it into the asyncio loop
+        # sock.setblocking(False)
+        loop = asyncio.get_running_loop()
+        on_con_lost = loop.create_future()
+
+        commanderXport, platoonProtocol = await loop.create_connection(
+            lambda: communicatorProtocol(self.topgui, '', on_con_lost),
+            commanderIP, TCP_PORT)
+
+        # # Use the socket directly in the create_connection call (without specifying host/port)
+        # commanderXport, platoonProtocol = await self.loop.create_connection(
+        #     lambda: CommunicatorProtocol(self.topgui, '', self.on_con_lost),
+        #     sock=sock)
+        hostname = socket.gethostname()
+        myips = socket.gethostbyname_ex(hostname)[-1]
+        self.topgui.set_xport(commanderXport)
+        self.topgui.set_ip(myips[-1])
+        print(f"commanderXport created: {commanderXport}")
+
+        try:
+            await self.on_con_lost
+        finally:
+            commanderXport.close()
+
+    # def error_received(self, exc):
+    #     print(f"Error received: {exc}")
+    #
+    # def connection_lost(self, exc):
+    #     print("Connection lost")
+
+async def platoonUDPServer(thisloop, topgui, waitwin):
+    print("Setting up UDP server...")
+    topGuiNotYetChecked = True
+    hostname = socket.gethostname()
+    myips = socket.gethostbyname_ex(hostname)[-1]
+    platoon_ip = myips[-1]  # Use the last IP in the list or choose as appropriate
+
+    commander_wait_not_timeout = COMMANDER_WAIT_TIMEOUT
+    # Setup UDP server
+    transport, protocol = await thisloop.create_datagram_endpoint(
+        lambda: UDPServerProtocol(thisloop, topgui, waitwin),
+        local_addr=(platoon_ip, UDP_PORT)
+    )
+    print("UDP server kicked off....")
+    try:
+        # Keep the server running indefinitely
+        while True:
+            if not commander_wait_not_timeout:
+                # stop wait anxiety, and show the main GUI anyways.
+                if not topgui.getSignedIn() and topGuiNotYetChecked:
+                    waitwin.close()
+                    topgui.show()
+                    topgui.set_role("Platoon")
+                    topGuiNotYetChecked = False
+
+            await asyncio.sleep(PLATOON_UDP_PERIOD)
+            if commander_wait_not_timeout:
+                print("commander wait tick....")
+                commander_wait_not_timeout = commander_wait_not_timeout - 1
+
+            # Sleep for an hour
+    except asyncio.CancelledError:
+        pass
+    finally:
+        transport.close()
+
+
 
 async def runCommanderLAN(topgui):
     await asyncio.gather(
@@ -385,5 +474,5 @@ async def runPlatoonLAN(topgui, thisLoop, waitwin):
     #     commanderFinder(topgui, thisLoop, waitwin, topgui.get_msg_queue()),
     #     # topScheduler(topgui, net_queue),
     # )
-    await commanderFinder(topgui, thisLoop, waitwin)
-
+    # await commanderFinder(topgui, thisLoop, waitwin)
+    await platoonUDPServer(thisLoop, topgui, waitwin)

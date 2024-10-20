@@ -6095,7 +6095,7 @@ class MainWindow(QMainWindow):
         return results
 
     async def serveCommander(self, msgQueue):
-        self.showMsg("starting servePlatoons")
+        self.showMsg("starting serve Commanders")
         heartbeat = 0
         while True:
             heartbeat = heartbeat + 1
