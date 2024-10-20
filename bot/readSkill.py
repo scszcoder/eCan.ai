@@ -396,7 +396,8 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
                 # Call this as a recursive function if your json is highly nested
 
                 # get rid of comments.
-                lines = [re.sub("^\s*#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+                # lines = [re.sub("^\s*#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+                lines = [re.sub(r"^\s*#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
                 json_as_string.close()
 
                 # get rid of empty lines.
