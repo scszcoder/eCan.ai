@@ -31,6 +31,7 @@ import base64
 import hmac
 import hashlib
 import jwt
+from bot.network import runCommanderLAN, runPlatoonLAN
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 
@@ -59,6 +60,7 @@ class Login(QDialog):
         self.machine_role = "Platoon"
         self.read_role()
         self.current_user = ""
+        self.mainLoop = None
         super(Login, self).__init__(parent)
         self.banner = QLabel(self)
         pixmap = QPixmap(ecbhomepath + '/resource/images/icons/ecBot09.png')
@@ -485,6 +487,9 @@ class Login(QDialog):
         except IOError as e:
             print(f"Error: Unable to open or write to {config_file} - {e}")
 
+    def setLoop(self, loop):
+        self.mainLoop = loop
+
     def getCurrentUser(self):
         return self.current_user
 
@@ -587,6 +592,18 @@ class Login(QDialog):
             self.current_user = self.textName.text()
             self.current_user_pw = self.textPass.text()
             self.signed_in = True
+
+            # now we can start networking,
+            # because if we don't know who the real boss is, there no point doing any networking.....
+            if "Platoon" not in self.machine_role:
+                print("run as commander......")
+                self.mainLoop.create_task(runCommanderLAN(self))
+
+            else:
+                print("run as platoon...")
+                self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
+
+
             if self.machine_role == "Commander Only" or self.machine_role == "Commander":
                 # global commanderServer
 

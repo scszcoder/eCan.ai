@@ -2481,7 +2481,7 @@ class MainWindow(QMainWindow):
 
                             # send over scheduled tasks to platton.
                             if vehicle.getFieldLink():
-                                self.showMsg(get_printable_datetime() + "SENDING ["+vname+"]PLATOON["+vehicle.getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
+                                self.showMsg(get_printable_datetime() + "SENDING ["+vname+"]PLATOON["+vehicle.getFieldLink()["ip"]+"] SCHEDULE::: "+json.dumps(schedule))
 
                                 self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
 
@@ -2567,7 +2567,7 @@ class MainWindow(QMainWindow):
 
                             # send over scheduled tasks to platton.
                             if vehicle.getFieldLink():
-                                self.showMsg(get_printable_datetime() + "SENDING ["+vname+"]PLATOON["+vehicle.getFieldLink()["ip"][0]+"] SCHEDULE::: "+json.dumps(schedule))
+                                self.showMsg(get_printable_datetime() + "SENDING ["+vname+"]PLATOON["+vehicle.getFieldLink()["ip"]+"] SCHEDULE::: "+json.dumps(schedule))
 
                                 self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
 
@@ -4033,10 +4033,10 @@ class MainWindow(QMainWindow):
         for i in range(len(fieldLinks)):
             if fieldLinks[i]["name"].split(":")[0] not in existing_names:
                 self.showMsg("a fieldlink....."+json.dumps(fieldLinks[i]["ip"]))
-                newVehicle = VEHICLE(self, fieldLinks[i]["name"], fieldLinks[i]["ip"][0])
+                newVehicle = VEHICLE(self, fieldLinks[i]["name"], fieldLinks[i]["ip"])
                 newVehicle.setFieldLink(fieldLinks[i])
                 newVehicle.setStatus("running_idle")        # if already has a fieldlink, that means it's tcp connected.
-                ipfields = fieldLinks[i]["ip"][0].split(".")
+                ipfields = fieldLinks[i]["ip"].split(".")
                 ip = ipfields[len(ipfields)-1]
                 newVehicle.setVid(ip)
                 self.saveVehicle(newVehicle)
@@ -5838,7 +5838,7 @@ class MainWindow(QMainWindow):
             self.showMsg("Platoon Msg Received:"+msgString+" from::"+ip+"  "+str(len(fieldLinks)) + json.dumps(fl_ips))
             msg = json.loads(msgString)
 
-            found = next((x for x in fieldLinks if x["ip"][0] == ip), None)
+            found = next((x for x in fieldLinks if x["ip"] == ip), None)
             found_vehicle = next((x for x in self.vehicles if x.getIP() == msg["ip"]), None)
 
             # first, check ip and make sure this from a know vehicle.
@@ -6869,7 +6869,7 @@ class MainWindow(QMainWindow):
 
     def send_file_to_platoon(self, platoon_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and platoon_link:
-            self.showMsg(f"Sending File [{file_name_full_path}] to platoon: "+platoon_link["ip"][0])
+            self.showMsg(f"Sending File [{file_name_full_path}] to platoon: "+platoon_link["ip"])
             with open(file_name_full_path, 'rb') as fileTBSent:
                 binary_data = fileTBSent.read()
                 encoded_data = base64.b64encode(binary_data).decode('utf-8')
@@ -6891,7 +6891,7 @@ class MainWindow(QMainWindow):
 
     def send_json_to_platoon(self, platoon_link, json_data):
         if json_data and platoon_link:
-            self.showMsg(f"Sending JSON Data to platoon "+platoon_link["ip"][0] + "::" + json.dumps(json_data))
+            self.showMsg(f"Sending JSON Data to platoon "+platoon_link["ip"] + "::" + json.dumps(json_data))
             json_string = json.dumps(json_data)
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
