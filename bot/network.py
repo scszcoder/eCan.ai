@@ -21,7 +21,7 @@ sel = selectors.DefaultSelector()
 
 # UDP pack broadcasted every 15 second.
 TICK = 30
-COMMANDER_UDP_PERIOD = 10
+COMMANDER_UDP_PERIOD = 5
 PLATOON_UDP_PERIOD = 8
 COMMANDER_WAIT_TIMEOUT = 8      # 8x8 = 64 seconds.
 
@@ -44,10 +44,17 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
     def connection_made(self, transport):
         self.peername = transport.get_extra_info('peername')
         print('Connection from Platoon {}'.format(self.peername))
+        ip_address = self.peername[0]
+        try:
+            hostname = socket.gethostbyaddr(ip_address)[0]
+        except socket.herror:
+            hostname = None  # If no reverse DNS is available
+        print(f'IP Address: {ip_address}, Hostname: {hostname}')
+
         self.transport = transport
-        new_link = {"ip": self.peername, "name": platform.node(), "transport": transport}
+        new_link = {"ip": self.peername, "name": hostname, "transport": transport}
         fieldLinks.append(new_link)
-        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+self.peername[0]))
+        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+hostname))
         # if not self.topgui.mainwin == None:
         #     if self.topgui.mainwin.platoonWin == None:
         #         self.topgui.mainwin.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
@@ -56,7 +63,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
     def data_received(self, data):
         message = data.decode()
         print("TCP recevied message:", message)
-        if not self.topgui.mainwin == None:
+        if not self.topgui.main_win == None:
             print("Queueing TCP recevied message:", message)
             asyncio.create_task(self.msg_queue.put(self.peername[0]+"!net data!"+message))
             # self.topgui.mainwin.appendNetLogs(['Data received: {!r}'.format(message)])
@@ -198,6 +205,7 @@ async def tcpServer(topgui):
     tcp_loop = asyncio.get_running_loop()
     on_con_lost = tcp_loop.create_future()
 
+
     commanderServer = await tcp_loop.create_server(
         lambda: CommanderTCPServerProtocol(topgui, on_con_lost),
         myip, TCP_PORT)
@@ -248,7 +256,8 @@ async def udpBroadcaster(topgui):
         # if not topgui.mainwin == None:
         #     topgui.mainwin.appendNetLogs(["broadcast"])
         print("Broadcasting...", 'Commander Calling:' + myip)
-        usock.sendto(message, ('255.255.255.255', UDP_PORT))
+        # usock.sendto(message, ('255.255.255.255', UDP_PORT))
+        usock.sendto(message, ('192.168.0.255', UDP_PORT))
         await asyncio.sleep(COMMANDER_UDP_PERIOD)
     #
     # message = data.decode()

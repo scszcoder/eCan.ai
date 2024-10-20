@@ -8,7 +8,9 @@ class FileResource:
         self.mission_failed_icon_path = homepath + '/resource/images/icons/failed_launch0_48.png'
         self.skill_icon_path = homepath + '/resource/images/icons/skills_78.png'
         self.product_icon_path = homepath + '/resource/images/icons/product80_0.png'
-        self.vehicle_icon_path = homepath + '/resource/images/icons/vehicle_128.png'
+        self.online_vehicle_icon_path = homepath + '/resource/images/icons/vehicle_192.png'
+        self.offline_vehicle_icon_path = homepath + '/resource/images/icons/gray_vehicle_192.png'
+        self.warn_vehicle_icon_path = homepath + '/resource/images/icons/warn_vehicle_192.png'
         self.commander_icon_path = homepath + '/resource/images/icons/general1_4.png'
         self.BOTS_FILE = homepath + "/resource/bots.json"
         self.MISSIONS_FILE = homepath + "/resource/missions.json"
