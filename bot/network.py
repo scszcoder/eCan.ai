@@ -320,6 +320,7 @@ class UDPServerProtocol:
         self.loop = loop
         self.topgui = topgui
         self.on_con_lost = loop.create_future()
+        self.commander_connect_attempted = False
 
     def connection_made(self, transport):
         self.transport = transport
@@ -332,6 +333,7 @@ class UDPServerProtocol:
         print(f"platoon received: {message}")
 
         myBoss = self.topgui.getCurrentUser()
+        print("my boss:", myBoss)
         if "Commander" in message and  myBoss in message and commanderXport is None:
             rxmsg_parts = message.split(":")
             commanderIP = rxmsg_parts[1]
@@ -341,9 +343,11 @@ class UDPServerProtocol:
                     print("show login win...")
                     self.topgui.show()
                     self.topgui.set_role("Platoon")
-
-                print("create task to start tcp conn to commander....")
-                self.loop.create_task(self.reconnect_to_commander(commanderIP))
+            else:
+                if not self.commander_connect_attempted:
+                    print("create task to start tcp conn to commander....")
+                    self.loop.create_task(self.reconnect_to_commander(commanderIP))
+                    self.commander_connect_attempted = True
 
 
     async def reconnect_to_commander(self, commanderIP):
