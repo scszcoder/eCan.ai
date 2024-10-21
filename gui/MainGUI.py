@@ -6197,7 +6197,6 @@ class MainWindow(QMainWindow):
             msg_parts = msgString.split("!")
             self.commanderIP = msg_parts[0]
             self.commanderName = msg_parts[2]
-            self.commanderXport = commanderXport
 
         elif "!net loss" in msgString:
             msg = {"cmd": "net loss"}
