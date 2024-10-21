@@ -21,6 +21,7 @@ numpy~=1.26.4
 opencv-python==4.10.0.82
 beautifulsoup4~=4.12.3
 pdf2image==1.17.0
+psutil~=6.1.0
 pytz==2024.1
 tzlocal==5.2
 python-crontab==3.1.0
@@ -58,3 +59,6 @@ psutil==6.0.0
 python-Levenshtein==0.25.1
 chardet~=5.2.0
 gradio~=4.44.1
+deepdiff~=8.0.1
+Flask~=3.0.3
+Flask-Cors~=5.0.0

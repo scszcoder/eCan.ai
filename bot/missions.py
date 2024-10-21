@@ -203,6 +203,9 @@ class M_Pub_Attributes():
         self.assign_type = atype
         self.ms_type = mtype
 
+    def getType(self):
+        return self.ms_type
+
     def setBot(self, bid):
         self.bot_id = bid
 
@@ -228,6 +231,9 @@ class M_Pub_Attributes():
 
     def setError(self, err):
         self.error = err
+
+    def getError(self):
+        return self.error
 
     def setIntermediateData(self,idata):
         self.intermediate_data = idata
@@ -436,7 +442,7 @@ class EBMISSION(QStandardItem):
         # self.destroyed.connect(lambda: print(f"{self} is being destroyed"))
 
     def __del__(self):
-        print(f"{self} EBMISSION deleted")
+        print(f"EBMISSION {self.getMid()} is being deleted")
 
     def setFingerPrintProfile(self, axpf):
         self.privateAttributes.fingerprint_profile = axpf
@@ -880,6 +886,9 @@ class EBMISSION(QStandardItem):
     def setError(self, err):
         self.pubAttributes.setError(err)
 
+    def getError(self):
+        self.pubAttributes.getError()
+
     def setIntermediateData(self, idata):
         self.pubAttributes.setIntermediateData(idata)
 
@@ -913,6 +922,8 @@ class EBMISSION(QStandardItem):
     def setAsServer(self, ias):
         self.pubAttributes.as_server = ias
 
+    def getType(self):
+        return self.pubAttributes.getType()
     # self.
     def setJsonData(self, ppJson):
         self.pubAttributes.loadJson(ppJson["pubAttributes"])

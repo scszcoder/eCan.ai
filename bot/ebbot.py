@@ -108,7 +108,7 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrcity = ""
         self.shipping_addrstate = ""
         self.shipping_addrzip = ""
-        self.createon = ""
+        self.createon = datetime.today().strftime('%Y-%m-%d')
 
     def setFirstLastName(self, fn, ln):
         self.name = fn + " " + ln
@@ -151,10 +151,19 @@ class BOT_PRIVATE_PROFILE():
             if len(addr_lines) == 3:
                 self.addrl1 = addr_lines[0]
                 self.addrl2 = addr_lines[1]
-                fields = addr_lines[2].split(",")
-                self.addrcity = fields[0].strip()
-                self.addrstate = fields[1].split()[0].strip()
-                self.addrzip = fields[1].split()[1].strip()
+                if "," in addr_lines[2].strip():
+                    fields = addr_lines[2].split(",")
+                    self.addrcity = fields[0].strip()
+                    if fields[1].strip():
+                        self.addrstate = fields[1].split()[0].strip()
+                        self.addrzip = fields[1].split()[1].strip()
+                    else:
+                        self.addrstate = ""
+                        self.addrzip = ""
+                else:
+                    self.addrcity = ""
+                    self.addrstate = ""
+                    self.addrzip = ""
         else:
             self.addrl1 = ""
             self.addrl2 = ""
@@ -182,10 +191,19 @@ class BOT_PRIVATE_PROFILE():
             if len(addr_lines) == 3:
                 self.shipping_addrl1 = addr_lines[0]
                 self.shipping_addrl2 = addr_lines[1]
-                fields = addr_lines[2].split(",")
-                self.shipping_addrcity = fields[0].strip()
-                self.shipping_addrstate = fields[1].split()[0].strip()
-                self.shipping_addrzip = fields[1].split()[1].strip()
+                if "," in addr_lines[2].strip():
+                    fields = addr_lines[2].split(",")
+                    self.shipping_addrcity = fields[0].strip()
+                    if fields[1].strip():
+                        self.shipping_addrstate = fields[1].split()[0].strip()
+                        self.shipping_addrzip = fields[1].split()[1].strip()
+                    else:
+                        self.shipping_addrstate = ""
+                        self.shipping_addrzip = ""
+                else:
+                    self.shipping_addrcity = ""
+                    self.shipping_addrstate = ""
+                    self.shipping_addrzip = ""
         else:
             self.shipping_addrl1 = ""
             self.shipping_addrl2 = ""
@@ -298,6 +316,7 @@ class BOT_PUB_PROFILE():
         self.gender = ""
         self.interests = ""
         self.roles = ""
+        self.org = ""
         self.owner = ""
         self.levels = ""
         self.status = "active"
@@ -315,6 +334,9 @@ class BOT_PUB_PROFILE():
 
     def setRoles(self, roles):
         self.roles = roles
+
+    def setOrg(self, org):
+        self.org = org
 
     def setPseudoFirstLastName(self, pfn, pln):
         self.pseudo_first_name = pfn
@@ -416,6 +438,7 @@ class BOT_PUB_PROFILE():
         self.gender = dj["gender"]
         self.interests = dj["interests"]
         self.roles = dj["roles"]
+        self.org = dj["org"]
         self.levels = dj["levels"]
         self.levelStart = dj["levelStart"]
         self.vname = dj["vehicle"]
@@ -427,6 +450,7 @@ class BOT_PUB_PROFILE():
         self.gender = dj["gender"]
         self.interests = dj["interests"]
         self.roles = dj["roles"]
+        self.org = dj["org"]
         self.levels = dj["levels"]
         self.status = dj["status"]
         self.bid = dj["bid"]
@@ -444,6 +468,7 @@ class BOT_PUB_PROFILE():
             "mf": self.gender,
             "interests": self.interests,
             "roles": self.roles,
+            "org": self.org,
             "levels": self.levels,
             "bid": self.bid,
             "vehicle": self.vehicle,
@@ -582,6 +607,9 @@ class EBBOT(QStandardItem):
 
     def getRoles(self):
         return self.pubProfile.roles
+
+    def getOrg(self):
+        return self.pubProfile.org
 
     def getAge(self):
         if self.pubProfile.pubbirthday != "":
@@ -754,6 +782,11 @@ class EBBOT(QStandardItem):
     def setRoles(self, rw):
         self.pubProfile.roles = rw
 
+    def setOrg(self, org):
+        self.pubProfile.org = org
+
+    def setStatus(self, stat):
+        self.pubProfile.setStatus(stat)
     def setInterests(self, interests):
         self.pubProfile.setInterests(interests)
 
@@ -811,6 +844,7 @@ class EBBOT(QStandardItem):
         self.pubProfile.setInterests(dbd.interests)
         self.pubProfile.setLoc(dbd.location)
         self.pubProfile.setRoles(dbd.roles)
+        self.pubProfile.setOrg(dbd.org)
         self.pubProfile.setStatus(dbd.status)
         self.pubProfile.setDelDate(dbd.delDate)
         self.pubProfile.setVehicle(dbd.vehicle)
@@ -836,7 +870,7 @@ class EBBOT(QStandardItem):
         self.pubProfile.setInterests(jd["Interests"])
         self.pubProfile.setLoc(jd["Proxy City"] + "," + jd["State"])
         self.pubProfile.setRoles(jd["Roles"])
-        self.pubProfile.setStatus("")
+        self.pubProfile.setStatus(jd["status"])
         self.pubProfile.setDelDate("2121-01-01")
         self.privateProfile.setName(jd["New First Name"] + " " + jd["Last Name"])
         self.pubProfile.setPseudoName(jd["PseudoFN"] + " " + jd["PseudoLN"])

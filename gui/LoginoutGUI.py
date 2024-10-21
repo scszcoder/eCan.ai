@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from os.path import exists
 from pycognito import Cognito, AWSSRP
+from pycognito.utils import RequestsSrpAuth
 
 import boto3
 from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, Qt, QEvent, QSettings
@@ -20,11 +21,17 @@ import botocore
 import locale
 
 from gui.MainGUI import MainWindow
-from bot.signio import CLIENT_ID, USER_POOL_ID
+from bot.signio import CLIENT_ID, USER_POOL_ID, CLIENT_SECRET
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP, commanderServer, commanderXport
 from utils.fernet import encrypt_password, decrypt_password
+import traceback
+import base64
+import hmac
+import hashlib
+import jwt
+from bot.network import runCommanderLAN, runPlatoonLAN
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 
@@ -47,10 +54,13 @@ class Login(QDialog):
         self.gui_net_msg_queue = asyncio.Queue()
         self.aws_srp = None
         self.role_list = ["Staff Officer", "Commander", "Commander Only", "Platoon"]
+        self.schedule_mode_list = ["manual", "auto"]
+        self.schedule_mode = "manual"
         self.mode = "Sign In"
         self.machine_role = "Platoon"
         self.read_role()
         self.current_user = ""
+        self.mainLoop = None
         super(Login, self).__init__(parent)
         self.banner = QLabel(self)
         pixmap = QPixmap(ecbhomepath + '/resource/images/icons/ecBot09.png')
@@ -81,7 +91,7 @@ class Login(QDialog):
         self.lan_select.addItem('中文')
         self.lan_select.currentIndexChanged.connect(self.on_lan_selected)
 
-        self.role_label = QLabel(QApplication.translate("QLabel", "Role"))
+        self.role_label = QLabel(QApplication.translate("QLabel", "Role"), alignment=Qt.AlignRight)
         self.role_select = QComboBox(self)
         for role in self.role_list:
             self.role_select.addItem(QApplication.translate("QComboBox", role))
@@ -92,6 +102,18 @@ class Login(QDialog):
         else:
             self.role_select.setCurrentIndex(1)         #commander will be set if file based machine role is unknown
         self.role_select.currentIndexChanged.connect(self.on_role_selected)
+
+        self.schedule_mode_label = QLabel(QApplication.translate("QLabel", "Schedule Mode"), alignment=Qt.AlignLeft)
+        self.schedule_mode_select = QComboBox(self)
+        for schedule_mode in self.schedule_mode_list:
+            self.schedule_mode_select.addItem(QApplication.translate("QComboBox", schedule_mode))
+
+        found_schedule_mode_idx = next((i for i, smode in enumerate(self.schedule_mode_list) if smode == self.schedule_mode), -1)
+        if found_schedule_mode_idx > 0:
+            self.schedule_mode_select.setCurrentIndex(found_schedule_mode_idx)
+        else:
+            self.schedule_mode_select.setCurrentIndex(1)         #commander will be set if file based machine role is unknown
+        self.schedule_mode_select.currentIndexChanged.connect(self.on_schedule_mode_selected)
 
 
         self.logo0 = QLabel(self)
@@ -163,8 +185,11 @@ class Login(QDialog):
         if exists(ACCT_FILE):
             with open(ACCT_FILE, 'r') as file:
                 data = json.load(file)
+                print("acct data:", data, ACCT_FILE)
                 self.show_visibility = data["mem_cb"]
                 self.textName.setText(data["user"])
+                if "schedule_mode" in data:
+                    self.schedule_mode = data["schedule_mode"]
                 if self.show_visibility:
                     stored_encrypted_password = bytes.fromhex(self.settings.value(self.pwd_key, ""))
                     if stored_encrypted_password is not None and len(stored_encrypted_password) > 0:
@@ -220,7 +245,15 @@ class Login(QDialog):
         self.headline_layout.addWidget(self.role_label)
         self.headline_layout.addWidget(self.role_select)
 
+        self.headline2_layout = QHBoxLayout(self)
+        self.headline2_layout.setSpacing(0)
+        self.headline2_layout.setAlignment(self.schedule_mode_select, Qt.AlignLeft)
+        self.headline2_layout.addWidget(self.schedule_mode_label)
+        self.headline2_layout.addWidget(self.schedule_mode_select)
+
+
         log_layout.addLayout(self.headline_layout)
+        log_layout.addLayout(self.headline2_layout)
         log_layout.addWidget(self.logo0)
         log_layout.addWidget(self.login_label)
         log_layout.addWidget(self.user_label)
@@ -239,6 +272,7 @@ class Login(QDialog):
         log_layout.addWidget(self.buttonLogin)
         log_layout.addWidget(self.signup_label)
         layout.addLayout(log_layout)
+        self.signed_in = False
 
     # async def launchLAN(self):
     def checkState(self, state):
@@ -267,6 +301,7 @@ class Login(QDialog):
             with open(ROLE_FILE, 'r') as file:
                 mr_data = json.load(file)
                 self.machine_role = mr_data["machine_role"]
+                print("role file contents:", mr_data)
         else:
             logger_helper.info(f"role file {ROLE_FILE} is not existed!")
 
@@ -277,6 +312,14 @@ class Login(QDialog):
     def set_role(self, role):
         # is function is for testing purpose only
         self.machine_role = role
+        
+        # set role_select to the item that matches role here.
+        found_role_idx = self.role_select.findText(role)
+        if found_role_idx != -1:
+            self.role_select.setCurrentIndex(found_role_idx)
+        else:
+            print(f"Role '{role}' not found in role_select combobox.")
+
 
     def isCommander(self):
         if self.machine_role == "Commander" or self.machine_role == "Commander Only":
@@ -328,6 +371,13 @@ class Login(QDialog):
         print("Index changed", index)
         self.machine_role = self.role_select.currentText()
         print("new role selected: "+self.machine_role)
+
+
+    def on_schedule_mode_selected(self, index):
+        print("Index changed", index)
+        self.schedule_mode = self.schedule_mode_select.currentText()
+        print("new schedule mode selected: "+self.schedule_mode)
+
 
     def changeEvent(self, event):
         print("event occured....", event.type())
@@ -437,30 +487,75 @@ class Login(QDialog):
         except IOError as e:
             print(f"Error: Unable to open or write to {config_file} - {e}")
 
+    def setLoop(self, loop):
+        self.mainLoop = loop
+
     def getCurrentUser(self):
         return self.current_user
 
     def getLogUser(self):
         return self.current_user.split("@")[0] + "_" + self.current_user.split("@")[1].replace(".", "_")
+
+    def decode_jwt(self, token):
+        """Decodes a JWT and returns the payload as a dictionary."""
+        # Split the token and take the payload part (second part of the JWT)
+        payload_part = token.split('.')[1]
+        # JWT uses base64url encoding, which requires proper padding
+        padding = '=' * (4 - len(payload_part) % 4)
+        # Decode the payload
+        decoded_bytes = base64.urlsafe_b64decode(payload_part + padding)
+        # Convert the decoded bytes into a dictionary
+        payload = json.loads(decoded_bytes.decode('utf-8'))
+        return payload
+
+    def get_secret_hash(self, username):
+        """
+        Generate a secret hash using the username, client ID, and client secret.
+        """
+        message = username + CLIENT_ID
+        dig = hmac.new(CLIENT_SECRET.encode('utf-8'), message.encode('utf-8'), hashlib.sha256).digest()
+        secret_hash = base64.b64encode(dig).decode()
+        return secret_hash
+
+    def getSignedIn(self):
+        return self.signed_in
+
+
     def handleLogin(self):
         print("logging in....")
         # global commanderServer
         # global commanderXport
 
         try:
+            # self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
+            #                       client_id=CLIENT_ID, client_secret=CLIENT_SECRET, client=self.aws_client)
             self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
                                   client_id=CLIENT_ID, client=self.aws_client)
             self.tokens = self.aws_srp.authenticate_user()
 
+
             # print("token: ", self.tokens)
+            # Decode the ID Token to extract user information
+            self.id_token = self.tokens['AuthenticationResult']['IdToken']
+            self.old_access_token = self.tokens["AuthenticationResult"]["AccessToken"]
+            refresh_token = self.tokens["AuthenticationResult"]["RefreshToken"]
+            decoded_id_token = self.decode_jwt(self.id_token)
+
+            # Extract the Cognito User ID (sub claim)
+            self.cognito_user_id = decoded_id_token.get('sub')
+
+            DecodedUsername = decoded_id_token["cognito:username"]
+            print("DecodeUserName:", DecodedUsername, decoded_id_token)
 
             # cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com", botocore_config=Config(signature_version=UNSIGNED))
             # cog = Cognito(USER_POOL_ID, CLIENT_ID, client_secret=CLIENT_SECRET, username="songc@yahoo.com")
-            self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(),
-                               access_token=self.tokens["AuthenticationResult"]["AccessToken"],
-                               refresh_token=self.tokens["AuthenticationResult"]["RefreshToken"],
-                               access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
+            # self.cog = Cognito(USER_POOL_ID, CLIENT_ID, username=self.textName.text(),
+            #                    access_token=self.tokens["AuthenticationResult"]["AccessToken"],
+            #                    refresh_token=self.tokens["AuthenticationResult"]["RefreshToken"],
+            #                    access_key='AKIAIOSFODNN7EXAMPLE', secret_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
 
+            # self.cog = Cognito(USER_POOL_ID, CLIENT_ID,  client_secret=CLIENT_SECRET, username=self.cognito_user_id, refresh_token=refresh_token)
+            self.cog = Cognito(USER_POOL_ID, CLIENT_ID,  username=self.cognito_user_id, refresh_token=refresh_token)
             # print("cog access token:", self.cog.access_token)
             # self.cog.check_tokens()
             # response = self.cog.authenticate(password=self.textPass.text())
@@ -471,7 +566,8 @@ class Login(QDialog):
             # self.cog.verify_tokens()
             # print(self.cog.id_token)
             # print(self.cog.access_token)
-            # print(self.cog.refresh_token)
+            refresh_token = self.cog.refresh_token
+
             # print(user)
             print("timezone:", datetime.now().astimezone().tzinfo)
             # now make this window dissappear and bring out the main windows.
@@ -494,12 +590,26 @@ class Login(QDialog):
             print("hello hello hello")
             main_key = self.scramble(self.textPass.text())
             self.current_user = self.textName.text()
+            self.current_user_pw = self.textPass.text()
+            self.signed_in = True
+
+            # now we can start networking,
+            # because if we don't know who the real boss is, there no point doing any networking.....
+            if "Platoon" not in self.machine_role:
+                print("run as commander......")
+                self.mainLoop.create_task(runCommanderLAN(self))
+
+            else:
+                print("run as platoon...")
+                self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
+
+
             if self.machine_role == "Commander Only" or self.machine_role == "Commander":
                 # global commanderServer
 
                 self.main_win = MainWindow(self, main_key, self.tokens, commanderServer, self.ip,
                                            self.textName.text(), ecbhomepath,
-                                           self.gui_net_msg_queue, self.machine_role, self.lang)
+                                           self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
                 print("Running as a commander...", commanderServer)
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
@@ -510,15 +620,16 @@ class Login(QDialog):
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
                 self.main_win = MainWindow(self, main_key, self.tokens, self.xport, self.ip, self.textName.text(),
                                            ecbhomepath,
-                                           self.gui_net_msg_queue, self.machine_role, self.lang)
+                                           self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
                 print("Running as a platoon...", self.xport)
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
                 self.main_win.show()
 
-            refresh_token = self.tokens["AuthenticationResult"]["RefreshToken"]
-            asyncio.create_task(self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client))
+            # print("refrsh tokeN:", refresh_token)
+            asyncio.create_task(self.refresh_tokens_periodically(refresh_token))
+            # self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client, self.cognito_user_id)
 
         except botocore.errorfactory.ClientError as e:
             # except ClientError as e:
@@ -536,34 +647,52 @@ class Login(QDialog):
         except Exception as e:
             print("Exception Error:", e)
 
-    async def refresh_tokens_periodically(self, refresh_token, client_id, client, interval=1800):
+    async def refresh_tokens_periodically(self, refresh_token, interval=2700):
         """Refresh tokens periodically using the refresh token (async version)"""
+
         while True:
             await asyncio.sleep(interval)  # Wait for 55 minutes (3300 seconds)
 
+            secret_hash = self.get_secret_hash(self.cognito_user_id)
+
             try:
-                response = client.initiate_auth(
-                    ClientId=client_id,
+                response = self.aws_client.initiate_auth(
+                    ClientId=CLIENT_ID,
                     AuthFlow='REFRESH_TOKEN_AUTH',
                     AuthParameters={
                         'REFRESH_TOKEN': refresh_token
+                        # 'REFRESH_TOKEN': refresh_token,
+                        # "USERNAME": self.cognito_user_id,
+                        # "SECRET_HASH": secret_hash
                     }
                 )
 
+                # self.cog.renew_access_token()
+                # print("refresh response:", response)
                 # Get the new tokens
-                self.tokens["AuthenticationResult"]["IdToken"] = response['AuthenticationResult']['IdToken']
-                self.tokens["AuthenticationResult"]["AccessToken"] = response['AuthenticationResult']['AccessToken']
+                if 'AuthenticationResult' in response:
+                    self.tokens["AuthenticationResult"]["IdToken"] = response['AuthenticationResult']['IdToken']
+                    self.tokens["AuthenticationResult"]["AccessToken"] = response['AuthenticationResult']['AccessToken']
+                else:
+                    raise Exception("AuthenticationResult not found in the response")
+
                 if self.main_win:
                     self.main_win.updateTokens(self.tokens)
-                print("Tokens refreshed successfully")
-
 
                 # Use the new tokens for your logic
                 # For example, update the headers in your requests with the new access token
             except Exception as e:
-                print(f"Error refreshing tokens: {e}")
-                break
+                # Get the traceback information
+                traceback_info = traceback.extract_tb(e.__traceback__)
+                # Extract the file name and line number from the last entry in the traceback
+                if traceback_info:
+                    ex_stat = "ErrorPeriodicRefreshingToken:" + traceback.format_exc() + " " + str(e)
+                else:
+                    ex_stat = "ErrorPeriodicRefreshingToken: traceback information not available:" + str(e)
+                print(ex_stat)
 
+    def getCurrentUser(self):
+        return self.current_user
 
     def fakeLogin(self):
         print("logging in....")
@@ -592,7 +721,7 @@ class Login(QDialog):
         print(self.tokens)
 
         self.main_win = MainWindow(self, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
-                                   self.machine_role, self.lang)
+                                   self.machine_role, self.schedule_mode, self.lang)
         print("faker...")
         self.main_win.setOwner("Nobody")
         self.main_win.show()

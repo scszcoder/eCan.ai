@@ -8,8 +8,8 @@ from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMainWindow, Q
     QVBoxLayout, QLineEdit, QRadioButton, QHBoxLayout, QComboBox, QCheckBox, QListView, QFrame, QMenu, QLabel, \
     QTableView, QMessageBox, QStyledItemDelegate
 from bot.ebbot import EBBOT
-from models import VehicleModel
-from tool.MainGUITool import StaticResource
+from common.models import VehicleModel
+from gui.tool.MainGUITool import StaticResource
 
 
 
@@ -156,13 +156,13 @@ class BotNewWin(QMainWindow):
         self.age_edit = QLineEdit()
         self.age_edit.setReadOnly(True)
         self.pfn_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input age here"))
-        self.vehicle_label = QLabel(QApplication.translate("QLabel", "Vehicle:"), alignment=Qt.AlignLeft)
+        self.vehicle_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Vehicle:</b>"), alignment=Qt.AlignLeft)
         self.vehicle_combo_box = QComboBox()
         self.vehicle_list = []
         for p in self.main_win.vehicles:
             combined_value = f"{p.getOS()}-{p.getName()}-{p.getIP()} {len(p.getBotIds())}"
-            self.vehicle_list.append(combined_value)
-            item = QApplication.translate("QComboBox", combined_value)
+            self.vehicle_list.append(p.getName())
+            item = QApplication.translate("QComboBox", p.getName())
             self.vehicle_combo_box.addItem(item)
             if len(p.bot_ids) > p.CAP:
                 index = self.vehicle_combo_box.findText(item)
@@ -170,6 +170,9 @@ class BotNewWin(QMainWindow):
                     self.vehicle_combo_box.model().item(index).setEnabled(False)
         self.vehicle_combo_box.setCurrentIndex(-1)
         self.vehicle_combo_box.currentTextChanged.connect(self.vehicle_combo_box_changed)
+
+        self.private_attribute_note_label = QLabel(QApplication.translate("QLabel", "<b style='color:Blue;'>Private Attributes will NOT be sent to the cloud, they will ONLY stay on this computer.</b>"), alignment=Qt.AlignLeft)
+        self.private_attribute_note_label.setFixedHeight(30)
 
         self.mf_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Gender:</b>"),
                                alignment=Qt.AlignLeft)
@@ -432,9 +435,12 @@ class BotNewWin(QMainWindow):
         self.ln_edit = QLineEdit()
         self.ln_edit.setPlaceholderText(QApplication.translate("QLineEdit", "input Last Name here"))
 
-        self.addr_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Address:</b>"),
-                                 alignment=Qt.AlignLeft)
+        self.addr_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Address:</b>"), alignment=Qt.AlignLeft)
+        self.addr_label.setFixedHeight(30)
+
         self.shipaddr_label = QLabel(QApplication.translate("QLabel", "Shipping Address:"), alignment=Qt.AlignLeft)
+        self.shipaddr_label.setFixedHeight(30)
+
         self.addr_l1_label = QLabel(QApplication.translate("QLabel", "Address Line1:"), alignment=Qt.AlignLeft)
         self.addr_l1_edit = QLineEdit()
 
@@ -495,6 +501,10 @@ class BotNewWin(QMainWindow):
             QApplication.translate("QLabel", "<b style='color:red;'>Backup Email Site:</b>"), alignment=Qt.AlignLeft)
         self.backem_site_edit = QLineEdit("")
         self.backem_site_edit.setPlaceholderText(QApplication.translate("QLineEdit", "website for access backup email"))
+
+        self.prvpflLine0Layout = QHBoxLayout(self)
+        self.prvpflLine0Layout.addWidget(self.private_attribute_note_label)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine0Layout)
 
         self.prvpflLine1Layout = QHBoxLayout(self)
         self.prvpflLine1Layout.addWidget(self.fn_label)
@@ -614,14 +624,19 @@ class BotNewWin(QMainWindow):
 
         self.setngsWidget.setLayout(self.setngsWidget_layout)
 
-        self.state_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Enabled:</b>"),
+        self.state_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Status:</b>"),
                                   alignment=Qt.AlignLeft)
-        self.state_en = QCheckBox()
-        self.state_en.setCheckState(Qt.CheckState.Checked)
+        self.state_select = QComboBox()
+        for botstat in self.main_win.bot_states:
+            self.state_select.addItem(QApplication.translate("QComboBox", botstat))
+
+        self.state_select.setCurrentIndex(0)    # make active as default, this will corrected by the actual data.
+        self.state_select.currentTextChanged.connect(self.state_select_changed)
+
 
         self.statLine1Layout = QHBoxLayout(self)
         self.statLine1Layout.addWidget(self.state_label)
-        self.statLine1Layout.addWidget(self.state_en)
+        self.statLine1Layout.addWidget(self.state_select)
         self.statWidget_layout.addLayout(self.statLine1Layout)
 
         self.statWidget.setLayout(self.statWidget_layout)
@@ -711,6 +726,9 @@ class BotNewWin(QMainWindow):
     # def show_interest_custom_sub_category5(self):
     #     self.interest_custom_sub_category5_label.setVisible(True)
     #     self.interest_custom_sub_category5_edit.setVisible(True)
+
+    def state_select_changed(self):
+        self.botStatus = self.state_select.currentText()
 
     def saveRole(self):
         if self.role_platform_sel.currentText() == QApplication.translate("QComboBox", "Custom"):
@@ -814,6 +832,11 @@ class BotNewWin(QMainWindow):
             self.vehicle_combo_box.setCurrentIndex(index)
         self.load_role(bot)
         self.load_interests(bot)
+        state_index = next((i for i, bs in enumerate(self.main_win.bot_states) if self.newBot.getStatus() == bs), -1)
+        if state_index >= 0:
+            self.state_select.setCurrentIndex(state_index)
+        else:
+            self.state_select.setCurrentIndex(0)              # active is the default state.
 
     def load_role(self, bot):
         self.roleTableModel.clear()
@@ -918,6 +941,7 @@ class BotNewWin(QMainWindow):
         print("set shipping addr:", self.shipaddr_l1_edit.text(), self.shipaddr_l2_edit.text(),
                                                    self.shipaddr_city_edit.text(), self.shipaddr_state_edit.text(),
                                                    self.shipaddr_zip_edit.text())
+        self.newBot.setStatus(self.state_select.currentText())
         self.newBot.updateDisplay()
 
         self.fillRoles()

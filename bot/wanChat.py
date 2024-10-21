@@ -1,4 +1,4 @@
-import Cloud
+import bot.Cloud
 import json
 import ssl
 import websockets
@@ -7,10 +7,10 @@ import aiohttp
 import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
-from Cloud import gen_wan_send_chat_message_string, gen_wan_subscription_connection_string
+from bot.Cloud import gen_wan_send_chat_message_string, gen_wan_subscription_connection_string
 import base64
 from datetime import datetime
-from Logger import log3
+from bot.Logger import log3
 import xml.etree.ElementTree as ET
 import traceback
 import requests

@@ -15,6 +15,7 @@ from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
 import websockets
 import traceback
+from config.constants import API_DEV_MODE
 
 ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
@@ -511,6 +512,38 @@ def gen_query_bots_string(q_setting):
     return query_string
 
 
+
+def gen_query_missions_by_time_string(query):
+
+    query_string = """
+        query MyQuery {
+      queryMissions (qm:[
+    """
+    rec_string = ""
+    for i in range(len(query)):
+        rec_string = rec_string + "{"
+        if "byowneruser" in query[i]:
+            rec_string = rec_string + "byowneruser: " + str(query[i]['byowneruser']).lower()
+        else:
+            rec_string = rec_string + "owner: \"" + str(query[i]['owner']).lower() + "\""
+
+        if "created_date_range" in query[i]:
+            rec_string = rec_string + ", "
+            rec_string = rec_string + "created_date_range: \"" + query[i]['created_date_range'] + "\" }"
+        else:
+            rec_string = rec_string + "}"
+
+        if i != len(query) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+        ])
+        }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
 def gen_query_missions_string(query):
     query_string = """
         query MyQuery {
@@ -620,6 +653,7 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "{ bid: \"" + str(bots[i]["pubProfile"]["bid"]) + "\", "
             rec_string = rec_string + "owner: \"" + str(bots[i]["pubProfile"]["owner"]) + "\", "
             rec_string = rec_string + "roles: \"" + bots[i]["pubProfile"]["roles"] + "\", "
+            rec_string = rec_string + "org: \"" + bots[i]["pubProfile"]["org"] + "\", "
             rec_string = rec_string + "birthday: \"" + bots[i]["pubProfile"]["pubbirthday"] + "\", "
             rec_string = rec_string + "gender: \"" + bots[i]["pubProfile"]["gender"] + "\", "
             rec_string = rec_string + "interests: \"" + bots[i]["pubProfile"]["interests"] + "\", "
@@ -631,12 +665,13 @@ def gen_add_bots_string(bots):
             rec_string = rec_string + "{ bid: \"" + str(bots[i].getBid()) + "\", "
             rec_string = rec_string + "owner: \"" + str(bots[i].getOwner()) + "\", "
             rec_string = rec_string + "roles: \"" + bots[i].getRoles() + "\", "
+            rec_string = rec_string + "org: \"" + bots[i].getOrg() + "\", "
             rec_string = rec_string + "birthday: \"" + bots[i].getPubBirthday() + "\", "
             rec_string = rec_string + "gender: \"" + bots[i].getGender() + "\", "
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
             rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
             rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i].getv() + "\", "
+            rec_string = rec_string + "vehicle: \"" + bots[i].getVehicle() + "\", "
             rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
 
 
@@ -662,6 +697,7 @@ def gen_update_bots_string(bots):
             rec_string = rec_string + "{ bid: \"" + str(bots[i]["pubProfile"]["bid"]) + "\", "
             rec_string = rec_string + "owner: \"" + str(bots[i]["pubProfile"]["owner"]) + "\", "
             rec_string = rec_string + "roles: \"" + bots[i]["pubProfile"]["roles"] + "\", "
+            rec_string = rec_string + "org: \"" + bots[i]["pubProfile"]["org"] + "\", "
             rec_string = rec_string + "birthday: " + bots[i]["pubProfile"]["pubbirthday"] + ", "
             rec_string = rec_string + "gender: \"" + bots[i]["pubProfile"]["gender"] + "\", "
             rec_string = rec_string + "interests: \"" + bots[i]["pubProfile"]["interests"] + "\", "
@@ -670,9 +706,14 @@ def gen_update_bots_string(bots):
             rec_string = rec_string + "vehicle: \"" + bots[i]["pubProfile"]["vehicle"] + "\", "
             rec_string = rec_string + "location: \"" + bots[i]["pubProfile"]["location"] + "\"} "
         else:
+            if bots[i].getOrg():
+                org = bots[i].getOrg()
+            else:
+                org = ""
             rec_string = rec_string + "{ bid: " + str(bots[i].getBid()) + ", "
             rec_string = rec_string + "owner: \"" + bots[i].getOwner() + "\", "
             rec_string = rec_string + "roles: \"" + bots[i].getRoles() + "\", "
+            rec_string = rec_string + "org: \"" + org + "\", "
             rec_string = rec_string + "birthday: \"" + bots[i].getPubBirthday() + "\", "
             rec_string = rec_string + "gender: \"" + bots[i].getGender() + "\", "
             rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
@@ -742,8 +783,9 @@ def gen_add_missions_string(missions, test_settings={}):
             rec_string = rec_string + "asin:\"" + missions[i]["pubAttributes"]["pseudo_asin"] + "\", "
             rec_string = rec_string + "brand:\"" + missions[i]["pubAttributes"]["pseudo_brand"] + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i]["pubAttributes"]["ms_type"] + "\", "
+            rec_string = rec_string + "as_server:" + str(int(missions[i]["pubAttributes"]["as_server"])) + ", "
             rec_string = rec_string + "skills:\"" + missions[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"] + "\"} "
+            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
         else:
             rec_string = rec_string + "{ mid:" + str(missions[i].getMid()) + ", "
             rec_string = rec_string + "ticket:" + str(missions[i].getTicket()) + ", "
@@ -758,8 +800,9 @@ def gen_add_missions_string(missions, test_settings={}):
             rec_string = rec_string + "asin:\"" + missions[i].getPseudoASIN() + "\", "
             rec_string = rec_string + "brand:\"" + missions[i].getPseudoBrand() + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i].getMtype() + "\", "
+            rec_string = rec_string + "as_server:" + str(int(missions[i].getAsServer())) + ", "
             rec_string = rec_string + "skills:\"" + missions[i].getSkills() + "\", "
-            rec_string = rec_string + "config:\"" + missions[i].getConfig() + "\"} "
+            rec_string = rec_string + "config:\"" + missions[i].getConfig().replace('"', '\\"') + "\"} "
 
         if i != len(missions) - 1:
             rec_string = rec_string + ', '
@@ -801,8 +844,9 @@ def gen_update_missions_string(missions):
             rec_string = rec_string + "asin:" + str(missions[i]["pubAttributes"]["pseudo_asin"]) + ", "
             rec_string = rec_string + "brand:\"" + missions[i]["pubAttributes"]["pseudo_brand"] + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i]["pubAttributes"]["mtype"] + "\", "
+            rec_string = rec_string + "as_server:" + str(int(missions[i]["pubAttributes"]["as_server"])) + ", "
             rec_string = rec_string + "skills:\"" + missions[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"] + "\"} "
+            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
         else:
             rec_string = rec_string + "{ mid: " + str(missions[i].getMid()) + ", "
             rec_string = rec_string + "ticket: " + str(missions[i].getTicket()) + ", "
@@ -817,8 +861,9 @@ def gen_update_missions_string(missions):
             rec_string = rec_string + "asin: \"" + missions[i].getPseudoASIN() + "\", "
             rec_string = rec_string + "brand: \"" + missions[i].getPseudoBrand() + "\", "
             rec_string = rec_string + "mtype: \"" + missions[i].getMtype() + "\", "
+            rec_string = rec_string + "as_server: " + str(int(missions[i].getAsServer())) + ", "
             rec_string = rec_string + "skills: \"" + missions[i].getSkills() + "\", "
-            rec_string = rec_string + "config: \"" + missions[i].getConfig() + "\"} "
+            rec_string = rec_string + "config: \"" + missions[i].getConfig().replace('"', '\\"') + "\"} "
 
         if i != len(missions) - 1:
             rec_string = rec_string + ', '
@@ -1702,6 +1747,34 @@ def send_query_missions_request_to_cloud(session, token, q_settings):
     return jresponse
 
 
+def send_query_missions_by_time_request_to_cloud(session, token, q_settings):
+    try:
+        queryInfo = gen_query_missions_by_time_string(q_settings)
+
+        jresp = appsync_http_request(queryInfo, session, token)
+
+        if "errors" in jresp:
+            screen_error = True
+            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+            jresponse = jresp["errors"][0]
+        else:
+            jresponse = json.loads(jresp["data"]["queryMissions"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorQueryMissionByTime:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorQueryMissionByTime traceback information not available:" + str(e)
+        print(ex_stat)
+        jresponse = {}
+
+    return jresponse
+
+
+
 
 def send_query_chat_request_to_cloud(session, token, chat_request):
 
@@ -1973,7 +2046,10 @@ def cloud_rm(session, f2rm, token):
     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
 def appsync_http_request(query_string, session, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     # Use JSON format string for the query. It does not need reformatting.
 
     headers = {
@@ -1991,14 +2067,16 @@ def appsync_http_request(query_string, session, token):
         json={'query': query_string}
     )
     # save response to a log file. with a time stamp.
-    print(response)
-
+    # print(response)
     jresp = response.json()
 
     return jresp
 
 def appsync_http_request_w_apikey(query_string, session, apikey):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     # Use JSON format string for the query. It does not need reformatting.
 
     headers = {
@@ -2018,7 +2096,7 @@ def appsync_http_request_w_apikey(query_string, session, apikey):
         json={'query': query_string}
     )
     # save response to a log file. with a time stamp.
-    print(response)
+    # print(response)
 
     jresp = response.json()
 
@@ -2026,7 +2104,10 @@ def appsync_http_request_w_apikey(query_string, session, apikey):
 
 
 def appsync_http_request2(query_string, session, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     # Use JSON format string for the query. It does not need reformatting.
 
     headers = {
@@ -2044,7 +2125,7 @@ def appsync_http_request2(query_string, session, token):
         json={'query': query_string}
     )
     # save response to a log file. with a time stamp.
-    print(response)
+    # print(response)
 
     jresp = response.json()
 
@@ -2052,7 +2133,10 @@ def appsync_http_request2(query_string, session, token):
 
 
 async def appsync_http_request8(query_string, session, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
 
     headers = {
         'Content-Type': "application/graphql",
@@ -2067,7 +2151,7 @@ async def appsync_http_request8(query_string, session, token):
                 json={'query': query_string}
         ) as response:
             jresp = await response.json()
-            print(jresp)
+            # print(jresp)
             return jresp
 
 
@@ -2129,7 +2213,10 @@ async def upload_file8(session, f2ul, token, ftype="general"):
 
 
 async def send_wan_chat_message(content, sender, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     variables = {
         "content": content,
         "sender": sender
@@ -2234,7 +2321,10 @@ def local_http_request(query_string, session, api_Key, url):
 
 
 async def wanSendRequestSolvePuzzle(msg_req, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     variables = {
         "input": {
             "content": msg_req["content"],
@@ -2265,7 +2355,10 @@ async def wanSendRequestSolvePuzzle(msg_req, token):
             return jresp
 
 async def wanSendConfirmSolvePuzzle(msg_req, token):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    if API_DEV_MODE:
+        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     variables = {
         "input": {
             "content": msg_req["content"],

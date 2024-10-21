@@ -26,9 +26,9 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
-    processBringAppToFront, processUpdateMissionStatus
+    processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist
 
-from seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
+from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
     processWebdriverForward, processWebdriverGoToTab, processWebdriverNewTab, processWebdriverCloseTab, processWebdriverQuit, \
     processWebdriverExecuteJs, processWebdriverRefreshPage, processWebdriverScreenShot, processWebdriverStartExistingChrome, \
@@ -234,6 +234,8 @@ RAIS = {
     "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
     "Download Files": lambda x, y, z: processDownloadFiles(x, y, z),
+    "Check Sublist": lambda x, y: processCheckSublist(x, y),
+    "Check Already Processed": lambda x, y: processCheckAlreadyProcessed(x, y),
     "Update Mission Status": lambda x, y, z: processUpdateMissionStatus(x, y, z)
 }
 
@@ -367,6 +369,8 @@ ARAIS = {
     "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
     "Download Files": lambda x, y, z: processDownloadFiles(x, y, z),
+    "Check Sublist": lambda x, y: processCheckSublist(x, y),
+    "Check Already Processed": lambda x, y: processCheckAlreadyProcessed(x, y),
     "Update Mission Status": lambda x, y, z: processUpdateMissionStatus(x, y, z)
 }
 
@@ -392,7 +396,8 @@ def readPSkillFile(name_space, skill_file, lvl = 0):
                 # Call this as a recursive function if your json is highly nested
 
                 # get rid of comments.
-                lines = [re.sub("^\s*#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+                # lines = [re.sub("^\s*#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
+                lines = [re.sub(r"^\s*#.*", "", one_object.rstrip()) for one_object in json_as_string.readlines()]
                 json_as_string.close()
 
                 # get rid of empty lines.

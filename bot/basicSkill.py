@@ -16,6 +16,7 @@ import glob
 import chardet
 import pandas as pd
 import numpy as np
+from deepdiff import DeepDiff
 
 from ping3 import ping
 
@@ -959,6 +960,29 @@ def genStepReadXlsxFile(file_name_type, file_name, result_var, flag_var, stepN):
     }
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+# check whether a list of sublist of another, the list could be a list of complicated jsons or list of list.
+def genStepCheckSublist(main_list_name, sub_list_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Check Sublist",
+        "main_list": main_list_name,
+        "sub_list": sub_list_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepCheckAlreadyProcessed(in_list_name, record_dir_name, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Check Already Processed",
+        "in_list": in_list_name,
+        "record_dir": record_dir_name,
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 def genStepReqHumanInLoop(qvar, img_var, type_var, time_var, retry_var, req_id_var, site_var, site_key_var, expected_var, result_var, flag_var, stepN):
     stepjson = {
@@ -1572,11 +1596,11 @@ def processExtractInfo(step, i, mission, skill):
 
         if type(step["settings"]) == str:
             step_settings = symTab[step["settings"]]
-            log3("SETTINGS FROM STRING...."+json.dumps(step_settings))
+            # log3("SETTINGS FROM STRING...."+json.dumps(step_settings))
         else:
             step_settings = step["settings"]
 
-        log3("STEP SETTINGS"+json.dumps(step_settings))
+        # log3("STEP SETTINGS"+json.dumps(step_settings))
         platform = step_settings["platform"]
         app = step_settings["app"]
         site = step_settings["site"]
@@ -2231,11 +2255,13 @@ def processMouseClick(step, i, mission):
             # log3("from data: "+json.dumps(sd))
             obj_box = find_clickable_object(sd, target_name, step["text"], step["target_type"], step["nth"])
             log3("obj_box: "+json.dumps(obj_box))
-            loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
-            post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
-            post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
-            log3("indirect calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset[0])+","+str(post_offset[1])+") post_loc:"+json.dumps(post_loc))
-
+            if obj_box:
+                loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
+                post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
+                post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
+                log3("indirect calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset[0])+","+str(post_offset[1])+") post_loc:"+json.dumps(post_loc))
+            else:
+                loc = None
         else:
             # the location is already calculated directly and stored here.
             if step["target_type"] == "direct":
@@ -2261,46 +2287,47 @@ def processMouseClick(step, i, mission):
         window_name, window_rect = get_top_visible_window("")
         log3("top windows rect:"+json.dumps(window_rect))
 
-        # loc[0] = int(loc[0]) + window_rect[0]
-        loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
-        log3("global loc@ "+str(loc[0])+" ,  "+str(loc[1]))
+        if loc:
+            # loc[0] = int(loc[0]) + window_rect[0]
+            loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
+            log3("global loc@ "+str(loc[0])+" ,  "+str(loc[1]))
 
-        pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
+            pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
 
-        time.sleep(step["move_pause"])
+            time.sleep(step["move_pause"])
 
-        if step["action"] == "Single Click":
-            pyautogui.click()
-            # pyautogui.click()
-        elif step["action"] == "Double Click":
-            if is_float(step["action_args"]):
-                pyautogui.click(clicks=2, interval=float(step["action_args"]))
-            else:
-                pyautogui.click(clicks=2, interval=0.3)
-        elif step["action"] == "Triple Click":
-            if is_float(step["action_args"]):
-                pyautogui.click(clicks=3, interval=float(step["action_args"]))
-            else:
-                pyautogui.click(clicks=3, interval=0.3)
-        elif step["action"] == "Right CLick":
-            pyautogui.click(button='right')
-        elif step["action"] == "Drag Drop":
-            # code drop location is embedded in action_args, the code need to added later to process that....
-            pyautogui.dragTo(loc[0], loc[1], duration=2)
+            if step["action"] == "Single Click":
+                pyautogui.click()
+                # pyautogui.click()
+            elif step["action"] == "Double Click":
+                if is_float(step["action_args"]):
+                    pyautogui.click(clicks=2, interval=float(step["action_args"]))
+                else:
+                    pyautogui.click(clicks=2, interval=0.3)
+            elif step["action"] == "Triple Click":
+                if is_float(step["action_args"]):
+                    pyautogui.click(clicks=3, interval=float(step["action_args"]))
+                else:
+                    pyautogui.click(clicks=3, interval=0.3)
+            elif step["action"] == "Right CLick":
+                pyautogui.click(button='right')
+            elif step["action"] == "Drag Drop":
+                # code drop location is embedded in action_args, the code need to added later to process that....
+                pyautogui.dragTo(loc[0], loc[1], duration=2)
 
-        time.sleep(1)
-        log3("post click moveto :("+str(int(post_loc[0]) + window_rect[0])+","+str(int(post_loc[1]) + window_rect[1])+")")
-        pyautogui.moveTo(int(post_loc[0]) + window_rect[0], int(post_loc[1]) + window_rect[1])
-        if step["post_wait"] > 0:
-            time.sleep(step["post_wait"]-1)
+            time.sleep(1)
+            log3("post click moveto :("+str(int(post_loc[0]) + window_rect[0])+","+str(int(post_loc[1]) + window_rect[1])+")")
+            pyautogui.moveTo(int(post_loc[0]) + window_rect[0], int(post_loc[1]) + window_rect[1])
+            if step["post_wait"] > 0:
+                time.sleep(step["post_wait"]-1)
 
-        # now save for roll back if ever needed.
-        # first remove the previously save rollback point, but leave up to 3 rollback points
-        while len(page_stack) > 3:
-            page_stack.pop()
-        # now save the current juncture.
-        current_context = build_current_context()
-        page_stack.append({"pc": i, "context": current_context})
+            # now save for roll back if ever needed.
+            # first remove the previously save rollback point, but leave up to 3 rollback points
+            while len(page_stack) > 3:
+                page_stack.pop()
+            # now save the current juncture.
+            current_context = build_current_context()
+            page_stack.append({"pc": i, "context": current_context})
 
 
     except Exception as e:
@@ -2446,6 +2473,18 @@ def kill_process_using_port(port):
             print(f"Terminated process with PID {conn.pid} using port {port}.")
 
 
+def is_app_running(process_name):
+    """Check if a process with the given name is running."""
+    for proc in psutil.process_iter(['name']):
+        if process_name.lower() in proc.info['name'].lower():
+            return proc
+    return None
+
+
+# step['app_link'] full path location of the executable, it could be variable.
+# step['app_type'] short name for the app, used to locate app window, so must be a substring of window title.
+# step['cargs_type'] -  "direct" "expr"
+# step['cargs'] - command arguments could be string, could be a list of strings, could be a variable holding the arguments....
 def processOpenApp(step, i):
     # log3("Opening App ....." + step["app_link"] + " " + step["cargs"])
     ex_stat = DEFAULT_RUN_STATUS
@@ -2454,22 +2493,39 @@ def processOpenApp(step, i):
             url = step["app_link"]
             webbrowser.open(url, new=0, autoraise=True)
         else:
-            # exec("global oa_exe\noa_exe = "+step["app_type"])
-            if step["cargs_type"] == "direct":
-                subprocess.call(step["app_type"] + " " + step["cargs"])
+            if ("/" in step["app_link"] or "\\" in step["app_link"] or ".exe" in step["app_link"]) and "[" not in step["app_link"] and "{" not in step["app_link"]:
+                executable = step["app_link"]
+            elif (("[" not in step["app_link"]) or ("{" not in step["app_link"])):
+                # this is an expression, so need to eval
+                exec("global oa_exe\noa_exe = " + step['app_link'] + "\nprint('oa_exe: ', oa_exe)")
+                executable = oa_exe
             else:
-                # in case of "expr" type.
-                # exec("global oa_args\noa_args = " + step["cargs"])
-                # log3("running shell"+symTab["oa_exe"]+"on :"+step["cargs"]+"with val["+symTab["oa_args"]+"]")
-                DETACHED_PROCESS = 0x00000008
-                # subprocess.Popen([step["app_type"], step["cargs"]],creationflags=DETACHED_PROCESS, close_fds=True)
-                if type(step["cargs"]) == list:
-                    cmd = [step["app_type"]] + step["cargs"]
-                else:
-                    cmd = [step["app_type"]] + symTab[step["cargs"]]
+                executable = symTab[step["app_link"]]
 
-                # subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if is_app_running(step["app_type"]):
+                #simply bring the process/window to the front.
+                switchToWindow(step["app_type"])
+            else:
+                # start the app afresh
+                # exec("global oa_exe\noa_exe = "+step["app_type"])
+                if step["cargs_type"] == "direct":
+                    subprocess.call(executable + " " + step["cargs"])
+                else:
+                    # in case of "expr" type.
+                    DETACHED_PROCESS = 0x00000008
+                    # subprocess.Popen([step["app_type"], step["cargs"]],creationflags=DETACHED_PROCESS, close_fds=True)
+                    if type(step["cargs"]) == list or step["cargs"] == "":
+                        cmd = [executable] + step["cargs"]
+                    else:
+                        exec("global oa_args\noa_args = "+step['cargs']+"\nprint('oa_args: ', oa_args)")
+                        if type(oa_args) == str:
+                            cmd = [executable] + [oa_args]
+                        elif type(oa_args) == list:
+                            cmd = [executable] + oa_args
+
+                    # subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
         time.sleep(step["wait"])
 
 
@@ -3575,7 +3631,7 @@ def processObtainReviews(step, i, mission):
     try:
         settings = mission.main_win_settings
         resp = req_cloud_obtain_review(settings["session"], review_request, settings["token"])
-        symTab[step["review"]]
+        symTab[step["review"]] = json.loads(resp['body'])
 
     except Exception as e:
         # Get the traceback information
@@ -4530,42 +4586,51 @@ def processCheckAppRunning(step, i):
 
     return (i + 1), ex_stat
 
+def switchToWindow(winTitle):
+    result = False
+
+    if sys.platform == 'win32':
+        names = []
+
+        def winEnumHandler(hwnd, ctx):
+            if win32gui.IsWindowVisible(hwnd):
+                n = win32gui.GetWindowText(hwnd)
+                # log3("windows: "+str(n))
+                if n:
+                    names.append(n)
+
+        win32gui.EnumWindows(winEnumHandler, None)
+        win_title_keyword = winTitle
+
+        effective_names = [nm for nm in names if "dummy" not in nm]
+        window_handle = None
+        if win_title_keyword:
+            for wi, wn in enumerate(effective_names):
+                if win_title_keyword in wn:
+                    win_title = effective_names[wi]
+                    window_handle = win32gui.FindWindow(None, effective_names[wi])
+                    win_rect = win32gui.GetWindowRect(window_handle)
+                    log3("FOUND target window: " + win_title + " rect: " + json.dumps(win_rect))
+                    break
+
+        # Bring the window to the foreground
+        if window_handle:
+            win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)  # Restore window if minimized
+            win32gui.SetForegroundWindow(window_handle)
+            result = True
+        else:
+            log3(f"Error: Window with title '{win_title_keyword}' not found.")
+
+    return result
+
 
 def processBringAppToFront(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     symTab[step["result"]] = False
+    winTitle = step["win_title"]
+
     try:
-        if sys.platform == 'win32':
-            names = []
-
-            def winEnumHandler(hwnd, ctx):
-                if win32gui.IsWindowVisible(hwnd):
-                    n = win32gui.GetWindowText(hwnd)
-                    # log3("windows: "+str(n))
-                    if n:
-                        names.append(n)
-
-            win32gui.EnumWindows(winEnumHandler, None)
-            win_title_keyword = step["win_title"]
-
-            effective_names = [nm for nm in names if "dummy" not in nm]
-            window_handle = None
-            if win_title_keyword:
-                for wi, wn in enumerate(effective_names):
-                    if win_title_keyword in wn:
-                        win_title = effective_names[wi]
-                        window_handle = win32gui.FindWindow(None, effective_names[wi])
-                        win_rect = win32gui.GetWindowRect(window_handle)
-                        log3("FOUND target window: " + win_title + " rect: " + json.dumps(win_rect))
-                        break
-
-            # Bring the window to the foreground
-            if window_handle:
-                win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)  # Restore window if minimized
-                win32gui.SetForegroundWindow(window_handle)
-                symTab[step["result"]] = True
-            else:
-                log3(f"Error: Window with title '{win_title_keyword}' not found.")
+        symTab[step["result"]] = switchToWindow(winTitle)
 
     except Exception as e:
         # Get the traceback information
@@ -5423,6 +5488,111 @@ def processKillProcesses(step, i):
             ex_stat = "ErrorKillProcesses:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorKillProcesses: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processCheckSublist(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag"]] = False
+        main_list = symTab[step['main_list']]
+        sub_list = symTab[step['sub_list']]
+
+        main_len = len(main_list)
+        sub_len = len(sub_list)
+
+        # Track the position of where we are in the sub_list
+        sub_index = 0
+
+        for main_item in main_list:
+            # Compare the current element in the main list with the current element in the sub list
+            if not DeepDiff(main_item, sub_list[sub_index], ignore_order=True):
+                # If they match, move to the next element in the sub list
+                sub_index += 1
+                # If we've matched all elements in the sub list, return True
+                if sub_index == sub_len:
+                    symTab[step["flag"]] = True
+                    break
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckSublist:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckSublist: traceback information not available:" + str(e)
+        symTab[step["flag"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def load_json_files(directory):
+    json_data = []
+    # os.walk generates the file names in a directory tree, recursively
+    for root, dirs, files in os.walk(directory):
+        # print("checking files:", files)
+        for filename in files:
+
+            if filename.endswith(".json"):
+                file_path = os.path.join(root, filename)
+                with open(file_path, 'r') as json_file:
+                    data = json.load(json_file)
+                    json_data.append({"data": data, "file": file_path})
+    print("json data and files:", json_data)
+    return json_data
+
+def processCheckAlreadyProcessed(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag"]] = False
+        found_file = ""
+        in_list = symTab[step['in_list']]
+        record_dir = symTab[step['record_dir']]
+
+        processed = load_json_files(record_dir)
+        # print("in_list:", in_list)
+        # print("found json:", processed)
+
+        if processed:
+            for shipping_info in in_list[:]:  # Iterate through selenium_shipping_info
+                found = False
+                for data in processed:
+                    if data["data"].get("paid") is True:
+                        orders = data["data"].get("orders", [])
+                        for order in orders:
+                            if DeepDiff(order, shipping_info, ignore_order=True) == {}:
+                                found = True
+                                found_file = data["file"]
+                                print("Found match:", shipping_info)
+                                break
+                    if found:
+                        break
+                # If a matching order is found, remove the item from selenium_shipping_info
+                if found:
+                    print("removing matched...")
+                    in_list.remove(shipping_info)
+
+            if not in_list:
+                symTab[step["flag"]] = True
+                symTab[step["result"]] = found_file
+                print("all found meaning already processed.", symTab[step["result"]])
+            else:
+                print("orders not yet processed.")
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckAlreadyProcessed:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckAlreadyProcessed: traceback information not available:" + str(e)
         symTab[step["flag"]] = False
         log3(ex_stat)
 

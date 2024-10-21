@@ -15,6 +15,7 @@ class VehicleModel(Base):
     field_link = Column(Text)
     daily_mids = Column(Text)
     cap = Column(Integer)
+    last_update_time = Column(Text)
 
     def to_dict(self):
         return {
@@ -28,5 +29,6 @@ class VehicleModel(Base):
             'mstats': self.mstats,
             'field_link': self.field_link,
             'daily_mids': self.daily_mids,
-            'cap': self.cap
+            'cap': self.cap,
+            'last_update_time': self.last_update_time
         }

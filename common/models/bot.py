@@ -28,6 +28,7 @@ class BotModel(Base):
     epw = Column(Text)
     createon = Column(Text)
     vehicle = Column(Text)
+    org = Column(Text)
 
     def to_dict(self):
         return {
@@ -53,5 +54,6 @@ class BotModel(Base):
             "backemail_site": self.backemail_site,
             "epw": self.epw,
             "createon": self.createon,
-            "vehicle": self.vehicle
+            "vehicle": self.vehicle,
+            "org": self.org
         }

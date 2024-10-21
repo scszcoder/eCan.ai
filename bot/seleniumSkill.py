@@ -6,7 +6,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from selenium.webdriver.common.by import By
 import requests
@@ -327,10 +327,11 @@ def genStepWebdriverStartExistingChrome(driver_path_var, debug_port, result_var,
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepWebdriverStartNewChrome(driver_path, result_var, flag_var, stepN):
+def genStepWebdriverStartNewChrome(driver_path, port, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Start New Chrome",
         "driver_path": driver_path,
+        "port": port,
         "result": result_var,
         "flag": flag_var
     }
@@ -478,7 +479,9 @@ def processWebdriverStartNewChrome(step, i):
         ex_stat = DEFAULT_RUN_STATUS
         chrome_options = Options()
         # chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--remote-debugging-port=9228')
+        if step["port"] == "":
+            step["port"] = "9228"       # set to default
+        chrome_options.add_argument('--remote-debugging-port='+str(step["port"]))
         chrome_options.add_argument('--user-data-dir=C:\\chrome_data')
         chrome_options.add_argument("--disable-features=SharedStorage,InterestCohort")
 
@@ -709,10 +712,11 @@ def processWebdriverKeyIn(step, i, mission):
         text = symTab[step["text_var"]]
         log3("wait for target to load")
         wait = WebDriverWait(driver, 10)
-
+        print("TEXT::", text)
         # wait.until(EC.presence_of_element_located(target))
         target.clear()
         target.send_keys(text)
+
         log3("WebdriverKeyIn:["+step["target_var"]+"]'"+text+"'", "processWebdriverKeyIn", mainwin)
 
     except Exception as e:
@@ -802,8 +806,9 @@ def processWebdriverNewTab(step, i):
         driver = symTab[step["driver_var"]]
         url = step["url_var"]
         log3("opening a new tab")
-
-        driver.execute_script("window.open('');")
+        driver.switch_to.window(driver.window_handles[0])
+        time.sleep(3)
+        driver.execute_script(f"window.open('{url}', '_blank');")
 
         # Switch to the new tab
         driver.switch_to.window(driver.window_handles[-1])
@@ -1195,21 +1200,36 @@ def processWebdriverExtractInfo(step, i, mission):
                     web_elements = []
                     web_element = None
                     symTab[step["flag"]] = False
+                except NoSuchElementException:
+                    print(f"Element was not found")
+                    web_elements = []
+                    web_element = None
+                    symTab[step["flag"]] = False
             else:
                 print("no wait....")
-                if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
-                    print("find in page")
-                    if not step["multi"]:
-                        web_element = driver.find_element(element_type, element_name)
-                    else:
-                        web_elements = driver.find_elements(element_type, element_name)
-                elif step["source_var_type"] == "var":
-                    print("find within an element")
-                    if not step["multi"]:
-                        web_element = symTab[step["source_var"]].find_element(element_type, element_name)
-                    else:
-                        web_elements = symTab[step["source_var"]].find_elements(element_type, element_name)
-
+                try:
+                    if step["source_var_type"] == "var" and step["source_var"] == "PAGE":
+                        print("find in page")
+                        if not step["multi"]:
+                            web_element = driver.find_element(element_type, element_name)
+                        else:
+                            web_elements = driver.find_elements(element_type, element_name)
+                    elif step["source_var_type"] == "var":
+                        print("find within an element")
+                        if not step["multi"]:
+                            web_element = symTab[step["source_var"]].find_element(element_type, element_name)
+                        else:
+                            web_elements = symTab[step["source_var"]].find_elements(element_type, element_name)
+                except TimeoutException:
+                    print(f"Element was not found within {wait_time} seconds.")
+                    web_elements = []
+                    web_element = None
+                    symTab[step["flag"]] = False
+                except NoSuchElementException:
+                    print(f"Element was not found")
+                    web_elements = []
+                    web_element = None
+                    symTab[step["flag"]] = False
 
             if info_type == "text":
                 print("found text:", web_element.text)

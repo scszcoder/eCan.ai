@@ -34,22 +34,25 @@ def main():
     # login = Login()
     utils.logger_helper.login = Login()
 
-    if utils.logger_helper.login.isCommander():
-        print("run as commander......")
-        utils.logger_helper.login.show()
-        loop.create_task(runCommanderLAN(utils.logger_helper.login))
+    # if utils.logger_helper.login.isCommander():
+    #     print("run as commander......")
+    #     utils.logger_helper.login.show()
+    #     loop.create_task(runCommanderLAN(utils.logger_helper.login))
+    #
+    #     loop.run_forever()
+    #
+    # else:
+    #     print("run as platoon...")
+    #     wait_window = WaitWindow()
+    #     # wait_window.show()
+    #     utils.logger_helper.login.show()
+    #     loop.create_task(runPlatoonLAN(utils.logger_helper.login, loop, wait_window))
+    #
+    #     loop.run_forever()
 
-        loop.run_forever()
-
-    else:
-        print("run as platoon...")
-        wait_window = WaitWindow()
-        wait_window.show()
-
-        loop.create_task(runPlatoonLAN(utils.logger_helper.login, loop, wait_window))
-
-        loop.run_forever()
-
+    utils.logger_helper.login.setLoop(loop)
+    utils.logger_helper.login.show()
+    loop.run_forever()
 
 if __name__ == '__main__':
     print(TimeUtil.formatted_now_with_ms() + " main function run start...")

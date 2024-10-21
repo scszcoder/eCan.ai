@@ -27,7 +27,8 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepMouseScroll, genScrollDownUntilLoc, genScrollDownUntil, genScrollUpUntilLoc, genScrollUpUntil,\
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
-    genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus
+    genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
+    genStepCheckSublist, genStepCheckAlreadyProcessed
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -134,6 +135,8 @@ PUBLIC = {
     'genException': genException,
     "genStepUploadFiles": genStepUploadFiles,
     "genStepDownloadFiles": genStepDownloadFiles,
+    "genStepCheckSublist": genStepCheckSublist,
+    "genStepCheckAlreadyProcessed": genStepCheckAlreadyProcessed,
     "genStepUpdateMissionStatus": genStepUpdateMissionStatus,
     'genWinChromeEtsyCollectOrderListSkill': genWinChromeEtsyCollectOrderListSkill,
     'genStepEtsySearchOrders': genStepEtsySearchOrders,
@@ -520,14 +523,16 @@ def setWorkSettingsSkill(worksettings, sk):
         worksettings["skfname"] = worksettings["local_data_path"] + sk.getPskFileName()
     else:
         worksettings["skfname"] = worksettings["root_path"] + "" + sk.getPskFileName()
+
     worksettings["platform"] = sk.getPlatform()
     worksettings["app"] = sk.getApp()
-    # worksettings["app_exe"] = sk.getAppLink()
+    worksettings["app_exe"] = sk.getAppLink()
+    worksettings["cargs"] = sk.getAppArgs()
 
     worksettings["site"] = sk.getSiteName()
 
     worksettings["page"] = sk.getPage()
-    log3("settings skill app_exe: "+worksettings["app_exe"]+" "+worksettings["app"]+" "+worksettings["platform"]+" "+worksettings["site"]+" "+worksettings["page"])
+    log3("settings skill app_exe: "+worksettings["app_exe"]+" "+worksettings["app"]+" "+worksettings["cargs"]+" "+worksettings["platform"]+" "+worksettings["site"]+" "+worksettings["page"])
 
     worksettings["skname"] = os.path.basename(sk.getName())
     log3("GENERATING STEPS into: "+" "+worksettings["skfname"]+" "+"  skill name: "+" "+worksettings["skname"])
@@ -538,7 +543,6 @@ def setWorkSettingsSkill(worksettings, sk):
 
     worksettings["name_space"] = "B" + str(worksettings["botid"]) + "M" + str(worksettings["mid"]) + "!" + pas + "!" + worksettings["skname"] + "!"
 
-    worksettings["cargs"] = sk.getAppArgs()
 
 # generate pubilc skills on windows platform.
 def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):

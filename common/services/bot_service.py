@@ -3,7 +3,7 @@ import json
 import sqlalchemy.sql.sqltypes
 from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, INTEGER, Integer, String, REAL, TEXT, Text, text
 
-from Cloud import send_query_bots_request_to_cloud
+from bot.Cloud import send_query_bots_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.bot import BotModel
 from utils.logger_helper import logger_helper
@@ -31,7 +31,8 @@ BOT_TABLE_DEF = [ {'name': 'botid', 'type': 'INTEGER', 'nullable': True, 'defaul
                       {'name': 'ebpw', 'type': 'TEXT', 'nullable': True, 'default': ""},
                       {'name': 'backemail_site', 'type': 'TEXT', 'nullable': True, 'default': ""},
                       {'name': 'createon', 'type': 'TEXT', 'nullable': True, 'default': ""},
-                      {'name': 'vehicle', 'type': 'TEXT', 'nullable': True, 'default': ""}
+                      {'name': 'vehicle', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'org', 'type': 'TEXT', 'nullable': True, 'default': ""}
                     ]
 
 SA_TYPE_TABLE = {"TEXT": TEXT, "REAL": REAL, "INTEGER": INTEGER}
@@ -105,8 +106,9 @@ class BotService:
                 result.backemail = api_bot["backemail"]
                 result.backemail_site = api_bot["backemail_site"]
                 result.epw = api_bot["epw"]
-                result.createon = api_bot["createon"]
+                # result.createon = api_bot["createon"]
                 result.vehicle = api_bot["vehicle"]
+                result.org = api_bot["org"]
                 self.session.commit()
                 self.main_win.showMsg("update_bots_batch: " + json.dumps(result.to_dict()))
 
@@ -137,6 +139,7 @@ class BotService:
             local_bot.ebpw = api_bot["ebpw"]
             local_bot.createon = api_bot["createon"]
             local_bot.vehicle = api_bot["vehicle"]
+            local_bot.org = api_bot["org"]
             self.session.add(local_bot)
             self.session.commit()
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_bot.to_dict()))
