@@ -1,6 +1,9 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QPushButton, QMainWindow, QFormLayout, QLineEdit, QCheckBox, QLabel, QComboBox, QApplication
-import win32print
+import sys
+
+if sys.platform == "win32":
+    import win32print
 import subprocess
 import re
 import time
