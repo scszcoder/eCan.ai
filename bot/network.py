@@ -38,7 +38,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
     def __init__(self, topgui, on_con_lost):
         self.topgui = topgui
         self.on_con_lost = on_con_lost
-        self.msg_queue = topgui.get_gui_msg_queue()
+        self.msg_queue = topgui.getGuiMsgQueue()
         print("tcp server protocol initialized....")
 
     def connection_made(self, transport):
@@ -56,15 +56,12 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         fieldLinks.append(new_link)
         print(f"now we have {len(fieldLinks)} field links")
         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+hostname))
-        # if not self.topgui.mainwin == None:
-        #     if self.topgui.mainwin.platoonWin == None:
-        #         self.topgui.mainwin.platoonWin = PlatoonWindow(self.topgui.mainwin, "conn")
-        #     self.topgui.mainwin.addVehicle(self)
+
 
     def data_received(self, data):
         message = data.decode()
         print("TCP recevied message:", message)
-        if not self.topgui.main_win == None:
+        if not self.topgui == None:
             print("Queueing TCP recevied message:", message)
             asyncio.create_task(self.msg_queue.put(self.peername[0]+"!net data!"+message))
 
@@ -100,7 +97,7 @@ class communicatorProtocol(asyncio.Protocol):
         self.message = message
         self.on_con_lost = on_con_lost
         self.topgui = topgui
-        self.msg_queue = topgui.get_gui_msg_queue()
+        self.msg_queue = topgui.getGuiMsgQueue()
         print("comm protocol initialized.....")
 
     def connection_made(self, transport):
@@ -191,7 +188,7 @@ async def tcpServer(topgui):
     hostname = socket.gethostname()
     myips = socket.gethostbyname_ex(hostname)[2]
     myip = myips[len(myips)-1]
-    topgui.set_ip(myip)
+    topgui.setIP(myip)
     print("my host name is: ", hostname, " and my ip is: ", myip)
     tcp_loop = asyncio.get_running_loop()
     on_con_lost = tcp_loop.create_future()
@@ -234,8 +231,8 @@ async def udpBroadcaster(topgui):
     usock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     while not over:
-        print("Broadcasting...", 'Commander Calling:' + myip + " " + topgui.getCurrentUser())
-        message = str.encode('Commander Calling:' + myip+":"+topgui.getCurrentUser())
+        print("Broadcasting...", 'Commander Calling:' + myip + " " + topgui.getUser())
+        message = str.encode('Commander Calling:' + myip+":"+topgui.getUser())
         usock.sendto(message, ('192.168.0.255', UDP_PORT))
         await asyncio.sleep(COMMANDER_UDP_PERIOD)
 
@@ -275,56 +272,6 @@ async def tcp_server():
         await server.serve_forever()
 
 
-# this is the udp receiver on the platoon side.
-# once received commander's UDP packet, start a tcp/ip task to communicate to/from commander via tcp
-async def commanderFinder(topgui, thisloop):
-    global commanderXport
-    over = False
-    hostname = socket.gethostname()
-    myips = socket.gethostbyname_ex(hostname)[-1]
-    myip = myips[len(myips)-1]
-    print("my IP is: ", myip)
-
-    message = b'Commander Calling:'
-    usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    usock.bind(('', UDP_PORT))
-    commander_wait_not_timeout = COMMANDER_WAIT_TIMEOUT
-    while not over:
-        print("listening for commander")
-        data, addr = await thisloop.run_in_executor(None, usock.recvfrom, 1024)
-
-        # rxmsg = usock.recvfrom(512)
-        print("platoon received::", data.decode("utf-8"))
-
-        # if "Commander" in rxmsg[0].decode("utf-8") and commanderXport == None:
-        if "Commander" in data.decode("utf-8") and commanderXport is None:
-            # commanderIP = rxmsg[1][0]
-            rxmsg_parts = data.decode("utf-8").split(":")
-            commanderIP = rxmsg_parts[1]
-            print("recevied::", commanderIP)
-
-            loop = asyncio.get_running_loop()
-            on_con_lost = loop.create_future()
-
-            commanderXport, platoonProtocol = await loop.create_connection(
-                lambda: communicatorProtocol(topgui, '', on_con_lost),
-                commanderIP, TCP_PORT
-            )
-            topgui.set_xport(commanderXport)
-            topgui.set_ip(myip)
-            print("commanderXport created::", commanderXport)
-
-
-            try:
-                await on_con_lost
-            finally:
-                commanderXport.close()
-            break
-
-        await asyncio.sleep(PLATOON_UDP_PERIOD)
-        if commander_wait_not_timeout:
-            commander_wait_not_timeout = commander_wait_not_timeout - 1
-
 
 class UDPServerProtocol:
     def __init__(self, loop, topgui):
@@ -343,22 +290,17 @@ class UDPServerProtocol:
         message = data.decode("utf-8")
         print(f"platoon received: {message}")
 
-        myBoss = self.topgui.getCurrentUser()
+        myBoss = self.topgui.getUser()
         print("my boss:", myBoss)
         if "Commander" in message and  myBoss in message and commanderXport is None:
             rxmsg_parts = message.split(":")
             commanderIP = rxmsg_parts[1]
             print(f"received: {commanderIP}")
-            if not self.topgui.getSignedIn():
-                if not self.topgui.isVisible():
-                    print("show login win...")
-                    self.topgui.show()
-                    self.topgui.set_role("Platoon")
-            else:
-                if not self.commander_connect_attempted:
-                    print("create task to start tcp conn to commander....")
-                    self.loop.create_task(self.reconnect_to_commander(commanderIP))
-                    self.commander_connect_attempted = True
+
+            if not self.commander_connect_attempted:
+                print("create task to start tcp conn to commander....")
+                self.loop.create_task(self.reconnect_to_commander(commanderIP))
+                self.commander_connect_attempted = True
 
 
     async def reconnect_to_commander(self, commanderIP):
@@ -383,8 +325,8 @@ class UDPServerProtocol:
                 #     sock=sock)
                 hostname = socket.gethostname()
                 myips = socket.gethostbyname_ex(hostname)[-1]
-                self.topgui.set_xport(commanderXport)
-                self.topgui.set_ip(myips[-1])
+                self.topgui.setCommanderXPort(commanderXport)
+                self.topgui.setIP(myips[-1])
                 print(f"commanderXport created: {commanderXport}")
 
                 # Wait for the connection to be lost
@@ -410,7 +352,6 @@ class UDPServerProtocol:
 
 async def platoonUDPServer(thisloop, topgui):
     print("Setting up UDP server...")
-    topGuiNotYetChecked = True
     hostname = socket.gethostname()
     myips = socket.gethostbyname_ex(hostname)[-1]
     platoon_ip = myips[-1]  # Use the last IP in the list or choose as appropriate
@@ -425,10 +366,6 @@ async def platoonUDPServer(thisloop, topgui):
     try:
         # Keep the server running indefinitely
         while True:
-            if not commander_wait_not_timeout:
-                # stop wait anxiety, and show the main GUI anyways.
-                if not topgui.getSignedIn() and topGuiNotYetChecked:
-                    topGuiNotYetChecked = False
 
             await asyncio.sleep(PLATOON_UDP_PERIOD)
             if commander_wait_not_timeout:
@@ -453,9 +390,5 @@ async def runCommanderLAN(topgui):
 
 
 async def runPlatoonLAN(topgui, thisLoop):
-    # await asyncio.gather(
-    #     commanderFinder(topgui, thisLoop, waitwin, topgui.get_msg_queue()),
-    #     # topScheduler(topgui, net_queue),
-    # )
-    # await commanderFinder(topgui, thisLoop, waitwin)
+
     await platoonUDPServer(thisLoop, topgui)

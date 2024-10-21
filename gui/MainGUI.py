@@ -58,7 +58,7 @@ import platform
 from pynput.mouse import Controller
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
-from bot.network import myname, fieldLinks, commanderIP, commanderXport
+from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
@@ -183,7 +183,7 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, loginout_gui, main_key, inTokens, tcpserver, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
+    def __init__(self, loginout_gui, main_key, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
         super(MainWindow, self).__init__()
         self.loginout_gui = loginout_gui
         if homepath[len(homepath)-1] == "/":
@@ -204,6 +204,7 @@ class MainWindow(QMainWindow):
         self.static_resource = StaticResource()
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
+        self.mainLoop = mainloop
         self.tokens = inTokens
         self.machine_role = machine_role
         self.schedule_mode = schedule_mode
@@ -332,11 +333,11 @@ class MainWindow(QMainWindow):
 
         self.showMsg("main window ip:" + self.ip)
         if "Commander" in self.machine_role:
-            self.tcpServer = tcpserver
+            self.tcpServer = None
             self.commanderXport = None
         elif self.machine_role == "Platoon":
             self.showMsg("This is a platoon...")
-            self.commanderXport = tcpserver
+            self.commanderXport = None
             self.commanderIP = commanderIP
             self.tcpServer = None
 
@@ -717,6 +718,15 @@ class MainWindow(QMainWindow):
         self.rpa_quit_dialog.setLayout(self.rpa_quit_dialog_layout)
         self.rpa_quit_confirmation_future = asyncio.get_event_loop().create_future()
 
+        # finally start the network service
+        # because if we don't know who the real boss is, there no point doing any networking.....
+        if "Platoon" not in self.machine_role:
+            print("run commander side networking......")
+            self.mainLoop.create_task(runCommanderLAN(self))
+
+        else:
+            print("run platoon side networking...")
+            self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
 
         def on_ok():
             self.rpa_quit_confirmation_future = loop.create_future()
@@ -1259,6 +1269,15 @@ class MainWindow(QMainWindow):
 
     def setCommanderXPort(self, xport):
         self.commanderXport = xport
+
+    def getGuiMsgQueue(self):
+        return self.gui_msg_queue
+
+    def setIP(self, ip):
+        self.ip = ip
+
+    def getUser(self):
+        return self.user
 
 
     def _createBotNewFromFileAction(self):
