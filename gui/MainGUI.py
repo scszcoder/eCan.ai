@@ -3991,7 +3991,7 @@ class MainWindow(QMainWindow):
                     self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
             else:
                 self.showMsg("Reconnected: "+vip)
-                foundV = next((v for i, v in enumerate(self.vehicles) if v.getIP() == vip), None)
+                foundV = next((v for i, v in enumerate(self.vehicles) if vname in v.getName()), None)
 
                 foundV.setStatus("running_idle")
 
@@ -4008,11 +4008,15 @@ class MainWindow(QMainWindow):
 
 
 
-    def markVehicleOffline(self, vip):
-        self.showMsg("marking vehicle offline: "+vip)
-        found_v_idx = next((i for i, v in enumerate(self.vehicles) if v.getIP() == vip), -1)
+    def markVehicleOffline(self, vip, vname):
+        global fieldLinks
+        lostName = vname.split(":")[0]
+        self.showMsg("marking vehicle offline: "+vip+" "+json.dumps([v.getIP()+":"+v.getName() for v in self.vehicles]))
 
+        found_v_idx = next((i for i, v in enumerate(self.vehicles) if lostName in v.getName()), -1)
+        print("found_v_idx", found_v_idx)
         if found_v_idx > 0:
+            print("markingoff......")
             found_v = self.vehicles[found_v_idx]
             found_v.setStatus("offline")
 
@@ -4209,6 +4213,7 @@ class MainWindow(QMainWindow):
                 print("add new vehicle to local vehicle data structure but no yet added to GUI", vjd["name"])
                 new_v = VEHICLE(self)
                 new_v.loadJson(vjd)
+                new_v.setStatus("offline")      # always set to offline when load from file. will self correct as we update it later....
                 self.saveVehicle(new_v)
                 self.vehicles.append(new_v)
                 self.runningVehicleModel.appendRow(new_v)             # initially set to be offline state and will be updated later when network status is updated
@@ -5618,7 +5623,7 @@ class MainWindow(QMainWindow):
                         # here we simply update the vehicle's display and gray it out.
                         # also inform cloud about.
                         # we don't really delete this vehicle.
-                        self.markVehicleOffline(msg_parts[0])
+                        self.markVehicleOffline(msg_parts[0], msg_parts[2])
 
                 msgQueue.task_done()
 

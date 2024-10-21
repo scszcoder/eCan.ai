@@ -46,7 +46,9 @@ class VEHICLE(QStandardItem):
                 self.icon = QIcon(self.parent.file_resource.online_vehicle_icon_path)
             else:
                 self.icon = QIcon(self.parent.file_resource.warn_vehicle_icon_path)
-            self.setIcon(self.icon)
+        else:
+            self.icon = QIcon(self.parent.file_resource.offline_vehicle_icon_path)
+        self.setIcon(self.icon)
 
     def getLastUpdateTime(self):
         return self.last_update_time
