@@ -1271,7 +1271,7 @@ class MainWindow(QMainWindow):
         self.commanderXport = xport
 
     def getGuiMsgQueue(self):
-        return self.gui_msg_queue
+        return self.gui_net_msg_queue
 
     def setIP(self, ip):
         self.ip = ip
