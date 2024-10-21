@@ -1347,7 +1347,7 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Send Command"))
         # new_action.triggered.connect(lambda: self.sendToPlatoons("7000", None))
         cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
-        new_action.triggered.connect(lambda: self.sendToPlatoons([], cmd))
+        new_action.triggered.connect(lambda: self.sendToPlatoonsByRowIdxs([], cmd))
 
         return new_action
 
@@ -3982,18 +3982,23 @@ class MainWindow(QMainWindow):
                 newVehicle.setVid(vip.split(".")[3])
                 newVehicle.setName(vname+":")
                 found_fl = next((fl for i, fl in enumerate(fieldLinks) if vname in fl["name"]), None)
-                print("FL0 IP:", fieldLinks[0]["ip"])
-                newVehicle.setFieldLink(found_fl)
+                if found_fl:
+                    print("found_fl IP:", found_fl["ip"])
+                    newVehicle.setFieldLink(found_fl)
+                    newVehicle.setStatus("running_idle")
                 self.saveVehicle(newVehicle)
                 self.vehicles.append(newVehicle)
                 self.runningVehicleModel.appendRow(newVehicle)
                 if self.platoonWin:
                     self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
+
+                resultV = newVehicle
             else:
                 self.showMsg("Reconnected: "+vip)
                 foundV = next((v for i, v in enumerate(self.vehicles) if vname in v.getName()), None)
 
                 foundV.setStatus("running_idle")
+                resultV = foundV
 
         except Exception as e:
             # Get the traceback information
@@ -4005,6 +4010,8 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorAddVehicle: traceback information not available:" + str(e)
 
             self.showMsg(ex_stat)
+
+        return resultV
 
 
 
@@ -4020,6 +4027,7 @@ class MainWindow(QMainWindow):
             found_v = self.vehicles[found_v_idx]
             found_v.setStatus("offline")
 
+        return found_v
 
     # add vehicles based on fieldlinks.
     def checkVehicles(self):
@@ -4074,7 +4082,7 @@ class MainWindow(QMainWindow):
         cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
         effective_rows = list(filter(lambda r: r >= 0, rows))
         if len(effective_rows) > 0:
-            self.sendToPlatoons(effective_rows, cmd)
+            self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
     def sendPlatoonCommand(self, command, rows, mids):
         self.showMsg("hello???")
@@ -4105,7 +4113,7 @@ class MainWindow(QMainWindow):
             effective_rows = []
 
         self.showMsg("effective_rows:"+json.dumps(effective_rows))
-        self.sendToPlatoons(effective_rows, cmd)
+        self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
 
     def cancelVehicleMission(self, rows):
@@ -4113,10 +4121,10 @@ class MainWindow(QMainWindow):
         cmd = {"cmd": "reqCancelMission", "missions": "all"}
         effective_rows = list(filter(lambda r: r >= 0, rows))
         if len(effective_rows) > 0:
-            self.sendToPlatoons(effective_rows, cmd)
+            self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
     # this function sends commands to platoon(s)
-    def sendToPlatoons(self, idxs, cmd={"cmd": "ping"}):
+    def sendToPlatoonsByRowIdxs(self, idxs, cmd={"cmd": "ping"}):
         # this shall bring up a windows, but for now, simply send something to a platoon for network testing purpose...
         #if self.platoonWin == None:
         #    self.platoonWin = PlatoonWindow(self)
@@ -4137,6 +4145,21 @@ class MainWindow(QMainWindow):
                     self.showMsg("cmd sent on link:"+str(i)+":"+json.dumps(cmd))
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
+
+    # this function sends commands to platoon(s)
+    def sendToVehicleByVip(self, vip, cmd={"cmd": "ping"}):
+        self.showMsg("sending commands to vehicle by vip.....")
+        self.showMsg("tcp connections....." + vip + " " + json.dumps([flk["ip"] for flk in fieldLinks]))
+
+        link = next((x for i, x in enumerate(fieldLinks) if x["ip"] == vip), None)
+
+        # if not self.tcpServer == None:
+        if link:
+            self.send_json_to_platoon(link, cmd)
+            self.showMsg("cmd sent on link:" + str(vip) + ":" + json.dumps(cmd))
+        else:
+            self.showMsg("Warning..... TCP server not up and running yet...")
+
 
     # This function translate bots data structure matching ebbot.py to Json format for file storage.
     def genBotsJson(self):
@@ -5609,13 +5632,13 @@ class MainWindow(QMainWindow):
 
                         # vinfo = json.loads(msg_parts[2])
 
-                        self.addVehicle(msg_parts[2], msg_parts[0])
+                        addedV = self.addVehicle(msg_parts[2], msg_parts[0])
 
                         # after adding a vehicle, try to get this vehicle's info
                         if len(self.vehicles) > 0:
                             print("pinging platoon: "+str(len(self.vehicles)-1))
                             last_idx = len(self.vehicles)-1
-                            self.sendToPlatoons([last_idx])         # sends a default ping command to get userful info.
+                            self.sendToVehicleByVip(msg_parts[0])         # sends a default ping command to get userful info.
 
                     elif msg_parts[1] == "net loss":
                         print("received net loss")
@@ -5623,8 +5646,14 @@ class MainWindow(QMainWindow):
                         # here we simply update the vehicle's display and gray it out.
                         # also inform cloud about.
                         # we don't really delete this vehicle.
-                        self.markVehicleOffline(msg_parts[0], msg_parts[2])
+                        found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
 
+                        # immediately report the vehicle situation to the cloud.
+                        vehicle_report = self.prepVehicleReportData(found_vehicle)
+                        resp = send_report_vehicles_to_cloud(self.session,
+                                                             self.tokens['AuthenticationResult']['IdToken'],
+                                                             vehicle_report)
+                        self.saveVehiclesJsonFile()
                 msgQueue.task_done()
 
             await asyncio.sleep(1)
@@ -5867,8 +5896,14 @@ class MainWindow(QMainWindow):
                             found_vehicle.setName(msg["content"]["name"] + ":linux")
 
                         print("now found vehicle" + found_vehicle.getName() + " " + found_vehicle.getOS())
+                        # this is a good juncture to update vehicle status on cloud and local DB and JSON file.
+                        #  now
+                        vehicle_report = self.prepVehicleReportData(found_vehicle)
+                        resp = send_report_vehicles_to_cloud(self.session,
+                                                             self.tokens['AuthenticationResult']['IdToken'],
+                                                             vehicle_report)
+                        self.saveVehiclesJsonFile()
 
-                #now
             elif msg["type"] == "status":
                 # update vehicle status display.
                 self.showMsg(msg["content"])
@@ -5954,7 +5989,9 @@ class MainWindow(QMainWindow):
 
                 if found_vehicle:
                     # this will set status as well as the last_update_time parameter
-                    found_vehicle.setStatus(msg["content"])
+                    if found_vehicle.getStatus() != msg["content"]["vstatus"]:
+                        found_vehicle.setStatus(msg["content"]["vstatus"])
+
                 log3("Heartbeat From Vehicle: "+msg["ip"], "servePlatoons", self)
 
             else:
@@ -6239,6 +6276,7 @@ class MainWindow(QMainWindow):
             self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
             resp = {"ip": self.ip, "type":"pong", "content": self_info}
             # send to commander
+            print("sending "+json.dumps(resp)+ " to commanderIP - " + commanderIP)
             self.commanderIP = commanderIP
             self.commanderXport.write(json.dumps(resp).encode('utf8'))
         elif msg["cmd"] == "chat":
@@ -6577,10 +6615,8 @@ class MainWindow(QMainWindow):
         for v in self.vehicles:
             if v.getStatus() == "":
                 vstat = "offline"
-                # vstat = "online"
             else:
                 vstat = v.getStatus()
-                # vstat = "online"
 
             if self.machine_name not in v.getName():
                 vinfo = {
@@ -7297,6 +7333,7 @@ class MainWindow(QMainWindow):
             log3("vehicle status report"+json.dumps(vehicle_report))
             resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
                                                  vehicle_report)
+            self.saveVehiclesJsonFile()
 
     # capture current state and send in heartbeat signal to the cloud
     def stateCapture(self):

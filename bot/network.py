@@ -77,15 +77,19 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
 
     def connection_lost(self, exc):
         print(f"Connection to {self.peername[0]} lost")
-        #find and delete from fieldLinks
-        lostone = next((x for x in fieldLinks if x["ip"] == self.peername[0]), None)
-        lostName = lostone["name"]
-        fieldLinks.remove(lostone)
-        self.on_con_lost.set_result(True)
-        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net loss!"+lostName))
 
-        # Signal that the connection was lost
-        if not self.on_con_lost.done():  # Only set if not already set
+        # Find and delete from fieldLinks
+        lostone = next((x for x in fieldLinks if x["ip"] == self.peername[0]), None)
+        if lostone:  # Ensure that the link exists in the list before trying to remove it
+            lostName = lostone["name"]
+            fieldLinks.remove(lostone)
+            print(f"Removed connection: {lostone['ip']} - {lostName}")
+
+        # Notify the GUI about the lost connection
+        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net loss!" + lostName))
+
+        # Signal that the connection was lost, but only set it if it's not already done
+        if not self.on_con_lost.done():
             self.on_con_lost.set_result(True)
 
 # main platoon side communication protocol
