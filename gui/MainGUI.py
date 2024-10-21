@@ -6171,6 +6171,10 @@ class MainWindow(QMainWindow):
         self.showMsg("received from commander: "+msgString)
         if "!connection!" in msgString:
             msg = {"cmd": "connection"}
+            msg_parts = msgString.split("!")
+            self.commanderIP = msg_parts[0]
+            self.commanderName = msg_parts[2]
+
         elif "!net loss" in msgString:
             msg = {"cmd": "net loss"}
         else:
@@ -6276,9 +6280,10 @@ class MainWindow(QMainWindow):
             self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
             resp = {"ip": self.ip, "type":"pong", "content": self_info}
             # send to commander
-            print("sending "+json.dumps(resp)+ " to commanderIP - " + commanderIP)
-            self.commanderIP = commanderIP
+            print("sending "+json.dumps(resp)+ " to commanderIP - " + self.commanderIP)
+            print(self.commanderXport)
             self.commanderXport.write(json.dumps(resp).encode('utf8'))
+
         elif msg["cmd"] == "chat":
             # update vehicle status display.
             self.showMsg(json.dumps(msg))
