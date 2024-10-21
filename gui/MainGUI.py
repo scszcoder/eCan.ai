@@ -5657,6 +5657,7 @@ class MainWindow(QMainWindow):
                         # vinfo = json.loads(msg_parts[2])
 
                         addedV = self.addVehicle(msg_parts[2], msg_parts[0])
+                        await asyncio.sleep(5)
 
                         # after adding a vehicle, try to get this vehicle's info
                         if len(self.vehicles) > 0:
@@ -6646,7 +6647,7 @@ class MainWindow(QMainWindow):
     def getBidsOnThisVehicle(self):
         thisBots = self.getBotsOnThisVehicle()
         thisBids = [b.getBid() for b in thisBots]
-        thisBidsString = ",".join(thisBids)
+        thisBidsString = json.dumps(thisBids)
         self.showMsg("bids on this vehicle:"+thisBidsString)
         return thisBidsString
 
@@ -6717,7 +6718,7 @@ class MainWindow(QMainWindow):
                 "owner": self.user,
                 "status": v.getStatus(),
                 "lastseen": v.getLastUpdateTime().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
-                "bids": ",".join(v.getBotIds()),
+                "bids": json.dumps(v.getBotIds()),
                 "hardware": v.getArch(),
                 "software": v.getOS(),
                 "ip": v.getIP(),
