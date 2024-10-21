@@ -54,6 +54,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.transport = transport
         new_link = {"ip": self.peername[0], "port": self.peername[1], "name": hostname, "transport": transport}
         fieldLinks.append(new_link)
+        print(f"now we have {len(fieldLinks)} field links")
         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+hostname))
         # if not self.topgui.mainwin == None:
         #     if self.topgui.mainwin.platoonWin == None:
@@ -78,9 +79,10 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         print(f"Connection to {self.peername[0]} lost")
         #find and delete from fieldLinks
         lostone = next((x for x in fieldLinks if x["ip"] == self.peername[0]), None)
+        lostName = lostone["name"]
         fieldLinks.remove(lostone)
         self.on_con_lost.set_result(True)
-        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net loss!"))
+        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net loss!"+lostName))
 
         # Signal that the connection was lost
         if not self.on_con_lost.done():  # Only set if not already set
