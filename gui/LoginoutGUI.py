@@ -287,6 +287,8 @@ class Login(QDialog):
 
     def set_xport(self, xport):
         self.xport = xport
+        if self.main_win:
+            self.main_win.setCommanderXPort(xport)
 
     def set_ip(self, ip):
         self.ip = ip

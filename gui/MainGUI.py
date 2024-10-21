@@ -1257,6 +1257,10 @@ class MainWindow(QMainWindow):
         return new_action
 
 
+    def setCommanderXPort(self, xport):
+        self.commanderXport = xport
+
+
     def _createBotNewFromFileAction(self):
         # File actions
         new_action = QAction(self)
