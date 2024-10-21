@@ -58,7 +58,7 @@ import platform
 from pynput.mouse import Controller
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
-from bot.network import myname, fieldLinks, commanderIP
+from bot.network import myname, fieldLinks, commanderIP, commanderXport
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
@@ -6174,6 +6174,7 @@ class MainWindow(QMainWindow):
             msg_parts = msgString.split("!")
             self.commanderIP = msg_parts[0]
             self.commanderName = msg_parts[2]
+            self.commanderXport = commanderXport
 
         elif "!net loss" in msgString:
             msg = {"cmd": "net loss"}
