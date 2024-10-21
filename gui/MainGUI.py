@@ -59,7 +59,7 @@ from pynput.mouse import Controller
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
-from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running
+from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running, running_step_index
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
@@ -569,6 +569,7 @@ class MainWindow(QMainWindow):
 
         self.running_missionListView = MissionListView()
         self.runningMissionModel = QStandardItemModel(self.running_missionListView)
+        self.running_mission = None
 
         self.vehicleListView = PlatoonListView(self)
         self.vehicleListView.installEventFilter(self)
@@ -2888,23 +2889,23 @@ class MainWindow(QMainWindow):
             rpaScripts = []
 
             # generate walk skills on the fly.
-            running_mission = self.missions[worksettings["midx"]]
+            self.running_mission = self.missions[worksettings["midx"]]
 
             # no finger print profile, no run for ads.
-            if 'ads' in running_mission.getCusPAS() and running_mission.getFingerPrintProfile() == "":
-                self.showMsg("ERROR ADS mission has no profile: " + str(running_mission.getMid()) + " " + running_mission.getCusPAS() + " " + running_mission.getFingerPrintProfile())
-                runResult = "ErrorRPA ADS mission has no profile " + str(running_mission.getMid())
+            if 'ads' in self.running_mission.getCusPAS() and self.running_mission.getFingerPrintProfile() == "":
+                self.showMsg("ERROR ADS mission has no profile: " + str(self.running_mission.getMid()) + " " + self.running_mission.getCusPAS() + " " + self.running_mission.getFingerPrintProfile())
+                runResult = "ErrorRPA ADS mission has no profile " + str(self.running_mission.getMid())
                 self.update1MStat(worksettings["midx"], runResult)
                 self.update1WorkRunStatus(worksTBD, worksettings["midx"])
             else:
-                self.showMsg("current RUNNING MISSION: "+json.dumps(running_mission.genJson()))
+                self.showMsg("current RUNNING MISSION: "+json.dumps(self.running_mission.genJson()))
                 print("RPA all skill ids:", [sk.getSkid() for sk in self.skills])
-                if running_mission.getSkills() != "":
-                    rpaSkillIdWords = running_mission.getSkills().split(",")
-                    self.showMsg("current RUNNING MISSION SKILL: "+json.dumps(running_mission.getSkills()))
+                if self.running_mission.getSkills() != "":
+                    rpaSkillIdWords = self.running_mission.getSkills().split(",")
+                    self.showMsg("current RUNNING MISSION SKILL: "+json.dumps(self.running_mission.getSkills()))
                     rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
-                    self.showMsg("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(running_mission.getMid()))
+                    self.showMsg("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(self.running_mission.getMid()))
 
                     # get skills data structure by IDs
                     self.showMsg("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]))
@@ -2987,8 +2988,8 @@ class MainWindow(QMainWindow):
                     # of the mission will come from the another computer, and there might even be
                     # files to be downloaded first as the input to the mission.
                     if worksettings["as_server"]:
-                        print("SETTING MISSSION INPUT:", running_mission.getConfig())
-                        setMissionInput(running_mission.getConfig())
+                        print("SETTING MISSSION INPUT:", self.running_mission.getConfig())
+                        setMissionInput(self.running_mission.getConfig())
 
 
                     # (steps, mission, skill, mode="normal"):
@@ -5894,6 +5895,7 @@ class MainWindow(QMainWindow):
     # content format varies according to type.
     def processPlatoonMsgs(self, msgString, ip):
         try:
+            global running_step_index
             fl_ips = [x["ip"] for x in fieldLinks]
             self.showMsg("Platoon Msg Received:"+msgString+" from::"+ip+"  "+str(len(fieldLinks)) + json.dumps(fl_ips))
             msg = json.loads(msgString)
@@ -6176,7 +6178,17 @@ class MainWindow(QMainWindow):
 
             if heartbeat%8 == 0:
                 # sends a heart beat to commander
-                msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"heartbeat\", \"content\":\""+self.working_state+"\"}"
+
+                hbJson = {
+                    "ip": self.ip,
+                    "type": "heartbeat",
+                    "content" : {
+                        "vstatus": self.working_state,
+                        "running_mid": self.running_mission.getMid() if self.running_mission else 0,
+                        "running_instruction": running_step_index
+                    }
+                }
+                msg = json.dumps(hbJson)
                 # send to commander
                 self.commanderXport.write(msg.encode('utf8'))
 
