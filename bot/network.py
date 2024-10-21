@@ -106,8 +106,15 @@ class communicatorProtocol(asyncio.Protocol):
     def connection_made(self, transport):
         self.peername = transport.get_extra_info('peername')
         print('Connection from commander {}'.format(self.peername))
+        ip_address = self.peername[0]
+        try:
+            hostname = socket.gethostbyaddr(ip_address)[0]
+        except socket.herror:
+            hostname = ""  # If no reverse DNS is available
+        print(f'IP Address: {ip_address}, Hostname: {hostname}')
+
         self.transport = transport
-        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"))
+        asyncio.create_task(self.msg_queue.put(ip_address + "!connection!" + hostname))
 
     def data_received(self, data):
         self.buffer.extend(data)
