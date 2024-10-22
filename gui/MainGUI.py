@@ -2481,10 +2481,7 @@ class MainWindow(QMainWindow):
                             # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                             self.add_buy_searchs(batched_tasks)
-                            # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
-                            self.todays_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": vehicle.getIP(), "status": "yet to start",
-                                 "current widx": 0, "vname": vname, "completed": [], "aborted": []})
+
 
                             print(vehicle.getName(), "'s field link:", vehicle.getFieldLink())
                             # send fingerprint browser profiles to platoon/vehicle
@@ -2568,10 +2565,6 @@ class MainWindow(QMainWindow):
                             # flatten tasks and regroup them based on sites, and divide them into batches
                             # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
-                            # current_tz, current_group = self.setTaskGroupInitialState(batched_tasks)
-                            self.reactive_work["tbd"].append(
-                                {"name": "automation", "works": batched_tasks, "ip": vehicle.getIP(), "status": "yet to start",
-                                 "current widx": 0, "vname": vname, "completed": [], "aborted": []})
 
                             # send fingerprint browser profiles to platoon/vehicle
                             for profile in ads_profiles:
