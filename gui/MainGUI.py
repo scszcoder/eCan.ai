@@ -2476,7 +2476,7 @@ class MainWindow(QMainWindow):
                         vehicle = self.getVehicleByName(vname)
                         print("assign work for vehicle:"+vname)
                         if vehicle and "running" in vehicle.getStatus():
-                            self.showMsg("working on task group vehicle : " + vname)
+                            self.showMsg("working on remote task group vehicle : " + vname)
                             # flatten tasks and regroup them based on sites, and divide them into batches
                             # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
@@ -2486,6 +2486,7 @@ class MainWindow(QMainWindow):
                                 {"name": "automation", "works": batched_tasks, "ip": vehicle.getIP(), "status": "yet to start",
                                  "current widx": 0, "vname": vname, "completed": [], "aborted": []})
 
+                            print(vehicle.getName(), "'s field link:", vehicle.getFieldLink())
                             # send fingerprint browser profiles to platoon/vehicle
                             for profile in ads_profiles:
                                 self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
@@ -2709,7 +2710,10 @@ class MainWindow(QMainWindow):
         else:
             # if there is no schedule task to run, check whether there is reactive tasks to do, if so, do it asap.
             if self.reactive_work["tbd"]:
+                self.showMsg("run contracted work netxt")
                 nextrun = self.reactive_work["tbd"][0]
+            else:
+                self.showMsg("no contract work to run")
 
         return nextrun
 
@@ -3999,13 +4003,14 @@ class MainWindow(QMainWindow):
             else:
                 vids = []
 
+            found_fl = next((fl for i, fl in enumerate(fieldLinks) if vname in fl["name"]), None)
+
             if vname not in v_host_names:
                 self.showMsg("adding a new vehicle..... "+vname+" "+vip)
                 newVehicle = VEHICLE(self)
                 newVehicle.setIP(vip)
                 newVehicle.setVid(vip.split(".")[3])
                 newVehicle.setName(vname+":")
-                found_fl = next((fl for i, fl in enumerate(fieldLinks) if vname in fl["name"]), None)
                 if found_fl:
                     print("found_fl IP:", found_fl["ip"])
                     newVehicle.setFieldLink(found_fl)
@@ -4022,6 +4027,10 @@ class MainWindow(QMainWindow):
                 foundV = next((v for i, v in enumerate(self.vehicles) if vname in v.getName()), None)
 
                 foundV.setStatus("running_idle")
+                if found_fl:
+                    print("found_fl IP:", found_fl["ip"])
+                    foundV.setFieldLink(found_fl)
+
                 resultV = foundV
 
         except Exception as e:
@@ -5712,7 +5721,7 @@ class MainWindow(QMainWindow):
 
                     print("check next to run")
                     botTodos = self.checkNextToRun()
-                    if not botTodos == None:
+                    if not (botTodos == None):
                         self.showMsg("working on..... "+botTodos["name"])
                         self.working_state = "running_working"
                         if botTodos["name"] == "fetch schedule":
