@@ -258,6 +258,7 @@ class MainWindow(QMainWindow):
         self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
         self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "ads_port": 0, "ads_api_key": ""}
         self.bot_states = ["active", "disabled", "banned", "deleted"]
+        self.todays_bot_profiles = []
         # self.readBotJsonFile()
         self.vehicles = []                              # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
@@ -3969,7 +3970,8 @@ class MainWindow(QMainWindow):
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             bot_profile_name = self.my_ecb_data_homepath + "/ads_profiles/"+bjs["privateProfile"]["email"].split("@")[0]+".txt"
-            self.todays_bot_profiles.append(bot_profile_name)
+            if bot_profile_name not in self.todays_bot_profiles:
+                self.todays_bot_profiles.append(bot_profile_name)
 
         for mjs in missionsJson:
             self.newMission = EBMISSION(self)
@@ -5643,46 +5645,52 @@ class MainWindow(QMainWindow):
         while True:
             print("listening to platoons")
             if not msgQueue.empty():
-                while not msgQueue.empty():
-                    net_message = await msgQueue.get()
-                    self.showMsg("received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message)
-                    msg_parts = net_message.split("!")
-                    if msg_parts[1] == "net data":
-                        self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
-                    elif msg_parts[1] == "connection":
-                        # this is the initial connection msg from a client
-                        print("recevied connection message: "+msg_parts[0]+" "+msg_parts[2])
+                try:
+                    while not msgQueue.empty():
+                        net_message = await msgQueue.get()
+                        self.showMsg("received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message)
+                        msg_parts = net_message.split("!")
+                        if msg_parts[1] == "net data":
+                            self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+                        elif msg_parts[1] == "connection":
+                            # this is the initial connection msg from a client
+                            print("recevied connection message: "+msg_parts[0]+" "+msg_parts[2])
 
-                        if self.platoonWin == None:
-                            self.platoonWin = PlatoonWindow(self, "conn")
+                            if self.platoonWin == None:
+                                self.platoonWin = PlatoonWindow(self, "conn")
 
-                        # vinfo = json.loads(msg_parts[2])
+                            # vinfo = json.loads(msg_parts[2])
 
-                        addedV = self.addVehicle(msg_parts[2], msg_parts[0])
-                        await asyncio.sleep(5)
+                            addedV = self.addVehicle(msg_parts[2], msg_parts[0])
+                            await asyncio.sleep(5)
 
-                        # after adding a vehicle, try to get this vehicle's info
-                        if len(self.vehicles) > 0:
-                            print("pinging platoon: "+str(len(self.vehicles)-1))
-                            last_idx = len(self.vehicles)-1
-                            self.sendToVehicleByVip(msg_parts[0])         # sends a default ping command to get userful info.
+                            # after adding a vehicle, try to get this vehicle's info
+                            if len(self.vehicles) > 0:
+                                print("pinging platoon: "+str(len(self.vehicles)-1))
+                                last_idx = len(self.vehicles)-1
+                                self.sendToVehicleByVip(msg_parts[0])         # sends a default ping command to get userful info.
 
-                    elif msg_parts[1] == "net loss":
-                        print("received net loss")
-                        # field link is already removed in the network.py
-                        # here we simply update the vehicle's display and gray it out.
-                        # also inform cloud about.
-                        # we don't really delete this vehicle.
-                        found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
+                        elif msg_parts[1] == "net loss":
+                            print("received net loss")
+                            # field link is already removed in the network.py
+                            # here we simply update the vehicle's display and gray it out.
+                            # also inform cloud about.
+                            # we don't really delete this vehicle.
+                            found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
 
-                        # immediately report the vehicle situation to the cloud.
-                        vehicle_report = self.prepVehicleReportData(found_vehicle)
-                        resp = send_report_vehicles_to_cloud(self.session,
-                                                             self.tokens['AuthenticationResult']['IdToken'],
-                                                             vehicle_report)
-                        self.saveVehiclesJsonFile()
-                msgQueue.task_done()
-
+                            # immediately report the vehicle situation to the cloud.
+                            vehicle_report = self.prepVehicleReportData(found_vehicle)
+                            resp = send_report_vehicles_to_cloud(self.session,
+                                                                 self.tokens['AuthenticationResult']['IdToken'],
+                                                                 vehicle_report)
+                            self.saveVehiclesJsonFile()
+                    msgQueue.task_done()
+                except asyncio.QueueEmpty:
+                    # If for some reason the queue is unexpectedly empty, handle it
+                    print("Queue unexpectedly empty when trying to get message.")
+                except Exception as e:
+                    # Catch any other issues while processing the message
+                    print(f"Error processing Commander message: {e}")
             await asyncio.sleep(1)
 
     # this is be run as an async task.
@@ -6175,160 +6183,183 @@ class MainWindow(QMainWindow):
         self.showMsg("starting serve Commanders")
         heartbeat = 0
         while True:
-            heartbeat = heartbeat + 1
-            if heartbeat > 255:
-                heartbeat = 0
+            try:
+                heartbeat = heartbeat + 1
+                if heartbeat > 255:
+                    heartbeat = 0
 
-            if heartbeat%8 == 0:
-                # sends a heart beat to commander
+                if heartbeat%8 == 0:
+                    # sends a heart beat to commander
 
-                hbJson = {
-                    "ip": self.ip,
-                    "type": "heartbeat",
-                    "content" : {
-                        "vstatus": self.working_state,
-                        "running_mid": self.running_mission.getMid() if self.running_mission else 0,
-                        "running_instruction": running_step_index
+                    hbJson = {
+                        "ip": self.ip,
+                        "type": "heartbeat",
+                        "content" : {
+                            "vstatus": self.working_state,
+                            "running_mid": self.running_mission.getMid() if self.running_mission else 0,
+                            "running_instruction": running_step_index
+                        }
                     }
-                }
-                msg = json.dumps(hbJson)
-                # send to commander
-                self.commanderXport.write(msg.encode('utf8'))
+                    msg = json.dumps(hbJson)
+                    # send to commander
+                    print("sending heartbeat")
+                    self.commanderXport.write(msg.encode('utf8'))
+            except (json.JSONDecodeError, AttributeError) as e:
+                # Handle JSON encoding or missing attributes issues
+                print(f"Error encoding heartbeat JSON or missing attribute: {e}")
+            except OSError as e:
+                # Handle network-related errors
+                print(f"Error sending heartbeat to Commander: {e}")
 
             if not msgQueue.empty():
-                net_message = await msgQueue.get()
-                print("From Commander, recevied queued net message:", net_message)
-                self.processCommanderMsgs(net_message)
-                msgQueue.task_done()
+                try:
+                    net_message = await msgQueue.get()
+                    print("From Commander, recevied queued net message:", net_message)
+                    self.processCommanderMsgs(net_message)
+                    msgQueue.task_done()
+                except asyncio.QueueEmpty:
+                    # If for some reason the queue is unexpectedly empty, handle it
+                    print("Queue unexpectedly empty when trying to get message.")
+                except Exception as e:
+                    # Catch any other issues while processing the message
+                    traceback_info = traceback.extract_tb(e.__traceback__)
+                    # Extract the file name and line number from the last entry in the traceback
+                    print("Error processing commander msg:" + traceback.format_exc() + " " + str(e))
+
 
             await asyncio.sleep(1)
+            self.showMsg("watching Commanders...")
 
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
-        self.showMsg("received from commander: "+msgString)
-        if "!connection!" in msgString:
-            msg = {"cmd": "connection"}
-            msg_parts = msgString.split("!")
-            self.commanderIP = msg_parts[0]
-            self.commanderName = msg_parts[2]
+        try:
+            self.showMsg("received from commander: "+msgString)
+            if "!connection!" in msgString:
+                msg = {"cmd": "connection"}
+                msg_parts = msgString.split("!")
+                self.commanderIP = msg_parts[0]
+                self.commanderName = msg_parts[2]
 
-        elif "!net loss" in msgString:
-            msg = {"cmd": "net loss"}
-        else:
-            msg_parts = msgString.split("!")
-            msg_data = "".join(msg_parts[2:])
-            msg = json.loads(msg_data)
-        # first, check ip and make sure this from a know vehicle.
-        if msg["cmd"] == "reqStatusUpdate":
-            if msg["missions"] != "":
-                if msg["missions"] == "all":
-                    mids = [m.getMid() for m in self.missions]
-                else:
-                    mid_chars = msg["missions"].aplit(",")
-                    mids = [int(mc) for mc in mid_chars]
+            elif "!net loss" in msgString:
+                msg = {"cmd": "net loss"}
+            else:
+                msg_parts = msgString.split("!")
+                msg_data = "".join(msg_parts[2:])
+                msg = json.loads(msg_data)
+            # first, check ip and make sure this from a know vehicle.
+            if msg["cmd"] == "reqStatusUpdate":
+                if msg["missions"] != "":
+                    if msg["missions"] == "all":
+                        mids = [m.getMid() for m in self.missions]
+                    else:
+                        mid_chars = msg["missions"].aplit(",")
+                        mids = [int(mc) for mc in mid_chars]
 
-                # capture all the status of all the missions specified and send back the commander...
-                self.sendCommanderMissionsStatMsg(mids)
+                    # capture all the status of all the missions specified and send back the commander...
+                    self.sendCommanderMissionsStatMsg(mids)
 
-        elif msg["cmd"] == "reqSendFile":
-            # update vehicle status display.
-            self.showMsg("received a file: "+msg["file_name"])
-            file_name = self.ads_profile_dir + msg["file_name"]
-            file_type = msg["file_type"]
-            file_contents = msg["file_contents"].encode('latin1')  # Encode string to binary data
-            with open(file_name, 'wb') as file:
-                file.write(file_contents)
+            elif msg["cmd"] == "reqSendFile":
+                # update vehicle status display.
+                self.showMsg("received a file: "+msg["file_name"])
+                file_name = self.ads_profile_dir + msg["file_name"]
+                file_type = msg["file_type"]
+                file_contents = msg["file_contents"].encode('latin1')  # Encode string to binary data
+                with open(file_name, 'wb') as file:
+                    file.write(file_contents)
 
-            # first check if the missions are completed or being run or not, if so nothing could be done.
-            # otherwise, simply update the mission status to be "Cancelled"
-        elif msg["cmd"] == "reqCancelMissions":
-            # update vehicle status display.
-            self.showMsg(msg["content"])
-            # first check if the missions are completed or being run or not, if so nothing could be done.
-            # otherwise, simply update the mission status to be "Cancelled"
-        elif msg["cmd"] == "reqSetSchedule":
-            # schedule work now..... append to array data structure and set up the pointer to the 1st task.
-            # the actual running of the tasks will be taken care of by the schduler.
-            localworks = msg["todos"]
-            self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
+                # first check if the missions are completed or being run or not, if so nothing could be done.
+                # otherwise, simply update the mission status to be "Cancelled"
+            elif msg["cmd"] == "reqCancelMissions":
+                # update vehicle status display.
+                self.showMsg(msg["content"])
+                # first check if the missions are completed or being run or not, if so nothing could be done.
+                # otherwise, simply update the mission status to be "Cancelled"
+            elif msg["cmd"] == "reqSetSchedule":
+                # schedule work now..... append to array data structure and set up the pointer to the 1st task.
+                # the actual running of the tasks will be taken care of by the schduler.
+                localworks = msg["todos"]
+                self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
 
-            self.showMsg("received work request:"+json.dumps(localworks))
-            # send work into work Queue which is the self.todays_work["tbd"] data structure.
+                self.showMsg("received work request:"+json.dumps(localworks))
+                # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
-            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
-            self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
+                self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
+                self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
 
-            platform_os = self.platform            # win, mac or linux
-            self.todays_scheduled_task_groups[platform_os] = localworks
-            vname = self.machine_name + ":" + self.os_short
-            self.unassigned_scheduled_task_groups[vname] = localworks
+                platform_os = self.platform            # win, mac or linux
+                self.todays_scheduled_task_groups[platform_os] = localworks
+                vname = self.machine_name + ":" + self.os_short
+                self.unassigned_scheduled_task_groups[vname] = localworks
 
-            # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
-            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
+                # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
+                batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
 
-            # clean up the reports on this vehicle....
-            self.todaysReports = []
-            self.DONE_WITH_TODAY = False
+                # clean up the reports on this vehicle....
+                self.todaysReports = []
+                self.DONE_WITH_TODAY = False
 
-        elif msg["cmd"] == "reqSetReactiveWorks":
-            # schedule work now..... append to array data structure and set up the pointer to the 1st task.
-            # the actual running of the tasks will be taken care of by the schduler.
-            localworks = msg["todos"]
-            self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
+            elif msg["cmd"] == "reqSetReactiveWorks":
+                # schedule work now..... append to array data structure and set up the pointer to the 1st task.
+                # the actual running of the tasks will be taken care of by the schduler.
+                localworks = msg["todos"]
+                self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
 
-            self.showMsg("received reactive work request:"+json.dumps(localworks))
-            # send work into work Queue which is the self.todays_work["tbd"] data structure.
+                self.showMsg("received reactive work request:"+json.dumps(localworks))
+                # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
-            self.reactive_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
-            self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
+                self.reactive_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
+                self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
 
-            platform_os = self.platform            # win, mac or linux
-            self.todays_scheduled_task_groups[platform_os] = localworks
-            vname = self.machine_name + ":" + self.os_short
-            self.unassigned_scheduled_task_groups[vname] = localworks
+                platform_os = self.platform            # win, mac or linux
+                self.todays_scheduled_task_groups[platform_os] = localworks
+                vname = self.machine_name + ":" + self.os_short
+                self.unassigned_scheduled_task_groups[vname] = localworks
 
-            # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
-            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
+                # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
+                batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
 
-            # clean up the reports on this vehicle....
-            self.todaysReports = []
-            self.DONE_WITH_TODAY = False
+                # clean up the reports on this vehicle....
+                self.todaysReports = []
+                self.DONE_WITH_TODAY = False
 
-        elif msg["cmd"] == "reqCancelAllMissions":
-            # update vehicle status display.
-            self.showMsg(json.dumps(msg["content"]))
-            self.sendRPAMessage(msg_data)
-        elif msg["cmd"] == "reqHaltMissions":
-            # update vehicle status display.
-            self.showMsg(json.dumps(msg["content"]))
-            self.sendRPAMessage(msg_data)
-            # simply change the mission's status to be "Halted" again, this will make task runner to run this mission
-        elif msg["cmd"] == "reqResumeMissions":
-            # update vehicle status display.
-            self.showMsg(json.dumps(msg["content"]))
-            self.sendRPAMessage(msg_data)
-            # simply change the mission's status to be "Scheduled" again, this will make task runner to run this mission
-        elif msg["cmd"] == "reqAddMissions":
-            # update vehicle status display.
-            self.showMsg(json.dumps(msg["content"]))
-            # this is for manual generated missions, simply added to the todo list.
-        elif msg["cmd"] == "ping":
-            # respond to ping with pong
-            self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
-            resp = {"ip": self.ip, "type":"pong", "content": self_info}
-            # send to commander
-            print("sending "+json.dumps(resp)+ " to commanderIP - " + self.commanderIP)
-            print(self.commanderXport)
-            self.commanderXport.write(json.dumps(resp).encode('utf8'))
+            elif msg["cmd"] == "reqCancelAllMissions":
+                # update vehicle status display.
+                self.showMsg(json.dumps(msg["content"]))
+                self.sendRPAMessage(msg_data)
+            elif msg["cmd"] == "reqHaltMissions":
+                # update vehicle status display.
+                self.showMsg(json.dumps(msg["content"]))
+                self.sendRPAMessage(msg_data)
+                # simply change the mission's status to be "Halted" again, this will make task runner to run this mission
+            elif msg["cmd"] == "reqResumeMissions":
+                # update vehicle status display.
+                self.showMsg(json.dumps(msg["content"]))
+                self.sendRPAMessage(msg_data)
+                # simply change the mission's status to be "Scheduled" again, this will make task runner to run this mission
+            elif msg["cmd"] == "reqAddMissions":
+                # update vehicle status display.
+                self.showMsg(json.dumps(msg["content"]))
+                # this is for manual generated missions, simply added to the todo list.
+            elif msg["cmd"] == "ping":
+                # respond to ping with pong
+                self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
+                resp = {"ip": self.ip, "type":"pong", "content": self_info}
+                # send to commander
+                print("sending "+json.dumps(resp)+ " to commanderIP - " + self.commanderIP)
+                print(self.commanderXport)
+                self.commanderXport.write(json.dumps(resp).encode('utf8'))
 
-        elif msg["cmd"] == "chat":
-            # update vehicle status display.
-            self.showMsg(json.dumps(msg))
-            # this message is a chat to a bot/bot group, so forward it to the bot(s)
-            # first, find out the bot's queue(which is kind of a temp mailbox for the bot and drop it there)
-            self.receiveBotChatMessage(msg["message"])
+            elif msg["cmd"] == "chat":
+                # update vehicle status display.
+                self.showMsg(json.dumps(msg))
+                # this message is a chat to a bot/bot group, so forward it to the bot(s)
+                # first, find out the bot's queue(which is kind of a temp mailbox for the bot and drop it there)
+                self.receiveBotChatMessage(msg["message"])
 
+        except Exception as e:
+            # Catch any other issues while processing the message
+            print(f"Error processing Commander message: {e}")
 
     def sendCommanderMissionsStatMsg(self, mids):
         statusJson = self.genMissionStatusReport(mids, False)
