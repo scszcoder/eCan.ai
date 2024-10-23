@@ -430,19 +430,19 @@ class BOT_PUB_PROFILE():
 
 
     def loadJson(self, dj):
-        self.bid = dj["bid"]
-        self.nick_name = dj["pseudo_nick_name"]
-        self.pseudo_name = dj["pseudo_name"]
-        self.location = dj["location"]
-        self.pubbirthday = dj["pubbirthday"]
-        self.gender = dj["gender"]
-        self.interests = dj["interests"]
-        self.roles = dj["roles"]
-        self.org = dj["org"]
-        self.levels = dj["levels"]
-        self.levelStart = dj["levelStart"]
-        self.vname = dj["vehicle"]
-        self.status = dj["status"]
+        self.bid = dj.get("bid", 0)
+        self.nick_name = dj.get("pseudo_nick_name", "")
+        self.pseudo_name = dj.get("pseudo_name", "")
+        self.location = dj.get("location", "")
+        self.pubbirthday = dj.get("pubbirthday", "")
+        self.gender = dj.get("gender", "")
+        self.interests = dj.get("interests", "")
+        self.roles = dj.get("roles", "")
+        self.org = dj.get("org", "")
+        self.levels = dj.get("levels", "")
+        self.levelStart = dj.get("levelStart", "1900-01-01 00:00:00")
+        self.vname = dj.get("vehicle", "")
+        self.status =dj.get("status", "")
 
     def loadNetRespJson(self, dj):
         self.location = dj["location"]
