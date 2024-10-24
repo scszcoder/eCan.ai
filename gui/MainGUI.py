@@ -254,6 +254,8 @@ class MainWindow(QMainWindow):
 
         self.bot_cookie_site_lists = {}
         self.ads_profile_dir = self.my_ecb_data_homepath + "/ads_profiles/"
+        if not os.path.exists(self.ads_profile_dir):
+            os.makedirs(self.ads_profile_dir)
 
         self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
         self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "ads_port": 0, "ads_api_key": ""}
@@ -1698,14 +1700,17 @@ class MainWindow(QMainWindow):
             formatted_today = today.strftime('%Y-%m-%d')
             bd_parts = nm["createon"].split()
             nm["createon"] = formatted_today + " " + bd_parts[1]
+
+
+
         print("created on date generated.")
         # self.showMsg("bodyobj: " + json.dumps(bodyobj))
         if len(bodyobj) > 0:
             print("BEGIN ASSIGN INCOMING MISSION....")
+            self.build_cookie_site_lists()
             # convert new added mission json to MISSIONs object
             newlyAdded = self.addNewlyAddedMissions(bodyobj)
             # now that todays' newly added missions are in place, generate the cookie site list for the run.
-            self.build_cookie_site_lists()
             self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
             # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
             #  turn this into a per-vehicle flattend list of tasks (vehicle name based dictionary).
@@ -1974,9 +1979,16 @@ class MainWindow(QMainWindow):
 
         return(newAdded)
 
-
+    # this is really about setting up fingerprint profile automatically for a new Mission
+    # if it's not already set up, basically using bot's email + site in cuspas to create
+    # the relevant profile xlsx from the superset .txt version of the bot's profile (based on email only)
     def setPrivateAttributesBasedOnPast(self, newMission):
         print("new mission type and cuspas:", newMission.getType(), newMission.getCusPAS())
+
+        foundBot = self.getBotByID(newMission.getBid())
+        if foundBot:
+            botEmail = foundBot.getEmail()
+
         similar = [m for m in self.missions if m.getType() == newMission.getType() and m.getCusPAS() == newMission.getCusPAS()]
         similarWithFingerPrintProfile = [m for m in similar if m.getFingerPrintProfile()]
 
@@ -3084,7 +3096,8 @@ class MainWindow(QMainWindow):
                 foundMissions.append(foundMission)
 
         # update missions to cloud DB and local DB
-        self.updateMissions(foundMissions)
+        if foundMissions:
+            self.updateMissions(foundMissions)
 
     # check where a mission is supposed to return any resulting files, if so, return the list of full path file names.
     def getMissionResultFileNames(self, mission):
@@ -4025,7 +4038,7 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg("Reconnected: "+vip)
                 foundV = next((v for i, v in enumerate(self.vehicles) if vname in v.getName()), None)
-
+                foundV.setIP(vip)
                 foundV.setStatus("running_idle")
                 if found_fl:
                     print("found_fl IP:", found_fl["ip"])
@@ -5912,7 +5925,7 @@ class MainWindow(QMainWindow):
     # content format varies according to type.
     def processPlatoonMsgs(self, msgString, ip):
         try:
-            global running_step_index
+            global running_step_index, fieldLinks
             fl_ips = [x["ip"] for x in fieldLinks]
             self.showMsg("Platoon Msg Received:"+msgString+" from::"+ip+"  "+str(len(fieldLinks)) + json.dumps(fl_ips))
             msg = json.loads(msgString)
@@ -5950,10 +5963,10 @@ class MainWindow(QMainWindow):
                 # update vehicle status display.
                 self.showMsg(msg["content"])
                 log3("msg type:" + "status", "servePlatoons", self)
-                self.showMsg("recevied a status update message")
+                self.showMsg("recevied a status update message:"+msg["content"])
                 if self.platoonWin:
                     self.showMsg("updating platoon WIN")
-                    self.platoonWin.updatePlatoonStatAndShow(msg)
+                    self.platoonWin.updatePlatoonStatAndShow(msg, fieldLinks)
                     self.platoonWin.show()
                 else:
                     self.showMsg("ERROR: platoon win not yet exists.......")
@@ -5969,8 +5982,12 @@ class MainWindow(QMainWindow):
                 # "aet": self.missions[mid].getActualEndTime(),
                 # "status": m_stat,
                 # "error": m_err
-                mStats = json.loads(msg["content"])
-                self.updateMStats(self, mStats)
+                if msg["content"]:
+                    mStats = json.loads(msg["content"])
+
+                    self.updateMStats(mStats)
+                else:
+                    print("WARN: status contents empty.")
 
             elif msg["type"] == "report":
                 # collect report, the report should be already organized in json format and ready to submit to the network.
@@ -7008,6 +7025,7 @@ class MainWindow(QMainWindow):
                 json_data = json.dumps({"cmd": "reqSendFile", "file_name": file_name_full_path, "file_type": file_type, "file_contents": encoded_data})
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
+                self.showMsg(f"About to send file json with "+str(len(json_data.encode('utf-8')))+ " BYTES!")
                 platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
                 # await xport.drain()
 

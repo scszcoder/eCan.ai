@@ -156,7 +156,10 @@ class BOT_PRIVATE_PROFILE():
                     self.addrcity = fields[0].strip()
                     if fields[1].strip():
                         self.addrstate = fields[1].split()[0].strip()
-                        self.addrzip = fields[1].split()[1].strip()
+                        if len(fields[1].split()) > 1:
+                            self.addrzip = fields[1].split()[1].strip()
+                        else:
+                            self.addrzip = ""
                     else:
                         self.addrstate = ""
                         self.addrzip = ""
@@ -196,7 +199,10 @@ class BOT_PRIVATE_PROFILE():
                     self.shipping_addrcity = fields[0].strip()
                     if fields[1].strip():
                         self.shipping_addrstate = fields[1].split()[0].strip()
-                        self.shipping_addrzip = fields[1].split()[1].strip()
+                        if len(fields[1].split()) > 1:
+                            self.shipping_addrzip = fields[1].split()[1].strip()
+                        else:
+                            self.shipping_addrzip = ""
                     else:
                         self.shipping_addrstate = ""
                         self.shipping_addrzip = ""
