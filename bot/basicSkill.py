@@ -3083,7 +3083,8 @@ def processUseSkill(step, i, stack, sk_stack, sk_table, step_keys):
             idx = step_keys.index(sk_table[skname])
             log3("idx:"+str(idx))
         else:
-            log3("ERROR: LOCAL SKILL NOT FOUND, TRYING CLOUD")
+            log3("ERROR: LOCAL SKILL NOT FOUND, DONT KNOW WHAT TO DO")
+            idx = -1
 
 
     except Exception as e:

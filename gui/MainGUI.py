@@ -938,6 +938,10 @@ class MainWindow(QMainWindow):
         # await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task)
         await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task)
 
+    # 1) gather all skills (cloud + local public)
+    # 2) analyze dependence and update data structure
+    # 3) regenerate psk files for each skill
+    # 4) build up skill_table (a look up table)
     def dailySkillsetUpdate(self):
         # this will handle all skill bundled into software itself.
         self.showMsg("load local private skills")
@@ -2877,7 +2881,7 @@ class MainWindow(QMainWindow):
         all_done = False
         try:
             worksettings = getWorkRunSettings(self, worksTBD)
-            self.showMsg("worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"]))
+            self.showMsg("worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"])+" "+str(worksettings["midx"])+" "+json.dumps([m.getFingerPrintProfile() for m in self.missions]))
 
             bot_idx = next((i for i, b in enumerate(self.bots) if str(b.getBid()) == str(worksettings["botid"])), -1)
             if bot_idx >= 0:
@@ -2915,6 +2919,7 @@ class MainWindow(QMainWindow):
                     self.showMsg("relevant skills ids: "+json.dumps(relevant_skill_ids))
                     dependent_skids=[]
                     for sk in relevant_skills:
+                        self.showMsg("add dependency: " + json.dumps(sk.getDependencies()) + "for skill#" + str(sk.getSkid()))
                         dependent_skids = dependent_skids + sk.getDependencies()
 
                     dependent_skids = list(set(dependent_skids))
@@ -5712,7 +5717,7 @@ class MainWindow(QMainWindow):
                 # and the rest will be taken care of by the work dispatcher...
                 self.arrangeContractWorks(contractWorks)
 
-                print("real work starts here....")
+                print("real work starts here...."+json.dumps([m.getFingerPrintProfile() for m in self.missions]))
                 botTodos = None
                 if self.working_state == "running_idle":
                     print("idle checking.....")
@@ -5720,8 +5725,9 @@ class MainWindow(QMainWindow):
                         self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                         self.assignWork()
 
-                    print("check next to run")
+                    print("check next to run", len(self.todays_work["tbd"]), len(self.reactive_work["tbd"]), str(self.getNumUnassignedWork()))
                     botTodos = self.checkNextToRun()
+                    print("fp profiles of mission:", json.dumps([m.getFingerPrintProfile() for m in self.missions]))
                     if not (botTodos == None):
                         self.showMsg("working on..... "+botTodos["name"])
                         self.working_state = "running_working"
@@ -5746,7 +5752,7 @@ class MainWindow(QMainWindow):
 
                         elif botTodos["name"] == "automation":
                             # run 1 bot's work
-                            self.showMsg("running RPA..............")
+                            self.showMsg("running RPA.............."+json.dumps([m.getFingerPrintProfile() for m in self.missions]))
                             if "Completed" not in botTodos["status"]:
                                 self.showMsg("time to run RPA........"+json.dumps(botTodos))
                                 last_start = int(datetime.now().timestamp()*1)
@@ -6203,7 +6209,8 @@ class MainWindow(QMainWindow):
                     msg = json.dumps(hbJson)
                     # send to commander
                     print("sending heartbeat")
-                    self.commanderXport.write(msg.encode('utf8'))
+                    if self.commanderXport:
+                        self.commanderXport.write(msg.encode('utf8'))
             except (json.JSONDecodeError, AttributeError) as e:
                 # Handle JSON encoding or missing attributes issues
                 print(f"Error encoding heartbeat JSON or missing attribute: {e}")
@@ -6294,7 +6301,6 @@ class MainWindow(QMainWindow):
 
                 # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
                 batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
-
                 # clean up the reports on this vehicle....
                 self.todaysReports = []
                 self.DONE_WITH_TODAY = False
@@ -6359,7 +6365,13 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             # Catch any other issues while processing the message
-            print(f"Error processing Commander message: {e}")
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "Errorwanrunbotworks:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
+            print(f"{ex_stat}")
 
     def sendCommanderMissionsStatMsg(self, mids):
         statusJson = self.genMissionStatusReport(mids, False)
