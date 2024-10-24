@@ -2564,8 +2564,11 @@ class MainWindow(QMainWindow):
                             # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
                             self.showMsg("arranged for today on this machine...."+vname)
 
-                            # handle any buy-side tasks.
-                            self.add_buy_searchs(batched_tasks)
+                            #need to do some prep work here if the work needs to download certain files......
+                            for tsk in batched_tasks:
+                                if tsk["name"] == "sellFullfill_genECBLabels":
+                                    tskMission = next((m for i, m in enumerate(self.missions) if m.getMid() == tsk["mid"]), None)
+                                    self.downloadForFullfillGenECBLabels(tskMission['config'][1], tsk['config'][1][0])
 
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
                             self.reactive_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "vname": vname, "completed": [], "aborted": []})
@@ -6891,25 +6894,44 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorupdate_moitor_gui traceback information not available:" + str(e)
             print(ex_stat)
 
-    # do any download if needed by the missions
+
+    def downloadForFullfillGenECBLabels(self, orders, worklink):
+        try:
+            for bi, batch in enumerate(orders):
+                if batch['file']:
+                    print("batch....", batch)
+                    print("about to download....", batch['file'])
+
+                    local_file = download_file(self.session, self.my_ecb_data_homepath, batch['dir'] + "/" + batch['file'],
+                                               "",
+                                               self.tokens['AuthenticationResult']['IdToken'], "general")
+                    batch['dir'] = os.path.dirname(local_file)
+                    orders[bi]['dir'] = os.path.dirname(local_file)
+                    worklink['dir'] = os.path.dirname(local_file)
+
+
+                    print("local file....", local_file)
+                    print("local dir:", os.path.dirname(local_file))
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorDownloadForFullfillGenECBLabels:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorDownloadForFullfillGenECBLabels traceback information not available:" + str(e)
+            print(ex_stat)
+
+
+    # do any download if needed by the missions ONLY IF the mission will be run on this computer.
+    # otherwise, don't do download and leave this to whichever computer that will run this mission.
     def prepareMissionRunAsServer(self, new_works):
         try:
             if new_works['added_missions'][0]['type'] == "sellFullfill_genECBLabels":
-                for bi, batch in enumerate(new_works['added_missions'][0]['config'][1]):
-                    if batch['file']:
-                        print("batch....", batch)
-                        print("about to download....", batch['file'])
-                        local_file = download_file(self.session, self.my_ecb_data_homepath, batch['dir']+"/"+batch['file'], "",
-                                                   self.tokens['AuthenticationResult']['IdToken'], "general")
-                        batch['dir'] = os.path.dirname(local_file)
-                        new_works['added_missions'][0]['config'][1][bi]['dir'] = os.path.dirname(local_file)
-
-                        first_v = next(iter(new_works['task_groups']))
-                        new_works['task_groups'][first_v]['eastern'][0]['other_works'][0]['config'][1][0]['dir'] = os.path.dirname(local_file)
-                        print("local file....", local_file)
-                        print("local dir:", os.path.dirname(local_file))
-                        # update the config in task_groups too. bascially go thru
-                        # may be no need to do it here, just do it in skill when needed.
+                first_v = next(iter(new_works['task_groups']))
+                if self.machine_name in first_v:
+                    self.downloadForFullfillGenECBLabels(new_works['added_missions'][0]['config'][1], new_works['task_groups'][first_v]['eastern'][0]['other_works'][0]['config'][1][0])
 
                 print("updated new work:", new_works)
 
