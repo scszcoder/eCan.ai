@@ -7,6 +7,8 @@ import socket
 
 import platform
 import base64
+from tarfile import fully_trusted_filter
+
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
 import utils.logger_helper
@@ -115,66 +117,65 @@ class communicatorProtocol(asyncio.Protocol):
 
     def data_received(self, data):
         self.buffer.extend(data)
-        print("recevied commander data::"+str(len(data)))
+        print(f"Received commander data: {len(data)} bytes, Buffer size: {len(self.buffer)}")
+
         while self.buffer:
             if self.expected_length is None and len(self.buffer) >= 4:
-                # Read the length prefix
                 self.expected_length = int.from_bytes(self.buffer[:4], byteorder='big')
-                self.buffer = self.buffer[4:]  # Remove the length bytes from the buffer
-                print("Got header length::" + str(self.expected_length))
-            # Check if we have all data for the message
+                self.buffer = self.buffer[4:]
+                print(f"Got header length: {self.expected_length}")
+
+            # Wait until the full message is received
             if self.expected_length is not None and len(self.buffer) >= self.expected_length:
-                # We have the full message
                 message = self.buffer[:self.expected_length]
-                self.buffer = self.buffer[self.expected_length:]  # Remove the message from the buffer
+                self.buffer = self.buffer[self.expected_length:]
                 self.expected_length = None
-                print("Full data packet received")
-                # Process the complete message
+                print(f"Full data packet received, length: {len(message)}")
+
                 try:
                     json_data = json.loads(message.decode('utf-8'))
-                    # Now handle the JSON data
                     if json_data['cmd'] == "reqSendFile":
-                        print('file received: '+json_data['file_name'])
+                        print(f"File received: {json_data['file_name']}")
                         file_data = base64.b64decode(json_data['file_contents'])
+                        print(f"Decoded file data size: {len(file_data)}")
 
-                        # Save the file data to a new file
-                        fdir = os.path.dirname(json_data['file_name'])
-                        fname = os.path.basename(json_data['file_name'])
-                        if json_data["file_type"] == "ads profile":
-                            if utils.logger_helper.login:
-                                log_user = utils.logger_helper.login.getLogUser()
-                            else:
-                                log_user = 'anonymous'
-                            fullfname = ecb_data_homepath + f"/{log_user}/ads_profiles/" + fname
-                            fullfdir = ecb_data_homepath + f"/{log_user}/ads_profiles/"
-                        elif json_data["file_type"] == "skill psk":
-                            start_index = fdir.find("resource")
-                            half_path = fdir[start_index:]
-                            fullfdir = app_info.app_home_path + "/" + half_path + "/"
-                            fullfname = fullfdir + fname
-
-                        print(f'File DIR {fullfdir} checked')
-                        # Ensure the directory exists
-                        if not os.path.exists(fullfdir):
-                            os.makedirs(fullfdir)  # Create any missing directories
-
+                        # Save file to disk
+                        fullfname = self._construct_file_path(json_data)
                         with open(fullfname, 'wb') as file:
                             file.write(file_data)
-                        print(f'File {fullfname} saved')
+                            print(f"File {fullfname} saved, size: {len(file_data)} bytes")
                     else:
-                        print('Data received: {!r}'.format(message.decode('utf-8')))
-                        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message.decode('utf-8')))
+                        print('Other data received:', message.decode('utf-8'))
+                        asyncio.create_task(self.msg_queue.put(self.peername[0]+"!net data!"+message.decode('utf-8')))
 
                 except json.JSONDecodeError as e:
                     print("JSON decode error:", e)
             else:
-                # Not enough data has been received yet
-                print("filling buffer::" + str(len(self.buffer)))
+                print(f"Filling buffer, current size: {len(self.buffer)}")
                 break
 
+    def _construct_file_path(self, json_data):
+        fdir = os.path.dirname(json_data['file_name'])
+        fname = os.path.basename(json_data['file_name'])
 
-        # print('Send: {!r}'.format(message))
-        # self.transport.write(data)
+        if json_data["file_type"] == "ads profile":
+            if utils.logger_helper.login:
+                log_user = utils.logger_helper.login.getLogUser()
+            else:
+                log_user = 'anonymous'
+            fullfdir = ecb_data_homepath + f"/{log_user}/ads_profiles/"
+            fullfname = fullfdir + fname
+        elif json_data["file_type"] == "skill psk":
+            start_index = fdir.find("resource")
+            half_path = fdir[start_index:]
+            fullfdir = app_info.app_home_path + "/" + half_path + "/"
+            fullfname = fullfdir + fname
+
+        # Ensure the directory exists
+        if not os.path.exists(fullfdir):
+            os.makedirs(fullfdir)
+
+        return fullfname
 
     def connection_lost(self, exec):
         print("The commander is LOST....")

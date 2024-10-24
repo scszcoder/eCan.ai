@@ -101,25 +101,25 @@ class M_Private_Attributes():
         return self.price
 
     def loadJson(self, dj):
-        self.item_number = dj["item_number"]
-        self.seller = dj["seller"]
-        self.title = dj["title"]
-        self.imglink = dj["imglink"]
-        self.price = dj["price"]
-        self.rank = dj["rank"]
-        self.feedbacks = dj["feedbacks"]
-        self.result = dj["result"]
+        self.item_number = dj.get("item_number", "")
+        self.seller = dj.get("seller", "")
+        self.title = dj.get("title", "")
+        self.imglink = dj.get("imglink", "")
+        self.price = dj.get("price", 0.0)
+        self.rank = dj.get("rank", 0)
+        self.feedbacks = dj.get("feedbacks", 0)
+        self.result = dj.get("result", "")
 
-        self.feedback_img_link = dj["feedback_img_link"]
-        self.feedback_video_link = dj["feedback_video_link"]
-        self.feedback_instructions = dj["feedback_instructions"]
-        self.feedback_title = dj["feedback_title"]
-        self.feedback_text = dj["feedback_text"]
-        self.feedback_rating = dj["feedback_rating"]
-        self.order_id = dj["order_id"]
-        self.follow_price = dj["follow_price"]
-        self.follow_seller = dj["follow_seller"]
-        self.fingerprint_profile = dj["fingerprint_profile"]
+        self.feedback_img_link = dj.get("feedback_img_link", "")
+        self.feedback_video_link = dj.get("feedback_video_link", "")
+        self.feedback_instructions = dj.get("feedback_instructions", "")
+        self.feedback_title =dj.get("feedback_title", "")
+        self.feedback_text = dj.get("feedback_text", "")
+        self.feedback_rating = dj.get("feedback_rating", 0.0)
+        self.order_id = dj.get("order_id", "")
+        self.follow_price = dj.get("follow_price", 0.0)
+        self.follow_seller = dj.get("follow_seller", "")
+        self.fingerprint_profile = dj.get("fingerprint_profile", "")
 
     def genJson(self):
         jd = {
@@ -239,69 +239,69 @@ class M_Pub_Attributes():
         self.intermediate_data = idata
 
     def loadJson(self, dj):
-        self.missionId = dj["missionId"]
-        self.ticket = dj["ticket"]
-        self.ms_type = dj["ms_type"]
-        self.retry = int(dj["repeat"])
-        self.bot_id = dj["bot_id"]
-        self.status = dj["status"]
-        self.search_kw = dj["phrase"]
-        self.search_cat = dj["category"]
-        self.config = dj["config"]
-        self.esd = dj["esd"]
-        self.ecd = dj["ecd"]
-        self.asd = dj["asd"]
-        self.abd = dj["abd"]
-        self.aad = dj["aad"]
-        self.afd = dj["afd"]
-        self.acd = dj["acd"]
-        self.actual_run_time = dj["actual_run_time"]
-        self.run_time = dj["est_run_time"]
-        self.actual_start_time = dj["actual_start_time"]
-        self.esttime = dj["est_start_time"]
-        self.del_date = dj["del_date"]
-        self.pseudo_store = dj["pseudo_store"]
-        self.pseudo_brand = dj["pseudo_brand"]
-        self.pseudo_asin = dj["pseudo_asin"]
-        self.skills = dj["skills"]
-        self.cuspas = dj["cuspas"]
-        self.app_exe = dj["app_exe"]
-        self.platoon_id = dj["platoon_id"]
-        self.createon = dj["createon"]
-        self.as_server = dj["as_server"]
+        self.missionId = dj.get("missionId", 0)
+        self.ticket = dj.get("ticket", 0)
+        self.ms_type = dj.get("ms_type", "")
+        self.retry = int(dj.get("repeat", 1))
+        self.bot_id = dj.get("bot_id", 0)
+        self.status = dj.get("status", "")
+        self.search_kw =dj.get("phrase", "")
+        self.search_cat = dj.get("category", "")
+        self.config = dj.get("config", "")
+        self.esd = dj.get("esd", "")
+        self.ecd = dj.get("ecd", "")
+        self.asd = dj.get("asd", "")
+        self.abd = dj.get("abd", "")
+        self.aad = dj.get("aad", "")
+        self.afd = dj.get("afd", "")
+        self.acd = dj.get("acd", "")
+        self.actual_run_time = dj.get("actual_run_time", 0)
+        self.run_time = dj.get("est_run_time", 0)
+        self.actual_start_time = dj.get("actual_start_time", 0)
+        self.esttime = dj.get("est_start_time", 0)
+        self.del_date = dj.get("del_date", "")
+        self.pseudo_store = dj.get("pseudo_store", "")
+        self.pseudo_brand = dj.get("pseudo_brand", "")
+        self.pseudo_asin = dj.get("pseudo_asin", "")
+        self.skills = dj.get("skills", "")
+        self.cuspas = dj.get("cuspas", "")
+        self.app_exe = dj.get("app_exe", "")
+        self.platoon_id = dj.get("platoon_id", "")
+        self.createon = dj.get("createon", "")
+        self.as_server = dj.get("as_server", "")
 
     def loadNetRespJson(self, dj):
-        self.missionId = dj["mid"]
-        self.ticket = dj["ticket"]
-        self.ms_type = dj["type"]
-        self.owner = dj["owner"]
-        self.retry = int(dj["trepeat"])
-        self.bot_id = dj["botid"]
-        self.status = dj["status"]
-        self.search_kw = dj["phrase"]
-        self.search_cat = dj["category"]
-        self.config = dj["config"]
-        self.esd = dj["esd"]
-        self.ecd = dj["ecd"]
-        self.asd = dj["asd"]
-        self.abd = dj["abd"]
-        self.aad = dj["aad"]
-        self.afd = dj["afd"]
-        self.acd = dj["acd"]
-        self.run_time = dj["runtime"]
-        self.esttime = dj["esttime"]
-        self.del_date = dj["delDate"]
-        self.pseudo_store = dj["pseudoStore"]
-        self.pseudo_brand = dj["pseudoBrand"]
-        self.pseudo_asin = dj["pseudoASIN"]
-        self.skills = dj["skills"]
-        self.cuspas = dj["cuspas"]
-        self.createon = dj["createon"]
+        self.missionId = dj.get("mid", 0)
+        self.ticket = dj.get("ticket", 0)
+        self.ms_type = dj.get("type", "")
+        self.owner = dj.get("owner", "")
+        self.retry = int(dj.get("trepeat", 1))
+        self.bot_id = dj.get("botid", 0)
+        self.status = dj.get("status", "")
+        self.search_kw = dj.get("phrase", "")
+        self.search_cat = dj.get("category", "")
+        self.config = dj.get("config", "")
+        self.esd = dj.get("esd", "")
+        self.ecd = dj.get("ecd", "")
+        self.asd = dj.get("asd", "")
+        self.abd = dj.get("abd", "")
+        self.aad = dj.get("aad", "")
+        self.afd = dj.get("afd", "")
+        self.acd = dj.get("acd", "")
+        self.run_time = dj.get("runtime", 0)
+        self.esttime = dj.get("esttime", 0)
+        self.del_date = dj.get("delDate", "")
+        self.pseudo_store = dj.get("pseudoStore", "")
+        self.pseudo_brand = dj.get("pseudoBrand", "")
+        self.pseudo_asin = dj.get("pseudoASIN", "")
+        self.skills = dj.get("skills", "")
+        self.cuspas = dj.get("cuspas", "")
+        self.createon = dj.get("createon", "")
         cuspas = self.cuspas.split(",")
         self.platform = cuspas[0]
         self.app = cuspas[1]
         self.site = cuspas[2]
-        self.as_server = dj["as_server"]
+        self.as_server = dj.get("as_server", False)
 
         if self.app == "ads":
             full_app_name = "AdsPower Global"
@@ -1000,40 +1000,40 @@ class EBMISSION(QStandardItem):
         self.setAsServer(dbd.as_server)
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
-    def loadXlsxData(self, jd):
-        self.setMid(jd["mid"])
-        self.setTicket(jd["ticket"])
-        self.setBid(jd["botid"])
-        self.setEsd(jd["esd"])
-        self.setEcd(jd["ecd"])
-        self.setEstimatedStartTime(jd["est"])
-        self.setEstimatedRunTime(jd["ert"])
-        self.setNRetries((jd["retries"]))
-        self.setCusPAS(jd["platform"]+","+jd["app"]+","+jd["site"])
-        self.setSearchCat(jd["search cat"])
-        self.setSearchKW(jd["search phrase"])
-        self.setPseudoStore(jd["pseudo store"])
-        self.setPseudoBrand(jd["pseudo brand"])
-        self.setPseudoASIN(jd["pseudo asin"])
-        self.setMtype(jd["type"])
-        self.setConfig(jd["config"])
-        self.setSkills(jd["skills"])
-        self.setASIN(jd["asin"])
-        self.setStore(jd["store"])
-        self.setBrand(jd["brand"])
-        self.setImagePath(jd["img dir"])
-        self.setTitle(jd["title"])
-        self.setVariations(jd["variations"])
-        self.setRating(jd["rating"])
-        self.setFeedbacks(jd["feedbacks"])
-        self.setPrice(jd["price"])
-        self.setCustomerID(jd["customer"])
-        self.setPlatoon(jd["platoon"])
-        self.setResult(jd["result"])
-        self.setFollowSeller(jd["follow_seller"])
-        self.setFollowPrice(jd["follow_price"])
-        self.setFingerPrintProfile(jd["fingerprint_profile"])
-        self.setAsServer(jd["as_server"])
+    def loadXlsxData(self, dj):
+        self.setMid(dj.get("mid", 0))
+        self.setTicket(dj.get("ticket", 0))
+        self.setBid(dj.get("botid", 0))
+        self.setEsd(dj.get("esd", ""))
+        self.setEcd(dj.get("ecd", ""))
+        self.setEstimatedStartTime(dj.get("est", 0))
+        self.setEstimatedRunTime(dj.get("ert", 0))
+        self.setNRetries((dj.get("retries", 1)))
+        self.setCusPAS(dj.get("platform", "")+","+dj.get("app", "")+","+dj.get("site", ""))
+        self.setSearchCat(dj.get("search cat", ""))
+        self.setSearchKW(dj.get("search phrase", ""))
+        self.setPseudoStore(dj.get("pseudo store", ""))
+        self.setPseudoBrand(dj.get("pseudo brand", ""))
+        self.setPseudoASIN(dj.get("pseudo asin", ""))
+        self.setMtype(dj.get("type", ""))
+        self.setConfig(dj.get("config", ""))
+        self.setSkills(dj.get("skills", ""))
+        self.setASIN(dj.get("asin", ""))
+        self.setStore(dj.get("store", ""))
+        self.setBrand(dj.get("brand", ""))
+        self.setImagePath(dj.get("img dir", ""))
+        self.setTitle(dj.get("title", ""))
+        self.setVariations(dj.get("variations", ""))
+        self.setRating(dj.get("rating", 0.0))
+        self.setFeedbacks(dj.get("feedbacks", 0))
+        self.setPrice(dj.get("price", 0.0))
+        self.setCustomerID(dj.get("customer", ""))
+        self.setPlatoon(dj.get("platoon", ""))
+        self.setResult(dj.get("result", ""))
+        self.setFollowSeller(dj.get("follow_seller", ""))
+        self.setFollowPrice(dj.get("follow_price", 0.0))
+        self.setFingerPrintProfile(dj.get("fingerprint_profile", ""))
+        self.setAsServer(dj.get("as_server", False))
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadAMZReqData(self,jd):

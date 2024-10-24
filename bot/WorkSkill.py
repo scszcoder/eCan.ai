@@ -438,6 +438,7 @@ class WORKSKILL(QStandardItem):
         self.price = jd["price"]
         self.path = jd["path"]
         self.description = jd["description"]
+        self.dependencies = jd["dependencies"]
 
         if "site_link" in jd:
             self.site = jd["site_link"]

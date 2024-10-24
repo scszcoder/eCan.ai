@@ -988,6 +988,7 @@ def formADSProfileBatchesFor1Vehicle(vTasks, vehicle, commander):
         log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
         print("time_ordered_works:", time_ordered_works)
+        print("fp profiles of commander sent missions1:", json.dumps([m.getFingerPrintProfile() for m in commander.missions]))
 
         ads_profile_batches_fnames = genAdsProfileBatchs(commander, vehicle.getIP(), time_ordered_works)
 
@@ -1263,7 +1264,10 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
                     batch_bot_profiles_read.append(bot_txt_profile_name)
                 else:
                     log3("bot_txt_profile_name doesn't exist!")
-                    found_mision.setFingerPrintProfile("")
+                    if not os.path.exists(batch_file):
+                        log3("batched xlsx file doesn't exist either!")
+                        found_mision.setFingerPrintProfile("")
+
                     newly_read = []
 
                 batch_bot_mids.append(bot_mid_key)
