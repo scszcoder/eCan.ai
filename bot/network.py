@@ -7,7 +7,6 @@ import socket
 
 import platform
 import base64
-from tarfile import fully_trusted_filter
 
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
