@@ -1722,7 +1722,35 @@ def genStepsWinChromeEbayBrowserUpdateTracking(worksettings, stepN, theme):
     return this_step, psk_words
 
 
+# input: product catelog, orders(might need to search).
+#      this skill will do a few things:
+#                1) extract all the customer(member) messages, each message should already have the thread in it.
+#                2) download any attached file associated with the message.
+#                3) search and find the order associated with the message and put this order info in a json data structure
+#                4) search the product info from the product catelog (is this necessary?)
+#        send all these info to the cloud for LLM analysis, what's returned will be.
+#        a list of action items and we will execute these action itmes one by one. example
+#        action items will be like:
+#          [{ "action": "buy return shipping label", "type": "ebay/ecb/..." },
+#            { "action": "respond message", "contents": "....", "addition": "tracking code"},
+#           ]
+#          or
+#          [{"action": "refund", "amount": 2.35 },
+#           {"action": "respond message", "contents": "...", "addition": ""}
+#           ]
+#          or
+#          [{"action": "respond message", "contents": "....", "addition": ""}]
+#           or
+#           [{"action": "need human intervention"]
+#
+# another thought about parallelizing deal with messages, really should send each customer thread up individually
+# as they will trigger each individual lambda and lambdas are automatically parallelized by aws.
+# the response should be collected completed before doing anything because we'd like to aggregate
+# all message responses related external shipping label purchase and do it once and for all, and this
+# usually needs to be done first before responding messages because we want to give customer the tracking
+# code (for resend) or shipping label attachment in case we provide the shipping label for return.
 
+# output: action items (response message, any follow-up, any purchase, any in-browser action)
 def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = "{"
 
@@ -1734,6 +1762,17 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/browser_handle_messages", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepBringAppToFront("SunBrowser", "app_result", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global fin\nprint('FIN:', fin)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepsWinChromeEbayBrowserRespondMessages("browser_respond_messages", "public/win_chrome_ebay_orders", "fin", "msgs_stats", this_step)
+    psk_words = psk_words + step_words
+
+
     this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_handle_messages", "", this_step)
     psk_words = psk_words + step_words
 
@@ -1743,58 +1782,130 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genWinChromeEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
-    psk_words = "{"
+def genStepsWinChromeEbayBrowserRespondMessages(worksettings, stepN):
+    psk_words = ""
 
-    this_step, step_words = genStepHeader("win_chrome_ebay_handle_messages", "win", "1.0", "AIPPS LLC",
-                                          "PUBWINCHROMEEBAY002",
-                                          "in Browser Ebay Buy Shipping and Update Tracking On Windows Chrome.", stepN)
+    this_step, step_words = genStepCallExtern("global fin\nprint('FIN:', fin)", "", "in_line", "", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "public/win_chrome_ebay_orders/browser_handle_messages", "", this_step)
+    this_step, step_words = genStepsCreateRMGlobalVals(worksettings, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepLoop("n_message_needs_process != n_message_processed", "", "", "browseEtsyOL" + str(stepN), this_step)
+    this_step, step_words = genStepCallExtern("global m_status\nm_status = 'started'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    # obtain response from LLM model, sends to cloud lambda
-    this_step, step_words = genStepGenRespMsg("openai", "chatgpt4o", "parameters", "products", "setup", "query", "response", "chat_result", this_step)
+    this_step, step_words = genStepCreateData("obj", "ads_driver", "NA", None, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("chat_result", "", "", this_step)
+    this_step, step_words = genStepCreateData("boolean", "tab_open", "NA", False, this_step)
     psk_words = psk_words + step_words
 
-    # type in the response.
-    this_step, step_words = genStepTextInput("var", False, "response_text", "direct", 1, "", 2, this_step)
+    this_step, step_words = genStepCreateData("string", "ebay_msg_url", "NA",
+                                              "https://www.ebay.com/cnt/viewMessage?group_type=CORE", this_step)
     psk_words = psk_words + step_words
 
-    # click on the send button.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "send", "anchor text", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepCreateData("obj", "dummy_results", "NA", [], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global n_message_processed\nn_message_processed = n_message_processed+1", "", "in_line", "", this_step)
+    this_step, step_words = genStepCreateData("obj", "unread_msgs", "NA", [], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("response_action == 'resend'", "", "", this_step)
+    this_step, step_words = genStepCreateData("obj", "msgs_orders", "NA", [], this_step)
     psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # now go the ebay message tab
+    this_step, step_words = genStepWebdriverNewTab("ads_driver", "ebay_msg_url", "dummy_results", "tab_open", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    this_step, step_words = genStepCallExtern(
+        "global mid, bid, requester, fin, sk_work_settings\nmid = sk_work_settings['mid\nbid = sk_work_settings['botid\nrequester = fin[3].split(':')[0]",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fin,label_buy_requests\nlabel_buy_requests = fin[1]", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    #
+    this_step, step_words = genStepSeleniumScrapeEbayMessages("ads_driver", "unread_msgs", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "n_orders", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSeleniumScrapeEbayOrderByUserNames("ads_driver", "unread_msgs", "last90days",
+                                                                      "dummy_result", "orders_found", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nth\nnth = 0", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("nth < len(unread_msgs.keys())", "", "", "genecblabel0" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global nth, unread_thread, unread_msgs\nunread_thread = unread_msgs[nth]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepThink("think_goal", "think_options", "think_product", "unread_thread", "msgs_todos",
+                                         "know_how", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nth, unread_thread\nunread_thread['todos'] = msgs_todos", "",
+                                              "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end skill", "public/win_chrome_ebay_orders/browser_handle_messages", "", this_step)
+    return this_step, psk_words
+
+
+
+def genStepsCreateRMGlobalVals(worksettings, stepN):
+    psk_words = ""
+
+    this_step, step_words = genStepCallExtern("global fin\nprint('FIN:', fin)", "", "in_line", "", stepN)
     psk_words = psk_words + step_words
 
-    psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome in browser ebay handle messages...." + psk_words)
+    this_step, step_words = genStepCallExtern("global m_status\nm_status = 'started'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "ads_driver", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("boolean", "tab_open", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "ebay_msg_url", "NA",
+                                              "https://www.ebay.com/cnt/viewMessage?group_type=CORE", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "dummy_results", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "unread_msgs", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "msgs_orders", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    # now go the ebay message tab
+    this_step, step_words = genStepWebdriverNewTab("ads_driver", "ebay_msg_url", "dummy_results", "tab_open", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global mid, bid, requester, fin, sk_work_settings\nmid = sk_work_settings['mid\nbid = sk_work_settings['botid\nrequester = fin[3].split(':')[0]",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global fin,label_buy_requests\nlabel_buy_requests = fin[1]", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     return this_step, psk_words
+
 
 
 # buy and download labels from EBAY using USPS, Steps:

@@ -813,7 +813,7 @@ def genStepFillData(fill_type, src, sink, result, stepN):
 
 # goals: "ordered customer service"/"potential customer service"/"check system message"/"research product"/
 # options: yet to be defined, room for expansion
-# msgs_and_orders: [{ "order": {...order info....}, "msgs": [ {id, timestamp, sender, msg_text}....] (most recent at position 0)} .... ]
+# msgs_and_orders: [{ "order": {...order info....}, "msgs": [ {id, timestamp, sender, msg_text}....] (most recent at position 0)} .... ], "attachments": ["fullpath link1", "fullpath link2"]}.....]
 # msg_reponses: [{order_id, most recent msg id, action itmes[action: , action target:, response_text:}....]]
 # action: ["return_and_refund", "full refund", "partial refund %", "full resend", "partial resend"]
 # action target would include: product id, product name, variations, quantity, weight,

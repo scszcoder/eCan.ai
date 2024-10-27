@@ -73,6 +73,23 @@ def genStepSeleniumScrapeEbayMessages(driver_var, msgs_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+# this is for Search Ebay Orders By UserNames.
+# in some ebay message exchange with customers, the associated order info is not
+# present, so we have to search for based on user name to see the purchase info.
+def genStepSeleniumScrapeEbayOrderByUserNames(driver_var, users_var, date_range_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Selenium Scrape Ebay Orders By Users",
+        "driver_var": driver_var,
+        "users_var": users_var,
+        "date_range_var": date_range_var,       # should be a list of two strings, each in yyyy-mm-dd format, first is the start date, the second is the end date
+        "result_var": result_var,
+        "flag_var": flag_var
+    }
+
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 def processSeleniumScrapeEbayMessages(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
@@ -251,6 +268,52 @@ def processSeleniumScrapeMessages(step, i):
             ex_stat = "ErrorSeleniumScrapeMessages:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSeleniumScrapeMessages traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+
+def processSeleniumScrapeEbayOrderByUserNames(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        global symTab
+        # Scrape the messages list
+        driver = symTab[step["driver_var"]]
+        users = symTab[step["users_var"]]
+        start_date = symTab[step["date_range_var"]][0]
+        end_date = symTab[step["date_range_var"]][0]
+        symTab[step["flag_var"]] = True
+        symTab[step["result_var"]] = {}
+
+        for user in users:
+            order_info = {}
+            # bring out the order search page.
+
+            # key in user name, and start search.
+
+
+            # search result and see if user is found.
+
+            symTab[step["result_var"]][user] = order_info
+
+
+
+            # Go back to search page
+            driver.back()
+            time.sleep(3)  # Adjust as needed for page load
+
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSeleniumScrapeEbayOrderByUserNames:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSeleniumScrapeEbayOrderByUserNames traceback information not available:" + str(e)
+        symTab[step["flag_var"]] = False
         log3(ex_stat)
 
     return (i + 1), ex_stat
