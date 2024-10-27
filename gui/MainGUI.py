@@ -929,6 +929,8 @@ class MainWindow(QMainWindow):
 
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
+        print("vehicles after init:", [v.getName() for v in self.vehicles])
+
 
     # SC note - really need to have
     async def run_async_tasks(self):
@@ -2530,9 +2532,9 @@ class MainWindow(QMainWindow):
                                 self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
 
                             else:
-                                self.showMsg(get_printable_datetime() + "vehicle "+vname+" is not FOUND on LAN.")
+                                self.showMsg(get_printable_datetime() + "scheduled vehicle "+vname+" is not FOUND on LAN.")
                         else:
-                            print("WARNING: vehicle not found on network at the moment: "+vname)
+                            print("WARNING: scheduled vehicle not found on network at the moment: "+vname)
 
                     # else:
                     #     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
@@ -2568,7 +2570,7 @@ class MainWindow(QMainWindow):
                             for tsk in batched_tasks:
                                 if tsk["name"] == "sellFullfill_genECBLabels":
                                     tskMission = next((m for i, m in enumerate(self.missions) if m.getMid() == tsk["mid"]), None)
-                                    self.downloadForFullfillGenECBLabels(tskMission['config'][1], tsk['config'][1][0])
+                                    self.downloadForFullfillGenECBLabels(tskMission.getConfig()[1], tsk['config'][1][0])
 
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
                             self.reactive_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "vname": vname, "completed": [], "aborted": []})
@@ -2615,9 +2617,9 @@ class MainWindow(QMainWindow):
                                 self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
 
                             else:
-                                self.showMsg(get_printable_datetime() + "vehicle "+vname+" is not FOUND on LAN.")
+                                self.showMsg(get_printable_datetime() + "reactive vehicle "+vname+" is not FOUND on LAN.")
                         else:
-                            print("WARNING: vehicle not found on network at the moment: "+vname)
+                            print("WARNING: reactive vehicle not found on network at the moment: "+vname)
 
             if tbd_unassigned:
                 print("deleting alread assigned reactive task groups")
@@ -2862,6 +2864,8 @@ class MainWindow(QMainWindow):
 
         return stepKeys
 
+
+    # fill in real address to some placeholders
     def reAddrAndUpdateSteps(self, pskJson, init_step_idx, work_settings):
         # self.showMsg("PSK JSON::::: "+json.dumps(pskJson))
         newPskJson = {}
@@ -2925,10 +2929,14 @@ class MainWindow(QMainWindow):
                     self.showMsg("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(self.running_mission.getMid()))
 
                     # get skills data structure by IDs
+                    all_skids = [sk.getSkid() for sk in self.skills]
                     self.showMsg("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]))
-                    rpaSkillIds = list(set(rpaSkillIds))
-                    relevant_skills = [sk for sk in self.skills if sk.getSkid() in rpaSkillIds]
-                    print("N relevant skills:", len(relevant_skills))
+                    rpaSkillIds = list(dict.fromkeys(rpaSkillIds))
+                    self.showMsg("rpaSkillIds:"+json.dumps(rpaSkillIds))
+
+                    relevant_skills = [self.skills[all_skids.index(skid)] for skid in rpaSkillIds]
+
+                    print("N relevant skills:", len(relevant_skills), [sk.getSkid() for sk in relevant_skills])
                     relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
                     relevant_skill_ids = list(set(relevant_skill_ids))
                     self.showMsg("relevant skills ids: "+json.dumps(relevant_skill_ids))
@@ -2938,6 +2946,7 @@ class MainWindow(QMainWindow):
                         dependent_skids = dependent_skids + sk.getDependencies()
 
                     dependent_skids = list(set(dependent_skids))
+                    dependent_skids = [skid for skid in dependent_skids if skid not in relevant_skill_ids]
                     self.showMsg("all dependencies: "+json.dumps(dependent_skids))
 
                     dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
@@ -4082,6 +4091,7 @@ class MainWindow(QMainWindow):
     def checkVehicles(self):
         self.showMsg("adding self as a vehicle if is Commander.....")
         existing_names = [v.getName().split(":")[0] for v in self.vehicles]
+        print("existing v names:", existing_names)
         if self.machine_role == "Commander":
             # should add this machine to vehicle list.
             newVehicle = VEHICLE(self, self.machine_name+":"+self.os_short, self.ip)
@@ -4671,7 +4681,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Run Now"))
-        new_action.triggered.connect(self.runCusMissionNowSync)
+        # new_action.triggered.connect(self.runCusMissionNowSync)
 
         return new_action
 
@@ -4766,15 +4776,18 @@ class MainWindow(QMainWindow):
 
     async def runCusMissionNow(self, amission, gui_rpa_queue, gui_monitor_queue):
         # check if psk is already there, if not generate psk, then run it.
-        self.showMsg("run mission now....")
+        self.showMsg("run mission now...."+str(amission.getBid()))
         executor = self.getBotByID(amission.getBid())
 
         tempMissionTasks = [{
             "name": amission.getType(),
             "mid": amission.getMid(),
+            "ticket": amission.getTicket(),
             "cuspas": amission.getCusPAS(),
             "bid": amission.getBid(),
+            "skills": amission.getSkills(),
             "config": amission.getConfig(),
+            "trepeat": 1,
             "fingerprint_profile": amission.getFingerPrintProfile(),
             "start_time": 1            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
         }]
@@ -6852,6 +6865,7 @@ class MainWindow(QMainWindow):
 
     def update_moitor_gui(self, in_message):
         try:
+            print("raw rpa monitor incoming msg:", in_message)
             # self.showMsg(f"RPA Monitor:"+in_message)
             if in_message["type"] == "request mission" and self.getIP() not in in_message["sender"]:
                 print("request mission:", in_message)
@@ -6882,7 +6896,8 @@ class MainWindow(QMainWindow):
             elif in_message["type"] == "report results":
                 ext_run_results = json.loads(in_message["contents"].replace("\\", "\\\\"))
                 handleExtLabelGenResults(self.session, self.tokens['AuthenticationResult']['IdToken'], ext_run_results)
-
+            else:
+                print("Unknown message type!!!")
 
         except Exception as e:
             # Get the traceback information
@@ -7480,6 +7495,13 @@ class MainWindow(QMainWindow):
 
         return stateInfo
 
+    def vRunnable(self, vehicle):
+        print("vname", vehicle.getName(), self.machine_name, self.host_role)
+        runnable = True
+        if self.machine_name in vehicle.getName() and self.host_role == "Commander Only":
+            runnable = False
+        return runnable
+
     # check whether there is vehicle for hire, if so, check any contract work in the queue
     # if so grab it.
     async def checkCloudWorkQueue(self):
@@ -7496,8 +7518,9 @@ class MainWindow(QMainWindow):
                 item = await self.virtual_cloud_task_queue.get()
 
                 # in case there is anything, go ahead and dequeue the cloud side.
-
-                idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if v.getStatus() == "running_idle"]
+                print("all vehicles:", [v.getName() for v in self.vehicles])
+                idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if v.getStatus() == "running_idle" and self.vRunnable(v)]
+                print("running idel vehicles:", idle_vehicles)
                 resp = send_dequeue_tasks_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], idle_vehicles)
                 print("RESP:", resp)
                 if "body" in resp:
