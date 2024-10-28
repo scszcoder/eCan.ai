@@ -31,7 +31,7 @@ import base64
 import hmac
 import hashlib
 import jwt
-from bot.network import runCommanderLAN, runPlatoonLAN
+
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 
@@ -287,6 +287,8 @@ class Login(QDialog):
 
     def set_xport(self, xport):
         self.xport = xport
+        if self.main_win:
+            self.main_win.setCommanderXPort(xport)
 
     def set_ip(self, ip):
         self.ip = ip
@@ -593,21 +595,11 @@ class Login(QDialog):
             self.current_user_pw = self.textPass.text()
             self.signed_in = True
 
-            # now we can start networking,
-            # because if we don't know who the real boss is, there no point doing any networking.....
-            if "Platoon" not in self.machine_role:
-                print("run as commander......")
-                self.mainLoop.create_task(runCommanderLAN(self))
-
-            else:
-                print("run as platoon...")
-                self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
-
 
             if self.machine_role == "Commander Only" or self.machine_role == "Commander":
                 # global commanderServer
 
-                self.main_win = MainWindow(self, main_key, self.tokens, commanderServer, self.ip,
+                self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip,
                                            self.textName.text(), ecbhomepath,
                                            self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
                 print("Running as a commander...", commanderServer)
@@ -618,7 +610,7 @@ class Login(QDialog):
             else:
                 # global commanderXport
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.main_win = MainWindow(self, main_key, self.tokens, self.xport, self.ip, self.textName.text(),
+                self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip, self.textName.text(),
                                            ecbhomepath,
                                            self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
                 print("Running as a platoon...", self.xport)
@@ -720,7 +712,7 @@ class Login(QDialog):
 
         print(self.tokens)
 
-        self.main_win = MainWindow(self, self.tokens, self.xport, self.ip, self.textName.text(), ecbhomepath,
+        self.main_win = MainWindow(self, self.tokens, self.mainLoop, self.ip, self.textName.text(), ecbhomepath,
                                    self.machine_role, self.schedule_mode, self.lang)
         print("faker...")
         self.main_win.setOwner("Nobody")

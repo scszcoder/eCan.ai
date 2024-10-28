@@ -12,7 +12,7 @@
     "app_link": "C:/Program Files/AdsPower Global/AdsPower Global.exe",
     "app_args": "",
     "site_name": "ebay",
-    "site": "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT",
+    "site": "https://www.ebay.com/cnt/viewMessage?group_type=CORE",
     "page": "orders",
     "generator": "genWinADSEbayBrowserRespondMessagesSkill",
     "procedural_skill": {

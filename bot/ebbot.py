@@ -156,7 +156,10 @@ class BOT_PRIVATE_PROFILE():
                     self.addrcity = fields[0].strip()
                     if fields[1].strip():
                         self.addrstate = fields[1].split()[0].strip()
-                        self.addrzip = fields[1].split()[1].strip()
+                        if len(fields[1].split()) > 1:
+                            self.addrzip = fields[1].split()[1].strip()
+                        else:
+                            self.addrzip = ""
                     else:
                         self.addrstate = ""
                         self.addrzip = ""
@@ -196,7 +199,10 @@ class BOT_PRIVATE_PROFILE():
                     self.shipping_addrcity = fields[0].strip()
                     if fields[1].strip():
                         self.shipping_addrstate = fields[1].split()[0].strip()
-                        self.shipping_addrzip = fields[1].split()[1].strip()
+                        if len(fields[1].split()) > 1:
+                            self.shipping_addrzip = fields[1].split()[1].strip()
+                        else:
+                            self.shipping_addrzip = ""
                     else:
                         self.shipping_addrstate = ""
                         self.shipping_addrzip = ""
@@ -430,19 +436,19 @@ class BOT_PUB_PROFILE():
 
 
     def loadJson(self, dj):
-        self.bid = dj["bid"]
-        self.nick_name = dj["pseudo_nick_name"]
-        self.pseudo_name = dj["pseudo_name"]
-        self.location = dj["location"]
-        self.pubbirthday = dj["pubbirthday"]
-        self.gender = dj["gender"]
-        self.interests = dj["interests"]
-        self.roles = dj["roles"]
-        self.org = dj["org"]
-        self.levels = dj["levels"]
-        self.levelStart = dj["levelStart"]
-        self.vname = dj["vehicle"]
-        self.status = dj["status"]
+        self.bid = dj.get("bid", 0)
+        self.nick_name = dj.get("pseudo_nick_name", "")
+        self.pseudo_name = dj.get("pseudo_name", "")
+        self.location = dj.get("location", "")
+        self.pubbirthday = dj.get("pubbirthday", "")
+        self.gender = dj.get("gender", "")
+        self.interests = dj.get("interests", "")
+        self.roles = dj.get("roles", "")
+        self.org = dj.get("org", "")
+        self.levels = dj.get("levels", "")
+        self.levelStart = dj.get("levelStart", "1900-01-01 00:00:00")
+        self.vname = dj.get("vehicle", "")
+        self.status =dj.get("status", "")
 
     def loadNetRespJson(self, dj):
         self.location = dj["location"]

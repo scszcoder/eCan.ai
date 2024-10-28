@@ -46,6 +46,7 @@ from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, 
     genWinADSEbayBrowserBuyECBLabelsSkill, genWinADSEbayBrowserHandleOffersSkill, \
     genWinADSEbayBrowserHandleReturnSkill, genWinADSEbayBrowserHandleReturnWithECBLabelsSkill, \
     genWinADSEbayBrowserHandleReplacementSkill, genWinADSEbayBrowserHandleRefundSkill
+
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
     genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
@@ -151,8 +152,6 @@ PUBLIC = {
     'genWinADSEbayFullfillOrdersSkill': genWinADSEbayFullfillOrdersSkill,
     'genWinADSEbayCollectOrderListSkill': genWinADSEbayCollectOrderListSkill,
     'genWinADSEbayUpdateShipmentTrackingSkill': genWinADSEbayUpdateShipmentTrackingSkill,
-    'genWinChromeEbayUpdateShipmentTrackingSkill': genWinChromeEbayUpdateShipmentTrackingSkill,
-    'genWinChromeEbayBuyShippingSkill': genWinChromeEbayBuyShippingSkill,
     'genWinADSEbayBuyShippingSkill': genWinADSEbayBuyShippingSkill,
     'genStepEbayScrapeOrdersFromHtml': genStepEbayScrapeOrdersFromHtml,
     'genStepEbayScrapeOrdersFromJss': genStepEbayScrapeOrdersFromJss,
@@ -168,7 +167,8 @@ PUBLIC = {
     'genWinADSEbayBrowserHandleReturnWithECBLabelsSkill': genWinADSEbayBrowserHandleReturnWithECBLabelsSkill,
     'genWinADSEbayBrowserHandleReplacementSkill': genWinADSEbayBrowserHandleReplacementSkill,
     'genWinADSEbayBrowserHandleRefundSkill': genWinADSEbayBrowserHandleRefundSkill,
-
+    'genWinChromeEbayUpdateShipmentTrackingSkill': genWinChromeEbayUpdateShipmentTrackingSkill,
+    'genWinChromeEbayBuyShippingSkill': genWinChromeEbayBuyShippingSkill,
     'genStepSetupADS': genStepSetupADS,
     'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
     'genWinADSRemoveProfilesSkill': genWinADSRemoveProfilesSkill,

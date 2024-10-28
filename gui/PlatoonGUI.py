@@ -103,7 +103,7 @@ class PlatoonWindow(QMainWindow):
             for v in self.parent.vehicles:
                 self.parent.showMsg("adding vehicle tab")
                 ip_last = v.getIP().split(".")[len(v.getIP().split("."))-1]
-                self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon"+ip_last)
+                self.tabs.addTab(self._createVehicleTab(v.getMStats()), v.getName().split(":")[0])
 
 
         self.mainWidget.setLayout(self.layout)
@@ -122,9 +122,8 @@ class PlatoonWindow(QMainWindow):
         if len(self.parent.vehicles) > 0:
             v = self.parent.vehicles[len(self.parent.vehicles)-1]
             self.parent.showMsg("adding most recently added vehicle tab")
-            ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
             print("what??", v.getMStats())
-            self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
+            self.tabs.addTab(self._createVehicleTab(v.getMStats()), v.getName().split(":")[0])
             print("tab added....")
 
     def updatePlatoonWinWithMostRecentlyRemovedVehicle(self):
@@ -133,26 +132,34 @@ class PlatoonWindow(QMainWindow):
         # ip_last = v.getIP().split(".")[len(v.getIP().split(".")) - 1]
         # self.tabs.addTab(self._createVehicleTab(v.getMStats()), "Platoon" + ip_last)
 
-    def updatePlatoonStatAndShow(self, rx_data):
-        ip_last = rx_data["ip"].split(".")[len(rx_data["ip"].split(".")) - 1]
+    def updatePlatoonStatAndShow(self, rx_data, fieldLinks):
+        print("recvd status from ip:", rx_data["ip"])
         tab_names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
-        new_tab_name = "Platoon"+ip_last
-        if new_tab_name in tab_names:
-            tab_index = tab_names.index(new_tab_name)
+        found_fl = next((fl for fl in fieldLinks if fl["ip"] == rx_data["ip"]), None)
+        if found_fl:
+            tab_index = -1
+            if found_fl["name"] in tab_names:
+                tab_index = tab_names.index(found_fl["name"])
+            else:
+                # need to add a new tab.
+                self.parent.showMsg("adding a new tab....")
+                # find vehicle based on IP address.
+                found_v = next((v  for v in self.parent.vehicles if v.getName().split(":")[0] == found_fl["name"]), None)
+                if found_v:
+                    self.tabs.addTab(self._createVehicleTab(found_v.getMStats()), found_fl["name"])
+                    tab_index = self.tabs.count()-1
+                else:
+                    print("ERROR: vehicle not found for the sender IP")
+
+            if tab_index >= 0:
+                vmodel = self.platoonTableViews[tab_index].model()
+                rx_jd = json.loads(rx_data["content"])
+
+                self.updatePlatoonStat(vmodel, rx_jd)
+
+                self.tabs.setCurrentIndex(tab_index)
         else:
-            # need to add a new tab.
-            self.parent.showMsg("adding a new tab....")
-            # find vehicle based on IP address.
-            found_v = next((v  for v in self.parent.vehicles if v.getIP().split(".")[len(v.getIP().split(".")) - 1] == ip_last), None)
-            if found_v:
-                self.tabs.addTab(self._createVehicleTab(found_v.getMStats()), "Platoon" + ip_last)
-
-        vmodel = self.platoonTableViews[tab_index].model()
-        rx_jd = json.loads(rx_data["content"])
-
-        self.updatePlatoonStat(vmodel, rx_jd)
-
-        self.tabs.setCurrentIndex(tab_index)
+            print("ERROR: field link doesn't match the sender IP")
 
     def fill1TableRow(self, rowIdx, rowDataJson, model):
         self.parent.showMsg("filling table row #"+str(rowIdx))
@@ -276,23 +283,6 @@ class PlatoonWindow(QMainWindow):
 
         vTab.setLayout(vTab.layout)
         return vTab
-
-
-    def updateSelectedPlatoon(self, row):
-        self.selected_platoon_row = row
-        self.selected_role_item = self.roleModel.item(self.selected_platoon_row)
-        platform, level, role = self.selected_role_item.getData()
-
-        self.role_level_sel.setCurrentText(level)
-        self.role_name_sel.setCurrentText(role)
-
-        if self.role_platform_sel.findText(platform) < 0:
-            self.role_platform_sel.setCurrentText("Custom")
-            self.role_custom_platform_edit.setText(platform)
-
-        else:
-            self.role_platform_sel.setCurrentText(platform)
-            self.role_custom_platform_edit.setText("")
 
 
 

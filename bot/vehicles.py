@@ -8,8 +8,8 @@ class VEHICLE(QStandardItem):
         self.bot_ids = []
         self.arch = ""
         self.os = parent.os_short
-        self.name = ""
-        self.ip = ""
+        self.name = name
+        self.ip = ip
         self.id = ""
         self.setText('v-' + str(self.getName()))
         self.icon = QIcon(parent.file_resource.offline_vehicle_icon_path)

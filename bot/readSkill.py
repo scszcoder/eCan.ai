@@ -64,6 +64,7 @@ last_step = -1
 next_step = 0
 STEP_GAP = 5
 first_step = 0
+running_step_index = 0
 
 running = False
 net_connected = False
@@ -500,6 +501,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     while next_step_index <= len(stepKeys)-1:
         if running:
             last_step = next_step_index
+            running_step_index = next_step_index
             next_step_index, step_stat = await run1step8(steps, next_step_index, mission, skill, run_stack)
 
             if step_stat == DEFAULT_RUN_STATUS:
