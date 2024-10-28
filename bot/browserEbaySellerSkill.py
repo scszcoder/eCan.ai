@@ -1754,26 +1754,32 @@ def genStepsWinChromeEbayBrowserUpdateTracking(worksettings, stepN, theme):
 def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = "{"
 
-    this_step, step_words = genStepHeader("win_ads_ebay_handle_messages", "win", "1.0", "AIPPS LLC",
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_respond_messages", "win", "1.0", "AIPPS LLC",
                                           "PUBWINADSEBAY002",
                                           "in Browser Ebay Buy Shipping and Update Tracking On Windows ADS.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/browser_handle_messages", "", this_step)
+    this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/browser_respond_messages", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepBringAppToFront("SunBrowser", "app_result", this_step)
     psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepCallExtern("global fin\nprint('FIN:', fin)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCheckCondition("not web_driver", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepsWinChromeEbayBrowserRespondMessages("browser_respond_messages", "public/win_chrome_ebay_orders", "fin", "msgs_stats", this_step)
+    this_step, step_words = genWinADSEbayBrowserInitializeSetup(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_handle_messages", "", this_step)
+    this_step, step_words = genStepsWinChromeEbayBrowserRespondMessages(worksettings, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_respond_messages", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
@@ -1785,7 +1791,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
 def genStepsWinChromeEbayBrowserRespondMessages(worksettings, stepN):
     psk_words = ""
 
-    this_step, step_words = genStepCallExtern("global fin\nprint('FIN:', fin)", "", "in_line", "", stepN)
+    this_step, step_words = genStepCallExtern("global fin\nprint('BrowserRespond FIN:', fin)", "", "in_line", "", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepsCreateRMGlobalVals(worksettings, this_step)
@@ -1794,8 +1800,6 @@ def genStepsWinChromeEbayBrowserRespondMessages(worksettings, stepN):
     this_step, step_words = genStepCallExtern("global m_status\nm_status = 'started'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("obj", "ads_driver", "NA", None, this_step)
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("boolean", "tab_open", "NA", False, this_step)
     psk_words = psk_words + step_words
@@ -1814,7 +1818,7 @@ def genStepsWinChromeEbayBrowserRespondMessages(worksettings, stepN):
     psk_words = psk_words + step_words
 
     # now go the ebay message tab
-    this_step, step_words = genStepWebdriverNewTab("ads_driver", "ebay_msg_url", "dummy_results", "tab_open", this_step)
+    this_step, step_words = genStepWebdriverNewTab("web_driver", "ebay_msg_url", "dummy_results", "tab_open", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
@@ -1827,13 +1831,13 @@ def genStepsWinChromeEbayBrowserRespondMessages(worksettings, stepN):
     psk_words = psk_words + step_words
 
     #
-    this_step, step_words = genStepSeleniumScrapeEbayMessages("ads_driver", "unread_msgs", this_step)
+    this_step, step_words = genStepSeleniumScrapeEbayMessages("web_driver", "unread_msgs", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("int", "n_orders", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSeleniumScrapeEbayOrderByUserNames("ads_driver", "unread_msgs", "last90days",
+    this_step, step_words = genStepSeleniumScrapeEbayOrderByUserNames("web_driver", "unread_msgs", "last90days",
                                                                       "dummy_result", "orders_found", this_step)
     psk_words = psk_words + step_words
 
@@ -1865,14 +1869,10 @@ def genStepsWinChromeEbayBrowserRespondMessages(worksettings, stepN):
 def genStepsCreateRMGlobalVals(worksettings, stepN):
     psk_words = ""
 
-    this_step, step_words = genStepCallExtern("global fin\nprint('FIN:', fin)", "", "in_line", "", stepN)
+
+    this_step, step_words = genStepCallExtern("global m_status\nm_status = 'started'", "", "in_line", "", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global m_status\nm_status = 'started'", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "ads_driver", "NA", None, this_step)
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("boolean", "tab_open", "NA", False, this_step)
     psk_words = psk_words + step_words
@@ -1891,7 +1891,7 @@ def genStepsCreateRMGlobalVals(worksettings, stepN):
     psk_words = psk_words + step_words
 
     # now go the ebay message tab
-    this_step, step_words = genStepWebdriverNewTab("ads_driver", "ebay_msg_url", "dummy_results", "tab_open", this_step)
+    this_step, step_words = genStepWebdriverNewTab("web_driver", "ebay_msg_url", "dummy_results", "tab_open", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
@@ -2616,14 +2616,14 @@ def genWinADSEbayRespondMessagesSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
+def genWinADSEbayBrowserRespondMessagesLegacySkill(worksettings, stepN, theme):
     psk_words = "{"
 
-    this_step, step_words = genStepHeader("win_ads_ebay_browser_respond_messages", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY005",
+    this_step, step_words = genStepHeader("win_ads_ebay_browser_respond_messages_legacy", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY006",
                                           "Ebay Respond To Customer Messages On Windows ADS Using In-Browser Automation Skills.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_respond_messages", "", this_step)
+    this_step, step_words = genStepStub("start skill main", "public/win_ads_ebay_orders/browser_respond_messages_legacy", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -2869,11 +2869,11 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_respond_messages", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_ads_ebay_orders/browser_respond_messages_legacy", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle customer and system messages using in-browser automation skills...." + psk_words)
+    log3("DEBUG", "generated skill for windows ebay handle customer and system messages with legacy interface using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
