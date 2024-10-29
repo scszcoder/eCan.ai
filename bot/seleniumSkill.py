@@ -615,17 +615,18 @@ def processWebdriverScrollTo(step, i, mission):
         #     });
         #     window.scrollBy(0, arguments[1]);
         # """, target_element, offset)
-        driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+        if not target_element.is_displayed():
+            driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
 
 
-        # Wait a bit to ensure the scrolling action is complete
-        time.sleep(1)  # Short wait to ensure the scroll action is complete
+            # Wait a bit to ensure the scrolling action is complete
+            time.sleep(1)  # Short wait to ensure the scroll action is complete
 
-        # Wait a bit to ensure the scrolling action is complete
-        WebDriverWait(driver, 2).until(
-            EC.visibility_of(target_element)
-        )
-        log3("WebdriverScrollTo:[" + step["target_var"] + "]", "processWebdriverScrollTo", mainwin)
+            # Wait a bit to ensure the scrolling action is complete
+            WebDriverWait(driver, 2).until(
+                EC.visibility_of(target_element)
+            )
+            log3("WebdriverScrollTo:[" + step["target_var"] + "]", "processWebdriverScrollTo", mainwin)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)

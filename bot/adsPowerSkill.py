@@ -145,7 +145,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 
 
 
-def genADSPowerExitProfileSteps(worksettings, stepN, theme):
+def genStepsADSPowerExitProfile(worksettings, stepN, theme):
     psk_words = ""
     log3("DEBUG", "genAMZBrowseDetails..."+json.dumps(worksettings)+"stepN:"+str(stepN))
 
@@ -858,7 +858,7 @@ def genWinADSRemoveProfilesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
+    this_step, step_words = genStepsADSPowerExitProfile(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
 

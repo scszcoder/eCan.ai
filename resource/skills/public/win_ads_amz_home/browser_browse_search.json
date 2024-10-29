@@ -1,8 +1,8 @@
 {
-    "name": "browse_search",
-    "skid": 4,
+    "name": "browser_browse_search",
+    "skid": 101,
     "owner": "public",
-    "createdOn": "2023-12-25",
+    "createdOn": "2024-10-28",
     "price": 0,
     "price_model": "free",
     "path": "resource/skills/public/",
@@ -13,8 +13,8 @@
     "app_args": "",
     "site_name": "amz",
     "site": "https://www.amazon.com",
-    "generator": "genStubWinADSAMZWalkSkill",
     "page": "home",
+    "generator": "genWinADSAMZBrowserBrowseSearchSkill",
     "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
@@ -109,9 +109,9 @@
         }
     },
     "cloud_skill": {
-        "path": "pubilc/win_ads_amz_home/browse_search"
+        "path": "pubilc/win_ads_amz_home/browser_browse_search"
     },
     "main": "T",
     "runtime": 1,
-    "description": "a skill automatically searches and browses amazon web site."
+    "description": "a skill automatically searches and browses amazon web site using ADS power with webdriver."
 }
