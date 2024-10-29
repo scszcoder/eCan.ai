@@ -667,8 +667,14 @@ class MissionNewWin(QMainWindow):
             current_time_nanoseconds = time.time_ns()
             # Convert to milliseconds
             current_time_milliseconds = current_time_nanoseconds // 1_000_000
-            self.newMission.setTicket(current_time_milliseconds)
-            self.ticket_edit.setText(str(self.newMission.getTicket()))
+            # self.newMission.setTicket(current_time_milliseconds)
+            # self.ticket_edit.setText(str(self.newMission.getTicket()))
+            self.newMission.setTicket(0)
+            self.ticket_edit.setText(str(0))
+            self.est_edit.setText(str(1))
+            self.ert_edit.setText(str(1))
+            # should clear many GUI here in case previous edit mode left info here.
+            self.skillModel.clear()
         elif self.mode == "update":
             self.setWindowTitle('Updating a mission')
 
@@ -690,6 +696,8 @@ class MissionNewWin(QMainWindow):
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
 
         if self.manual_rb.isChecked():
+            slots = 0
+            runtime = 1
             if int(self.bid_edit.text()) != self.newMission.getBid():
                 self.newMission.setBid(int(self.bid_edit.text()))
                 est_edit_text = self.est_edit.text()

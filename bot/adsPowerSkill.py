@@ -298,6 +298,64 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
     return this_step, psk_words
 
 
+def genADSPowerNewProfileSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_local_new_profile", "win", "1.0", "AIPPS LLC", "PUBWINADSLOAD002",
+                                          "Windows ADS Power Create New Profile.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_local_load/new_profile", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepsADSPowerNewProfile(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_local_load/new_profile", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    log3("DEBUG", "generated skill for windows ads power create a new profile...." + psk_words)
+
+    return this_step, psk_words
+
+
+
+def genStepsADSPowerNewProfile(worksettings, stepN, theme):
+    psk_words = ""
+    log3("DEBUG", "genADSPowerNewProfile..."+json.dumps(worksettings)+"stepN:"+str(stepN))
+
+    this_step, step_words = genStepWait(0, 1, 1, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "new_profile", "direct", "anchor text", "any", "ip_obtained", "useless", "", False, this_step)
+    psk_words = psk_words + step_words
+
+    # now key in profile name.
+    this_step, step_words = genStepKeyInput("", True, "ctrl,9", "", 3, this_step)
+    psk_words = psk_words + step_words
+
+    # click on no proxy and select http
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
+    psk_words = psk_words + step_words
+
+    # click on platform and select gmail
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
+    psk_words = psk_words + step_words
+
+
+    # fill in host port
+    # fill in proxy user name
+    # fill in proy user pw
+    # fill in IP addr.
+
+    # hit OK button.
+
+    return this_step, psk_words
 
 def genADSPowerConnectProxy(worksettings, stepN, theme):
     psk_words = ""

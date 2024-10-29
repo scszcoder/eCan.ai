@@ -33,7 +33,7 @@ class StaticResource:
 
         self.SM_PLATFORMS = ['WhatsApp', 'Messenger', 'Facebook', 'Instagram', 'Snap', 'Telegraph', 'Google', 'Line',
                              'Wechat', 'Tiktok', 'QQ', 'Custom']
-        self.BUY_TYPES = ['buy', 'goodFB', 'badFB', 'goodRating', 'badRating']
+        self.BUY_TYPES = ['browse', 'buy', 'goodFB', 'badFB', 'goodRating', 'badRating']
         self.SUB_BUY_TYPES = ['addCart', 'pay', 'addCartPay', "checkShipping", 'rate', 'feedback', "checkFB"]
         self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
         self.SUB_SELL_TYPES = []
