@@ -9,7 +9,7 @@ from bot.basicSkill import DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepHeader, 
     genScrollDownUntil, genScrollUpUntil, genStepFillData, genStepOpenApp, genStepRecordTxtLineLocation, genStepReadFile, genStepWriteFile, \
     genStepAmzDetailsCheckPosition, genStepCalcObjectsDistance, genStepScrollToLocation, genStepAmzPLCalcNCols, \
     genScrollDownUntilLoc, genScrollUpUntilLoc
-from bot.adsPowerSkill import genADSPowerExitProfileSteps
+from bot.adsPowerSkill import genStepsADSPowerExitProfile
 import re
 from difflib import SequenceMatcher
 import traceback
@@ -248,7 +248,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
-    this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
+    this_step, step_words = genStepsADSPowerExitProfile(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
     # end condition for "not_logged_in == False"
@@ -2768,7 +2768,7 @@ def genWinADSAMZBuySkill(worksettings, start_step, theme):
     psk_words = psk_words + step_words
 
     # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
-    this_step, step_words = genADSPowerExitProfileSteps(worksettings, this_step, theme)
+    this_step, step_words = genStepsADSPowerExitProfile(worksettings, this_step, theme)
     psk_words = psk_words + step_words
 
     # end condition for "not_logged_in == False"

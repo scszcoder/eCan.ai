@@ -9,7 +9,7 @@ from bot.basicSkill import DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepHeader, 
     genStepCallExtern, genStepExtractInfo, genStepSearchWordLine, genStepSearchAnchorInfo, genStepCheckCondition, \
     genStepMouseScroll, genStepMouseClick, genStepKeyInput, genStepGoToWindow, genStepTextInput, genStepLoop, \
     genScrollDownUntil, genStepFillData, genStepOpenApp, genStepRecordTxtLineLocation, genStepReadFile, genStepWriteFile
-from bot.adsPowerSkill import genADSPowerExitProfileSteps
+from bot.adsPowerSkill import genStepsADSPowerExitProfile
 from bot.amzBuyerSkill import genAMZBrowseProductLists
 import re
 from difflib import SequenceMatcher
