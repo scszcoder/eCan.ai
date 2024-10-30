@@ -4,15 +4,15 @@ from bot.basicSkill import genStepHeader, genStepMouseClick, genStepStub, genSte
 ADS_BATCH_SIZE = 2
 
 
-def genWinADSRefreshGMailSkill(worksettings, stepN, theme):
+def genWinADSGmailBrowserRefreshSkill(worksettings, stepN, theme):
     psk_words = "{"
     # site_url = "https://www.amazon.com/"
 
-    this_step, step_words = genStepHeader("win_ads_gmail_home_routine_access", "win", "1.0", "AIPPS LLC", "PUBWINADSREFRESHGMAIL001",
-                                          "Windows ADS Power refresh gmail.", stepN)
+    this_step, step_words = genStepHeader("win_ads_gmail_home_browser_refresh", "win", "1.0", "AIPPS LLC", "PUBWINADSREFRESHGMAIL001",
+                                          "Windows ADS Power refresh gmail with webdriver.", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/routine_access", "", this_step)
+    this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
@@ -30,7 +30,7 @@ def genWinADSRefreshGMailSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/routine_access", "", this_step)
+    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
@@ -38,6 +38,56 @@ def genWinADSRefreshGMailSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+
+def genWinADSGmailBrowserAnswerEmailsSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_gmail_home_browser_answer_emails", "win", "1.0", "AIPPS LLC", "PUBWINADSREFRESHGMAIL002",
+                                          "Windows ADS Power answer gmails with webdriver.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/browser_answer_emails", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepsChromeRefreshGMailSkill(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/browser_answer_emails", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows ads power answer gmails and remove spams....." + psk_words)
+
+    return this_step, psk_words
+
+def genWinADSGmailBrowserSendEmailsSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_gmail_home_browser_send_emails", "win", "1.0", "AIPPS LLC", "PUBWINADSREFRESHGMAIL003",
+                                          "Windows ADS Power send gmail with webdriver.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/browser_send_emails", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/browser_send_emails", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows ads power send gmail....." + psk_words)
+
+    return this_step, psk_words
 
 
 # assume the gmail screen page/tap is already focused. we simply click on a couple of place to simulate

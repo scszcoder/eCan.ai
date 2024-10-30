@@ -3519,7 +3519,7 @@ class MainWindow(QMainWindow):
             mission_id = works[tz][bidx][grp][idx]["mid"]
             midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
             this_stat = self.missions[midx].getStatus()
-            n_retries = self.missions[midx].getRetry()
+            n_retries = self.missions[midx].getNRetries()
             if "Completed" not in this_stat and n_retries > 0:
                 found = True
 
@@ -6682,6 +6682,11 @@ class MainWindow(QMainWindow):
 
     def getADSSettings(self):
         return self.ads_settings
+
+    def saveADSSettings(self, settings):
+        with open(self.ads_settings_file, 'w') as ads_settings_f:
+            json.dump(settings, ads_settings_f)
+            ads_settings_f.close()
 
     def getIP(self):
         return self.ip

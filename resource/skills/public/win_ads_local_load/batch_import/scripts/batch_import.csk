@@ -532,6 +532,145 @@
                 "info": [
                 ]
             },
+            "bulk": {
+                "anchors": [
+                    {
+                        "anchor_name"  : "batch0",
+                        "anchor_type"  : "icon",
+                        "template"     : "batch0.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ads_win_title",
+                        "anchor_type"  : "text",
+                        "template"     : "AdsPower Browser",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ok",
+                        "anchor_type"  : "text",
+                        "template"     : "OK",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "reset",
+                        "anchor_type"  : "text",
+                        "template"     : "Reset",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "http",
+                        "anchor_type"  : "text",
+                        "template"     : "http",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "copy0",
+                        "anchor_type"  : "icon",
+                        "template"     : "copy0",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                    
+                ]
+            },
+            "api" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "api",
+                        "anchor_type"  : "text",
+                        "template"     : "API",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ads_win_title",
+                        "anchor_type"  : "text",
+                        "template"     : "AdsPower Browser",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ok",
+                        "anchor_type"  : "text",
+                        "template"     : "OK",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "reset",
+                        "anchor_type"  : "text",
+                        "template"     : "Reset",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "http",
+                        "anchor_type"  : "text",
+                        "template"     : "http",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "copy0",
+                        "anchor_type"  : "icon",
+                        "template"     : "copy0",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                    {
+                        "info_name"  : "api_key",
+                        "info_type"  : "lines 1",
+                        "template"     : "#[a-z0-9]+",
+                        "ref_method"   : "2",
+                        "refs" : [
+                            {
+                                "dir": "left",
+                                "ref": "copy0",
+                                "offset": 10,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "info_name"  : "api_addr",
+                        "info_type"  : "lines 1",
+                        "template"     : "#http[a-z0-9]+",
+                        "ref_method"   : "2",
+                        "refs" : [
+                            {
+                                "dir": "left",
+                                "ref": "copy0",
+                                "offset": 10,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "info_name"  : "ads_version",
+                        "info_type"  : "lines 1",
+                        "template"     : "\b\d+\.\d+\.\d+\s.\s\d+\.\d+\.\d+\.\d+\b",
+                        "ref_method"   : "2",
+                        "refs" : [
+                            {
+                                "dir": "right",
+                                "ref": "ads_win_title",
+                                "offset": 10,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    }
+                ]
+            },
             "export_text": {
                 "anchors": [
                     {
