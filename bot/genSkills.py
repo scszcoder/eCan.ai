@@ -6,7 +6,7 @@ from datetime import datetime
 from bot.Logger import log3
 from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfilesSkill, \
     genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genStepsADSPowerExitProfile, \
-    genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt
+    genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt, genStepADSSaveAPISettings
 from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
@@ -46,6 +46,8 @@ from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, 
     genWinADSEbayBrowserBuyECBLabelsSkill, genWinADSEbayBrowserHandleOffersSkill, \
     genWinADSEbayBrowserHandleReturnSkill, genWinADSEbayBrowserHandleReturnWithECBLabelsSkill, \
     genWinADSEbayBrowserHandleReplacementSkill, genWinADSEbayBrowserHandleRefundSkill
+
+from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill
 
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
@@ -175,6 +177,7 @@ PUBLIC = {
     'genWinADSBatchImportSkill': genWinADSBatchImportSkill,
     'genADSLoadAmzHomePage': genADSLoadAmzHomePage,
     'genADSPowerConnectProxy': genADSPowerConnectProxy,
+    'genStepADSSaveAPISettings': genStepADSSaveAPISettings,
     'genStepsADSPowerExitProfile': genStepsADSPowerExitProfile,
     'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
     'genWinChromeAMZWalkSkill': genWinChromeAMZWalkSkill,
@@ -209,7 +212,7 @@ PUBLIC = {
     'genStepEbayScrapeCustomerMsgThread': genStepEbayScrapeCustomerMsgThread,
     'genStepAmzScrapeBuyOrdersHtml': genStepAmzScrapeBuyOrdersHtml,
     'genEbayLoginInSteps': genEbayLoginInSteps,
-
+    'genWinADSAMZBrowserBrowseSearchSkill': genWinADSAMZBrowserBrowseSearchSkill,
     "genStepReportExternalSkillRunStatus": genStepReportExternalSkillRunStatus,
     "genStepUseExternalSkill": genStepUseExternalSkill,
     "genStepReadJsonFile": genStepReadJsonFile,
@@ -239,6 +242,7 @@ SkillGeneratorTable = {
     "win_chrome_amz_orders_handle_messages": lambda x,y,z: genWinChromeAMZHandleMessagesSkill(x, y, z),
     # "win_ads_amz_home_browse_search": lambda x,y,z: genStubWinADSAMZWalkSkill(x, y, z),
     "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
+    "win_ads_amz_home_browser_browse_search": lambda x, y, z: genWinADSAMZBrowserBrowseSearchSkill(x, y, z),
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),

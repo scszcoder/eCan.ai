@@ -22,7 +22,7 @@ class MissionModel(Base):
     est_start_time = Column(Text)
     actual_runtime = Column(Text)
     est_runtime = Column(Text)
-    n_retries = Column(Text)
+    n_retries = Column(Integer)
     cuspas = Column(Text)
     category = Column(Text)
     phrase = Column(Text)

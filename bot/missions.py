@@ -896,7 +896,10 @@ class EBMISSION(QStandardItem):
         return self.pubAttributes.n_retries
 
     def setNRetries(self, nrt):
-        self.pubAttributes.n_retries = nrt
+        if isinstance(nrt, str):
+            self.pubAttributes.n_retries = int(nrt)
+        else:
+            self.pubAttributes.n_retries = nrt
 
     def setPrice(self, price):
         self.privateAttributes.price = price
@@ -1008,7 +1011,7 @@ class EBMISSION(QStandardItem):
         self.setEcd(dj.get("ecd", ""))
         self.setEstimatedStartTime(dj.get("est", 0))
         self.setEstimatedRunTime(dj.get("ert", 0))
-        self.setNRetries((dj.get("retries", 1)))
+        self.setNRetries((dj.get("retries", 0)))
         self.setCusPAS(dj.get("platform", "")+","+dj.get("app", "")+","+dj.get("site", ""))
         self.setSearchCat(dj.get("search cat", ""))
         self.setSearchKW(dj.get("search phrase", ""))

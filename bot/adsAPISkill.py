@@ -27,7 +27,7 @@ PROFILE_ID = 'your_adspower_profile_id'
 PORT = 50325
 
 def startAdspowerProfile(api_key, profile_id, port):
-    profile_id = "kk63src"
+
     url = f'http://localhost:{port}/api/v1/browser/start?user_id={profile_id}'
     print("URL:", url)
 
@@ -64,7 +64,6 @@ def startADSWebDriver(local_api_key, port_string, profile_id, options):
     # Initialize WebDriver with the specified options and service
     driver = webdriver.Chrome(service=service, options=chrome_options)
 
-
     # webdriver_url = 'http://'+selenium_address+'/wd/hub'
     # options = webdriver.ChromeOptions()
     # # options.add_experimental_option('debuggerAddress', f"{webdriver_info['ip']}:{webdriver_info['port']}")
@@ -75,11 +74,9 @@ def startADSWebDriver(local_api_key, port_string, profile_id, options):
     # # options.add_argument("--headless")  # Run in headless mode
     # options.add_argument("--disable-gpu")
     #
-    #
     # # Merge desired capabilities with options
     # capabilities = DesiredCapabilities.CHROME.copy()
     # options.set_capability('browserName', capabilities['browserName'])
-    #
     #
     # # Connect to the Adspower browser instance
     # # driver = webdriver.Remote(command_executor=webdriver_url, desired_capabilities=DesiredCapabilities.CHROME, options=options)

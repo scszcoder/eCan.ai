@@ -496,6 +496,61 @@
                 ], 
                 "info": [
                 ]
+            },
+            "api" : {
+                "anchors": [
+                    {
+                        "anchor_name"  : "api",
+                        "anchor_type"  : "text",
+                        "template"     : "API",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "http",
+                        "anchor_type"  : "text",
+                        "template"     : "http",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "copy0",
+                        "anchor_type"  : "icon",
+                        "template"     : "copy0",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    }
+                ], 
+                "info": [
+                    {
+                        "info_name"  : "api_key",
+                        "info_type"  : "lines 1",
+                        "template"     : "#[a-z0-9]+",
+                        "ref_method"   : "2",
+                        "refs" : [
+                            {
+                                "dir": "left",
+                                "ref": "copy0",
+                                "offset": 10,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    },
+                    {
+                        "info_name"  : "api_addr",
+                        "info_type"  : "lines 1",
+                        "template"     : "#http[a-z0-9]+",
+                        "ref_method"   : "2",
+                        "refs" : [
+                            {
+                                "dir": "left",
+                                "ref": "copy0",
+                                "offset": 10,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    } 
+                ]
             }
 	    }
 	}

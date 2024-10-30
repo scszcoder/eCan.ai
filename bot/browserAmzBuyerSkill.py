@@ -27,7 +27,7 @@ import traceback
 from bot.basicSkill import DEFAULT_RUN_STATUS
 from bot.Logger import log3
 from bot.amzBuyerSkill import genAMZLoginInSteps
-from bot.adsPowerSkill import genStepsADSPowerExitProfile
+from bot.adsPowerSkill import genStepsADSPowerExitProfile, genStepsADSPowerObtainLocalAPISettings
 
 # the flow is adapted from the same routine in amzBuyerSkill
 # except all screen read becomes in-browser webdriver based read which is much much easier...
@@ -1240,7 +1240,7 @@ def genStubWinADSAMZWalkSkill(worksettings, stepN):
 
 
 
-def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN):
+def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill======>")
     psk_words = "{"
     site_url = "https://www.amazon.com/"
@@ -1293,7 +1293,7 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN):
     this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", this_step, None, "dyn_options")
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
@@ -1312,7 +1312,7 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN):
     this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", this_step, None, "dyn_options")
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
@@ -1365,6 +1365,8 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN):
     this_step, step_words = genStepWait(5, 1, 3, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepsADSPowerObtainLocalAPISettings()
+    psk_words = psk_words + step_words
     # following is for tests purpose. hijack the flow, go directly to browse....
     # this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
     # this_step, step_words = genStepGoToWindow("Chrome", "", "g2w_status", this_step)
@@ -1373,6 +1375,15 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN):
     this_step, step_words = genStepWait(3, 1, 3, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port", "web_driver_options", "web_driver_successful", this_step)
+    psk_words = psk_words + step_words
+
+    # now open the target amazon web site.
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "eBay", "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT", "site_result", "site_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genEbayLoginInSteps(this_step, theme)
+    # psk_words = psk_words + step_words
 
     this_step, step_words = genAMZLoginInSteps(this_step)
     psk_words = psk_words + step_words
@@ -1542,7 +1553,7 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "top", this_step, None)
+    this_step, step_words = genStepWebdriverExtractInfo("", "sk_work_settings", "screen_info", "product_details", "top", this_step, None)
     psk_words = psk_words + step_words
 
 
@@ -1587,7 +1598,7 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
 
     # after click on "Read more", capture screen again, at this time "Read More" should have dissappear, if there is more, then
     # let the loop takes care of it, if there is no more "Read More" on screen, scroll down a screen....
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", this_step, None)
+    this_step, step_words = genStepWebdriverExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", this_step, None)
     psk_words = psk_words + step_words
 
 
@@ -1618,7 +1629,7 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", this_step, None)
+    this_step, step_words = genStepWebdriverExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "read_more", "direct", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
@@ -1793,7 +1804,7 @@ def genAMZBrowseDetailsScrollPassReviews(settings_var_name, stepN):
     this_step, step_words = genStepsAMZBrowserScrollDownSome("5", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", this_step, None)
+    this_step, step_words = genStepWebdriverExtractInfo("", "sk_work_settings", "screen_info", "product_details", "bottom", this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepAmzDetailsCheckPosition("screen_info", "reviewed", "scrn_position", "position_flag", this_step)
@@ -1947,7 +1958,7 @@ def genAMZBrowseAllReviewsPage(level, stepN, settings_var_name):
     this_step, step_words = genStepKeyInput("", True, "alt,left", "", 3, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", settings_var_name, "screen_info", "all_reviews", "top", this_step, None)
+    this_step, step_words = genStepWebdriverExtractInfo("", settings_var_name, "screen_info", "all_reviews", "top", this_step, None)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "sort_by", "direct", "anchor text", "any",
