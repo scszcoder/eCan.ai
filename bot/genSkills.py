@@ -5,7 +5,7 @@ from datetime import datetime
 
 from bot.Logger import log3
 from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfilesSkill, \
-    genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genADSPowerExitProfileSteps, \
+    genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genStepsADSPowerExitProfile, \
     genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt
 from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
@@ -175,7 +175,7 @@ PUBLIC = {
     'genWinADSBatchImportSkill': genWinADSBatchImportSkill,
     'genADSLoadAmzHomePage': genADSLoadAmzHomePage,
     'genADSPowerConnectProxy': genADSPowerConnectProxy,
-    'genADSPowerExitProfileSteps': genADSPowerExitProfileSteps,
+    'genStepsADSPowerExitProfile': genStepsADSPowerExitProfile,
     'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
     'genWinChromeAMZWalkSkill': genWinChromeAMZWalkSkill,
     'genWinADSAMZWalkSkill': genWinADSAMZWalkSkill,

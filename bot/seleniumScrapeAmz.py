@@ -20,10 +20,11 @@ import json
 import time
 import shutil
 import random
-
+from bot.Logger import log3
 import traceback
 from bot.seleniumSkill import switchToNthTab, switchToLastTab, switchToFirstTab
-
+from bot.basicSkill import DEFAULT_RUN_STATUS, symTab, STEP_GAP
+from bot.scraperAmz import amz_buyer_scrape_product_list, amz_buyer_scrape_product_details, amz_buyer_scrape_orders_list
 
 # Initialize variables
 search_phrase = "手机"  # Example search phrase, you can change this
@@ -271,6 +272,7 @@ def scrapeOrderLists(driver):
                                     if not order_id_elements:
                                         print("Order ID element not found in the row")
                                         continue
+                                    order_id_element = order_id_elements[0]
                                     order_id = order_id_element.text
 
                                     weight_lb_element = row.find_element(By.NAME, "weight.lb")
@@ -539,5 +541,109 @@ def processAmzSeleniumScrapeSearchResults(driver=None):
     # processAmzSeleniumConfirmShipments(driver)
 
     return result
+
+
+def genStepAMZBrowserScrapePL(web_driver, pidx, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "AMZ Browser Scrape Products List",
+        "pidx": pidx,
+        "web_driver_var": web_driver,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+def processAMZBrowserScrapePL(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        pidx = step["pidx"]
+
+        webdriver = symTab[step["web_driver_var"]]
+
+        pagefull_of_orders = amz_buyer_scrape_product_list(webdriver, pidx)
+
+        symTab[step["result"]] = pagefull_of_orders
+
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorUpdateBuyMissionResult:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorUpdateBuyMissionResult: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+
+def genStepAMZBrowserScrapeProductDetails(web_driver, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "AMZ Browser Scrape Product Details",
+        "web_driver_var": web_driver,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def processAMZBrowserScrapeProductDetails(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        webdriver = symTab[step["web_driver_var"]]
+
+        pagefull_of_orders = amz_buyer_scrape_product_details(webdriver)
+
+        symTab[step["result"]] = pagefull_of_orders
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorAMZBrowserScrapeProductDetails:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorAMZBrowserScrapeProductDetails: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+
+def genStepAMZBrowserScrapeOrdersList(web_driver, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "AMZ Browser Scrape Orders List",
+        "web_driver_var": web_driver,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def processAMZBrowserScrapeOrdersList(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        webdriver = symTab[step["web_driver_var"]]
+
+        pagefull_of_orders, n_pages = amz_buyer_scrape_orders_list(webdriver)
+
+        symTab[step["result"]] = pagefull_of_orders
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorAMZBrowserScrapeProductDetails:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorAMZBrowserScrapeProductDetails: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
 
 
