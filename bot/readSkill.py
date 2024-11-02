@@ -26,7 +26,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
-    processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist
+    processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist, \
+    processPasteToData
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -127,6 +128,7 @@ RAIS = {
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
     "Save Data": lambda x,y: processSaveData(x, y),
+    "Paste To Data": lambda x,y: processPasteToData(x, y),
     "Get Default": lambda x,y: processGetDefault(x, y),
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
@@ -263,6 +265,7 @@ ARAIS = {
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
     "Save Data": lambda x,y: processSaveData(x, y),
+    "Paste To Data": lambda x,y: processPasteToData(x, y),
     "Get Default": lambda x,y: processGetDefault(x, y),
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),

@@ -34,6 +34,7 @@ from PIL import Image
 import shutil
 import zipfile
 import psutil
+import pyperclip
 
 if sys.platform == 'win32':
     import win32gui
@@ -152,6 +153,20 @@ def genStepSaveHtml(html_file_name, html_file_var_name, template, settings, sink
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepPasteToData(result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Paste To Data",
+        "action": "Paste To Data",
+        "result_var": result_var,
+        "flag_var": flag_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 
 # extract screen information:
@@ -5617,3 +5632,24 @@ def regSteps(stepType, stepData, start, result, mainWin):
     ]
     #upload screen to S3
     resp = send_reg_steps_to_cloud(mainWin.session, steps, mainWin.tokens['AuthenticationResult']['IdToken'])
+
+
+def processPasteToData(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag_var"]] = True
+        symTab[step["result_var"]] =  pyperclip.paste()
+        print("pasted:", symTab[step["result_var"]])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckAlreadyProcessed:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckAlreadyProcessed: traceback information not available:" + str(e)
+        symTab[step["flag_var"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat

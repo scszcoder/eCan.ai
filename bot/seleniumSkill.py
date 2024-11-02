@@ -404,9 +404,12 @@ def processWebdriverClick(step, i, mission):
 
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        symTab[step["clickable"]].click()
+        if symTab[step["clickable"]]:
+            symTab[step["clickable"]].click()
 
-        log3("WebdriverClick:["+step["clickable"]+"]", "processWebdriverClick", mainwin)
+            log3("WebdriverClick:["+step["clickable"]+"] clicked", "processWebdriverClick", mainwin)
+        else:
+            log3("WebdriverClick:[" + step["clickable"] + "] not found", "processWebdriverClick", mainwin)
 
     except Exception as e:
         # Get the traceback information

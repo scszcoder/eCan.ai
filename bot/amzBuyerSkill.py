@@ -219,7 +219,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genAMZLoginInSteps(this_step, theme)
+    this_step, step_words = genStepsAMZLoginIn(this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -265,7 +265,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genAMZLoginInSteps(stepN, theme):
+def genStepsAMZLoginIn(stepN, theme):
     psk_words = ""
 
     # check the 1st tab to make sure the connection to internet thru proxy is normal, the way to check
@@ -2746,7 +2746,7 @@ def genWinADSAMZBuySkill(worksettings, start_step, theme):
     this_step, step_words = genStepWait(9, 1, 3, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genAMZLoginInSteps(this_step, theme)
+    this_step, step_words = genStepsAMZLoginIn(this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)

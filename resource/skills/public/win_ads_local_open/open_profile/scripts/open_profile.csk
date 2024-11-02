@@ -487,6 +487,13 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "api",
+                        "anchor_type"  : "text",
+                        "template"     : "API",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
@@ -514,9 +521,51 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "success",
+                        "anchor_type"  : "text",
+                        "template"     : "Success",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },                    
+                    {
+                        "anchor_name"  : "pay_attention",
+                        "anchor_type"  : "text",
+                        "template"     : "pay attention",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "reset",
+                        "anchor_type"  : "text",
+                        "template"     : "Reset",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "copy0",
                         "anchor_type"  : "icon",
-                        "template"     : "copy0",
+                        "template"     : "copy0.png",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ok",
+                        "anchor_type"  : "text",
+                        "template"     : "OK",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "ads_win_title",
+                        "anchor_type"  : "text",
+                        "template"     : "AdsPower Browser",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "copy1",
+                        "anchor_type"  : "icon",
+                        "template"     : "copy1.png",
                         "ref_method"   : "0",
                         "ref_location" : []
                     }
@@ -529,9 +578,9 @@
                         "ref_method"   : "2",
                         "refs" : [
                             {
-                                "dir": "left",
-                                "ref": "copy0",
-                                "offset": 10,
+                                "dir": "above",
+                                "ref": "pay_attention",
+                                "offset": 4,
                                 "offset_unit": "box"
                             }
                         ]
@@ -539,17 +588,31 @@
                     {
                         "info_name"  : "api_addr",
                         "info_type"  : "lines 1",
-                        "template"     : "#http[a-z0-9]+",
+                        "template"   : "#http[a-z0-9]+",
                         "ref_method"   : "2",
                         "refs" : [
                             {
-                                "dir": "left",
-                                "ref": "copy0",
-                                "offset": 10,
+                                "dir": "below",
+                                "ref": "success",
+                                "offset": 4,
                                 "offset_unit": "box"
                             }
                         ]
-                    } 
+                    },
+                    {
+                        "info_name"  : "ads_version",
+                        "info_type"  : "lines 1",
+                        "template"   : "[0-9]+\.*",
+                        "ref_method"   : "2",
+                        "refs" : [
+                            {
+                                "dir": "right",
+                                "ref": "ads_win_title",
+                                "offset": 1,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    }  
                 ]
             }
 	    }
