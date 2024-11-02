@@ -9,7 +9,7 @@ from bot.Logger import log3
 from bot.basicSkill import genStepStub, genStepCreateData, genStepCallExtern, genStepOpenApp, genStepWait, \
     genStepExtractInfo, genStepSearchAnchorInfo, genStepCheckCondition, genStepMouseClick, genStepLoop, genStepKeyInput, \
     genStepMouseScroll, genStepTextInput, genStepHeader, STEP_GAP, symTab, DEFAULT_RUN_STATUS, genStepSearchWordLine,  \
-    genStepUseSkill
+    genStepUseSkill, genStepPasteToData
 
 ADS_BATCH_SIZE = 2
 
@@ -174,22 +174,25 @@ def genStepsADSPowerObtainLocalAPISettings(stepN, theme):
     psk_words = psk_words + step_words
 
     # read screen
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     # click on "API"
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "api", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "api", "anchor text", "", 0, "center", [0, 0], "box", 2, 5, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    # wait till contents appear
-    this_step, step_words = genStepWait(2, 0, 0, this_step)
-    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'Profiles', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # now read screen, now local api URL address and port should appear.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "api_addr", "direct", "info 2", "any", "api_addr_texts", "key_found", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global local_api_port, sk_work_settings\nlocal_api_port = re.search(r'http://local\.adspower\.net:(\d+)',api_addr_texts[0]['text']).group(1)\nsk_work_settings['fp_browser_settings']['ads_port'] = local_api_port\nprint('local_api_port', local_api_port)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -200,20 +203,37 @@ def genStepsADSPowerObtainLocalAPISettings(stepN, theme):
     this_step, step_words = genStepCheckCondition("api_key_resettable", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "api_key_reset", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "reset", "anchor text", "", 0, "center", [0, 0], "box", 1, 3, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 0.65],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
+
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.2, 0, 1, 0.65],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "api_key", "direct", "anchor text", "any", "api_key_texts", "key_found", "ads", False, this_step)
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "api_key", "direct", "info 2", "any", "api_key_texts", "key_found", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "copy0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepPasteToData("local_api_key", "pasted", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global local_api_key, sk_work_settings\nsk_work_settings['fp_browser_settings']['ads_api_key'] = local_api_key", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
@@ -229,7 +249,6 @@ def genStepsADSPowerObtainLocalAPISettings(stepN, theme):
     # close bracket
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
-
 
     return this_step, psk_words
 
@@ -1606,7 +1625,7 @@ def processADSSaveAPISettings(step, i, mission):
     try:
         # now save for roll back if ever needed.
         # first remove the previously save rollback point, but leave up to 3 rollback points
-        settings = symTab[["settings_var"]]
+        settings = symTab[step["settings_var"]]
         mainwin.saveADSSettings(settings)
 
 

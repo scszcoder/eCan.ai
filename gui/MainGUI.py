@@ -6685,7 +6685,7 @@ class MainWindow(QMainWindow):
 
     def saveADSSettings(self, settings):
         with open(self.ads_settings_file, 'w') as ads_settings_f:
-            json.dump(settings, ads_settings_f)
+            json.dump(settings["fp_browser_settings"], ads_settings_f)
             ads_settings_f.close()
 
     def getIP(self):

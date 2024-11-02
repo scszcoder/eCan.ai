@@ -28,7 +28,7 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
     genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
-    genStepCheckSublist, genStepCheckAlreadyProcessed
+    genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -217,6 +217,7 @@ PUBLIC = {
     "genStepUseExternalSkill": genStepUseExternalSkill,
     "genStepReadJsonFile": genStepReadJsonFile,
     "genStepReadXlsxFile": genStepReadXlsxFile,
+    "genStepPasteToData": genStepPasteToData,
 
     'log3': log3,
     'genStepReadFile': genStepReadFile,
