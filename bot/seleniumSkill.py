@@ -338,15 +338,16 @@ def genStepWebdriverStartNewChrome(driver_path, port, result_var, flag_var, step
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 # local_api_key, port_var, profile_id_var, options):
-def genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var, port_var, options_var, flag_var, stepN):
+def genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var, port_var, driver_path_var, options_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Start Existing ADS",
         "driver_var": driver_var,  # anchor, info, text
         "ads_api_key_var": ads_api_key_var,
         "profile_id_var": profile_id_var,
         "port_var": port_var,
+        "driver_path_var": driver_path_var,
         "options_var": options_var,
-        "flag": flag_var
+        "flag_var": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
@@ -520,13 +521,14 @@ def processWebdriverStartNewChrome(step, i):
 def processWebdriverStartExistingADS(step, i):
     try:
         ex_stat = DEFAULT_RUN_STATUS
-
+        symTab[step["flag_var"]] = True
         api_key = symTab[step["ads_api_key_var"]]
         profile_id = symTab[step["profile_id_var"]]
         port = symTab[step["port_var"]]
+        driver_path = symTab[step["driver_path_var"]]
         options = symTab[step["options_var"]]
         print("profile_id, port, api_key, options:", profile_id, port, api_key, options)
-        symTab[step["driver_var"]] = startADSWebDriver(api_key, port, profile_id, options)
+        symTab[step["driver_var"]] = startADSWebDriver(api_key, port, profile_id, driver_path, options)
 
     except Exception as e:
         # Get the traceback information
@@ -537,6 +539,7 @@ def processWebdriverStartExistingADS(step, i):
         else:
             ex_stat = "ErrorWebdriverStartExistingADS: traceback information not available:" + str(e)
         print(ex_stat)
+        symTab[step["flag_var"]] = False
     return (i + 1), ex_stat
 
 

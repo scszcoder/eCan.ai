@@ -166,6 +166,10 @@ def genStepsADSPowerObtainLocalAPISettings(stepN, theme):
     this_step, step_words = genStepCreateData("string", "local_api_key", "NA", "", stepN)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("string", "local_api_port", "NA", "", stepN)
+    psk_words = psk_words + step_words
+
+
     this_step, step_words = genStepCallExtern("global local_api_key, sk_work_settings\nlocal_api_key = sk_work_settings['fp_browser_settings']['ads_api_key']", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -238,7 +242,6 @@ def genStepsADSPowerObtainLocalAPISettings(stepN, theme):
 
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
-
 
     # now that we have logged in, load profiles.
     this_step, step_words = genStepADSSaveAPISettings("sk_work_settings", "save_result", "setting_saved", this_step)
@@ -1438,7 +1441,7 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
                 batch_bot_mids.append(bot_mid_key)
 
                 bot_pfJsons = bot_pfJsons + newly_read
-
+                found_bot.setADSProfile(bot_pfJsons)
                 if w_idx >= commander.getADSBatchSize()-1:
                     genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
                     v_ads_profile_batch_xlsxs.append(batch_file)

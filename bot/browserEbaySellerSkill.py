@@ -835,9 +835,16 @@ def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     this_step, step_words = genStepWait(8, 1, 3, this_step)
     psk_words = psk_words + step_words
 
+
+    this_step, step_words = genStepCreateData("string", "web_driver_path", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global web_driver_path, sk_work_settings\nweb_driver_path = sk_work_settings['web_driver_path']", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # use web driver to open the profile.
     # genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var, port_var, options_var, flag_var, stepN):
-    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port", "web_driver_options", "web_driver_successful", this_step)
+    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port", "web_driver_path", "web_driver_options", "web_driver_successful", this_step)
     psk_words = psk_words + step_words
 
     # now open the target web site.
