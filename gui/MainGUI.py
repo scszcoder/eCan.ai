@@ -285,6 +285,8 @@ class MainWindow(QMainWindow):
         self.reminderWin = None
         self.platoonWin = None
 
+        self.default_webdriver = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
+
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QPlainTextEdit()
         self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -352,8 +354,15 @@ class MainWindow(QMainWindow):
                 if "schedule_mode" in self.general_settings:
                     self.schedule_mode = self.general_settings["schedule_mode"]
 
-                self.default_wifi = self.general_settings["default_wifi"]
-                self.default_printer = self.general_settings["default_printer"]
+                if "default_wifi" in self.general_settings:
+                    self.default_wifi = self.general_settings["default_wifi"]
+
+                if "default_printer" in self.general_settings:
+                    self.default_printer = self.general_settings["default_printer"]
+
+                if "default_webdriver" in self.general_settings:
+                    if self.general_settings["default_webdriver"]:
+                        self.default_webdriver = self.general_settings["default_webdriver"]
 
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
         self.showMsg("Debug Mode:" + str(self.debug_mode))
@@ -363,6 +372,7 @@ class MainWindow(QMainWindow):
                 self.ads_settings = json.load(ads_settings_f)
 
             ads_settings_f.close()
+        self.showMsg("ADS SETTINGS:"+json.dumps(self.ads_settings))
         self.showMsg("=========Done With Network Setup, Start Local DB Setup =========")
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
@@ -930,6 +940,7 @@ class MainWindow(QMainWindow):
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
         print("vehicles after init:", [v.getName() for v in self.vehicles])
+        self.saveSettings()
 
 
     # SC note - really need to have
@@ -1106,6 +1117,12 @@ class MainWindow(QMainWindow):
     def getWifis(self):
         return self.wifis
 
+    def getWebDriverPath(self):
+        return self.default_webdriver
+
+    def setWebDriverPath(self, driver_path):
+        self.default_webdriver = driver_path
+
     #async def networking(self, platoonCallBack):
     def set_host_role(self, role):
         self.host_role = role
@@ -1140,7 +1157,8 @@ class MainWindow(QMainWindow):
             self.showMsg("saving general settings:" + json.dumps(self.general_settings))
             with open(self.general_settings_file, 'w') as f:
                 json.dump(self.general_settings, f)
-            # self.rebuildHTML()
+                # self.rebuildHTML()
+                f.close()
         except IOError:
             QMessageBox.information(self, f"Unable to open settings file {self.general_settings_file}")
 

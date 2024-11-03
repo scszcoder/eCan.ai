@@ -109,6 +109,7 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrstate = ""
         self.shipping_addrzip = ""
         self.createon = datetime.today().strftime('%Y-%m-%d')
+        self.adsProfile = []
 
     def setFirstLastName(self, fn, ln):
         self.name = fn + " " + ln
@@ -813,6 +814,12 @@ class EBBOT(QStandardItem):
 
     def getVehicle(self):
         return self.pubProfile.vehicle
+
+    def setADSProfile(self, adsprofile):
+        self.privateProfile.adsProfile = adsprofile
+
+    def getADSProfile(self):
+        return self.privateProfile.adsProfile
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)

@@ -43,14 +43,17 @@ def startAdspowerProfile(api_key, profile_id, port):
     else:
         raise Exception('Failed to start Adspower profile', response.text)
 
-def startADSWebDriver(local_api_key, port_string, profile_id, options):
+def startADSWebDriver(local_api_key, port_string, profile_id, driver_path, options):
     # webdriver_info = startAdspowerProfile(API_KEY, PROFILE_ID)
-    webdriver_info = startAdspowerProfile(local_api_key, profile_id, port_string)
-    print('WebDriver Info:', webdriver_info)
-    driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/chromedriver.exe'
+    loal_api_info = startAdspowerProfile(local_api_key, profile_id, port_string)
+    print('WebDriver Info:', loal_api_info)
+    print('WebDriver full path:', driver_path)
+    # driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/chromedriver.exe'
     driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win32/v92.0.4515.107/chromedriver.exe'
-    selenium_address = webdriver_info['data']['ws']['selenium']
-    debug_port = webdriver_info['data']['debug_port']
+    # driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/v128.0.6613.86/chromedriver.exe'
+    driver_path = driver_path
+    selenium_address = loal_api_info['data']['ws']['selenium']
+    debug_port = loal_api_info['data']['debug_port']
 
     # Configure Chrome options
     chrome_options = Options()

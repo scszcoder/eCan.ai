@@ -392,6 +392,7 @@ def getWorkSettings(lieutenant, bot_works):
             "rpa_name": rpa_name,
             "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
+            "web_driver_path": lieutenant.getWebDriverPath(),
             "options": "{}",
             "as_server": as_server,
             "name_space": name_space
@@ -511,6 +512,8 @@ def getWorkRunSettings(lieutenant, bot_works):
             "rpa_name": rpa_name,
             # "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
+            "web_driver_path":  lieutenant.getWebDriverPath(),
+            "ads_profile_id": bot.getADSProfile()[0]["id"],
             "options": "{}",
             "self_ip": lieutenant.ip,
             "machine_name": lieutenant.machine_name,

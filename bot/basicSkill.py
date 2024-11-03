@@ -35,6 +35,7 @@ import shutil
 import zipfile
 import psutil
 import pyperclip
+from fuzzywuzzy import fuzz
 
 if sys.platform == 'win32':
     import win32gui
@@ -2599,8 +2600,9 @@ def processCreateData(step, i):
                     executable = executable + " " + expr_var
                     if expr_vars.index(expr_var) != len(expr_vars) - 1:
                         executable = executable + ","
+                log3("full executable statement:" + executable)
                 executable = executable + "\n" + simple_expression
-                log3("full executable statement:"+executable)
+
                 exec(executable)
                 # log3(step["data_name"] + " is now: "+json.dumps(symTab[step["data_name"]]))
             else:
@@ -3971,6 +3973,11 @@ def matched_loc(pattern, text):
 # "site": site,
 # "breakpoint": break_here,
 # "status": flag
+def fuzzy_substring_match(small_string, large_string, threshold=85):
+    match_score = fuzz.partial_ratio(small_string, large_string)
+    return match_score >= threshold
+
+
 def processSearchWordLine(step, i):
     log3("Searching....words and/or lines"+json.dumps(step["name_types"]))
     global in_exception
@@ -4023,11 +4030,14 @@ def processSearchWordLine(step, i):
                         log3("matched_words"+json.dumps(matched_words)+"first_word"+json.dumps(first_word)+"last_word"+json.dumps(last_word))
                         if len(matched_words) >  1:
                             last_word = matched_words[len(matched_words)-1]
+                            log3("last_word" + last_word)
 
-                        match_starts = [word for index, word in enumerate(line["words"]) if first_word in word["text"]]
+                        linewords = [word["text"] for index, word in enumerate(line["words"])]
+                        log3("linewords" + json.dumps(linewords))
+                        match_starts = [word for index, word in enumerate(line["words"]) if fuzzy_substring_match(first_word, word["text"])]
 
                         if last_word:
-                            match_ends = [word for index, word in enumerate(line["words"]) if last_word in word["text"]]
+                            match_ends = [word for index, word in enumerate(line["words"]) if fuzzy_substring_match(last_word, word["text"])]
 
                         log3("match_starts"+json.dumps(match_starts))
                         for match_start in match_starts:
@@ -4039,7 +4049,7 @@ def processSearchWordLine(step, i):
                                 matched_loc = match_start["box"]
                                 log3("match only 1 word")
 
-                            found.append({"txt": matched_pattern, "box": matched_loc})
+                            found.append({"txt": matched_pattern, "box": matched_loc, "line_txt": line["text"]})
                     else:
                         p_stat = "pattern NOT FOUND in paragraph"
                         # log3(p_stat+">>"+p["text"])

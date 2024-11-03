@@ -60,65 +60,6 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "user_agant1",
-                        "anchor_type"  : "text",
-                        "template"     : "User-Agent",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "agent_windows",
-                        "anchor_type"  : "text",
-                        "template"     : "[Windows]",
-                        "ref_method"   : "1",
-                        "ref_location" : [
-                            {
-                                "ref": "user_agent",
-                                "side": "right",
-                                "dir": ">",
-                                "offset": "1",
-                                "offset_unit": "box"
-                            }
-                        ]
-                    },
-                    {
-                        "anchor_name"  : "agent_mac",
-                        "anchor_type"  : "text",
-                        "template"     : "[macOS]",
-                        "ref_method"   : "1",
-                        "ref_location" : [                            
-                            {
-                                "ref": "user_agent",
-                                "side": "right",
-                                "dir": ">",
-                                "offset": "1",
-                                "offset_unit": "box"
-                            }
-                        ]
-                    },
-                    {
-                        "anchor_name"  : "agent_linux",
-                        "anchor_type"  : "text",
-                        "template"     : "[Linux]",
-                        "ref_method"   : "1",
-                        "ref_location" : [
-                            {
-                                "ref": "user_agent",
-                                "side": "right",
-                                "dir": ">",
-                                "offset": "1",
-                                "offset_unit": "box"
-                            }
-                        ]
-                    },
-                    {
-                        "anchor_name"  : "agent_any",
-                        "anchor_type"  : "text",
-                        "template"     : "Windows\\macOS\\Linux",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
                         "anchor_name"  : "drag_drop",
                         "anchor_type"  : "text",
                         "template"     : "Drag and drop",
@@ -126,75 +67,9 @@
                         "ref_location" : []
                     },
                     {
-                        "anchor_name"  : "new_profiles",
-                        "anchor_type"  : "text",
-                        "template"     : "New Profile",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
                         "anchor_name"  : "sun_browser",
                         "anchor_type"  : "text",
                         "template"     : "SunBrowser",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "os",
-                        "anchor_type"  : "text",
-                        "template"     : "OS",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "os_windows",
-                        "anchor_type"  : "text",
-                        "template"     : "Windows",
-                        "ref_method"   : "1",
-                        "ref_location" : [
-                            {
-                                "ref": "os_linux",
-                                "side": "left",
-                                "dir": ">",
-                                "offset": "1",
-                                "offset_unit": "box"
-                            }
-                        ]
-                    },
-                    {
-                        "anchor_name"  : "os_mac0",
-                        "anchor_type"  : "text",
-                        "template"     : "macos",
-                        "ref_method"   : "1",
-                        "ref_location" : [
-                            {
-                                "ref": "os_linux",
-                                "side": "left",
-                                "dir": ">",
-                                "offset": "1",
-                                "offset_unit": "box"
-                            }
-                        ]
-                    },
-                    {
-                        "anchor_name"  : "os_mac1",
-                        "anchor_type"  : "text",
-                        "template"     : "macOS",
-                        "ref_method"   : "1",
-                        "ref_location" : [
-                            {
-                                "ref": "os_linux",
-                                "side": "left",
-                                "dir": ">",
-                                "offset": "1",
-                                "offset_unit": "box"
-                            }
-                        ]
-                    },
-                    {
-                        "anchor_name"  : "os_linux",
-                        "anchor_type"  : "text",
-                        "template"     : "Linux",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -252,132 +127,6 @@
                         "anchor_name"  : "trash0",
                         "anchor_type"  : "icon",
                         "template"     : "trash0.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "flower_browser",
-                        "anchor_type"  : "text",
-                        "template"     : "FlowerBrowser",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "windows",
-                        "anchor_type"  : "text",
-                        "template"     : "Windows",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "mac",
-                        "anchor_type"  : "text",
-                        "template"     : "macOS",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "checked",
-                        "anchor_type"  : "icon",
-                        "template"     : "checked0.png",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "platform",
-                        "anchor_type"  : "text",
-                        "template"     : "Platform",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "specified_url",
-                        "anchor_type"  : "text",
-                        "template"     : "Open a specified URL",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "optional",
-                        "anchor_type"  : "text",
-                        "template"     : "Optional",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "none",
-                        "anchor_type"  : "text",
-                        "template"     : "None",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "amazon_site",
-                        "anchor_type"  : "text",
-                        "template"     : "amazon.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "etsy_site",
-                        "anchor_type"  : "text",
-                        "template"     : "etsy.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "ebay_site",
-                        "anchor_type"  : "text",
-                        "template"     : "ebay.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "facebook_site",
-                        "anchor_type"  : "text",
-                        "template"     : "facebook.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "twitter_site",
-                        "anchor_type"  : "text",
-                        "template"     : "twitter.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "google_site",
-                        "anchor_type"  : "text",
-                        "template"     : "google.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "youtube_site",
-                        "anchor_type"  : "text",
-                        "template"     : "youtube.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "instagram_site",
-                        "anchor_type"  : "text",
-                        "template"     : "instagram.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "whatsapp_site",
-                        "anchor_type"  : "text",
-                        "template"     : "whatsapp.com",
-                        "ref_method"   : "0",
-                        "ref_location" : []
-                    },
-                    {
-                        "anchor_name"  : "tiktok_site",
-                        "anchor_type"  : "text",
-                        "template"     : "tiktok.com",
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
@@ -494,6 +243,13 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "ads_win_title",
+                        "anchor_type"  : "text",
+                        "template"     : "AdsPower Browser",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "site_not_reached",
                         "anchor_type"  : "text",
                         "template"     : "unexpectedly closed the connection",
@@ -502,6 +258,20 @@
                     }
                 ], 
                 "info": [
+                    {
+                        "info_name"  : "ads_version",
+                        "info_type"  : "lines 1",
+                        "template"   : "\\b\\d+\\.\\d+\\.\\d+(?:\\.\\d+)?\\b",
+                        "ref_method"   : "2",
+                        "refs" : [
+                            {
+                                "dir": "right",
+                                "ref": "ads_win_title",
+                                "offset": 1,
+                                "offset_unit": "box"
+                            }
+                        ]
+                    }  
                 ]
             },
             "api" : {
@@ -555,6 +325,20 @@
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
+                                        {
+                        "anchor_name"  : "new_profiles",
+                        "anchor_type"  : "text",
+                        "template"     : "New Profile",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
+                        "anchor_name"  : "profiles",
+                        "anchor_type"  : "text",
+                        "template"     : "Profiles",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
                     {
                         "anchor_name"  : "ads_win_title",
                         "anchor_type"  : "text",
@@ -602,7 +386,7 @@
                     {
                         "info_name"  : "ads_version",
                         "info_type"  : "lines 1",
-                        "template"   : "[0-9]+\.*",
+                        "template"   : "\\b\\d+\\.\\d+\\.\\d+(?:\\.\\d+)?\\b",
                         "ref_method"   : "2",
                         "refs" : [
                             {
