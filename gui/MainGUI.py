@@ -1751,7 +1751,7 @@ class MainWindow(QMainWindow):
 
     # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings):
-        fetch_stat = "Completed:0"
+        ex_stat = "Completed:0"
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
             self.newBuyMissionFromFiles()
@@ -1763,6 +1763,7 @@ class MainWindow(QMainWindow):
                 jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
                 print("schedule JRESP:", jresp)
             else:
+                print("debug mode, skipping cloud fetch schedule")
                 jresp = {}
 
             if "errorType" in jresp:
@@ -1789,11 +1790,12 @@ class MainWindow(QMainWindow):
                     if not self.debug_mode or self.schedule_mode == "auto":
                         bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
                     else:
+                        print("debug mode, using test vector....")
                         # file = 'C:/software/scheduleResultTest7.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                        # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest999.json'
+                        file = 'C:/temp/scheduleResultTest9D.json'             # ads ebay amz etsy sell test.
+                        # file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
@@ -1821,22 +1823,35 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorFetchSchedule: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
 
-        self.showMsg("done with fetch schedule:"+ fetch_stat)
-        return fetch_stat
+        self.showMsg("done with fetch schedule:"+ ex_stat)
+        return ex_stat
 
     def fetchScheduleFromFile(self):
+        try:
+            ex_stat = "Completed:0"
+            file = 'C:/temp/scheduleResultTest9D.json'  # ads ebay amz etsy sell test.
+            # file = 'C:/temp/scheduleResultTest999.json'
+            # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
+            if exists(file):
+                with open(file) as test_schedule_file:
+                    bodyobj = json.load(test_schedule_file)
 
-        uncompressed = open(self.my_ecb_data_homepath + "/resource/testdata/testschedule.json")
-        if uncompressed != "":
-            # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
-            bodyobj = json.load(uncompressed)
-            if len(bodyobj) > 0:
-                self.assignWork()
-                self.logDailySchedule(uncompressed)
+                self.handleCloudScheduledWorks(bodyobj)
             else:
-                self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
-        else:
-            self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
+                self.warn(QApplication.translate("QMainWindow", "Warning: Test Vector File Not Found."))
+            # ni is already incremented by processExtract(), so simply return it.
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorFetchScheduleFromFile:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorFetchScheduleFromFile: traceback information not available:" + str(e)
+            self.showMsg(ex_stat)
+
+        self.showMsg("done with fetch schedule from file:" + ex_stat)
+        return ex_stat
 
     def warn(self, msg, level="info"):
         warnText = self.log_text_format(msg, level)

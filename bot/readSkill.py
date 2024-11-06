@@ -50,6 +50,7 @@ from bot.scrapeGoodSupply import processGSScrapeLabels
 from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
 from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOrdersFromJss, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
+from bot.seleniumScrapeAmz import processAMZBrowserScrapePL
 from bot.envi import getECBotDataHome
 
 
@@ -167,6 +168,7 @@ RAIS = {
     "ADS Save API Settings": lambda x,y,z: processADSSaveAPISettings(x, y,z),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
+    "AMZ Browser Scrape Products List": lambda x, y, z: processAMZBrowserScrapePL(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
     "AMZ Scrape Product Details Html": lambda x, y, z: processAMZScrapeProductDetailsHtml(x, y, z),
     "AMZ Scrape Buy Orders Html": lambda x, y, z: processAMZScrapeBuyOrdersHtml(x, y, z),
@@ -304,6 +306,7 @@ ARAIS = {
     "ADS Save API Settings": lambda x,y,z: processADSSaveAPISettings(x, y, z),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
+    "AMZ Browser Scrape Products List": lambda x, y, z: processAMZBrowserScrapePL(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
     "AMZ Scrape Product Details Html": lambda x, y, z: processAMZScrapeProductDetailsHtml(x, y, z),
     "AMZ Scrape Buy Orders Html": lambda x, y, z: processAMZScrapeBuyOrdersHtml(x, y, z),
@@ -625,7 +628,7 @@ def run1step(steps, si, mission, skill, stack):
         elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
             step["type"] == "Web Driver Scroll To" or step["type"] == "Web Driver Execute Js" or \
-            step["type"] == "Web Driver Wait Until Clickable" or \
+            step["type"] == "Web Driver Wait Until Clickable" or step["type"] == "AMZ Browser Scrape Products List" or \
             step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait For Visibility" or\
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
@@ -691,6 +694,7 @@ async def run1step8(steps, si, mission, skill, stack):
              step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or  step["type"] == "ADS Save API Settings" or \
              step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
              step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
+             step["type"] == "AMZ Browser Scrape Products List" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
              step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):

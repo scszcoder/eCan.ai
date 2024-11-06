@@ -64,6 +64,7 @@ from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml
 from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
+from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -190,6 +191,7 @@ PUBLIC = {
     'genAMZBrowseProductListToLastAttention': genAMZBrowseProductListToLastAttention,
     'genAMZBrowseDetails': genAMZBrowseDetails,
     'genAMZBrowseAllReviewsPage': genAMZBrowseAllReviewsPage,
+    'genStepAMZBrowserScrapePL': genStepAMZBrowserScrapePL,
     'genMacChromeAMZWalkSkill': genMacChromeAMZWalkSkill,
     'genMacChromeAMZWalkSteps': genMacChromeAMZWalkSteps,
     'genScroll1StarReviewsPage': genScroll1StarReviewsPage,
