@@ -2036,7 +2036,7 @@ def genStepAMZScrapePLHtml(html_file_var_name, pl, page_num, page_cfg, stepN):
         "html_var": html_file_var_name,
         "product_list": pl,
         "page_num": page_num,
-        "page_cfg": page_cfg,
+        "page_cfg": page_cfg
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))

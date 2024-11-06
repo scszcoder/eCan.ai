@@ -18,6 +18,8 @@ from bot.adsAPISkill import startADSWebDriver
 from bot.Logger import log3, log4
 from bot.basicSkill import *
 from config.app_info import app_info
+from bot.seleniumScrapeAmzShop import search_phrase
+
 
 def getChromeOpenTabs():
     response = requests.get('http://localhost:9222/json')
@@ -722,9 +724,15 @@ def processWebdriverKeyIn(step, i, mission):
         print("TEXT::", text)
         # wait.until(EC.presence_of_element_located(target))
         target.clear()
-        target.send_keys(text)
 
-        log3("WebdriverKeyIn:["+step["target_var"]+"]'"+text+"'", "processWebdriverKeyIn", mainwin)
+        if isinstance(text, list):
+           text_tbki = " ".join(text)
+        else:
+            text_tbki = text
+
+        target.send_keys(text_tbki)
+
+        log3("WebdriverKeyIn:["+step["target_var"]+"]'"+text_tbki+"'", "processWebdriverKeyIn", mainwin)
 
     except Exception as e:
         # Get the traceback information
