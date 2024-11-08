@@ -373,6 +373,19 @@ def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, 
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepMouseMove(x_amount_var, y_amount_var, x_destination_var, y_destination_var, postwait, break_here, stepN):
+    stepjson = {
+        "type": "Mouse Move",
+        "x_amount_var": x_amount_var,
+        "y_amount_var": y_amount_var,
+        "x_destination_var": x_destination_var,
+        "y_destination_var": y_destination_var,
+        "breakpoint": break_here,
+        "postwait": postwait,
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 def genStepMouseClick(action, action_args, saverb, screen, target, target_type, template, nth, offset_from, offset, offset_unit, move_pause, post_wait, post_move, stepN):
@@ -395,6 +408,7 @@ def genStepMouseClick(action, action_args, saverb, screen, target, target_type, 
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 # val: key action
 # wait_after: #  of seconds to waitafter the key action.
@@ -1435,11 +1449,25 @@ def processWait(step, i):
             log3("waiting for last screen "+str(wtime)+" seconds....")
             # screen = symTab["last_screen"]
         else:
-            wtime = step["time"]
+            if isinstance(step["time"], int):
+                wtime = step["time"]
+            else:
+                wtime = symTab[step["time"]]
             log3("waiting for "+str(wtime)+" seconds....")
 
-        if step["random_max"] > 0:
-            wtime = random.randrange(step["random_min"], step["random_max"])
+        if isinstance(step["random_max"], int):
+            random_max = step["random_max"]
+        else:
+            random_max = symTab[step["random_max"]]
+
+        if isinstance(step["random_min"], int):
+            random_min = step["random_min"]
+        else:
+            random_min = symTab[step["random_min"]]
+
+
+        if random_max > 0:
+            wtime = random.randrange(random_min, random_max)
 
         log3("actually waiting for "+str(wtime)+" seconds....")
         time.sleep(wtime)
@@ -5659,6 +5687,35 @@ def processPasteToData(step, i):
             ex_stat = "ErrorCheckAlreadyProcessed:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCheckAlreadyProcessed: traceback information not available:" + str(e)
+        symTab[step["flag_var"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processMouseMove(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        if symTab[step["flag_var"]] and symTab[step["flag_var"]]:
+            # this is the case of move
+            pyautogui.move(symTab[step["x_amount_var"]], symTab[step["y_amount_var"]])
+        else:
+            # this is the case of move to -
+            pyautogui.moveTo(symTab[step["x_destination_var"]], symTab[step["y_destination_var"]])
+
+        time.sleep(step["postwait"])
+
+        if step["breakpoint"]:
+            input("type any key to continuue")
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorMouseMove:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorMouseMove: traceback information not available:" + str(e)
         symTab[step["flag_var"]] = False
         log3(ex_stat)
 

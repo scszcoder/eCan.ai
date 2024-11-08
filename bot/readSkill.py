@@ -27,7 +27,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
     processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist, \
-    processPasteToData
+    processPasteToData, processMouseMove
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -36,7 +36,7 @@ from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, p
     processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, \
     processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer, \
     processWebdriverWaitForVisibility, processWebdriverSwitchToFrame, processWebdriverSwitchToDefaultContent, \
-    processWebdriverCheckConnection
+    processWebdriverCheckConnection, processWebdriverCheckVisibility
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -121,6 +121,7 @@ RAIS = {
     "Text Input": lambda x,y,z: processTextInput(x, y, z),
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
+    "Mouse Move": lambda x,y,z: processMouseMove(x, y, z),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
     "Key Input": lambda x,y,z: processKeyInput(x, y, z),
@@ -234,6 +235,7 @@ RAIS = {
     "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
+    "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
@@ -259,6 +261,7 @@ ARAIS = {
     "Text Input": lambda x,y,z: processTextInput(x, y, z),
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
+    "Mouse Move": lambda x,y,z: processMouseMove(x, y, z),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
     "Key Input": lambda x,y,z: processKeyInput(x, y, z),
@@ -372,6 +375,7 @@ ARAIS = {
     "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
+    "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
