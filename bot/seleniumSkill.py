@@ -78,6 +78,20 @@ def genStepWebdriverScrollTo(driver_var, target_var, wait_var, increment_var, lo
 
 
 
+def genStepWebdriverCheckVisibility(driver_var, target_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Check Visibility",
+        # "element_type_var": element_type_var,
+        # "element_var": element_var,
+        "target_var": target_var,
+        "driver_var": driver_var,  # anchor, info, text
+        "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 def genStepWebdriverClick(driver, clickable_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Click",
@@ -559,7 +573,8 @@ def smoothScrollToElement(driver, element, increment=50):
                 # Update the current scroll position
                 current_scroll_position = driver.execute_script("return window.pageYOffset;")
                 # Optional: Add a small delay to make scrolling visible
-                time.sleep(0.01)
+                random_wait = random.randint(1, 100) / 100
+                time.sleep(random_wait)
         else:
             # Scroll up
             while current_scroll_position > target_position:
@@ -568,7 +583,8 @@ def smoothScrollToElement(driver, element, increment=50):
                 # Update the current scroll position
                 current_scroll_position = driver.execute_script("return window.pageYOffset;")
                 # Optional: Add a small delay to make scrolling visible
-                time.sleep(0.01)
+                random_wait = random.randint(1, 100)/100
+                time.sleep(random_wait)
 
 
     except Exception as e:
@@ -581,6 +597,20 @@ def smoothScrollToElement(driver, element, increment=50):
             ex_stat = "ErrorSmoothScrollToElement: traceback information not available:" + str(e)
         print(ex_stat)
 
+
+def isDisplayed(driver, web_element):
+    is_in_viewport = driver.execute_script("""
+        var elem = arguments[0],
+            bounding = elem.getBoundingClientRect();
+        return (
+            bounding.top >= 0 &&
+            bounding.left >= 0 &&
+            bounding.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+            bounding.right <= (window.innerWidth || document.documentElement.clientWidth)
+        );
+    """, web_element)
+
+    return is_in_viewport
 
 def processWebdriverScrollTo(step, i, mission):
     try:
@@ -615,6 +645,10 @@ def processWebdriverScrollTo(step, i, mission):
         offset = window_height * loc
         print("offset:", offset)
 
+        current_scroll_position = driver.execute_script("return window.pageYOffset;")
+        print("current_scroll_position:", current_scroll_position)
+
+
         # Smoothly scroll to the element with the desired offset
         # driver.execute_script("""
         #     arguments[0].scrollIntoView({
@@ -623,18 +657,29 @@ def processWebdriverScrollTo(step, i, mission):
         #     });
         #     window.scrollBy(0, arguments[1]);
         # """, target_element, offset)
-        if not target_element.is_displayed():
-            driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+        if target_element:
+            target_position = target_element.location['y']
+            print("target_position:", target_position)
+            # if not target_element.is_displayed():
+            if not isDisplayed(driver, target_element):
+                # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+                scroll_amount = random.randint(30, 80)
+                smoothScrollToElement(driver, target_element, scroll_amount)
+                # Wait a bit to ensure the scrolling action is complete
+                time.sleep(1)  # Short wait to ensure the scroll action is complete
 
+                # Wait a bit to ensure the scrolling action is complete
+                WebDriverWait(driver, 2).until(
+                    EC.visibility_of(target_element)
+                )
+                log3("WebdriverScrollTo:[" + step["target_var"] + "]", "processWebdriverScrollTo", mainwin)
+            else:
+                log3("No Action - WebdriverScrollTo:[" + step["target_var"] + "] already visible!",
+                     "processWebdriverScrollTo", mainwin)
 
-            # Wait a bit to ensure the scrolling action is complete
-            time.sleep(1)  # Short wait to ensure the scroll action is complete
+        else:
+            log3("WARNING: WebdriverScrollTo:[" + step["target_var"] + "] NOT FOUND ON PAGE!", "processWebdriverScrollTo", mainwin)
 
-            # Wait a bit to ensure the scrolling action is complete
-            WebDriverWait(driver, 2).until(
-                EC.visibility_of(target_element)
-            )
-            log3("WebdriverScrollTo:[" + step["target_var"] + "]", "processWebdriverScrollTo", mainwin)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -1647,6 +1692,36 @@ def processWebdriverCheckConnection(step, i):
             ex_stat = "ErrorWebdriverCheckConnection:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverCheckConnection: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+
+
+def processWebdriverCheckVisibility(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        target_element = symTab[step["target_var"]]
+        symTab[step["flag"]] = True
+        symTab[step["result"]] = False
+
+        if target_element:
+            if isDisplayed(driver, target_element):
+                symTab[step["result"]] = True
+                print(step["target_var"] + "is visible", "processWebdriverScrollTo")
+            else:
+                print(step["target_var"] + " NOT visible!","processWebdriverScrollTo")
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverCheckVisibility:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverCheckVisibility: traceback information not available:" + str(e)
         log3(ex_stat)
         symTab[step["flag"]] = False
 

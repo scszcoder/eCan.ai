@@ -4054,12 +4054,12 @@ def found_match(p, pl):
         # most past week sales
         rvsorted = sorted(pl, key=lambda x: x["summery"]["weekly_sales"], reverse=True)
         matches = [rvsorted[0]]
-        log3("MOST WEEK SALES:", matches)
+        log3("MOST WEEK SALES:"+json.dumps(matches))
     elif p["selType"] == "cp":
         # cheapest price
         rvsorted = sorted(pl, key=lambda x: x["summery"]["price"], reverse=False)
         matches = [rvsorted[0]]
-        log3("CHEAPEST PRICE:", matches)
+        log3("CHEAPEST PRICE:"+json.dumps(matches))
     elif p["selType"] == "cus":
         matches = [pr for index, pr in enumerate(pl) if p["purchase"][0]["title"] == pr["summery"]["title"]]
     else:

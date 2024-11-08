@@ -28,14 +28,15 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
     genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
-    genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData
+    genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
     genStepWebdriverQuit, genStepWebdriverExecuteJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
     genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
-    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent, genStepWebdriverCheckConnection
+    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent, genStepWebdriverCheckConnection, \
+    genStepWebdriverCheckVisibility
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -80,6 +81,7 @@ PUBLIC = {
     'genStepRecordTxtLineLocation': genStepRecordTxtLineLocation,
     'genStepMouseClick': genStepMouseClick,
     'genStepMouseScroll': genStepMouseScroll,
+    'genStepMouseMove': genStepMouseMove,
     'genScrollDownUntilLoc': genScrollDownUntilLoc,
     'genScrollDownUntil': genScrollDownUntil,
     'genScrollUpUntilLoc': genScrollUpUntilLoc,
@@ -111,6 +113,7 @@ PUBLIC = {
     "genStepWebdriverWaitDownloadDoneAndTransfer": genStepWebdriverWaitDownloadDoneAndTransfer,
     "genStepWebdriverSwitchToFrame": genStepWebdriverSwitchToFrame,
     "genStepWebdriverCheckConnection": genStepWebdriverCheckConnection,
+    "genStepWebdriverCheckVisibility": genStepWebdriverCheckVisibility,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGetDefault': genStepGetDefault,
     'genStepGoto': genStepGoto,

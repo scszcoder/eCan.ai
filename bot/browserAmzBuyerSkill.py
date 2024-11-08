@@ -181,7 +181,7 @@ def genStepsWinChromeAMZBrowserWalk(worksettings, stepN):
     psk_words = psk_words + step_words
 
     # now wait for search results to load.
-    By.CSS_SELECTOR, 'span.s-pagination-strip'
+
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CSS_SELECTOR,
                                                         'span.s-pagination-strip', False, "var", "pagination",
                                                         "extract_flag", this_step)
@@ -267,7 +267,7 @@ def genStepsWinChromeAMZBrowserWalk(worksettings, stepN):
                                               this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("print('flows:', flows)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("print('flows:', flows, 'numPLPages:', numPLPages, 'nthSearch:', nthSearch, 'nthPLPage:', nthPLPage)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
@@ -550,7 +550,6 @@ def genStepsAMZBrowserBrowseProductLists(pageCfgsName, ith, lastone, flows, step
 
 
 
-
 def genStpesBrowserDirectBuy(settings_var_name, buy_var_name, stepN):
     psk_words = ""
 
@@ -579,11 +578,52 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
     this_step, step_words = genStepCreateData("int", "this_attention_count", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "next_attention_index", "NA", pl + "['attention_indices'][0]",
-                                              this_step)
+    this_step, step_words = genStepCreateData("int", "near_offset", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCreateData("integer", "next_attention_index", "NA", -1, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCheckCondition("len(" + pl + "['attention_indices'])> 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global near_offset\nnear_offset = random.randint(4, 8)\nprint('near_offset:', near_offset)", "", "in_line", "",
+        this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition(pl + "['attention_indices'][0] > near_offset", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCreateData("expr", "next_attention_index", "NA", pl + "['attention_indices'][0] - near_offset", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCreateData("expr", "next_attention_index", "NA", pl + "['attention_indices'][0]", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("bool", "atBottom", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "attention_title_txt", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "found_titles", "NA", [], this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
@@ -595,15 +635,6 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
     this_step, step_words = genStepCheckCondition(ith + "== 0", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # this_step, step_words = genAMZBrowseProductListEstimateRowHeight(pl, "row_height", "unit_row_scroll", this_step,
-    #                                                                  worksettings)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("int", "row_height", "NA", 500, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepCreateData("int", "unit_row_scroll", "NA", 3, this_step)
-    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
@@ -614,10 +645,11 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
     psk_words = psk_words + step_words
 
     # <<<<<comment out for now to speed up test.
-    # this_step, step_words = genStepsAMZBrowseScrollNearNextAttention(pl, "this_attention_index",
-    #                                                                        "next_attention_index", this_step,
-    #                                                                        worksettings)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepsAMZBrowseScrollNearNextAttention(pl, "this_attention_index", "next_attention_index", this_step, worksettings)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('this_attention_count',this_attention_count, len(" + pl + "['products']['pl']), len(" + pl + "['attention']))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
     # in case we have passed the last attention, simply scroll to the bottom
     this_step, step_words = genStepCheckCondition(
@@ -634,39 +666,75 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # scroll page until the next product's bottom is near bottom 10% of the page height.
-    # this_step, step_words = genAMZBrowseProductListScrollDownToNextAttention(pl, this_step, worksettings)
-    # psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("print('pl_need_attention===>',pl_need_attention)", "", "in_line", "",
-                                              this_step)
-    psk_words = psk_words + step_words
-
-    # create a loop to browse attention details...
-    this_step, step_words = genStepCreateData("expr", "att_count", "NA", "len(pl_need_attention)", this_step)
+    #now scroll to the target item.
+    this_step, step_words = genStepCallExtern(
+        "global next_attention_index\nnext_attention_index = " + pl + "['attention_indices'][0]\nprint('next_attention_index::',next_attention_index)", "", "in_line", "",
+        this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
-        "global att_count, this_attention_count\nthis_attention_count = this_attention_count + att_count\nprint('this_attention_count:', this_attention_count, att_count)",
+        "global next_attention_index, target_title_txt, "+pl+"\ntarget_title_txt = " + pl + "['products']['pl']['next_attention_index']['summery']['title']\nprint('target_title_txt::',target_title_txt)", "", "in_line", "",
+        this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "title_elements", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "attention_title_texts", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "pl_need_attention", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, 'h2.a-size-mini.a-spacing-none.a-color-base.s-line-clamp-4 a', True, "var", "title_elements", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global found_titles, target_title_txt, title_elements\nattention_titles= [te for te in title_elements if te.text in target_title_txt]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global attention_titles, attention_title_texts\nattention_title_texts= [te.text for te in attention_titles]\nprint('attention_title_texts:',attention_title_texts)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+    this_step, step_words = genStepCheckCondition("len(found_titles) > 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global target_title, found_titles\ntarget_title = found_titles[0]\nprint('target_title::',target_title)", "", "in_line", "",
+        this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "target_title", 10, 30, 0.25, "dummy_in", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+
+    this_step, step_words = genStepCallExtern(
+        "global this_attention_count\nthis_attention_count = this_attention_count + 1\nprint('this_attention_count:', this_attention_count)",
         "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("print('att_count===>',att_count)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # iterate thru all matched attentions on this page.
-    this_step, step_words = genStepLoop("att_count > 0", "", "", "browseAttens" + str(stepN), this_step)
-    psk_words = psk_words + step_words
 
     # click to the next target.... action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
     this_step, step_words = genStepWebdriverClick("web_driver", "title_tbc", "action_result", "action_flag", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "pur", "NA", "pl_need_attention[att_count-1]['purchase']",
+    this_step, step_words = genStepCallExtern(
+        "global pl_need_attention, "+pl+"\npl_need_attention = "+ pl + "['attention']\nprint('pl_need_attention:', pl_need_attention)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "pur", "NA", "pl_need_attention[this_attention_count-1]['purchase']",
                                               this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "det_lvl", "NA", "pl_need_attention[att_count-1]['detailLvl']",
+    this_step, step_words = genStepCreateData("expr", "det_lvl", "NA", "pl_need_attention[this_attention_count-1]['detailLvl']",
                                               this_step)
     psk_words = psk_words + step_words
 
@@ -677,13 +745,6 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
     this_step, step_words = genAMZBrowserBrowseDetails("det_lvl", "pur", this_step, worksettings)
     psk_words = psk_words + step_words
 
-    # update li counter
-    this_step, step_words = genStepCallExtern(
-        "global att_count\natt_count = att_count - 1\nprint('att_count:', att_count)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
-    psk_words = psk_words + step_words
 
     # check if this attention count is still in range.
     this_step, step_words = genStepCheckCondition(
@@ -691,7 +752,7 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
-        "global att_count, this_attention_index, next_attention_index, this_attention_count\nthis_attention_index = " + pl + "['attention_indices'][this_attention_count-1]\nnext_attention_index = " + pl + "['attention_indices'][this_attention_count]\nprint('this_attention_count:', this_attention_count, this_attention_index, next_attention_index)",
+        "global this_attention_index, next_attention_index, this_attention_count\nthis_attention_index = " + pl + "['attention_indices'][this_attention_count-1]\nnext_attention_index = " + pl + "['attention_indices'][this_attention_count]\nprint('this_attention_count:', this_attention_count, this_attention_index, next_attention_index)",
         "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -715,7 +776,7 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
 
     # this is the case where this_attention_count == 0, in such a case, this attention index is the first attention index.
     this_step, step_words = genStepCallExtern(
-        "global att_count, this_attention_index, next_attention_index, this_attention_count\nnext_attention_index = " + pl + "['attention_indices'][this_attention_count]\nprint('this_attention_count:', this_attention_count, this_attention_index, next_attention_index)",
+        "global this_attention_index, next_attention_index, this_attention_count\nnext_attention_index = " + pl + "['attention_indices'][this_attention_count]\nprint('this_attention_count:', this_attention_count, this_attention_index, next_attention_index)",
         "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -802,8 +863,24 @@ def genStepsAMZBrowserBrowsePLToLastAttention(page_cfg, pl, ith, stepN, worksett
     this_step, step_words = genStepCreateData("int", "this_attention_count", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
+    # check whether there is anything to pay attention to on this page.
+    this_step, step_words = genStepCheckCondition("len(" + pl + "['attention_indices']) > 0", "", "",
+                                                  this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("expr", "next_attention_index", "NA", pl + "['attention_indices'][0]",
                                               this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # set index to -1 which is the last item on this page, so we're essentially going to the bottom of the page.
+    this_step, step_words = genStepCreateData("integer", "next_attention_index", "NA", -1,
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("bool", "reachedLastAttention", "NA", False, this_step)
@@ -826,34 +903,33 @@ def genStepsAMZBrowserBrowsePLToLastAttention(page_cfg, pl, ith, stepN, worksett
     this_step, step_words = genStepsAMZBrowserBrowsePLScrollToNextAttention(pl, this_step, worksettings)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("print('pl_need_attention===>',pl_need_attention)", "", "in_line", "",
-                                              this_step)
-    psk_words = psk_words + step_words
-
-    # create a loop to browse attention details...
-    this_step, step_words = genStepCreateData("expr", "att_count", "NA", "len(pl_need_attention)", this_step)
-    psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
-        "global att_count, this_attention_count\nthis_attention_count = this_attention_count + att_count\nprint('this_attention_count:', this_attention_count, att_count)",
+        "global this_attention_count\nthis_attention_count = this_attention_count + 1\nprint('this_attention_count:', this_attention_count)",
         "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("print('att_count===>',att_count)", "", "in_line", "", this_step)
+
+    this_step, step_words = genStepCallExtern(
+        "global pl_need_attention, "+pl+"\npl_need_attention = "+ pl + "['attention']\nprint('pl_need_attention:', pl_need_attention)",
+        "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    # condition, count, end, lc_name, stepN):
-    this_step, step_words = genStepLoop("att_count > 0", "", "", "browseAttens" + str(stepN), this_step)
+
+
+    this_step, step_words = genStepCheckCondition("this_attention_count < len(pl_need_attention)", "", "", this_step)
     psk_words = psk_words + step_words
+
 
     # action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
-    this_step, step_words = genStepWebdriverClick("web_driver", "target_title", "click_result", "click_flag", this_step)
+    this_step, step_words = genStepWebdriverClick("web_driver", "title_tbc", "click_result", "click_flag", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "pur", "NA", "pl_need_attention[att_count-1]['purchase']", this_step)
+
+    this_step, step_words = genStepCreateData("expr", "pur", "NA", "pl_need_attention[this_attention_count-1]['purchase']", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "det_lvl", "NA", "pl_need_attention[att_count-1]['detailLvl']", this_step)
+    this_step, step_words = genStepCreateData("expr", "det_lvl", "NA", "pl_need_attention[this_attention_count-1]['detailLvl']", this_step)
     psk_words = psk_words + step_words
 
     # "pl_need_attention", "att_count"
@@ -863,13 +939,7 @@ def genStepsAMZBrowserBrowsePLToLastAttention(page_cfg, pl, ith, stepN, worksett
     this_step, step_words = genAMZBrowserBrowseDetails("det_lvl", "pur", this_step, worksettings)
     psk_words = psk_words + step_words
 
-    # update li counter
-    this_step, step_words = genStepCallExtern(
-        "global att_count\natt_count = att_count - 1\nprint('att_count:', att_count)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # end of loop on going thru all attentions found on this screen.
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global this_attention_count, "+pl+"\nprint('num all attentions:', len("+pl+"['attention']), this_attention_count)", "", "in_line", "", this_step)
@@ -885,11 +955,17 @@ def genStepsAMZBrowserBrowsePLToLastAttention(page_cfg, pl, ith, stepN, worksett
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCheckCondition("len(" + pl + "['attention_indices']) > 0", "", "",
+                                                  this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCallExtern(
-        "global att_count, this_attention_index, next_attention_index, this_attention_count\nthis_attention_index = " + pl + "['attention_indices'][this_attention_count-1]\nnext_attention_index = " + pl + "['attention_indices'][this_attention_count]\nprint('this_attention_count:', this_attention_count, this_attention_index, next_attention_index)",
+        "global this_attention_index, next_attention_index, this_attention_count\nthis_attention_index = " + pl + "['attention_indices'][this_attention_count-1]\nnext_attention_index = " + pl + "['attention_indices'][this_attention_count]\nprint('this_attention_count:', this_attention_count, this_attention_index, next_attention_index)",
         "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
@@ -903,7 +979,10 @@ def genStepsAMZBrowserBrowsePLToLastAttention(page_cfg, pl, ith, stepN, worksett
 
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME,
                                                         "s-pagination-strip", False, "var",
-                                                        "pagination_element", "element_present", this_step)
+                                                        "pagination_element", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverCheckVisibility("web_driver", "pagination_element", "reachedLastAttention", "action_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -940,8 +1019,13 @@ def genStepsAMZBrowserBrowsePLScrollToNextAttention(pl, stepN, worksettings):
 
     # screen down until either keywords "free deliver" or "previous" reaches. 80% of the screen height from the top. or 20%from the bottom.
 
-    this_step, step_words = genStepCreateData("obj", "target_title_txts", "NA", ["Pharmedoc Yoga Ball Chair, Exercise Ball Chair with Base & Bands for Home Gym Workout, Pregnancy Ball, Birthing Ball, Stability Ball & Balance Ball Seat, Exercise Equipment"], this_step)
+    this_step, step_words = genStepCreateData("obj", "target_title_texts", "NA", [], this_step)
     psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global target_title_texts, "+pl+"\ntarget_title_texts= [te['summery']['title'] for te in "+pl+"['attention']]\nprint('target_title_texts:', target_title_texts)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepCreateData("obj", "title_elements", "NA", [], this_step)
     psk_words = psk_words + step_words
@@ -952,17 +1036,31 @@ def genStepsAMZBrowserBrowsePLScrollToNextAttention(pl, stepN, worksettings):
     this_step, step_words = genStepCreateData("obj", "attention_titles", "NA", None, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "attention_title_texts", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, 'h2.a-size-mini.a-spacing-none.a-color-base.s-line-clamp-4 a', True, "var", "title_elements", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepCallExtern("global attention_titles, target_title_txts, title_elements\nattention_titles= [te for te in title_elements if te.text in target_title_txts]", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global attention_titles, target_title_texts, title_elements\nattention_titles= [te for te in title_elements if te.text in target_title_texts]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global title_elements\nprint('title_elements',attention_titles, len(attention_titles))", "", "in_line", "", this_step)
+
+    this_step, step_words = genStepCallExtern("global attention_titles, attention_title_texts\nattention_title_texts= [te.text for te in attention_titles]\nprint('attention_title_texts:',attention_title_texts)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global title_elements\nprint('title_elements', attention_titles, len(attention_titles))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCheckCondition("len(attention_titles) > 0", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global attention_titles, title_tbc\ntitle_tbc = attention_titles[0]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global attention_titles, title_tbc\nprint('attention_titles:', attention_titles, 'title_tbc:', title_tbc.text)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # sc - 11/05/24 this is no longer needed for selenium based scheme as we know exactly where to go to.
@@ -971,11 +1069,12 @@ def genStepsAMZBrowserBrowsePLScrollToNextAttention(pl, stepN, worksettings):
 
     # now scroll down and find the menu item.
     # driver.execute_script("arguments[0].scrollIntoView(true);", dropdown_button)
-    this_step, step_words = genStepWebdriverScrollTo("web_driver", "target_title", 10, 30, 0.25, "dummy_in",
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "title_tbc", 10, 30, 0.25, "dummy_in",
                                                      "element_present", this_step)
     psk_words = psk_words + step_words
 
-
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
 
     return this_step, psk_words
 
@@ -1605,7 +1704,7 @@ def genStubWinChromeAMZBrowserWalk(settings_var, stepN):
     this_step, step_words = genStepCreateData("int", "nthPage", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepAMZBrowserScrapePL("web_driver", "plSearchResult", ith, pageCfgsName, "action_flag", this_step)
+    this_step, step_words = genStepAMZBrowserScrapePL("web_driver", "plSearchResult", 'nthPLPage', 'pl_page_config', "action_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("obj", "target_title_txts", "NA", ["Pharmedoc Yoga Ball Chair, Exercise Ball Chair with Base & Bands for Home Gym Workout, Pregnancy Ball, Birthing Ball, Stability Ball & Balance Ball Seat, Exercise Equipment"], this_step)
@@ -1620,6 +1719,9 @@ def genStubWinChromeAMZBrowserWalk(settings_var, stepN):
     this_step, step_words = genStepCreateData("obj", "attention_titles", "NA", None, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "attention_title_texts", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, 'h2.a-size-mini.a-spacing-none.a-color-base.s-line-clamp-4 a', True, "var", "title_elements", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
@@ -1627,7 +1729,15 @@ def genStubWinChromeAMZBrowserWalk(settings_var, stepN):
     this_step, step_words = genStepCallExtern("global attention_titles, target_title_txts, title_elements\nattention_titles= [te for te in title_elements if te.text in target_title_txts]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
+
+    this_step, step_words = genStepCallExtern("global attention_titles, attention_title_texts\nattention_title_texts= [te.text for te in attention_titles]\nprint('attention_title_texts:',attention_title_texts)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
     this_step, step_words = genStepCallExtern("global title_elements\nprint('title_elements',attention_titles, len(attention_titles))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("len(attention_titles) > 0", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global attention_titles, title_tbc\ntitle_tbc = attention_titles[0]", "", "in_line", "", this_step)
@@ -1638,6 +1748,10 @@ def genStubWinChromeAMZBrowserWalk(settings_var, stepN):
 
     this_step, step_words = genStepWait(6, 0, 0, this_step)
     psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
 
     return this_step, psk_words
 
@@ -1656,14 +1770,28 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "h1.a-size-base-plus.a-text-bold", True, "var", "h1headers", "extract_flag", this_step)
+    psk_words = psk_words + step_words
 
 
     #now hover mouse over image icons to view images.
-    this_step, step_words = genAMZBrowseDetailsViewImages(worksettings, this_step)
+    this_step, step_words = genStepsAMZBrowseDetailsViewImages(worksettings, this_step)
     psk_words = psk_words + step_words
 
-    #scroll to the the review section. this is quick
-    # reviews_header = driver.find_element(By.XPATH, "//h3[@data-hook='dp-local-reviews-header']")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME, "prodDetAttrValue", False, "var", "prod_details_attributes", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.PATH, "//tr[th[contains(text(), 'ASIN')]]", False, "var", "asin_row", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # scroll to the begining of the review section.
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH, "//h3[@data-hook='dp-local-reviews-header']", False, "var", "review_header", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "review_header", 10, 30, 0.25, "dummy_in","element_present", this_step)
+    psk_words = psk_words + step_words
+
 
 
     #if there is purchase action, save the page, scrape it and confirm the title, store, ASIN, price, feedbacks, rating.
@@ -1677,16 +1805,11 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     # this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'" + hfname + "'+'.html'", this_step)
     # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "file_save_input", "NA",
-                                              "['save', sk_work_settings['log_path'], hf_name]", this_step)
-    psk_words = psk_words + step_words
-
-
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
 
-    # now go thru review browsing....... based on specified detail level.
+    # now go thru review browsing ....... based on specified detail level.
     this_step, step_words = genStepCreateData("bool", "rv_expandable", "NA", False, this_step)
     psk_words = psk_words + step_words
 
@@ -1711,6 +1834,11 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
 
     this_step, step_words = genStepCallExtern("global buy_ops\nprint('buy_ops: ', buy_ops)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
+
+    # read_more_buttons = driver.find_elements("css selector", "a[data-hook='expand-collapse-read-more-less']")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "a[data-hook='expand-collapse-read-more-less']", True, "var", "review_header", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
 
     # expandables_count = 0
     this_step, step_words = genStepCreateData("int", "expandables_count", "NA", 0, this_step)
@@ -1974,22 +2102,135 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     return this_step,psk_words
 
 
-def genAMZBrowseDetailsViewImages(settings_var_name, stepN):
+def genStepsAMZBrowseDetailsViewImages(settings_var_name, stepN):
     #simply move the mouse pointer around to simulate viewing images.
     psk_words = ""
 
-    # main_image = driver.find_element(By.ID, "landingImage")
-    # thumbnails = driver.find_elements(By.CSS_SELECTOR, ".a-button-thumbnail img, .imageThumbnail img")
-    #
-    # # Hover over each thumbnail image found
-    # for thumbnail in thumbnails:
-    #     actions.move_to_element(thumbnail).perform()
-    #     time.sleep(1)  # Brief pause to observe hover effect
-    # asin_row = driver.find_element(By.XPATH, "//tr[th[contains(text(), 'ASIN')]]")
-    #
-    # # Locate the <td> element within that row and extract the ASIN text
-    # asin_value = asin_row.find_element(By.CLASS_NAME, "prodDetAttrValue").text
-    this_step, step_words = genStepCallExtern("global nscroll\nnscroll = nscroll - 1\nprint('nscroll:', nscroll)", "", "in_line", "", stepN)
+    this_step, step_words = genStepCallExtern("print('viewing thumbnails.....')", "", "in_line", "", stepN)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, ".a-button-thumbnail img, .imageThumbnail img", True, "var", "product_thumbnails", "element_present", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "li.a-spacing-small.item.imageThumbnail.a-declarative", True, "var", "product_thumbnails", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "thumbnail", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("integer", "nThumbnails", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global nThumbnails, product_thumbnails\nnThumbnails = len(product_thumbnails)\nprint('nThumbnails:', nThumbnails)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "idxs2view", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("integer", "n2view", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global idxs2view, nThumbnails\nidxs2view = [random.randint(1, nThumbnails) for _ in range(random.randint(1, nThumbnails))]\nprint('idxs2view:', idxs2view)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("n2view < len(idxs2view)", "", "", "viewImg", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global thumbnail, idxs2view, product_thumbnails\nthumbnail = product_thumbnails[idxs2view[n2view]]\nprint('thumbnail:', thumbnail)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverHoverTo("web_driver", "thumbnail", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+    #now move to landing image and jitter around
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, "landingImage", False, "var", "landing_image", "element_present", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverHoverTo("web_driver", "thumbnail", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepsMouseJitter(this_step)
+    psk_words = psk_words + step_words
+
+    # decrement loop counter.
+    this_step, step_words = genStepCallExtern("global n2view\nn2view = n2view + 1\nprint('n2view:', n2view)", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    return this_step, psk_words
+
+
+def genStepsMouseJitter(stepN):
+    psk_words = ""
+    # will do this for as much as 5 seconds
+    this_step, step_words = genStepCreateData("int", "nMoves", "NA", 5, stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nMoves\nnMoves = random.randint(1, 5)\nprint('nMoves:', nMoves)", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "maxx", "NA", 80, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "maxy", "NA", 80, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "minx", "NA", -80, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "miny", "NA", -80, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "min_wait", "NA", 50, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "max_wait", "NA", 200, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "random_wait", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "x_offset", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "y_offset", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepLoop("nMoves > 0", "", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global x_offset\nx_offset = random.randint(minx, maxx)\nprint('x_offset:', x_offset)", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global y_offset\ny_offset = random.randint(miny, maxy)\nprint('y_offset:', y_offset)", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseMove("x_offset", "y_offset", "", "", 0, False, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # decrement loop counter.
+    this_step, step_words = genStepCallExtern("global nMoves\nnMoves = nMoves - 1\nprint('nMoves:', nMoves)", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global random_wait\nrandom_wait =random.randint(min_wait, max_wait)/100\nprint('random_wait:', random_wait)", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWait("random_wait", 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
     return this_step, psk_words
@@ -2675,56 +2916,57 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
 
     return this_step, psk_words
 
-def genStepsAMZBrowseScrollNearNextAttention(pl, here, there, stepN, worksettings, theme):
+
+# near attention would be 1~2 rows above the target, a save bet would get a randome offset int between 4 and 8
+# the minus this offset number from the target index. and scroll to that item.
+def genStepsAMZBrowseScrollNearNextAttention(pl, here, there, stepN, worksettings):
     psk_words = ""
 
-    this_step, step_words = genStepCheckCondition(pl+"['products']['layout'] == 'grid'", "", "", stepN)
+    this_step, step_words = genStepCreateData("obj", "near_target_title", "NA", None, stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("print('BROWSING PRODUCT LISTS NEAR NEXT ATTENTION.....', "+here+", "+there+")", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global near_target_title, "+there+", "+pl+"\nnear_target_title = "+pl+"['products']['pl']["+there+"]['summery']['title']", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global row_gap, "+there+", "+here+", n_cols\nimport math\nrow_gap = math.floor(("+there+" - "+here+")/n_cols)", "", "in_line", "", this_step)
+
+    this_step, step_words = genStepCreateData("obj", "title_elements", "NA", [], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("else", "", "", this_step)
+    this_step, step_words = genStepCreateData("obj", "attention_title_texts", "NA", [], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("print('BROWSING PRODUCT LISTS NEAR NEXT ATTENTION LIST.....', "+here+", "+there+")", "", "in_line", "", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, 'h2.a-size-mini.a-spacing-none.a-color-base.s-line-clamp-4 a', True, "var", "title_elements", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global row_gap, "+there+", "+here+"\nrow_gap = "+there+" - "+here+"", "", "in_line", "", this_step)
+
+    this_step, step_words = genStepCallExtern("global attention_titles, near_target_title, title_elements\nattention_titles= [te for te in title_elements if te.text in near_target_title]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    # end condition for atBottom == True
+
+    this_step, step_words = genStepCallExtern("global attention_titles, attention_title_texts\nattention_title_texts= [te.text for te in attention_titles]\nprint('attention_title_texts:',attention_title_texts)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global title_elements\nprint('title_elements', attention_titles, len(attention_titles))", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("len(attention_titles) > 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global attention_titles, title_tbc\ntitle_tbc = attention_titles[0]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global attention_titles, title_tbc\nprint('attention_titles:', attention_titles, 'title_tbc:', title_tbc.text)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    #smoothl scroll to the target item which is near the to be attended item.
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "title_tbc", 10, 30, 0.25, "dummy_in", "element_present", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global scroll_count\nimport math\nscroll_count = math.floor((row_gap*row_height)/(3*scroll_resolution))", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global scroll_count, row_gap\nprint('scroll_count:', scroll_count, 'row_gap:', row_gap)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("scroll_count != 0", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepLoop("scroll_count > 0", "", "", "scroll2Near"+str(stepN), this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverScrollTo("web_driver", "near_target_title", 10, 30, 0.25, "dummy_in", "element_present", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global scroll_count\nscroll_count = scroll_count - 1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("print('END OF BROWSING PRODUCT LISTS NEAR NEXT ATTENTION.....')", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("print('END OF BROWSING PRODUCT LISTS NEAR NEXT ATTENTION.....',"+there+", title_tbc.text)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     return this_step,psk_words
