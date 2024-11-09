@@ -5693,10 +5693,11 @@ def processPasteToData(step, i):
     return (i + 1), ex_stat
 
 
-def processMouseMove(step, i):
+def processMouseMove(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
+    mainwin = mission.get_main_win()
     try:
-        if symTab[step["flag_var"]] and symTab[step["flag_var"]]:
+        if (not step["x_destination_var"]) and (not step["y_destination_var"]):
             # this is the case of move
             pyautogui.move(symTab[step["x_amount_var"]], symTab[step["y_amount_var"]])
         else:
