@@ -673,7 +673,7 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
-        "global next_attention_index, target_title_txt, "+pl+"\ntarget_title_txt = " + pl + "['products']['pl']['next_attention_index']['summery']['title']\nprint('target_title_txt::',target_title_txt)", "", "in_line", "",
+        "global next_attention_index, target_title_txt, "+pl+"\ntarget_title_txt = " + pl + "['products']['pl'][next_attention_index]['summery']['title']\nprint('target_title_txt::',target_title_txt)", "", "in_line", "",
         this_step)
     psk_words = psk_words + step_words
 
@@ -1612,7 +1612,8 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now open the target amazon web site，(this step will internall check whether the tab is already open, if open, simply switch to it)
-    this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com", "site_result", "site_flag", this_step)
+    # this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com", "site_result", "site_flag", this_step)
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com/iMBAPrice-Sealing-Tape-Shipping-Packaging/dp/B072MD8W9Q?th=1", "site_result", "site_flag", this_step)
     psk_words = psk_words + step_words
 
     #
@@ -1626,8 +1627,8 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     # psk_words = psk_words + step_words
 
     #now call the amz chrome browse sub-skill to go thru the walk process.
-    this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
-    # this_step, step_words = genStubWinChromeAMZBrowserWalk("sk_work_settings", this_step)
+    # this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
+    this_step, step_words = genStubWinChromeAMZBrowserWalk("sk_work_settings", this_step)
     psk_words = psk_words + step_words
     #
     # # end condition for "not_logged_in == False"
@@ -1680,78 +1681,88 @@ def genStubWinChromeAMZBrowserWalk(settings_var, stepN):
     this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'twotabsearchtextbox', False, "var", "search_box", "extract_flag", this_step)
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'twotabsearchtextbox', False, "var", "search_box", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("string", "search_phrase", "NA", "yoga ball", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWebdriverKeyIn("web_driver", "search_box", "search_phrase", "action_result", "action_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWait(1, 0, 0, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'nav-search-submit-button', False, "var", "search_button", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWebdriverClick("web_driver", "search_button", "action_result", "action_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWait(6, 0, 0, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("int", "nthPage", "NA", 0, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepAMZBrowserScrapePL("web_driver", "plSearchResult", 'nthPLPage', 'pl_page_config', "action_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "target_title_txts", "NA", ["Pharmedoc Yoga Ball Chair, Exercise Ball Chair with Base & Bands for Home Gym Workout, Pregnancy Ball, Birthing Ball, Stability Ball & Balance Ball Seat, Exercise Equipment"], this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "title_elements", "NA", [], this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "target_title", "NA", None, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "attention_titles", "NA", None, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCreateData("obj", "attention_title_texts", "NA", [], this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, 'h2.a-size-mini.a-spacing-none.a-color-base.s-line-clamp-4 a', True, "var", "title_elements", "extract_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepCallExtern("global attention_titles, target_title_txts, title_elements\nattention_titles= [te for te in title_elements if te.text in target_title_txts]", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepCallExtern("global attention_titles, attention_title_texts\nattention_title_texts= [te.text for te in attention_titles]\nprint('attention_title_texts:',attention_title_texts)", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    #
+    # this_step, step_words = genStepCallExtern("global title_elements\nprint('title_elements',attention_titles, len(attention_titles))", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCheckCondition("len(attention_titles) > 0", "", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepCallExtern("global attention_titles, title_tbc\ntitle_tbc = attention_titles[0]", "", "in_line", "", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWebdriverClick("web_driver", "title_tbc", "action_result", "action_flag", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWait(6, 0, 0, this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepStub("end condition", "", "", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("integer", "det_lvl", "NA", 2, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "search_phrase", "NA", "yoga ball", this_step)
+
+    this_step, step_words = genStepCreateData("obj", "pur", "NA", [], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverKeyIn("web_driver", "search_box", "search_phrase", "action_result", "action_flag", this_step)
+    # https://www.amazon.com/iMBAPrice-Sealing-Tape-Shipping-Packaging/dp/B072MD8W9Q?th=1
+    this_step, step_words = genAMZBrowserBrowseDetails("det_lvl", "pur", this_step, settings_var)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'nav-search-submit-button', False, "var", "search_button", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverClick("web_driver", "search_button", "action_result", "action_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(6, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "nthPage", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepAMZBrowserScrapePL("web_driver", "plSearchResult", 'nthPLPage', 'pl_page_config', "action_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "target_title_txts", "NA", ["Pharmedoc Yoga Ball Chair, Exercise Ball Chair with Base & Bands for Home Gym Workout, Pregnancy Ball, Birthing Ball, Stability Ball & Balance Ball Seat, Exercise Equipment"], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "title_elements", "NA", [], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "target_title", "NA", None, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "attention_titles", "NA", None, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "attention_title_texts", "NA", [], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, 'h2.a-size-mini.a-spacing-none.a-color-base.s-line-clamp-4 a', True, "var", "title_elements", "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepCallExtern("global attention_titles, target_title_txts, title_elements\nattention_titles= [te for te in title_elements if te.text in target_title_txts]", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepCallExtern("global attention_titles, attention_title_texts\nattention_title_texts= [te.text for te in attention_titles]\nprint('attention_title_texts:',attention_title_texts)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepCallExtern("global title_elements\nprint('title_elements',attention_titles, len(attention_titles))", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("len(attention_titles) > 0", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global attention_titles, title_tbc\ntitle_tbc = attention_titles[0]", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverClick("web_driver", "title_tbc", "action_result", "action_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWait(6, 0, 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
 
     return this_step, psk_words
 
@@ -1770,19 +1781,39 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "about_this_item", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "h1.a-size-base-plus.a-text-bold", True, "var", "h1headers", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global h1headers\nprint('h1 headers:', len(h1headers))\nprint('h1 headers txt:', [h.text for h in h1headers])", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global about_this_item, h1headers\nabout_this_item = next((obj for obj in h1headers if obj.text == 'About this item'), None)\nprint('about_this_item:', about_this_item.text)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    #scroll to about item, and at this point the thumbnails and the landing image should appear on display
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "about_this_item", 10, 30, 0.25, "dummy_in","element_present", this_step)
+    psk_words = psk_words + step_words
 
     #now hover mouse over image icons to view images.
-    this_step, step_words = genStepsAMZBrowseDetailsViewImages(worksettings, this_step)
+    this_step, step_words = genStepsAMZBrowseDetailsViewImages(this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME, "prodDetAttrValue", False, "var", "prod_details_attributes", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
+    # scroll to parameters section which should contains the ASIN number for double verification
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "prod_details_attributes", 10, 30, 0.25, "dummy_in","element_present", this_step)
+    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.PATH, "//tr[th[contains(text(), 'ASIN')]]", False, "var", "asin_row", "extract_flag", this_step)
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH, "//tr[th[contains(text(), 'ASIN')]]", False, "var", "asin_row", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "asin_row", 10, 30, 0.25, "dummy_in","element_present", this_step)
     psk_words = psk_words + step_words
 
     # scroll to the begining of the review section.
@@ -1797,13 +1828,6 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     #if there is purchase action, save the page, scrape it and confirm the title, store, ASIN, price, feedbacks, rating.
     this_step, step_words = genStepCheckCondition("len("+purchase+") != 0", "", "", this_step)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("from datetime import datetime\nglobal hf_name\nhf_name= 'pd'+ str(int(datetime.now().timestamp()))+'.html'\nprint('hf_name:',hf_name,datetime.now())", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    # this_step, step_words = genStepCreateData("expr", "hf_name", "NA", "'" + hfname + "'+'.html'", this_step)
-    # psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
@@ -1836,13 +1860,29 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     psk_words = psk_words + step_words
 
     # read_more_buttons = driver.find_elements("css selector", "a[data-hook='expand-collapse-read-more-less']")
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "a[data-hook='expand-collapse-read-more-less']", True, "var", "review_header", "extract_flag", this_step)
+    # obtain all the "Read more" expandables.....
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "a[data-hook='expand-collapse-read-more-less']", True, "var", "rv_expandables", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("obj", "read_mores", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "see_all_review", "NA", [], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global read_mores, rv_expandables\nread_mores = [obj for obj in rv_expandables if obj.text == 'Read more']", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
     # expandables_count = 0
     this_step, step_words = genStepCreateData("int", "expandables_count", "NA", 0, this_step)
     psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("int", "nth_expandable", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global expandables_count, read_mores\nexpandables_count = len(read_mores)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
 
     # if detail level == 1:
     #       max_expandables = 3
@@ -1861,6 +1901,9 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     this_step, step_words = genStepCreateData("int", "max_expandables", "NA", 5, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("global expandables_count, nth_expandable, max_expandables\nprint('max_expandables: ', max_expandables, 'expandables_count: ', expandables_count, [obj.text for obj in read_mores], 'nth_expandable: ', nth_expandable)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # # close bracket
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
@@ -1876,7 +1919,7 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     # if no_reviews_span.text == "No customer reviews":
     #     print("Detected: No customer reviews")
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews", "conditions_of_use"], "direct", ["anchor text", "anchor text", "anchor text", "anchor text"], "any", "see_reviews", "end_of_detail", "amz", False, this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH, "//span[@data-hook='top-customer-reviews-title']", False, "var", "review_end", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # browse all the way down, until seeing "No customer reviews" or "See all reviews"
@@ -1891,19 +1934,7 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     this_step, step_words = genStepWait(1, 0, 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, "landingImage", False, "var", "landing_image", "element_present", this_step)
-    psk_words = psk_words + step_words
 
-
-    # Limit to 7 elements
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "li.a-spacing-small.item.imageThumbnail.a-declarative", True, "var", "thumbnails", "element_present", this_step)
-    psk_words = psk_words + step_words
-
-
-
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "read_more", "direct", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
-    psk_words = psk_words + step_words
 
     # while end of detail not reached:
     #   scroll down 1/2 screen
@@ -1926,99 +1957,93 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     #           endif
     #
     #   search for end of details
-    this_step, step_words = genStepLoop("expandables_count < max_expandables", "", "", "browseDetails"+str(stepN+1), this_step)
+
+
+    this_step, step_words = genStepCheckCondition("expandables_count > max_expandables", "", "", this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepCheckCondition("rv_expandable == True", "", "", this_step)
+    this_step, step_words = genStepCallExtern("global expandables_count, max_expandables\nexpandables_count = max_expandables\nprint( 'updated expandables_count: ', expandables_count)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-
-    # # click into "Read more"
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "read_more", "anchor text", "", [0, 0], "center", [0, 0], "box", 1, 1, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global expandables_count\nexpandables_count = expandables_count + 1", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # after click on "Read more", capture screen again, at this time "Read More" should have dissappear, if there is more, then
-    # let the loop takes care of it, if there is no more "Read More" on screen, scroll down a screen....
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "h2.a-carousel-heading.a-inline-block", False, "var", "also_bought_header", "element_present", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "read_more", "direct", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
-    psk_words = psk_words + step_words
-
-    #close bracket for if rv_expandable == True
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews", "conditions_of_use"], "direct", ["anchor text", "anchor text", "anchor text", "anchor text"], "any", "see_reviews", "end_of_detail", "amz", False, this_step)
+
+    this_step, step_words = genStepLoop("nth_expandable < expandables_count", "", "", "browseDetails"+str(stepN+1), this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("end_of_detail == True", "", "", this_step)
+
+    this_step, step_words = genStepCallExtern("global current_expandable\ncurrent_expandable = read_mores[nth_expandable]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global expandables_count, max_expandables\nexpandables_count = max_expandables", "", "in_line", "", this_step)
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "current_expandable", 10, 30, 0.25, "dummy_in","element_present", this_step)
     psk_words = psk_words + step_words
+
+    # # click into "Read more"
+    this_step, step_words = genStepWebdriverClick("web_driver", "current_expandable", "action_result", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global nth_expandable\nnth_expandable = nth_expandable + 1", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # close for loop: nth_expandable < expandables_count, finished click on all expandables on this screen.
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # after click on "Read more", now scroll to the end of reviews.
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "a[data-hook='see-all-reviews-link-foot']", True, "var", "see_all_reviews", "element_present", this_step)
+    # this_step, step_words = genStepWebdriverCheckVisibility("web_driver", "also_bought_header", "end_of_reviews", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global see_all_reviews\nprint('see_all_reviews',[obj.text for obj in see_all_reviews])", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("len(see_all_reviews) > 0", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global see_all_review, see_all_reviews\nsee_all_review = see_all_reviews[0]", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverScrollTo("web_driver", "see_all_review", 10, 30, 0.25, "dummy_in","element_present", this_step)
+    psk_words = psk_words + step_words
+
 
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # this_step, step_words = genStepWait(1, 0, 0, this_step)
-    # psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 75, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "span[data-hook='top-customer-reviews-title']", False, "var", "no_review", "element_present", this_step)
+    # this_step, step_words = genStepWebdriverCheckVisibility("web_driver", "also_bought_header", "end_of_reviews", "action_flag", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, 'a[data-hook="see-all-reviews-link-foot"]', False, "var", "see_more_review_link", "element_present", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "read_more", "direct", "anchor text", "any", "rv_expanders", "rv_expandable", "amz", False, this_step)
-    psk_words = psk_words + step_words
-
-    # # close bracket: end_of_detail == True
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
-
-
-    # close for loop: expandables_count < max_expandables, finished click on all expandables on this screen.
-    this_step, step_words = genStepStub("end loop", "", "", this_step)
-    psk_words = psk_words + step_words
-
     # histogram_section = driver.find_element(By.ID, "cm_cr_dp_d_rating_histogram")
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, "cm_cr_dp_d_rating_histogram", False, "var", "review_stars_section", "element_present", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, "cm_cr_dp_d_rating_histogram", False, "var", "review_stars_section", "element_present", this_step)
+    # psk_words = psk_words + step_words
+    #
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "span.navFooterBackToTopText", False, "var", "bottom_header", "element_present", this_step)
+    # psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, "cm_cr_dp_d_rating_histogram", False, "var", "review_stars_section", "element_present", this_step)
+    this_step, step_words = genStepCallExtern("global end_of_detail\nend_of_detail = True", "","in_line", "", this_step)
     psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "span.navFooterBackToTopText", False, "var", "bottom_header", "element_present", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["see_all_reviews", "see_more_reviews", "no_customer_reviews", "conditions_of_use"], "direct", ["anchor text", "anchor text", "anchor text", "anchor text"], "any", "see_reviews", "end_of_detail", "amz", False, this_step)
-    psk_words = psk_words + step_words
-
 
     # close for loop: end_of_detail != True
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", ["back_to_top", "conditions_of_use"], "direct", ["anchor text", "anchor text"], "any", "useless", "end_of_page", "amz", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("not end_of_page", "", "", this_step)
-    psk_words = psk_words + step_words
 
     # # check for whether we have reached end of product details. page.
     # # for level 1 details, will view all the way till the end of reviews
     # # for level 2 details, will view till end of all reviews and open hidden long reviews along the way (click on "see all").
     # # but if this product has no review or has all short reviews where there is no "see all", then this is equivalent to
     # # level 1
-    this_step, step_words = genStepCheckCondition("detail_level >= 2 and not no_reviews", "", "", this_step)
+    this_step, step_words = genStepCheckCondition("detail_level >= 2 and not no_review", "", "", this_step)
     psk_words = psk_words + step_words
 
     # this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -2038,7 +2063,7 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     # psk_words = psk_words + step_words
     #
     # # for level 3 details, click on see_all_reviews and
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "see_reviews[0]['loc']", "expr", "", 0, "center", [0, 0], "box", 1, 1, [0, 0], this_step)
+    this_step, step_words = genStepWebdriverClick("web_driver", "see_all_review", "action_result", "action_flag", this_step)
     psk_words = psk_words + step_words
     # #
     # # # go into all reviews.
@@ -2062,8 +2087,6 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
 
 
     #==== Now that we have completed browsing the product details page. ========
@@ -2077,6 +2100,9 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     # this_step, step_words = genAMZScrollProductDetailsToTop([0, 0], this_step, worksettings)
     # psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern("print('Perform Buy steps here....')", "",
+                                              "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
     # if action is add-to-cart, then click on add-to-cart
     # this_step, step_words = genWinChromeAMZBuySteps("sk_work_settings", "buy_ops", "buy_result", "buy_step_flag",this_step)
@@ -2102,7 +2128,7 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
     return this_step,psk_words
 
 
-def genStepsAMZBrowseDetailsViewImages(settings_var_name, stepN):
+def genStepsAMZBrowseDetailsViewImages(stepN):
     #simply move the mouse pointer around to simulate viewing images.
     psk_words = ""
 
@@ -2130,7 +2156,7 @@ def genStepsAMZBrowseDetailsViewImages(settings_var_name, stepN):
     this_step, step_words = genStepCreateData("integer", "n2view", "NA", 0, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global idxs2view, nThumbnails\nidxs2view = [random.randint(1, nThumbnails) for _ in range(random.randint(1, nThumbnails))]\nprint('idxs2view:', idxs2view)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global idxs2view, nThumbnails\nidxs2view = [random.randint(1, nThumbnails-1) for _ in range(random.randint(1, nThumbnails-1))]\nprint('idxs2view:', idxs2view)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepLoop("n2view < len(idxs2view)", "", "", "viewImg", this_step)
@@ -2215,7 +2241,7 @@ def genStepsMouseJitter(stepN):
                                               "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseMove("x_offset", "y_offset", "", "", 0, False, 0, this_step)
+    this_step, step_words = genStepMouseMove("x_offset", "y_offset", "", "", 0, False, this_step)
     psk_words = psk_words + step_words
 
     # decrement loop counter.
@@ -2342,11 +2368,11 @@ def genAMZBrowseAllReviewsPage(level, stepN, settings_var_name):
     psk_words = psk_words + step_words
 
 
-    #         correct_carrier_option.click()
+    #  read all five star reviews
     this_step, step_words = genStepWebdriverClick("web_driver", "five_star_link", "action_result", "action_flag", this_step)
     psk_words = psk_words + step_words
 
-
+    # read positive reviews if level is even number
     this_step, step_words = genStepCheckCondition("int(" + level + ")%2 == 0", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -2382,40 +2408,8 @@ def genAMZBrowseAllReviewsPage(level, stepN, settings_var_name):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "all_critical_reviews", "direct", "anchor text", "any", "useless", "hasNegativeReviews", "amz", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("hasNegativeReviews", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepMouseClick("Single Click", "", False, "screen_info", "all_critical_reviews", "anchor text", "", [0, 0], "center", [0, 0], "box", 1, 1, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # click on 1 star
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "one_star", "direct", "anchor text", "any",
-                                                    "useless", "hasNegativeReviews", "amz", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("hasNegativeReviews", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "a.histogram-row-container[aria-label*='1 stars']", False, "var", "one_star_link", "element_present", this_step)
-    psk_words = psk_words + step_words
-
-    #         correct_carrier_option.click()
+    #  read all one star reviews
     this_step, step_words = genStepWebdriverClick("web_driver", "one_star_link", "action_result", "action_flag", this_step)
-    psk_words = psk_words + step_words
-
-    # now scroll back to top, no need really
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    # now scroll back to top, no need really
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
 

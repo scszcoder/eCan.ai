@@ -559,9 +559,9 @@ def processWebdriverStartExistingADS(step, i):
     return (i + 1), ex_stat
 
 
-def smoothScrollToElement(driver, element, increment=50):
+def smoothScrollToElement(driver, element, y_offset, increment=50):
     try:
-        current_scroll_position = driver.execute_script("return window.pageYOffset;")
+        current_scroll_position = driver.execute_script("return window.pageYOffset;") + y_offset
         target_position = element.location['y']
         scroll_height = 0
 
@@ -571,7 +571,7 @@ def smoothScrollToElement(driver, element, increment=50):
                 # Scroll by the increment
                 driver.execute_script(f"window.scrollBy(0, {increment});")
                 # Update the current scroll position
-                current_scroll_position = driver.execute_script("return window.pageYOffset;")
+                current_scroll_position = driver.execute_script("return window.pageYOffset;") + y_offset
                 # Optional: Add a small delay to make scrolling visible
                 random_wait = random.randint(1, 100) / 100
                 time.sleep(random_wait)
@@ -581,7 +581,7 @@ def smoothScrollToElement(driver, element, increment=50):
                 # Scroll by the increment (in the negative direction)
                 driver.execute_script(f"window.scrollBy(0, -{increment});")
                 # Update the current scroll position
-                current_scroll_position = driver.execute_script("return window.pageYOffset;")
+                current_scroll_position = driver.execute_script("return window.pageYOffset;") + y_offset
                 # Optional: Add a small delay to make scrolling visible
                 random_wait = random.randint(1, 100)/100
                 time.sleep(random_wait)
@@ -648,7 +648,6 @@ def processWebdriverScrollTo(step, i, mission):
         current_scroll_position = driver.execute_script("return window.pageYOffset;")
         print("current_scroll_position:", current_scroll_position)
 
-
         # Smoothly scroll to the element with the desired offset
         # driver.execute_script("""
         #     arguments[0].scrollIntoView({
@@ -659,12 +658,12 @@ def processWebdriverScrollTo(step, i, mission):
         # """, target_element, offset)
         if target_element:
             target_position = target_element.location['y']
-            print("target_position:", target_position)
+            print("target_position:", target_position, offset)
             # if not target_element.is_displayed():
             if not isDisplayed(driver, target_element):
                 # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
                 scroll_amount = random.randint(30, 80)
-                smoothScrollToElement(driver, target_element, scroll_amount)
+                smoothScrollToElement(driver, target_element, offset, scroll_amount)
                 # Wait a bit to ensure the scrolling action is complete
                 time.sleep(1)  # Short wait to ensure the scroll action is complete
 
@@ -967,6 +966,9 @@ def processWebdriverGoToTab(step, i):
             # Navigate to the new URL in the new tab
             if url:
                 driver.get(url)  # Replace with the new URL
+        else:
+            if url:
+                driver.get(url)
 
     except Exception as e:
         # Get the traceback information
