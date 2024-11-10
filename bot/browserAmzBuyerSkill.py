@@ -1627,8 +1627,8 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     # psk_words = psk_words + step_words
 
     #now call the amz chrome browse sub-skill to go thru the walk process.
-    # this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
-    this_step, step_words = genStubWinChromeAMZBrowserWalk("sk_work_settings", this_step)
+    this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
+    # this_step, step_words = genStubWinChromeAMZBrowserWalk("sk_work_settings", this_step)
     psk_words = psk_words + step_words
     #
     # # end condition for "not_logged_in == False"
