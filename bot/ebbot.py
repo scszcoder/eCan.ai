@@ -282,6 +282,7 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrcity = dj["shipaddrcity"]
         self.shipping_addrstate = dj["shipaddrstate"]
         self.shipping_addrzip = dj["shipaddrzip"]
+        self.adsProfile = dj.get("adsProfile", [])
 
 
     def genJson(self):
@@ -304,7 +305,9 @@ class BOT_PRIVATE_PROFILE():
             "shipaddrl2": self.shipping_addrl2,
             "shipaddrcity": self.shipping_addrcity,
             "shipaddrstate": self.shipping_addrstate,
-            "shipaddrzip": self.shipping_addrzip
+            "shipaddrzip": self.shipping_addrzip,
+            "adsProfile": self.adsProfile
+
         }
         return jd
 
