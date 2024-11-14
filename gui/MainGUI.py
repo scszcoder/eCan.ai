@@ -4044,6 +4044,7 @@ class MainWindow(QMainWindow):
         for bjs in botsJson:
             self.newBot = EBBOT(self)
             self.newBot.loadJson(bjs)
+            self.newBot.updateIcon()
             self.bots.append(self.newBot)
             self.botModel.appendRow(self.newBot)
             self.selected_bot_row = self.botModel.rowCount() - 1
@@ -4055,6 +4056,7 @@ class MainWindow(QMainWindow):
         for mjs in missionsJson:
             self.newMission = EBMISSION(self)
             self.newMission.loadJson(mjs)
+            self.newMission.updateIcon()
             self.missions.append(self.newMission)
             self.missionModel.appendRow(self.newMission)
             self.selected_mission_row = self.missionModel.rowCount() - 1
@@ -4063,6 +4065,7 @@ class MainWindow(QMainWindow):
         for skjs in skillsJson:
             self.newSkill = WORKSKILL(self, skjs["name"])
             self.newSkill.loadJson(skjs)
+            self.newSkill.updateIcon()
             self.skills.append(self.newSkill)
             # self.skillModel.appendRow(self.newSkill)
 

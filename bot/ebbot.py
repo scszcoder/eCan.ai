@@ -599,6 +599,18 @@ class EBBOT(QStandardItem):
         self.seller_inventories = []
         self.msg_queue = asyncio.Queue()  # this is the messaging queue for the bot.
 
+    def updateIcon(self):
+        if len(self.getFn()) > 1:
+            self.icon_text = 'bot' + str(self.getBid()) + ":" + self.getFn()[
+                                                                :1] + " " + self.getLn() + ":" + self.getLocation()
+            self.setText(self.icon_text)
+        else:
+            self.icon_text = 'bot' + str(
+                self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
+            self.setText(self.icon_text)
+        self.setFont(self.main_win.std_item_font)
+        self.setBotIcon(self.main_win.file_resource.bot_icon_path)
+
     def getMsgQ(self):
         return self.msg_queue
 

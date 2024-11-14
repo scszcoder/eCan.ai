@@ -243,6 +243,10 @@ class WORKSKILL(QStandardItem):
         self.setIcon(self.icon)
         self.dependencies = []
 
+    def updateIcon(self):
+        self.setText('Skill'+str(self.getSkid()))
+        self.icon = QIcon(self.parent.file_resource.skill_icon_path)
+
     def getDependencies(self):
         return self.dependencies
 
