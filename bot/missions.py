@@ -444,6 +444,11 @@ class EBMISSION(QStandardItem):
     def __del__(self):
         print(f"EBMISSION {self.getMid()} is being deleted")
 
+    def updateIcon(self):
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
+        self.icon = QIcon(self.main_win.file_resource.mission_icon_path)
+        self.setIcon(self.icon)
+
     def setFingerPrintProfile(self, axpf):
         self.privateAttributes.fingerprint_profile = axpf
 
