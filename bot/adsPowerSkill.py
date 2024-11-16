@@ -1431,17 +1431,21 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
                     newly_read = readTxtProfile(bot_txt_profile_name)
                     batch_bot_profiles_read.append(bot_txt_profile_name)
                 else:
-                    log3("bot_txt_profile_name doesn't exist!")
-                    if not os.path.exists(batch_file):
-                        log3("batched xlsx file doesn't exist either!")
-                        found_mision.setFingerPrintProfile("")
+                    if not thisHost.isPlatoon():
+                        log3("bot_txt_profile_name doesn't exist!")
+                        if not os.path.exists(batch_file):
+                            log3("batched xlsx file doesn't exist either!")
+                            found_mision.setFingerPrintProfile("")
 
                     newly_read = []
 
                 batch_bot_mids.append(bot_mid_key)
 
                 bot_pfJsons = bot_pfJsons + newly_read
-                found_bot.setADSProfile(bot_pfJsons)
+
+                if not thisHost.isPlatoon():
+                    found_bot.setADSProfile(bot_pfJsons)
+
                 if w_idx >= thisHost.getADSBatchSize()-1:
                     if not thisHost.isPlatoon():
                         genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists())
