@@ -8,7 +8,13 @@ from gui.LocalServer import start_local_server_in_thread
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.fernet import Fernet
+import hashlib
 import base64
+
 import copy
 import math
 import os.path
@@ -17,6 +23,7 @@ import traceback
 import webbrowser
 from _csv import reader
 from os.path import exists
+import glob
 
 from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent, QSize
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
@@ -285,6 +292,8 @@ class MainWindow(QMainWindow):
         self.reminderWin = None
         self.platoonWin = None
 
+        self.default_webdriver = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
+
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QPlainTextEdit()
         self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -344,25 +353,35 @@ class MainWindow(QMainWindow):
             self.commanderIP = commanderIP
             self.tcpServer = None
 
+
         if os.path.exists(self.general_settings_file):
-            with open(self.general_settings_file, 'r') as gen_settings_f:
+            with open(self.general_settings_file, 'r', encoding='utf-8') as gen_settings_f:
                 self.general_settings = json.load(gen_settings_f)
                 if "debug_mode" in self.general_settings:
                     self.debug_mode = self.general_settings["debug_mode"]
                 if "schedule_mode" in self.general_settings:
                     self.schedule_mode = self.general_settings["schedule_mode"]
 
-                self.default_wifi = self.general_settings["default_wifi"]
-                self.default_printer = self.general_settings["default_printer"]
+                if "default_wifi" in self.general_settings:
+                    self.default_wifi = self.general_settings["default_wifi"]
+
+                if "default_printer" in self.general_settings:
+                    self.default_printer = self.general_settings["default_printer"]
+
+                if "default_webdriver" in self.general_settings:
+                    if self.general_settings["default_webdriver"]:
+                        self.default_webdriver = self.general_settings["default_webdriver"]
+
 
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
-        self.showMsg("Debug Mode:" + str(self.debug_mode))
+        self.showMsg("Debug Mode:" + str(self.debug_mode) + " Schedule Mode:" + str(self.schedule_mode))
         self.showMsg("self.platform==================================================>" + self.platform)
         if os.path.exists(self.ads_settings_file):
             with open(self.ads_settings_file, 'r') as ads_settings_f:
                 self.ads_settings = json.load(ads_settings_f)
 
             ads_settings_f.close()
+        self.showMsg("ADS SETTINGS:"+json.dumps(self.ads_settings))
         self.showMsg("=========Done With Network Setup, Start Local DB Setup =========")
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
@@ -594,6 +613,8 @@ class MainWindow(QMainWindow):
         self.botListView.setModel(self.botModel)
         self.botListView.setViewMode(QListView.IconMode)
         self.botListView.setMovement(QListView.Snap)
+        self.botListView.setSelectionMode(QListView.ExtendedSelection)
+        self.botListView.setSelectionBehavior(QListView.SelectRows)
 
         # self.skillListView.setModel(self.skillModel)
         # self.skillListView.setViewMode(QListView.IconMode)
@@ -606,19 +627,29 @@ class MainWindow(QMainWindow):
         self.missionListView.setModel(self.missionModel)
         self.missionListView.setViewMode(QListView.ListMode)
         self.missionListView.setMovement(QListView.Snap)
+        # self.missionListView.setSelectionMode(QListView.MultiSelection)
+        self.missionListView.setSelectionMode(QListView.ExtendedSelection)
+        self.missionListView.setSelectionBehavior(QListView.SelectRows)
 
         self.running_missionListView.setModel(self.runningMissionModel)
         self.running_missionListView.setViewMode(QListView.ListMode)
         self.running_missionListView.setMovement(QListView.Snap)
+        self.running_missionListView.setSelectionMode(QListView.ExtendedSelection)
+        self.running_missionListView.setSelectionBehavior(QListView.SelectRows)
 
         self.vehicleListView.setModel(self.runningVehicleModel)
         self.vehicleListView.setViewMode(QListView.ListMode)
         self.vehicleListView.setIconSize(QSize(48, 48))
         self.vehicleListView.setMovement(QListView.Snap)
+        self.vehicleListView.setSelectionMode(QListView.ExtendedSelection)
+        self.vehicleListView.setSelectionBehavior(QListView.SelectRows)
+
 
         self.completed_missionListView.setModel(self.completedMissionModel)
         self.completed_missionListView.setViewMode(QListView.ListMode)
         self.completed_missionListView.setMovement(QListView.Snap)
+        self.completed_missionListView.setSelectionMode(QListView.ExtendedSelection)
+        self.completed_missionListView.setSelectionBehavior(QListView.SelectRows)
 
         centralWidget = DragPanel()
 
@@ -796,7 +827,6 @@ class MainWindow(QMainWindow):
         self.SettingsWin = SettingsWidget(self)
         self.showMsg("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
-            fix_localDB(self)
             self.readVehicleJsonFile()
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
@@ -808,6 +838,8 @@ class MainWindow(QMainWindow):
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
+            self.createNewBotsFromBotsXlsx()
+
             if not self.debug_mode or self.schedule_mode == "auto":
                 self.mission_service.sync_cloud_mission_data(self.session, self.tokens)
             print("mission cloud synced")
@@ -815,9 +847,11 @@ class MainWindow(QMainWindow):
             print("local mission data:", missions_data)
             # missions_data = []      # test hack
             self.loadLocalMissions(missions_data)
-            self.showMsg("missions loaded")
+            log3("missions loaded")
             self.dailySkillsetUpdate()
-            self.showMsg("skills loaded")
+            log3("skills loaded")
+
+            self.createNewMissionsFromOrdersXlsx()
 
         # Done with all UI stuff, now do the instruction set extension work.
         self.showMsg("set up rais extensions ")
@@ -878,8 +912,9 @@ class MainWindow(QMainWindow):
                "completed" : [],
                "aborted": []
             }
-
+            print("debug mode:", self.debug_mode, self.schedule_mode)
             if not self.debug_mode and self.schedule_mode == "auto":
+                print("add fetch schedule to todo list....")
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
 
@@ -930,6 +965,7 @@ class MainWindow(QMainWindow):
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
         print("vehicles after init:", [v.getName() for v in self.vehicles])
+        self.saveSettings()
 
 
     # SC note - really need to have
@@ -1106,6 +1142,12 @@ class MainWindow(QMainWindow):
     def getWifis(self):
         return self.wifis
 
+    def getWebDriverPath(self):
+        return self.default_webdriver
+
+    def setWebDriverPath(self, driver_path):
+        self.default_webdriver = driver_path
+
     #async def networking(self, platoonCallBack):
     def set_host_role(self, role):
         self.host_role = role
@@ -1140,7 +1182,8 @@ class MainWindow(QMainWindow):
             self.showMsg("saving general settings:" + json.dumps(self.general_settings))
             with open(self.general_settings_file, 'w') as f:
                 json.dump(self.general_settings, f)
-            # self.rebuildHTML()
+                # self.rebuildHTML()
+                f.close()
         except IOError:
             QMessageBox.information(self, f"Unable to open settings file {self.general_settings_file}")
 
@@ -1733,10 +1776,13 @@ class MainWindow(QMainWindow):
 
     # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings):
-        fetch_stat = "Completed:0"
+        log3("start fetching schedule...")
+        ex_stat = "Completed:0"
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
-            self.newBuyMissionFromFiles()
+            # self.newBuyMissionFromFiles()
+            self.createNewBotsFromBotsXlsx()
+            self.createNewMissionsFromOrdersXlsx()
 
             self.showMsg("Done handling today's new Buy orders...")
 
@@ -1745,6 +1791,7 @@ class MainWindow(QMainWindow):
                 jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
                 print("schedule JRESP:", jresp)
             else:
+                print("debug mode, skipping cloud fetch schedule")
                 jresp = {}
 
             if "errorType" in jresp:
@@ -1771,11 +1818,12 @@ class MainWindow(QMainWindow):
                     if not self.debug_mode or self.schedule_mode == "auto":
                         bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
                     else:
+                        print("debug mode, using test vector....")
                         # file = 'C:/software/scheduleResultTest7.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                        # file = 'C:/temp/scheduleResultTest9.json'             # ads ebay amz etsy sell test.
-                        file = 'C:/temp/scheduleResultTest999.json'
+                        file = 'C:/temp/scheduleResultTest9D.json'             # ads ebay amz etsy sell test.
+                        # file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
                         if exists(file):
                             with open(file) as test_schedule_file:
@@ -1786,7 +1834,7 @@ class MainWindow(QMainWindow):
                     self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
             if len(self.todays_work["tbd"]) > 0:
-                self.todays_work["tbd"][0]["status"] = fetch_stat
+                self.todays_work["tbd"][0]["status"] = ex_stat
                 # now that a new day starts, clear all reports data structure
                 self.todaysReports = []
             else:
@@ -1803,22 +1851,35 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorFetchSchedule: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
 
-        self.showMsg("done with fetch schedule:"+ fetch_stat)
-        return fetch_stat
+        self.showMsg("done with fetch schedule:"+ ex_stat)
+        return ex_stat
 
     def fetchScheduleFromFile(self):
+        try:
+            ex_stat = "Completed:0"
+            file = 'C:/temp/scheduleResultTest9D.json'  # ads ebay amz etsy sell test.
+            # file = 'C:/temp/scheduleResultTest999.json'
+            # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
+            if exists(file):
+                with open(file) as test_schedule_file:
+                    bodyobj = json.load(test_schedule_file)
 
-        uncompressed = open(self.my_ecb_data_homepath + "/resource/testdata/testschedule.json")
-        if uncompressed != "":
-            # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
-            bodyobj = json.load(uncompressed)
-            if len(bodyobj) > 0:
-                self.assignWork()
-                self.logDailySchedule(uncompressed)
+                self.handleCloudScheduledWorks(bodyobj)
             else:
-                self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
-        else:
-            self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
+                self.warn(QApplication.translate("QMainWindow", "Warning: Test Vector File Not Found."))
+            # ni is already incremented by processExtract(), so simply return it.
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorFetchScheduleFromFile:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorFetchScheduleFromFile: traceback information not available:" + str(e)
+            self.showMsg(ex_stat)
+
+        self.showMsg("done with fetch schedule from file:" + ex_stat)
+        return ex_stat
 
     def warn(self, msg, level="info"):
         warnText = self.log_text_format(msg, level)
@@ -3519,7 +3580,7 @@ class MainWindow(QMainWindow):
             mission_id = works[tz][bidx][grp][idx]["mid"]
             midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
             this_stat = self.missions[midx].getStatus()
-            n_retries = self.missions[midx].getRetry()
+            n_retries = self.missions[midx].getNRetries()
             if "Completed" not in this_stat and n_retries > 0:
                 found = True
 
@@ -3995,6 +4056,7 @@ class MainWindow(QMainWindow):
         for bjs in botsJson:
             self.newBot = EBBOT(self)
             self.newBot.loadJson(bjs)
+            self.newBot.updateIcon()
             self.bots.append(self.newBot)
             self.botModel.appendRow(self.newBot)
             self.selected_bot_row = self.botModel.rowCount() - 1
@@ -4006,6 +4068,7 @@ class MainWindow(QMainWindow):
         for mjs in missionsJson:
             self.newMission = EBMISSION(self)
             self.newMission.loadJson(mjs)
+            self.newMission.updateIcon()
             self.missions.append(self.newMission)
             self.missionModel.appendRow(self.newMission)
             self.selected_mission_row = self.missionModel.rowCount() - 1
@@ -4014,6 +4077,7 @@ class MainWindow(QMainWindow):
         for skjs in skillsJson:
             self.newSkill = WORKSKILL(self, skjs["name"])
             self.newSkill.loadJson(skjs)
+            self.newSkill.updateIcon()
             self.skills.append(self.newSkill)
             # self.skillModel.appendRow(self.newSkill)
 
@@ -4590,6 +4654,9 @@ class MainWindow(QMainWindow):
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
+                selected_indexes = self.missionListView.selectedIndexes()
+                print("selected indexes:", selected_indexes)
+
                 self.selected_mission_row = source.indexAt(event.pos()).row()
                 self.selected_cus_mission_item = self.missionModel.item(self.selected_mission_row)
 
@@ -4719,7 +4786,8 @@ class MainWindow(QMainWindow):
 
         if ret == QMessageBox.Yes:
             api_removes = []
-            items = [self.selected_cus_mission_item]
+
+            items = [self.missionModel.itemFromIndex(idx) for idx in self.missionListView.selectedIndexes()]
             if len(items):
                 for item in items:
                     # remove file first, then the item in the model.
@@ -4899,68 +4967,89 @@ class MainWindow(QMainWindow):
             '',
             QApplication.translate("QFileDialog", "Bot Files (*.json *.xlsx *.csv)")
         )
-        self.showMsg("loading bots from a file..."+filename)
-        bots_from_file=[]
-        if filename != "":
-            if "json" in filename:
-                api_bots = []
-                uncompressed = open(filename)
-                if uncompressed != None:
-                    # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
-                    filebbots = json.load(uncompressed)
-                    if len(filebbots) > 0:
-                        bots_from_file = []
-                        #add bots to the relavant data structure and add these bots to the cloud and local DB.
-                        for fb in filebbots:
-                            new_bot = EBBOT(self)
-                            self.fillNewBotFullInfo(fb, new_bot)
-                            bots_from_file.append(new_bot)
+        log3("loading bots from a file..."+filename)
+        self.createBotsFromFiles([filename])
+
+    def createBotsFromFiles(self, bfiles):
+        try:
+            bots_from_file = []
+            botsJson = []
+            for filename in bfiles:
+                if filename:
+                    if "json" in filename:
+                        try:
+                            api_bots = []
+                            with open(filename, 'r', encoding='utf-8') as uncompressed:
+                                filebbots = json.load(uncompressed)
+                                if filebbots:
+                                    # Add bots to the relevant data structure and add these bots to the cloud and local DB.
+                                    for fb in filebbots:
+                                        new_bot = EBBOT(self)
+                                        self.fillNewBotFullInfo(fb, new_bot)
+                                        bots_from_file.append(new_bot)
+                                else:
+                                    self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
+                        except (FileNotFoundError, json.JSONDecodeError) as e:
+                            self.warn(QApplication.translate("QMainWindow",
+                                                             f"Error opening or decoding JSON file: {filename} - {e}"))
+
+                    elif "xlsx" in filename:
+                        try:
+                            log3("working on file:" + str(filename))
+                            xls = openpyxl.load_workbook(filename, data_only=True)
+                            botsJson = []
+                            title_cells = []
+
+                            # Process each sheet in the Excel file
+                            for idx, sheet in enumerate(xls.sheetnames):
+                                ws = xls[sheet]
+
+                                for ri, row in enumerate(ws.iter_rows(values_only=True)):
+                                    # Capture header titles from the first row of the first sheet
+                                    if idx == 0 and ri == 0:
+                                        title_cells = [cell for cell in row]
+                                    elif ri > 0 and len(row) == len(title_cells):  # Ensure row length matches headers
+                                        botJson = {}
+                                        for ci, cell in enumerate(title_cells):
+                                            # Format dates if necessary
+                                            if cell == "DoB" and row[ci]:
+                                                botJson[cell] = row[ci].strftime('%Y-%m-%d')
+                                            else:
+                                                botJson[cell] = row[ci]
+                                        botsJson.append(botJson)
+
+                            log3("total # of bot rows read:" + str(len(botsJson)))
+                            log3("all jsons from bot xlsx file:" + json.dumps(botsJson, ensure_ascii=False))
+                            for bjson in botsJson:
+                                new_bot = EBBOT(self)
+                                new_bot.loadXlsxData(bjson)
+                                bots_from_file.append(new_bot)
+                                print(new_bot.genJson())
+
+                        except FileNotFoundError as e:
+                            self.warn(QApplication.translate("QMainWindow", f"Excel file not found: {filename} - {e}"))
+                        except Exception as e:
+                            self.warn(
+                                QApplication.translate("QMainWindow", f"Error processing Excel file: {filename} - {e}"))
+
                     else:
-                        self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
+                        self.showMsg("ERROR: bot files must either be in .json format or .xlsx format!")
                 else:
-                    self.warn(QApplication.translate("QMainWindow", "Warning: No file."))
+                    self.warn(QApplication.translate("QMainWindow", "Warning: No file provided."))
 
-            elif "xlsx" in filename:
-                self.showMsg("working on file:"+filename)
-                xls = openpyxl.load_workbook(filename, data_only=True)
+            if len(bots_from_file) > 0:
+                print("adding new bot...")
+                self.addNewBots(bots_from_file)
 
-                # Initialize an empty list to store JSON data
-                botsJson = []
-                # Iterate over each sheet in the Excel file
-                title_cells = []
-                for idx, sheet in enumerate(xls.sheetnames):
-                    # Read the sheet into a DataFrame
-                    ws = xls[sheet]
-
-                    # Iterate over each row in the sheet
-                    for ri, row in enumerate(ws.iter_rows(values_only=True)):
-                        if idx == 0 and ri == 0:
-                            title_cells = [cell for cell in row]
-                        elif ri > 0:
-                            if len(row) == 25:
-                                botJson = {}
-                                for ci, cell in enumerate(title_cells):
-                                    if cell == "DoB":
-                                        botJson[cell] = row[ci].strftime('%Y-%m-%d')
-                                    else:
-                                        botJson[cell] = row[ci]
-
-                                botsJson.append(botJson)
-
-                    # Convert DataFrame to JSON and append to the list
-                self.showMsg("total # of rows read:"+str(len(botsJson)))
-                self.showMsg("all jsons from bot xlsx file:"+json.dumps(botsJson))
-                bots_from_file = []
-                for bjson in botsJson:
-                    new_bot = EBBOT(self)
-                    new_bot.loadXlsxData(bjson)
-                    bots_from_file.append(new_bot)
-                    new_bot.genJson()
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorCreateBotsFromFiles:" + traceback.format_exc() + " " + str(e)
             else:
-                self.showMsg("ERROR: bot files must either be in .json format or .xlsx format!")
-
-        if len(bots_from_file) > 0:
-            self.addNewBots(bots_from_file)
+                ex_stat = "ErrorCreateBotsFromFiles: traceback information not available:" + str(e)
+            log3(ex_stat)
 
     # data format conversion. nb is in EBMISSION data structure format., nbdata is json
     def fillNewMissionFromCloud(self, nmjson, nm):
@@ -5028,79 +5117,100 @@ class MainWindow(QMainWindow):
             '',
             QApplication.translate("QFileDialog", "Mission Files (*.json *.xlsx *.csv)")
         )
-        if filename != "":
-            if "json" in filename:
-                api_missions = []
-                # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
-                filebmissions = json.load(filename)
-                if len(filebmissions) > 0:
-                    #add bots to the relavant data structure and add these bots to the cloud and local DB.
+        self.createMissionsFromFile([filename])
 
-                    jresp = send_add_missions_request_to_cloud(self.session, filebmissions,
-                                                           self.tokens['AuthenticationResult']['IdToken'])
+    def createMissionsFromFiles(self, mfiles):
+        missionsJson = []
+        for filename in mfiles:
+            if filename != "":
+                if "json" in filename:
+                    api_missions = []
+                    # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+                    filebmissions = json.load(filename)
+                    if len(filebmissions) > 0:
+                        #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
-                    if "errorType" in jresp:
-                        screen_error = True
-                        self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                        jresp = send_add_missions_request_to_cloud(self.session, filebmissions,
+                                                               self.tokens['AuthenticationResult']['IdToken'])
+
+                        if "errorType" in jresp:
+                            screen_error = True
+                            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                        else:
+                            self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
+                            jbody = jresp["body"]
+                            # now that add is successfull, update local file as well.
+
+                            # now add missions to local DB.
+                            new_missions: [EBMISSION] = []
+                            for i in range(len(jbody)):
+                                self.showMsg(str(i))
+                                new_mission = EBMISSION(self)
+                                # move json file based mission into MISSION data structure.
+                                new_mission.loadJson(filebmissions)
+                                self.fillNewMissionFromCloud(jbody[i], new_mission)
+                                self.missions.append(new_mission)
+                                self.missionModel.appendRow(new_mission)
+                                new_missions.append(new_mission)
+
+                            self.addMissionsToLocalDB(new_missions)
+
                     else:
-                        self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
-                        jbody = jresp["body"]
-                        # now that add is successfull, update local file as well.
+                        self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
 
-                        # now add missions to local DB.
-                        new_missions: [EBMISSION] = []
-                        for i in range(len(jbody)):
-                            self.showMsg(str(i))
-                            new_mission = EBMISSION(self)
-                            # move json file based mission into MISSION data structure.
-                            new_mission.loadJson(filebmissions)
-                            self.fillNewMissionFromCloud(jbody[i], new_mission)
-                            self.missions.append(new_mission)
-                            self.missionModel.appendRow(new_mission)
-                            new_missions.append(new_mission)
+                elif "xlsx" in filename:
+                    # if getting missions from xlsx file it's automatically assumed that the
+                    # the mission will be for amz buy.
+                    log3("working on order file:"+filename)
+                    mJsons = self.convert_orders_xlsx_to_json(filename)
+                    log3("mJsons from xlsx:" + json.dumps(mJsons))
+                    mTypeTable = {
+                        "溜号": "browse",
+                        "免评": "buy",
+                        "直评": "directbuy",
+                        "产品点星": "goodRating",
+                        "产品好评": "goodFB",
+                        "店铺点星": "storeRating",
+                        "店铺好评": "storeFB",
+                        "加购物车": "addCart",
+                    }
+                    # now if quantity is N, there will be N missions created.
+                    # and add other required missions parameters....
+                    for mJson in mJsons:
+                        if "email" not in mJson:
+                            pkString = "songc@yahoo.com"
+                        elif not mJson["email"]:
+                            pkString = "songc@yahoo.com"
+                        else:
+                            pkString = mJson["email"]
+                        mJson["pseudoStore"] = self.generateShortHash(pkString+":"+mJson.get("store", "NoneStore"))
+                        mJson["pseudoBrand"] = self.generateShortHash(pkString+":"+mJson.get("brand", "NoneBrand"))
+                        mJson["pseudoASIN"] = self.generateShortHash(pkString+":"+mJson["asin"])
 
-                        self.addMissionsToLocalDB(new_missions)
+                        if not mJson["feedback_type"]:
+                            mJson["type"] = mTypeTable[mJson["feedback_type"]]
+                        else:
+                            mJson["type"] = "buy"
 
-                else:
-                    self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
+                        # each buy should be an separate mission.
+                        n_orders = int(mJson["quantity"])
+                        missionsJson = missionsJson + [copy.deepcopy(mJson) for _ in range(n_orders)]
 
-            elif "xlsx" in filename:
-                self.showMsg("working on file:"+filename)
-                xls = openpyxl.load_workbook(filename, data_only=True)
+                    log3("total # of orders rows read: "+str(len(mJsons)))
+                    log3("mJsons after conversion:"+json.dumps(mJsons))
+                    m = sum(int(item["quantity"]) for item in mJsons)
+                    log3("total # of missions to be generated: " + str(m))
 
-                # Initialize an empty list to store JSON data
-                botsJson = []
-                # Iterate over each sheet in the Excel file
-                title_cells = []
-                for idx, sheet in enumerate(xls.sheetnames):
-                    # Read the sheet into a DataFrame
-                    ws = xls[sheet]
 
-                    # Iterate over each row in the sheet
-                    for ri, row in enumerate(ws.iter_rows(values_only=True)):
-                        if idx == 0 and ri == 0:
-                            title_cells = [cell for cell in row]
-                        elif ri > 0:
-                            if len(row) == 25:
-                                botJson = {}
-                                for ci, cell in enumerate(title_cells):
-                                    if cell == "DoB":
-                                        botJson[cell] = row[ci].strftime('%Y-%m-%d')
-                                    else:
-                                        botJson[cell] = row[ci]
-
-                                botsJson.append(botJson)
-
-        self.showMsg("total # of rows read: "+str(len(botsJson)))
-        self.showMsg("all jsons from bot xlsx file: "+json.dumps(botsJson))
         missions_from_file = []
-        for bjson in botsJson:
+        for mjson in missionsJson:
             new_mission = EBMISSION(self)
-            new_mission.loadXlsxData(bjson)
+            new_mission.loadXlsxData(mjson)
             missions_from_file.append(new_mission)
             # new_mission.genJson()
 
-        self.addNewMissions(missions_from_file)
+        print("about to really add these missions...")
+        # self.addNewMissions(missions_from_file)
 
 
     def process_original_xlsx_file(self, file_path):
@@ -5801,7 +5911,7 @@ class MainWindow(QMainWindow):
                                     self.showMsg("POP a finished task from queue after runRPA")
                                     # update GUI display to move missions in this task group to the completed missions list.
                                     if self.todays_work["tbd"][0]:
-                                        self.showMsg("None empty first WORK GROUP" )
+                                        self.showMsg("None empt yfirst WORK GROUP" )
                                         just_finished = copy.deepcopy(self.todays_work["tbd"][0])
                                         self.updateCompletedMissions(just_finished)
                                         self.todays_completed.append(just_finished)
@@ -6682,6 +6792,11 @@ class MainWindow(QMainWindow):
 
     def getADSSettings(self):
         return self.ads_settings
+
+    def saveADSSettings(self, settings):
+        with open(self.ads_settings_file, 'w') as ads_settings_f:
+            json.dump(settings["fp_browser_settings"], ads_settings_f)
+            ads_settings_f.close()
 
     def getIP(self):
         return self.ip
@@ -7662,3 +7777,214 @@ class MainWindow(QMainWindow):
         }
 
         asyncio.ensure_future((self.gui_monitor_msg_queue.put(in_message)))
+
+    # check default directory and see whether there is any file dated within the past 24 hrs
+    # if so return that file name.
+    def checkNewBotsFiles(self):
+        bfiles = []
+
+        if "new_bots_file_path" in self.general_settings:
+            bfiles = self.get_new_bot_files(self.general_settings["new_bots_file_path"])
+
+        return bfiles
+
+    def get_new_bot_files(self, base_dir="new_bot"):
+        # Calculate the timestamp for yesterday at 12 AM
+        yesterday_12am = datetime.combine(datetime.now() - timedelta(days=1), datetime.min.time())
+
+        # Convert the timestamp to a Unix timestamp (seconds since epoch)
+        timestamp_cutoff = yesterday_12am.timestamp()
+
+        # Get all .xlsx files in the base directory
+        bot_files = glob.glob(os.path.join(base_dir, "new_bots_*.xlsx"))
+
+        # Filter files modified after yesterday's 12 AM
+        new_bot_files = [file for file in bot_files if os.path.getmtime(file) > timestamp_cutoff]
+
+        if "last_bots_file" not in self.general_settings:
+            latest_file = ""
+            latest_time = 0
+            last_time = 0
+        else:
+            latest_file = self.general_settings["last_bots_file"]
+            latest_time = self.general_settings["last_bots_file_time"]
+            last_time = latest_time
+
+        not_yet_touched_files = []
+        # Print the new bot files (optional)
+        if new_bot_files:
+            print(f"Found {len(new_bot_files)} new bot files modified after {yesterday_12am}:")
+            for file_path in new_bot_files:
+                # Get the modification time for each file
+                file_mtime = os.path.getmtime(file_path)
+                # Update if this file is more recent
+                if file_mtime > last_time:
+                    not_yet_touched_files.append(file_path)
+
+                if file_mtime > latest_time:
+                    latest_time = file_mtime
+                    latest_file = file_path
+
+        else:
+            print("No new bot files found since yesterday at 12 AM.")
+
+        self.general_settings["last_bots_file"] = latest_file
+        self.general_settings["last_bots_file_time"] = latest_time
+        return not_yet_touched_files
+
+
+
+    def checkNewMissionsFiles(self):
+        mfiles = []
+
+        if "new_orders_path" in self.general_settings:
+            log3("new_orders_path:" + self.general_settings["new_orders_path"])
+            mfiles = self.get_yesterday_orders_files(self.general_settings["new_orders_path"])
+            log3("New order files since yesterday" + json.dumps(mfiles))
+
+        return mfiles
+
+    # make sure the networked dir is escapped correctly: "\\\\HP-ECBOT\\shared"
+    def get_yesterday_orders_files(self, base_dir="new orders"):
+        # Get yesterday's date
+        yesterday = datetime.now() - timedelta(days=1)
+        year = yesterday.strftime("%Y")
+        month = yesterday.strftime("m%m")  # 'm01' format
+        day = yesterday.strftime("d%d")  # 'd01' format
+
+        # Build the path for yesterday's directory
+        yesterday_dir = os.path.join(base_dir, year, month, day)
+
+        # Check if the directory exists
+        if not os.path.isdir(yesterday_dir):
+            print(f"Directory {yesterday_dir} does not exist.")
+            return []
+
+        # Find all .xlsx files in yesterday's directory
+        order_files = glob.glob(os.path.join(yesterday_dir, "Order*.xlsx"))
+        if self.general_settings.get("last_order_file", ""):
+            latest_file = ""
+            latest_time = 0
+            last_time = 0
+        else:
+            latest_file = self.general_settings["last_order_file"]
+            latest_time = self.general_settings["last_order_file_time"]
+            last_time = latest_time
+
+        not_yet_touched_files = []
+        # Print found files (optional)
+        if order_files:
+            print(f"Found {len(order_files)} order files for {yesterday.strftime('%Y-%m-%d')}:")
+            for file_path in order_files:
+                # Get the modification time for each file
+                file_mtime = os.path.getmtime(file_path)
+
+                if file_mtime > last_time:
+                    not_yet_touched_files.append(file_path)
+
+                # Update if this file is more recent
+                if file_mtime > latest_time:
+                    latest_time = file_mtime
+                    latest_file = file_path
+        else:
+            print(f"No order files found for {yesterday.strftime('%Y-%m-%d')}.")
+
+        self.general_settings["last_order_file"] = latest_file
+        self.general_settings["last_order_file_time"] = latest_time
+        return not_yet_touched_files
+
+    # assume one sheet only in the xlsx file. at this moment no support for multi-sheet.
+    def convert_orders_xlsx_to_json(self, file_path):
+        header_to_db_column = {
+            "store": "store",
+            "brand": "brand",
+            "execution time": "execution_time",
+            "quantity": "quantity",
+            "asin": "asin",
+            "search term": "phrase",
+            "title": "title",
+            "page number": "page_number",
+            "price": "price",
+            "variations": "variations",
+            "follow seller": "follow_seller",
+            "follow price": "follow_price",
+            "product image": "img",
+            "fb type": "feedback_type",
+            "fb title": "feedback_title",
+            "fb contents": "feedback_contents",
+            "notes": "order_notes",
+            "email": "customer"
+        }
+
+        # Load the Excel file
+        log3("working on new order xlsx file:"+file_path)
+        df = pd.read_excel(file_path, header=2, dtype=str)  # Start reading from the 3rd row
+
+        df.rename(columns=header_to_db_column, inplace=True)
+
+        # Drop any completely empty columns, if there are any
+        df.dropna(how="all", axis=1, inplace=True)
+        df.dropna(how="all", axis=0, inplace=True)
+
+        # Convert DataFrame to a list of dictionaries (JSON format)
+        orders_json = df.to_dict(orient="records")
+        return orders_json
+
+    def generate_key_from_string(self, password: str) -> bytes:
+        """Generate a 32-byte key from the given string (password) using a key derivation function."""
+        password = password.encode()  # Convert string to bytes
+        salt = b'some_salt_value'  # You can generate this securely if you want, here it's fixed for simplicity
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(password))
+        return key
+
+    def encrypt_string(self, key: bytes, plaintext: str) -> str:
+        """Encrypt the given plaintext using the derived key."""
+        fernet = Fernet(key)
+        encrypted = fernet.encrypt(plaintext.encode())  # Encrypt the plaintext
+        return encrypted.decode()  # Return as a string
+
+    def decrypt_string(self, key: bytes, encrypted_text: str) -> str:
+        """Decrypt the given encrypted text using the derived key."""
+        fernet = Fernet(key)
+        decrypted = fernet.decrypt(encrypted_text.encode())  # Decrypt the text
+        return decrypted.decode()  # Return as a string
+
+    def genPseudo(self, keyString, inString):
+        # Generate a key from string A
+        key = self.generate_key_from_string(keyString)
+
+        # Encrypt string B to get string C
+        encrypted = self.encrypt_string(key, inString)
+        print("Encrypted:", encrypted)
+
+        return encrypted
+
+    def generateShortHash(self, text: str, length: int = 32) -> str:
+        """Generate a fixed-length hash for the input text."""
+        hash_obj = hashlib.sha256(text.encode())
+        hashed_bytes = hash_obj.digest()
+        # Encode in base64 to make it URL-safe and take the desired length
+        hashed = base64.urlsafe_b64encode(hashed_bytes).decode()[:length]
+        log3("hashed:"+hashed)
+        return hashed
+
+    def createNewMissionsFromOrdersXlsx(self):
+        newMisionsFiles = self.checkNewMissionsFiles()
+        if newMisionsFiles:
+            log3("last_order_file:"+self.general_settings["last_order_file"]+"..."+str(self.general_settings["last_order_file_time"]))
+            self.createMissionsFromFiles(newMisionsFiles)
+
+    def createNewBotsFromBotsXlsx(self):
+        newBotsFiles = self.checkNewBotsFiles()
+        log3("newBotsFiles:"+json.dumps(newBotsFiles))
+        if newBotsFiles:
+            self.createBotsFromFiles(newBotsFiles)
+
+    def isPlatoon(self):
+        return (self.machine_role == "Platoon")

@@ -34,6 +34,8 @@ from PIL import Image
 import shutil
 import zipfile
 import psutil
+import pyperclip
+from fuzzywuzzy import fuzz
 
 if sys.platform == 'win32':
     import win32gui
@@ -152,6 +154,20 @@ def genStepSaveHtml(html_file_name, html_file_var_name, template, settings, sink
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepPasteToData(result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Paste To Data",
+        "action": "Paste To Data",
+        "result_var": result_var,
+        "flag_var": flag_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 
 # extract screen information:
@@ -357,6 +373,19 @@ def genStepMouseScroll(action, screen, val, unit, resolution, ran_min, ran_max, 
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepMouseMove(x_amount_var, y_amount_var, x_destination_var, y_destination_var, postwait, break_here, stepN):
+    stepjson = {
+        "type": "Mouse Move",
+        "x_amount_var": x_amount_var,
+        "y_amount_var": y_amount_var,
+        "x_destination_var": x_destination_var,
+        "y_destination_var": y_destination_var,
+        "breakpoint": break_here,
+        "postwait": postwait,
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 def genStepMouseClick(action, action_args, saverb, screen, target, target_type, template, nth, offset_from, offset, offset_unit, move_pause, post_wait, post_move, stepN):
@@ -379,6 +408,7 @@ def genStepMouseClick(action, action_args, saverb, screen, target, target_type, 
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 # val: key action
 # wait_after: #  of seconds to waitafter the key action.
@@ -1419,11 +1449,25 @@ def processWait(step, i):
             log3("waiting for last screen "+str(wtime)+" seconds....")
             # screen = symTab["last_screen"]
         else:
-            wtime = step["time"]
+            if isinstance(step["time"], int):
+                wtime = step["time"]
+            else:
+                wtime = symTab[step["time"]]
             log3("waiting for "+str(wtime)+" seconds....")
 
-        if step["random_max"] > 0:
-            wtime = random.randrange(step["random_min"], step["random_max"])
+        if isinstance(step["random_max"], int):
+            random_max = step["random_max"]
+        else:
+            random_max = symTab[step["random_max"]]
+
+        if isinstance(step["random_min"], int):
+            random_min = step["random_min"]
+        else:
+            random_min = symTab[step["random_min"]]
+
+
+        if random_max > 0:
+            wtime = random.randrange(random_min, random_max)
 
         log3("actually waiting for "+str(wtime)+" seconds....")
         time.sleep(wtime)
@@ -2584,8 +2628,9 @@ def processCreateData(step, i):
                     executable = executable + " " + expr_var
                     if expr_vars.index(expr_var) != len(expr_vars) - 1:
                         executable = executable + ","
+                log3("full executable statement:" + executable)
                 executable = executable + "\n" + simple_expression
-                log3("full executable statement:"+executable)
+
                 exec(executable)
                 # log3(step["data_name"] + " is now: "+json.dumps(symTab[step["data_name"]]))
             else:
@@ -3956,6 +4001,11 @@ def matched_loc(pattern, text):
 # "site": site,
 # "breakpoint": break_here,
 # "status": flag
+def fuzzy_substring_match(small_string, large_string, threshold=85):
+    match_score = fuzz.partial_ratio(small_string, large_string)
+    return match_score >= threshold
+
+
 def processSearchWordLine(step, i):
     log3("Searching....words and/or lines"+json.dumps(step["name_types"]))
     global in_exception
@@ -4008,11 +4058,14 @@ def processSearchWordLine(step, i):
                         log3("matched_words"+json.dumps(matched_words)+"first_word"+json.dumps(first_word)+"last_word"+json.dumps(last_word))
                         if len(matched_words) >  1:
                             last_word = matched_words[len(matched_words)-1]
+                            log3("last_word" + last_word)
 
-                        match_starts = [word for index, word in enumerate(line["words"]) if first_word in word["text"]]
+                        linewords = [word["text"] for index, word in enumerate(line["words"])]
+                        log3("linewords" + json.dumps(linewords))
+                        match_starts = [word for index, word in enumerate(line["words"]) if fuzzy_substring_match(first_word, word["text"])]
 
                         if last_word:
-                            match_ends = [word for index, word in enumerate(line["words"]) if last_word in word["text"]]
+                            match_ends = [word for index, word in enumerate(line["words"]) if fuzzy_substring_match(last_word, word["text"])]
 
                         log3("match_starts"+json.dumps(match_starts))
                         for match_start in match_starts:
@@ -4024,7 +4077,7 @@ def processSearchWordLine(step, i):
                                 matched_loc = match_start["box"]
                                 log3("match only 1 word")
 
-                            found.append({"txt": matched_pattern, "box": matched_loc})
+                            found.append({"txt": matched_pattern, "box": matched_loc, "line_txt": line["text"]})
                     else:
                         p_stat = "pattern NOT FOUND in paragraph"
                         # log3(p_stat+">>"+p["text"])
@@ -5617,3 +5670,54 @@ def regSteps(stepType, stepData, start, result, mainWin):
     ]
     #upload screen to S3
     resp = send_reg_steps_to_cloud(mainWin.session, steps, mainWin.tokens['AuthenticationResult']['IdToken'])
+
+
+def processPasteToData(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag_var"]] = True
+        symTab[step["result_var"]] =  pyperclip.paste()
+        print("pasted:", symTab[step["result_var"]])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckAlreadyProcessed:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckAlreadyProcessed: traceback information not available:" + str(e)
+        symTab[step["flag_var"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+def processMouseMove(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    mainwin = mission.get_main_win()
+    try:
+        if (not step["x_destination_var"]) and (not step["y_destination_var"]):
+            # this is the case of move
+            pyautogui.move(symTab[step["x_amount_var"]], symTab[step["y_amount_var"]])
+        else:
+            # this is the case of move to -
+            pyautogui.moveTo(symTab[step["x_destination_var"]], symTab[step["y_destination_var"]])
+
+        time.sleep(step["postwait"])
+
+        if step["breakpoint"]:
+            input("type any key to continuue")
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorMouseMove:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorMouseMove: traceback information not available:" + str(e)
+        symTab[step["flag_var"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat

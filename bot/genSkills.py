@@ -6,7 +6,7 @@ from datetime import datetime
 from bot.Logger import log3
 from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfilesSkill, \
     genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genStepsADSPowerExitProfile, \
-    genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt
+    genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt, genStepADSSaveAPISettings
 from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
@@ -28,14 +28,15 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
     genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
-    genStepCheckSublist, genStepCheckAlreadyProcessed
+    genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
     genStepWebdriverQuit, genStepWebdriverExecuteJs, genStepWebdriverRefreshPage, genStepWebdriverScreenShot, \
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
     genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
-    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent, genStepWebdriverCheckConnection
+    genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent, genStepWebdriverCheckConnection, \
+    genStepWebdriverCheckVisibility
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -46,6 +47,8 @@ from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, 
     genWinADSEbayBrowserBuyECBLabelsSkill, genWinADSEbayBrowserHandleOffersSkill, \
     genWinADSEbayBrowserHandleReturnSkill, genWinADSEbayBrowserHandleReturnWithECBLabelsSkill, \
     genWinADSEbayBrowserHandleReplacementSkill, genWinADSEbayBrowserHandleRefundSkill
+
+from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill
 
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
@@ -62,6 +65,7 @@ from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml
 from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
+from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -77,6 +81,7 @@ PUBLIC = {
     'genStepRecordTxtLineLocation': genStepRecordTxtLineLocation,
     'genStepMouseClick': genStepMouseClick,
     'genStepMouseScroll': genStepMouseScroll,
+    'genStepMouseMove': genStepMouseMove,
     'genScrollDownUntilLoc': genScrollDownUntilLoc,
     'genScrollDownUntil': genScrollDownUntil,
     'genScrollUpUntilLoc': genScrollUpUntilLoc,
@@ -108,6 +113,7 @@ PUBLIC = {
     "genStepWebdriverWaitDownloadDoneAndTransfer": genStepWebdriverWaitDownloadDoneAndTransfer,
     "genStepWebdriverSwitchToFrame": genStepWebdriverSwitchToFrame,
     "genStepWebdriverCheckConnection": genStepWebdriverCheckConnection,
+    "genStepWebdriverCheckVisibility": genStepWebdriverCheckVisibility,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGetDefault': genStepGetDefault,
     'genStepGoto': genStepGoto,
@@ -175,6 +181,7 @@ PUBLIC = {
     'genWinADSBatchImportSkill': genWinADSBatchImportSkill,
     'genADSLoadAmzHomePage': genADSLoadAmzHomePage,
     'genADSPowerConnectProxy': genADSPowerConnectProxy,
+    'genStepADSSaveAPISettings': genStepADSSaveAPISettings,
     'genStepsADSPowerExitProfile': genStepsADSPowerExitProfile,
     'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
     'genWinChromeAMZWalkSkill': genWinChromeAMZWalkSkill,
@@ -187,6 +194,7 @@ PUBLIC = {
     'genAMZBrowseProductListToLastAttention': genAMZBrowseProductListToLastAttention,
     'genAMZBrowseDetails': genAMZBrowseDetails,
     'genAMZBrowseAllReviewsPage': genAMZBrowseAllReviewsPage,
+    'genStepAMZBrowserScrapePL': genStepAMZBrowserScrapePL,
     'genMacChromeAMZWalkSkill': genMacChromeAMZWalkSkill,
     'genMacChromeAMZWalkSteps': genMacChromeAMZWalkSteps,
     'genScroll1StarReviewsPage': genScroll1StarReviewsPage,
@@ -209,11 +217,12 @@ PUBLIC = {
     'genStepEbayScrapeCustomerMsgThread': genStepEbayScrapeCustomerMsgThread,
     'genStepAmzScrapeBuyOrdersHtml': genStepAmzScrapeBuyOrdersHtml,
     'genEbayLoginInSteps': genEbayLoginInSteps,
-
+    'genWinADSAMZBrowserBrowseSearchSkill': genWinADSAMZBrowserBrowseSearchSkill,
     "genStepReportExternalSkillRunStatus": genStepReportExternalSkillRunStatus,
     "genStepUseExternalSkill": genStepUseExternalSkill,
     "genStepReadJsonFile": genStepReadJsonFile,
     "genStepReadXlsxFile": genStepReadXlsxFile,
+    "genStepPasteToData": genStepPasteToData,
 
     'log3': log3,
     'genStepReadFile': genStepReadFile,
@@ -239,6 +248,7 @@ SkillGeneratorTable = {
     "win_chrome_amz_orders_handle_messages": lambda x,y,z: genWinChromeAMZHandleMessagesSkill(x, y, z),
     # "win_ads_amz_home_browse_search": lambda x,y,z: genStubWinADSAMZWalkSkill(x, y, z),
     "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
+    "win_ads_amz_home_browser_browse_search": lambda x, y, z: genWinADSAMZBrowserBrowseSearchSkill(x, y, z),
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
@@ -387,6 +397,7 @@ def getWorkSettings(lieutenant, bot_works):
             "rpa_name": rpa_name,
             "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
+            "web_driver_path": lieutenant.getWebDriverPath(),
             "options": "{}",
             "as_server": as_server,
             "name_space": name_space
@@ -506,6 +517,8 @@ def getWorkRunSettings(lieutenant, bot_works):
             "rpa_name": rpa_name,
             # "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
+            "web_driver_path":  lieutenant.getWebDriverPath(),
+            "ads_profile_id": bot.getADSProfile()[0]["id"],
             "options": "{}",
             "self_ip": lieutenant.ip,
             "machine_name": lieutenant.machine_name,

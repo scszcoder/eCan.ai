@@ -114,6 +114,7 @@ class communicatorProtocol(asyncio.Protocol):
         self.transport = transport
         asyncio.create_task(self.msg_queue.put(ip_address + "!connection!" + hostname))
 
+
     def data_received(self, data):
         self.buffer.extend(data)
         print(f"Received commander data: {len(data)} bytes, Buffer size: {len(self.buffer)}")
@@ -124,7 +125,7 @@ class communicatorProtocol(asyncio.Protocol):
                 self.buffer = self.buffer[4:]
                 print(f"Got header length: {self.expected_length}")
 
-            # Wait until the full message is received
+            # Process the message only once the full expected length is received
             if self.expected_length is not None and len(self.buffer) >= self.expected_length:
                 message = self.buffer[:self.expected_length]
                 self.buffer = self.buffer[self.expected_length:]
@@ -135,17 +136,30 @@ class communicatorProtocol(asyncio.Protocol):
                     json_data = json.loads(message.decode('utf-8'))
                     if json_data['cmd'] == "reqSendFile":
                         print(f"File received: {json_data['file_name']}")
-                        file_data = base64.b64decode(json_data['file_contents'])
-                        print(f"Decoded file data size: {len(file_data)}")
 
-                        # Save file to disk
+                        # Check and correct base64 padding
+                        file_contents = json_data['file_contents']
+                        if len(file_contents) % 4 != 0:
+                            print("Warning: Base64 data length is not a multiple of 4. Adding padding.")
+                            file_contents += "=" * (4 - len(file_contents) % 4)
+
+                        file_data = base64.b64decode(file_contents)
+                        print(f"Decoded file data size after padding check: {len(file_data)}")
+
+                        # Save the file to disk
                         fullfname = self._construct_file_path(json_data)
-                        with open(fullfname, 'wb') as file:
+                        file_name = os.path.basename(fullfname)
+                        dir_name = os.path.dirname(fullfname)
+
+                        # new_fullname = dir_name + "/p_" + file_name
+                        new_fullname = dir_name + "/" + file_name
+                        with open(new_fullname, 'wb') as file:
                             file.write(file_data)
-                            print(f"File {fullfname} saved, size: {len(file_data)} bytes")
+                            print(f"File {new_fullname} saved, size: {len(file_data)} bytes")
                     else:
                         print('Other data received:', message.decode('utf-8'))
-                        asyncio.create_task(self.msg_queue.put(self.peername[0]+"!net data!"+message.decode('utf-8')))
+                        asyncio.create_task(
+                            self.msg_queue.put(self.peername[0] + "!net data!" + message.decode('utf-8')))
 
                 except json.JSONDecodeError as e:
                     print("JSON decode error:", e)

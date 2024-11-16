@@ -14,7 +14,7 @@
     "site_name": "amz",
     "site": "https://www.amazon.com",
     "page": "home",
-    "generator": "genADSPowerNewProfileSkill",
+    "generator": "genWinADSAMZBrowserBrowseSearchSkill",
     "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",

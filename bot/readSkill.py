@@ -8,7 +8,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
-    processADSProfileBatches
+    processADSProfileBatches, processADSSaveAPISettings
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
     processAMZMatchProduct, genStepAMZSearchReviews
@@ -26,7 +26,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processUseExternalSkill, processReportExternalSkillRunStatus, processReadJsonFile, processReadXlsxFile,\
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
-    processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist
+    processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist, \
+    processPasteToData, processMouseMove
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -35,7 +36,7 @@ from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, p
     processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, \
     processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer, \
     processWebdriverWaitForVisibility, processWebdriverSwitchToFrame, processWebdriverSwitchToDefaultContent, \
-    processWebdriverCheckConnection
+    processWebdriverCheckConnection, processWebdriverCheckVisibility
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -49,6 +50,7 @@ from bot.scrapeGoodSupply import processGSScrapeLabels
 from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
 from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOrdersFromJss, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
+from bot.seleniumScrapeAmz import processAMZBrowserScrapePL
 from bot.envi import getECBotDataHome
 
 
@@ -119,6 +121,7 @@ RAIS = {
     "Text Input": lambda x,y,z: processTextInput(x, y, z),
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
+    "Mouse Move": lambda x,y,z: processMouseMove(x, y, z),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
     "Key Input": lambda x,y,z: processKeyInput(x, y, z),
@@ -127,6 +130,7 @@ RAIS = {
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
     "Save Data": lambda x,y: processSaveData(x, y),
+    "Paste To Data": lambda x,y: processPasteToData(x, y),
     "Get Default": lambda x,y: processGetDefault(x, y),
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
@@ -162,8 +166,10 @@ RAIS = {
     "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
+    "ADS Save API Settings": lambda x,y,z: processADSSaveAPISettings(x, y,z),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
+    "AMZ Browser Scrape Products List": lambda x, y, z: processAMZBrowserScrapePL(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
     "AMZ Scrape Product Details Html": lambda x, y, z: processAMZScrapeProductDetailsHtml(x, y, z),
     "AMZ Scrape Buy Orders Html": lambda x, y, z: processAMZScrapeBuyOrdersHtml(x, y, z),
@@ -229,6 +235,7 @@ RAIS = {
     "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
+    "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
@@ -254,6 +261,7 @@ ARAIS = {
     "Text Input": lambda x,y,z: processTextInput(x, y, z),
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
+    "Mouse Move": lambda x,y,z: processMouseMove(x, y, z),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
     "Key Input": lambda x,y,z: processKeyInput(x, y, z),
@@ -262,6 +270,7 @@ ARAIS = {
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
     "Save Data": lambda x,y: processSaveData(x, y),
+    "Paste To Data": lambda x,y: processPasteToData(x, y),
     "Get Default": lambda x,y: processGetDefault(x, y),
     "Check Condition": lambda x,y,z: processCheckCondition(x, y, z),
     "Repeat": lambda x,y,z: processRepeat(x, y, z),
@@ -297,8 +306,10 @@ ARAIS = {
     "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
     "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
+    "ADS Save API Settings": lambda x,y,z: processADSSaveAPISettings(x, y, z),
     "AMZ Search Products": lambda x,y: processAMZSearchProducts(x, y),
     "AMZ Scrape PL Html": lambda x, y, z: processAMZScrapePLHtml(x, y, z),
+    "AMZ Browser Scrape Products List": lambda x, y, z: processAMZBrowserScrapePL(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
     "AMZ Scrape Product Details Html": lambda x, y, z: processAMZScrapeProductDetailsHtml(x, y, z),
     "AMZ Scrape Buy Orders Html": lambda x, y, z: processAMZScrapeBuyOrdersHtml(x, y, z),
@@ -364,6 +375,7 @@ ARAIS = {
     "Web Driver Switch To Default Content": lambda x, y: processWebdriverSwitchToDefaultContent(x, y),
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
+    "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
@@ -620,11 +632,11 @@ def run1step(steps, si, mission, skill, stack):
         elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
             step["type"] == "Web Driver Scroll To" or step["type"] == "Web Driver Execute Js" or \
-            step["type"] == "Web Driver Wait Until Clickable" or \
+            step["type"] == "Web Driver Wait Until Clickable" or step["type"] == "AMZ Browser Scrape Products List" or \
             step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait For Visibility" or\
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-            step["type"] == "Update Mission Status" or \
+            step["type"] == "Update Mission Status" or step["type"] == "ADS Save API Settings" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
@@ -683,9 +695,10 @@ async def run1step8(steps, si, mission, skill, stack):
         elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
              step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
              step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download Files" or \
-             step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or \
+             step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or  step["type"] == "ADS Save API Settings" or \
              step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
              step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
+             step["type"] == "AMZ Browser Scrape Products List" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
              step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):

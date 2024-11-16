@@ -9,7 +9,7 @@ from bot.Logger import log3
 from bot.basicSkill import genStepStub, genStepCreateData, genStepCallExtern, genStepOpenApp, genStepWait, \
     genStepExtractInfo, genStepSearchAnchorInfo, genStepCheckCondition, genStepMouseClick, genStepLoop, genStepKeyInput, \
     genStepMouseScroll, genStepTextInput, genStepHeader, STEP_GAP, symTab, DEFAULT_RUN_STATUS, genStepSearchWordLine,  \
-    genStepUseSkill
+    genStepUseSkill, genStepPasteToData
 
 ADS_BATCH_SIZE = 2
 
@@ -120,7 +120,13 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    # now that we have logged in, click on profiles to view the default profiles loaded.
+    # now that we have logged in, first get api settings ready if not yet directly ready from the
+    # settings json file, then read it out and save it, and now we should be ready.
+    this_step, step_words = genStepsADSPowerObtainLocalAPISettings(this_step, theme)
+    psk_words = psk_words + step_words
+
+
+    # click on profiles to view the default profiles loaded.
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  1, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
     psk_words = psk_words + step_words
 
@@ -144,6 +150,110 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
     return this_step, psk_words
 
 
+# this function assume ads power app is already launched to brought to foreground
+# it will go to API menu item at the left side vertical menu bar, and once the main frame
+# is in API interface,
+# 0) check settings, if local api key and port are null, then:
+# 1) extract the local address with port number
+# 2) click on api key reset button, and acknowlege with hitting OK button, and once the
+#     new api key pop up appears, grab it, and close the pop up,
+# 3) save the info to local profile.
+# also, assume sk_work_settings is available to use.
+def genStepsADSPowerObtainLocalAPISettings(stepN, theme):
+    psk_words = ""
+    log3("DEBUG", "genADSPowerObtainLocalAPISettings..."+"stepN:"+str(stepN))
+
+    this_step, step_words = genStepCreateData("string", "local_api_key", "NA", "", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "local_api_port", "NA", "", stepN)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global local_api_key, sk_work_settings\nlocal_api_key = sk_work_settings['fp_browser_settings']['ads_api_key']", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # only do this if local api key is null
+    this_step, step_words = genStepCheckCondition("not local_api_key", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # read screen
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
+    psk_words = psk_words + step_words
+
+    # click on "API"
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "api", "anchor text", "", 0, "center", [0, 0], "box", 2, 5, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now read screen, now local api URL address and port should appear.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "api_addr", "direct", "info 2", "any", "api_addr_texts", "key_found", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global local_api_port, sk_work_settings\nlocal_api_port = re.search(r'http://local\.adspower\.net:(\d+)',api_addr_texts[0]['text']).group(1)\nsk_work_settings['fp_browser_settings']['ads_port'] = local_api_port\nprint('local_api_port', local_api_port)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    # check whether this is the login window, if so, assume user name password already auto filled in, simply click on "Log in" button.
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "reset", "direct", "anchor text", "any", "useless", "api_key_resettable", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("api_key_resettable", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "reset", "anchor text", "", 0, "center", [0, 0], "box", 1, 3, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 0.65],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
+    psk_words = psk_words + step_words
+
+    # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.2, 0, 1, 0.65],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepSearchAnchorInfo("screen_info", "api_key", "direct", "info 2", "any", "api_key_texts", "key_found", "ads", False, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "copy0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepPasteToData("local_api_key", "pasted", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global local_api_key, sk_work_settings\nsk_work_settings['fp_browser_settings']['ads_api_key'] = local_api_key", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # now that we have logged in, load profiles.
+    this_step, step_words = genStepADSSaveAPISettings("sk_work_settings", "save_result", "setting_saved", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+    # close bracket
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
 
 def genStepsADSPowerExitProfile(worksettings, stepN, theme):
     psk_words = ""
@@ -1275,9 +1385,9 @@ def covertTxtProfiles2DefaultXlsxProfiles(fnames):
 
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
-def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
-    log3("host ads batch size:"+str(commander.getADSBatchSize()))
-    ads_profile_dir = commander.getADSProfileDir()
+def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
+    log3("host ads batch size:"+str(thisHost.getADSBatchSize()))
+    ads_profile_dir = thisHost.getADSProfileDir()
     # ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
     log3("time_ordered_works:"+json.dumps(task_groups))
     pfJsons_batches = []
@@ -1291,11 +1401,11 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
     batch_bot_profiles_read = []
     for bot_work in task_groups:
         bid = bot_work["bid"]
-        found_bots = list(filter(lambda cbot: cbot.getBid() == bid, commander.bots))
+        found_bots = list(filter(lambda cbot: cbot.getBid() == bid, thisHost.bots))
         log3("genAdsProfileBatchs found # bots:" + str(len(found_bots)))
         mid = bot_work["mid"]
 
-        found_missions = list(filter(lambda cm: cm.getMid() == mid, commander.missions))
+        found_missions = list(filter(lambda cm: cm.getMid() == mid, thisHost.missions))
         log3("genAdsProfileBatchs found # missions:" + str(len(found_missions)))
 
         found_mision = None
@@ -1321,10 +1431,11 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
                     newly_read = readTxtProfile(bot_txt_profile_name)
                     batch_bot_profiles_read.append(bot_txt_profile_name)
                 else:
-                    log3("bot_txt_profile_name doesn't exist!")
-                    if not os.path.exists(batch_file):
-                        log3("batched xlsx file doesn't exist either!")
-                        found_mision.setFingerPrintProfile("")
+                    if not thisHost.isPlatoon():
+                        log3("bot_txt_profile_name doesn't exist!")
+                        if not os.path.exists(batch_file):
+                            log3("batched xlsx file doesn't exist either!")
+                            found_mision.setFingerPrintProfile("")
 
                     newly_read = []
 
@@ -1332,8 +1443,12 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
 
                 bot_pfJsons = bot_pfJsons + newly_read
 
-                if w_idx >= commander.getADSBatchSize()-1:
-                    genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
+                if not thisHost.isPlatoon():
+                    found_bot.setADSProfile(bot_pfJsons)
+
+                if w_idx >= thisHost.getADSBatchSize()-1:
+                    if not thisHost.isPlatoon():
+                        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists())
                     v_ads_profile_batch_xlsxs.append(batch_file)
                     w_idx = 0
                     bot_pfJsons = []
@@ -1348,7 +1463,8 @@ def genAdsProfileBatchs(commander, target_vehicle_ip, task_groups):
 
     # take care of the last batch.
     if len(bot_pfJsons) > 0:
-        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, commander.getCookieSiteLists())
+        if not thisHost.isPlatoon():
+            genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists())
         v_ads_profile_batch_xlsxs.append(batch_file)
 
     return v_ads_profile_batch_xlsxs
@@ -1495,5 +1611,43 @@ def processADSGenXlsxBatchProfiles(step, i):
         else:
             ex_stat = "ErrorADSGenXlsxBatchProfiles: traceback information not available:" + str(e)
         log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+def genStepADSSaveAPISettings(settings_var, result_var, flag_var, stepN):
+        stepjson = {
+            "type": "ADS Save API Settings",
+            "settings_var": settings_var,
+            "result_var": result_var,
+            "flag_var": flag_var
+        }
+
+        return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def processADSSaveAPISettings(step, i, mission):
+
+    ex_stat = DEFAULT_RUN_STATUS
+    mainwin = mission.get_main_win()
+    symTab[step["flag_var"]] = True
+    try:
+        # now save for roll back if ever needed.
+        # first remove the previously save rollback point, but leave up to 3 rollback points
+        settings = symTab[step["settings_var"]]
+        mainwin.saveADSSettings(settings)
+
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorADSSaveAPISettings:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorADSSaveAPISettings: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag_var"]] = False
 
     return (i + 1), ex_stat

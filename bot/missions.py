@@ -444,6 +444,11 @@ class EBMISSION(QStandardItem):
     def __del__(self):
         print(f"EBMISSION {self.getMid()} is being deleted")
 
+    def updateIcon(self):
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
+        self.icon = QIcon(self.main_win.file_resource.mission_icon_path)
+        self.setIcon(self.icon)
+
     def setFingerPrintProfile(self, axpf):
         self.privateAttributes.fingerprint_profile = axpf
 
@@ -896,7 +901,10 @@ class EBMISSION(QStandardItem):
         return self.pubAttributes.n_retries
 
     def setNRetries(self, nrt):
-        self.pubAttributes.n_retries = nrt
+        if isinstance(nrt, str):
+            self.pubAttributes.n_retries = int(nrt)
+        else:
+            self.pubAttributes.n_retries = nrt
 
     def setPrice(self, price):
         self.privateAttributes.price = price
@@ -1008,20 +1016,20 @@ class EBMISSION(QStandardItem):
         self.setEcd(dj.get("ecd", ""))
         self.setEstimatedStartTime(dj.get("est", 0))
         self.setEstimatedRunTime(dj.get("ert", 0))
-        self.setNRetries((dj.get("retries", 1)))
-        self.setCusPAS(dj.get("platform", "")+","+dj.get("app", "")+","+dj.get("site", ""))
+        self.setNRetries((dj.get("retries", 0)))
+        self.setCusPAS(dj.get("platform", "win")+","+dj.get("app", "ads")+","+dj.get("site", "amz"))
         self.setSearchCat(dj.get("search cat", ""))
-        self.setSearchKW(dj.get("search phrase", ""))
-        self.setPseudoStore(dj.get("pseudo store", ""))
-        self.setPseudoBrand(dj.get("pseudo brand", ""))
-        self.setPseudoASIN(dj.get("pseudo asin", ""))
+        self.setSearchKW(dj.get("phrase", ""))
+        self.setPseudoStore(dj.get("pseudoStore", ""))
+        self.setPseudoBrand(dj.get("pseudoBrand", ""))
+        self.setPseudoASIN(dj.get("pseudoASIN", ""))
         self.setMtype(dj.get("type", ""))
         self.setConfig(dj.get("config", ""))
         self.setSkills(dj.get("skills", ""))
         self.setASIN(dj.get("asin", ""))
-        self.setStore(dj.get("store", ""))
-        self.setBrand(dj.get("brand", ""))
-        self.setImagePath(dj.get("img dir", ""))
+        self.setStore(dj.get("store", "NoneStore"))
+        self.setBrand(dj.get("brand", "NoneBrand"))
+        self.setImagePath(dj.get("img", ""))
         self.setTitle(dj.get("title", ""))
         self.setVariations(dj.get("variations", ""))
         self.setRating(dj.get("rating", 0.0))

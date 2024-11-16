@@ -25,6 +25,7 @@ import traceback
 from bot.seleniumSkill import switchToNthTab, switchToLastTab, switchToFirstTab
 from bot.basicSkill import DEFAULT_RUN_STATUS, symTab, STEP_GAP
 from bot.scraperAmz import amz_buyer_scrape_product_list, amz_buyer_scrape_product_details, amz_buyer_scrape_orders_list
+from bot.amzBuyerSkill import found_match
 
 # Initialize variables
 search_phrase = "手机"  # Example search phrase, you can change this
@@ -543,26 +544,68 @@ def processAmzSeleniumScrapeSearchResults(driver=None):
     return result
 
 
-def genStepAMZBrowserScrapePL(web_driver, pidx, outvar, statusvar, stepN):
+def genStepAMZBrowserScrapePL(web_driver, pl, page_num, page_cfg, flag_var, stepN):
     stepjson = {
         "type": "AMZ Browser Scrape Products List",
-        "pidx": pidx,
+        "page_num": page_num,
         "web_driver_var": web_driver,
-        "result": outvar,
-        "status": statusvar
+        "product_list": pl,
+        "page_cfg": page_cfg,
+        "flag_var": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def processAMZBrowserScrapePL(step, i):
+def processAMZBrowserScrapePL(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        pidx = step["pidx"]
-
+        page_num = symTab[step["page_num"]]
+        symTab[step["flag_var"]] = True
         webdriver = symTab[step["web_driver_var"]]
 
-        pagefull_of_orders = amz_buyer_scrape_product_list(webdriver, pidx)
+        pl = amz_buyer_scrape_product_list(webdriver, page_num)
 
-        symTab[step["result"]] = pagefull_of_orders
+
+        att_pl = []
+        att_pl_indices = []
+
+        # go thru all products in configuration
+        for p in symTab[step["page_cfg"]]["products"]:
+            log3("current page config: "+json.dumps(p))
+            found, fi = found_match(p, pl["pl"])
+            if found:
+                # remove found from the pl
+                log3("FOUND product:"+json.dumps(found))
+                if found["summery"]["title"] != "CUSTOM":
+                    pl["pl"].remove(found)
+                else:
+                    # now swap in the swipe product.
+                    found = {"summery": {
+                                "title": mission.getTitle(),
+                                "rank": mission.getRating(),
+                                "feedbacks": mission.getFeedbacks(),
+                                "price": mission.getPrice()
+                                },
+                        "detailLvl": p["detailLvl"],
+                        "purchase": p["purchase"]
+                    }
+                    log3("Buy Swapped:" + json.dumps(found))
+
+                att_pl.append(found)
+                att_pl_indices.append(fi)
+
+        if not step["product_list"] in symTab:
+            # if new, simply assign the result.
+            symTab[step["product_list"]] = {"products": pl, "attention": att_pl, "attention_indices": att_pl_indices}
+        else:
+            # otherwise, extend the list with the new results.
+            # symTab[step["product_list"]].append({"products": pl, "attention": att_pl})
+            symTab[step["product_list"]]["products"] = pl
+            symTab[step["product_list"]]["attention"] = att_pl
+            symTab[step["product_list"]]["attention_indices"] = att_pl_indices
+
+
+        log3("var step['product_list']: "+json.dumps(symTab[step["product_list"]]))
+
 
 
 
@@ -571,10 +614,11 @@ def processAMZBrowserScrapePL(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorUpdateBuyMissionResult:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorAMZBrowserScrapePL:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorUpdateBuyMissionResult: traceback information not available:" + str(e)
+            ex_stat = "ErrorAMZBrowserScrapePL: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag_var"]] = False
 
     return (i + 1), ex_stat
 

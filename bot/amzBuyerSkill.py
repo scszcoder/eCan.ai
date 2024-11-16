@@ -219,7 +219,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genAMZLoginInSteps(this_step, theme)
+    this_step, step_words = genStepsAMZLoginIn(this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -265,7 +265,7 @@ def genWinADSAMZWalkSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-def genAMZLoginInSteps(stepN, theme):
+def genStepsAMZLoginIn(stepN, theme):
     psk_words = ""
 
     # check the 1st tab to make sure the connection to internet thru proxy is normal, the way to check
@@ -2036,7 +2036,7 @@ def genStepAMZScrapePLHtml(html_file_var_name, pl, page_num, page_cfg, stepN):
         "html_var": html_file_var_name,
         "product_list": pl,
         "page_num": page_num,
-        "page_cfg": page_cfg,
+        "page_cfg": page_cfg
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -2746,7 +2746,7 @@ def genWinADSAMZBuySkill(worksettings, start_step, theme):
     this_step, step_words = genStepWait(9, 1, 3, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genAMZLoginInSteps(this_step, theme)
+    this_step, step_words = genStepsAMZLoginIn(this_step, theme)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -4054,12 +4054,12 @@ def found_match(p, pl):
         # most past week sales
         rvsorted = sorted(pl, key=lambda x: x["summery"]["weekly_sales"], reverse=True)
         matches = [rvsorted[0]]
-        log3("MOST WEEK SALES:", matches)
+        log3("MOST WEEK SALES:"+json.dumps(matches))
     elif p["selType"] == "cp":
         # cheapest price
         rvsorted = sorted(pl, key=lambda x: x["summery"]["price"], reverse=False)
         matches = [rvsorted[0]]
-        log3("CHEAPEST PRICE:", matches)
+        log3("CHEAPEST PRICE:"+json.dumps(matches))
     elif p["selType"] == "cus":
         matches = [pr for index, pr in enumerate(pl) if p["purchase"][0]["title"] == pr["summery"]["title"]]
     else:

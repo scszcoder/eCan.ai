@@ -109,6 +109,7 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrstate = ""
         self.shipping_addrzip = ""
         self.createon = datetime.today().strftime('%Y-%m-%d')
+        self.adsProfile = []
 
     def setFirstLastName(self, fn, ln):
         self.name = fn + " " + ln
@@ -281,6 +282,7 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrcity = dj["shipaddrcity"]
         self.shipping_addrstate = dj["shipaddrstate"]
         self.shipping_addrzip = dj["shipaddrzip"]
+        self.adsProfile = dj.get("adsProfile", [])
 
 
     def genJson(self):
@@ -303,7 +305,9 @@ class BOT_PRIVATE_PROFILE():
             "shipaddrl2": self.shipping_addrl2,
             "shipaddrcity": self.shipping_addrcity,
             "shipaddrstate": self.shipping_addrstate,
-            "shipaddrzip": self.shipping_addrzip
+            "shipaddrzip": self.shipping_addrzip,
+            "adsProfile": self.adsProfile
+
         }
         return jd
 
@@ -595,6 +599,18 @@ class EBBOT(QStandardItem):
         self.seller_inventories = []
         self.msg_queue = asyncio.Queue()  # this is the messaging queue for the bot.
 
+    def updateIcon(self):
+        if len(self.getFn()) > 1:
+            self.icon_text = 'bot' + str(self.getBid()) + ":" + self.getFn()[
+                                                                :1] + " " + self.getLn() + ":" + self.getLocation()
+            self.setText(self.icon_text)
+        else:
+            self.icon_text = 'bot' + str(
+                self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
+            self.setText(self.icon_text)
+        self.setFont(self.main_win.std_item_font)
+        self.setBotIcon(self.main_win.file_resource.bot_icon_path)
+
     def getMsgQ(self):
         return self.msg_queue
 
@@ -814,6 +830,12 @@ class EBBOT(QStandardItem):
     def getVehicle(self):
         return self.pubProfile.vehicle
 
+    def setADSProfile(self, adsprofile):
+        self.privateProfile.adsProfile = adsprofile
+
+    def getADSProfile(self):
+        return self.privateProfile.adsProfile
+
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
         if len(self.getFn()) > 1:
@@ -868,26 +890,26 @@ class EBBOT(QStandardItem):
         self.privateProfile.setBackEmailSite(dbd.backemail_site)
         self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
-    def loadXlsxData(self, jd):
+    def loadXlsxData(self, dj):
         # location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr
-        self.pubProfile.setLevels(jd["Levels"])
-        self.pubProfile.setGender(jd["Gender"])
-        self.pubProfile.setPubBirthday(jd["DoB"])
-        self.pubProfile.setInterests(jd["Interests"])
-        self.pubProfile.setLoc(jd["Proxy City"] + "," + jd["State"])
-        self.pubProfile.setRoles(jd["Roles"])
-        self.pubProfile.setStatus(jd["status"])
+        self.pubProfile.setLevels(dj.get("Levels", ""))
+        self.pubProfile.setGender(dj.get("Gender", "F"))
+        self.pubProfile.setPubBirthday(dj.get("DoB", "2000-10-01"))
+        self.pubProfile.setInterests(dj.get("Interests", ""))
+        self.pubProfile.setLoc(dj.get("Proxy City", "") + "," + dj.get("State", ""))
+        self.pubProfile.setRoles(dj.get("Roles", ""))
+        self.pubProfile.setStatus(dj.get("status", "active"))
         self.pubProfile.setDelDate("2121-01-01")
-        self.privateProfile.setName(jd["New First Name"] + " " + jd["Last Name"])
-        self.pubProfile.setPseudoName(jd["PseudoFN"] + " " + jd["PseudoLN"])
+        self.privateProfile.setName(dj.get("New First Name", "") + " " + dj.get("Last Name", ""))
+        self.pubProfile.setPseudoName(dj.get("PseudoFN", "") + " " + dj.get("PseudoLN", ""))
         self.pubProfile.setNickName("")
-        self.pubProfile.setVehicle(jd["vehicle"])
-        self.privateProfile.setAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
-        self.privateProfile.setShippingAddr(jd["Addr Str1"], jd["Addr Str2"], jd["City"], jd["State"], jd["Zip"])
-        self.privateProfile.setPhone(jd["IP phone"])
-        self.privateProfile.setEmail(jd["Email"])
-        self.privateProfile.setEPW(jd["PW"])
-        self.privateProfile.setBackEmail(jd["Backup Email"])
-        self.privateProfile.setEBPW(jd["Back PW"])
-        self.privateProfile.setBackEmailSite(jd["BackEmailSite"])
+        self.pubProfile.setVehicle(dj.get("vehicle", "HP-ECBOT:win"))
+        self.privateProfile.setAddr(dj.get("Addr Str1", ""), dj.get("Addr Str2", ""), dj.get("City", ""), dj.get("State", ""), dj.get("Zip", ""))
+        self.privateProfile.setShippingAddr(dj.get("Addr Str1", ""), dj.get("Addr Str2", ""), dj.get("City", ""), dj.get("State", ""), dj.get("Zip", ""))
+        self.privateProfile.setPhone(dj.get("IP phone", ""))
+        self.privateProfile.setEmail(dj.get("Email", ""))
+        self.privateProfile.setEPW(dj.get("PW", ""))
+        self.privateProfile.setBackEmail(dj.get("Backup Email", ""))
+        self.privateProfile.setEBPW(dj.get("Back PW", ""))
+        self.privateProfile.setBackEmailSite(dj.get("BackEmailSite", ""))
         self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
