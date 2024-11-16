@@ -49,6 +49,11 @@ jobs:
       run: |
         & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "setup.iss"
 
+    - name: Delete old artifacts
+      uses: actions/delete-artifact@v2
+      with:
+        retention-days: 7  # 删除超过7天的工件
+
     - name: Upload Installer as artifact
       uses: actions/upload-artifact@v3
       with:
