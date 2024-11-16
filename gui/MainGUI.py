@@ -613,6 +613,8 @@ class MainWindow(QMainWindow):
         self.botListView.setModel(self.botModel)
         self.botListView.setViewMode(QListView.IconMode)
         self.botListView.setMovement(QListView.Snap)
+        self.botListView.setSelectionMode(QListView.ExtendedSelection)
+        self.botListView.setSelectionBehavior(QListView.SelectRows)
 
         # self.skillListView.setModel(self.skillModel)
         # self.skillListView.setViewMode(QListView.IconMode)
@@ -625,19 +627,29 @@ class MainWindow(QMainWindow):
         self.missionListView.setModel(self.missionModel)
         self.missionListView.setViewMode(QListView.ListMode)
         self.missionListView.setMovement(QListView.Snap)
+        # self.missionListView.setSelectionMode(QListView.MultiSelection)
+        self.missionListView.setSelectionMode(QListView.ExtendedSelection)
+        self.missionListView.setSelectionBehavior(QListView.SelectRows)
 
         self.running_missionListView.setModel(self.runningMissionModel)
         self.running_missionListView.setViewMode(QListView.ListMode)
         self.running_missionListView.setMovement(QListView.Snap)
+        self.running_missionListView.setSelectionMode(QListView.ExtendedSelection)
+        self.running_missionListView.setSelectionBehavior(QListView.SelectRows)
 
         self.vehicleListView.setModel(self.runningVehicleModel)
         self.vehicleListView.setViewMode(QListView.ListMode)
         self.vehicleListView.setIconSize(QSize(48, 48))
         self.vehicleListView.setMovement(QListView.Snap)
+        self.vehicleListView.setSelectionMode(QListView.ExtendedSelection)
+        self.vehicleListView.setSelectionBehavior(QListView.SelectRows)
+
 
         self.completed_missionListView.setModel(self.completedMissionModel)
         self.completed_missionListView.setViewMode(QListView.ListMode)
         self.completed_missionListView.setMovement(QListView.Snap)
+        self.completed_missionListView.setSelectionMode(QListView.ExtendedSelection)
+        self.completed_missionListView.setSelectionBehavior(QListView.SelectRows)
 
         centralWidget = DragPanel()
 
@@ -4642,6 +4654,9 @@ class MainWindow(QMainWindow):
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
+                selected_indexes = self.missionListView.selectedIndexes()
+                print("selected indexes:", selected_indexes)
+
                 self.selected_mission_row = source.indexAt(event.pos()).row()
                 self.selected_cus_mission_item = self.missionModel.item(self.selected_mission_row)
 
@@ -4771,7 +4786,8 @@ class MainWindow(QMainWindow):
 
         if ret == QMessageBox.Yes:
             api_removes = []
-            items = [self.selected_cus_mission_item]
+
+            items = [self.missionModel.itemFromIndex(idx) for idx in self.missionListView.selectedIndexes()]
             if len(items):
                 for item in items:
                     # remove file first, then the item in the model.
