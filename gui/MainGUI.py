@@ -60,6 +60,7 @@ from bot.inventories import INVENTORY
 from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage, wanSendMessage8, parseCommandString
 from lzstring import LZString
 import openpyxl
+import tzlocal
 from datetime import timedelta
 import platform
 from pynput.mouse import Controller
@@ -547,6 +548,8 @@ class MainWindow(QMainWindow):
 
         self.scheduleCalendarViewAction = self._createScheduleCalendarViewAction()
         self.fetchScheduleAction = self._createFetchScheduleAction()
+
+        self.rescheduleAction = self._createRescheduleAction()
         self.scheduleFromFileAction = self._createScheduleNewFromFileAction()
 
         self.reportsShowAction = self._createReportsShowAction()
@@ -1272,6 +1275,7 @@ class MainWindow(QMainWindow):
         schedule_menu.addAction(self.fetchScheduleAction)
         schedule_menu.addAction(self.scheduleCalendarViewAction)
         schedule_menu.addAction(self.scheduleFromFileAction)
+        schedule_menu.addAction(self.rescheduleAction)
         schedule_menu.setFont(self.main_menu_font)
         menu_bar.addMenu(schedule_menu)
 
@@ -1491,6 +1495,14 @@ class MainWindow(QMainWindow):
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Fetch Schedules"))
         new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings()))
+        return new_action
+
+
+    def _createRescheduleAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Reschedule"))
+        new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings("true")))
         return new_action
 
 
@@ -1788,6 +1800,7 @@ class MainWindow(QMainWindow):
 
             # next line commented out for testing purpose....
             if not self.debug_mode or self.schedule_mode == "auto":
+                print("schedule setting:", settings)
                 jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
                 print("schedule JRESP:", jresp)
             else:
@@ -5766,12 +5779,16 @@ class MainWindow(QMainWindow):
         for m in self.missions:
             status = m.run()
 
-    def get_vehicle_settings(self):
+    def get_vehicle_settings(self, forceful="false"):
         vsettings = {
             "vwins": len([v for v in self.vehicles if v.getOS() == "win"]),
             "vmacs": len([v for v in self.vehicles if v.getOS() == "mac"]),
-            "vlnxs": len([v for v in self.vehicles if v.getOS() == "linux"])
+            "vlnxs": len([v for v in self.vehicles if v.getOS() == "linux"]),
+            "forceful": forceful,
+            "tz": str(tzlocal.get_localzone())
         }
+
+        print("v timezone:", tzlocal.get_localzone())
         # add self to the compute resource pool
         if self.host_role == "Commander":
             if self.platform == "win":
@@ -5782,60 +5799,111 @@ class MainWindow(QMainWindow):
                 vsettings["vlnxs"] = vsettings["vlnxs"] + 1
         return vsettings
 
-
-    # the message queue is for messsage from tcpip task to the GUI task.
+    # the message queue is for messsage from tcpip task to the GUI task. OPENAI's fix
     async def servePlatoons(self, msgQueue):
         self.showMsg("starting servePlatoons")
+        delimiter = "!ENDMSG!"
+
+        buffer = ""  # Temporary buffer to accumulate incomplete messages
         while True:
             print("listening to platoons")
             if not msgQueue.empty():
                 try:
                     while not msgQueue.empty():
                         net_message = await msgQueue.get()
-                        self.showMsg("received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message)
-                        msg_parts = net_message.split("!")
-                        if msg_parts[1] == "net data":
-                            self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
-                        elif msg_parts[1] == "connection":
-                            # this is the initial connection msg from a client
-                            print("recevied connection message: "+msg_parts[0]+" "+msg_parts[2])
+                        self.showMsg(
+                            "received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message)
 
-                            if self.platoonWin == None:
-                                self.platoonWin = PlatoonWindow(self, "conn")
+                        # Append the new message to the buffer
+                        buffer += net_message
 
-                            # vinfo = json.loads(msg_parts[2])
+                        # Split messages using the delimiter
+                        messages = buffer.split(delimiter)
 
-                            addedV = self.addVehicle(msg_parts[2], msg_parts[0])
-                            await asyncio.sleep(5)
+                        # Process all complete messages, leaving the last part in the buffer if incomplete
+                        for message in messages[:-1]:  # All except the last (which may be incomplete)
+                            msg_parts = message.split("!")
+                            if len(msg_parts) >= 3:  # Check for valid message structure
+                                if msg_parts[1] == "net data":
+                                    self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+                                elif msg_parts[1] == "connection":
+                                    # handle connection message
+                                    pass
+                                elif msg_parts[1] == "net loss":
+                                    # handle net loss message
+                                    pass
 
-                            # after adding a vehicle, try to get this vehicle's info
-                            if len(self.vehicles) > 0:
-                                print("pinging platoon: "+str(len(self.vehicles)-1))
-                                last_idx = len(self.vehicles)-1
-                                self.sendToVehicleByVip(msg_parts[0])         # sends a default ping command to get userful info.
+                        # Save incomplete message part back to buffer
+                        buffer = messages[-1]  # Last part, which could be incomplete
 
-                        elif msg_parts[1] == "net loss":
-                            print("received net loss")
-                            # field link is already removed in the network.py
-                            # here we simply update the vehicle's display and gray it out.
-                            # also inform cloud about.
-                            # we don't really delete this vehicle.
-                            found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
+                        msgQueue.task_done()
 
-                            # immediately report the vehicle situation to the cloud.
-                            vehicle_report = self.prepVehicleReportData(found_vehicle)
-                            resp = send_report_vehicles_to_cloud(self.session,
-                                                                 self.tokens['AuthenticationResult']['IdToken'],
-                                                                 vehicle_report)
-                            self.saveVehiclesJsonFile()
-                    msgQueue.task_done()
                 except asyncio.QueueEmpty:
-                    # If for some reason the queue is unexpectedly empty, handle it
                     print("Queue unexpectedly empty when trying to get message.")
                 except Exception as e:
-                    # Catch any other issues while processing the message
                     print(f"Error processing Commander message: {e}")
+
             await asyncio.sleep(1)
+
+
+    # the message queue is for messsage from tcpip task to the GUI task.
+    # async def servePlatoons(self, msgQueue):
+    #     self.showMsg("starting servePlatoons")
+    #     buffer = ""
+    #     delimiter = "!ENDMSG!"
+    #
+    #     while True:
+    #         print("listening to platoons")
+    #         if not msgQueue.empty():
+    #             try:
+    #                 while not msgQueue.empty():
+    #                     net_message = await msgQueue.get()
+    #                     self.showMsg("received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message)
+    #                     msg_parts = net_message.split("!")
+    #                     if msg_parts[1] == "net data":
+    #                         self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+    #                     elif msg_parts[1] == "connection":
+    #                         # this is the initial connection msg from a client
+    #                         print("recevied connection message: "+msg_parts[0]+" "+msg_parts[2])
+    #
+    #                         if self.platoonWin == None:
+    #                             self.platoonWin = PlatoonWindow(self, "conn")
+    #
+    #                         # vinfo = json.loads(msg_parts[2])
+    #
+    #                         addedV = self.addVehicle(msg_parts[2], msg_parts[0])
+    #                         await asyncio.sleep(5)
+    #
+    #                         # after adding a vehicle, try to get this vehicle's info
+    #                         if len(self.vehicles) > 0:
+    #                             print("pinging platoon: "+str(len(self.vehicles)-1))
+    #                             last_idx = len(self.vehicles)-1
+    #                             self.sendToVehicleByVip(msg_parts[0])         # sends a default ping command to get userful info.
+    #
+    #                     elif msg_parts[1] == "net loss":
+    #                         print("received net loss")
+    #                         # field link is already removed in the network.py
+    #                         # here we simply update the vehicle's display and gray it out.
+    #                         # also inform cloud about.
+    #                         # we don't really delete this vehicle.
+    #                         found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
+    #
+    #                         # immediately report the vehicle situation to the cloud.
+    #                         vehicle_report = self.prepVehicleReportData(found_vehicle)
+    #                         resp = send_report_vehicles_to_cloud(self.session,
+    #                                                              self.tokens['AuthenticationResult']['IdToken'],
+    #                                                              vehicle_report)
+    #                         self.saveVehiclesJsonFile()
+    #
+    #
+    #                 msgQueue.task_done()
+    #             except asyncio.QueueEmpty:
+    #                 # If for some reason the queue is unexpectedly empty, handle it
+    #                 print("Queue unexpectedly empty when trying to get message.")
+    #             except Exception as e:
+    #                 # Catch any other issues while processing the message
+    #                 print(f"Error processing Commander message: {e}")
+    #         await asyncio.sleep(1)
 
     # this is be run as an async task.
     async def runbotworks(self, gui_rpa_queue, gui_monitor_queue):
@@ -6351,9 +6419,10 @@ class MainWindow(QMainWindow):
                     }
                     msg = json.dumps(hbJson)
                     # send to commander
+                    msg_with_delimiter = msg + "!ENDMSG!"
                     print("sending heartbeat")
                     if self.commanderXport:
-                        self.commanderXport.write(msg.encode('utf8'))
+                        self.commanderXport.write(msg_with_delimiter.encode('utf8'))
             except (json.JSONDecodeError, AttributeError) as e:
                 # Handle JSON encoding or missing attributes issues
                 print(f"Error encoding heartbeat JSON or missing attribute: {e}")
@@ -6497,7 +6566,9 @@ class MainWindow(QMainWindow):
                 # send to commander
                 print("sending "+json.dumps(resp)+ " to commanderIP - " + self.commanderIP)
                 print(self.commanderXport)
-                self.commanderXport.write(json.dumps(resp).encode('utf8'))
+                msg = json.dumps(resp)
+                msg_with_delimiter = msg + "!ENDMSG!"
+                self.commanderXport.write(msg_with_delimiter.encode('utf8'))
 
             elif msg["cmd"] == "chat":
                 # update vehicle status display.
@@ -6518,10 +6589,12 @@ class MainWindow(QMainWindow):
 
     def sendCommanderMissionsStatMsg(self, mids):
         statusJson = self.genMissionStatusReport(mids, False)
-        msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"status\", \"content\":\"" + json.dumps(statusJson).replace('"',
-                                                                                                                   '\\"') + "\"}"
+        msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"status\", \"content\":\"" + json.dumps(statusJson).replace('"', '\\"') + "\"}"
+
+        # Append the delimiter
+        msg_with_delimiter = msg + "!ENDMSG!"
         # send to commander
-        self.commanderXport.write(msg.encode('utf8'))
+        self.commanderXport.write(msg_with_delimiter.encode('utf8'))
 
     def sendRPAMessage(self, msg_data):
         asyncio.create_task(self.gui_rpa_msg_queue.put(msg_data))
@@ -6620,8 +6693,11 @@ class MainWindow(QMainWindow):
                 # if this is a platoon, send report to commander today's report is just an list mission status....
                 if len(self.todaysReports) > 0:
                     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
+                    # Append the delimiter
+                    rpt_with_delimiter = json.dumps(rpt) + "!ENDMSG!"
                     self.showMsg("Sending report to Commander::"+json.dumps(rpt))
-                    self.commanderXport.write(str.encode(json.dumps(rpt)))
+                    # self.commanderXport.write(str.encode(rpt_with_delimiter))
+                    self.commanderXport.write(rpt_with_delimiter.encode('utf-8'))
 
                 # also send updated bot ADS profiles to the commander for backup purose.
                 for bot_profile in self.todays_bot_profiles:

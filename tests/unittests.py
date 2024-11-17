@@ -1130,7 +1130,7 @@ async def test_send_file(xport):
         print("sending file:", file0)
         # Embed in JSON
         json_data = json.dumps({"cmd": "reqSendFile", "file_name": file0, "file_contents": encoded_data})
-        message = json_data.encode('utf-8')
+        message = (json_data+"!ENDMSG!").encode('utf-8')
         length_prefix = len(message).to_bytes(4, byteorder='big')  # 4-byte length prefix
         # Send data
         xport.write(length_prefix + message)

@@ -570,7 +570,7 @@ def gen_query_missions_string(query):
 def gen_schedule_request_string(test_name, schedule_settings):
     if test_name == "":
         qvs = None
-        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"test_name\\\": \\\""+test_name+"\\\", \\\"forceful\\\": " + schedule_settings.get("forceful", "false") + ", \\\"tz\\\": " + schedule_settings.get("tz", "pacific") + "}\") } "
+        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"test_name\\\": \\\""+test_name+"\\\", \\\"forceful\\\": " + schedule_settings.get("forceful", "false") + ", \\\"tz\\\": \\\"" + schedule_settings.get("tz", "America/Los_Angeles") + "\\\"}\") } "
     else:
         serialized_settings = json.dumps(schedule_settings)
         escaped_settings = serialized_settings.replace('"', '\"')
@@ -1242,6 +1242,7 @@ def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings):
 
     if "errors" in jresp:
         screen_error = True
+        print("cloud schedule error:", jresp)
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
