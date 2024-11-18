@@ -56,9 +56,12 @@ async def wanStopSubscription(mainwin):
 
 
 
-def wanSendMessage(msg_req, session, token):
+def wanSendMessage(msg_req, mainwin):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
+
+    session = mainwin.session
+    token = mainwin.tokens["AuthenticationResult"]["IdToken"]
 
     try:
         variables = {
@@ -92,7 +95,7 @@ def wanSendMessage(msg_req, session, token):
             timeout=30  # Timeout in seconds as int or float
         )
         jresp = response.json()
-        print("send JRESP:", jresp)
+        print("wan send JRESP:", jresp)
         return jresp
 
     except Exception as e:
@@ -107,10 +110,10 @@ def wanSendMessage(msg_req, session, token):
 
 
 
-async def wanSendMessage8(msg_req, token, websocket):
+async def wanSendMessage8(msg_req, mainwin):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
-
+    token = mainwin.tokens["AuthenticationResult"]["IdToken"]
     try:
         variables = {
             "input": {
@@ -144,7 +147,7 @@ async def wanSendMessage8(msg_req, token, websocket):
                     }
             ) as response:
                 jresp = await response.json()
-                print("send JRESP:", jresp)
+                print("wan send8 JRESP:", jresp)
                 return jresp
 
     except Exception as e:

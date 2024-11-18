@@ -1152,16 +1152,16 @@ def formADSProfileBatchesFor1Vehicle(vTasks, vehicle, commander):
     try:
 
         all_works = vTasks
-        print("all_works:", all_works)
-        log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
+        log3("all_works:"+json.dumps(all_works), "formADSProfileBatchesFor1Vehicle", commander)
+        log3("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!", "formADSProfileBatchesFor1Vehicle", commander)
         time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
-        print("time_ordered_works:", time_ordered_works)
-        print("fp profiles of commander sent missions1:", json.dumps([m.getFingerPrintProfile() for m in commander.missions]))
+        log3("time_ordered_works:"+json.dumps(time_ordered_works), "formADSProfileBatchesFor1Vehicle", commander)
+        log3("fp profiles of commander sent missions1:"+json.dumps([m.getFingerPrintProfile() for m in commander.missions]), "formADSProfileBatchesFor1Vehicle", commander)
 
         ads_profile_batches_fnames = genAdsProfileBatchs(commander, vehicle.getIP(), time_ordered_works)
 
-        log3("all_ads_batches===>"+json.dumps(ads_profile_batches_fnames))
-        log3("time_ordered_works===>"+json.dumps(time_ordered_works))
+        log3("all_ads_batches===>"+json.dumps(ads_profile_batches_fnames), "formADSProfileBatchesFor1Vehicle", commander)
+        log3("time_ordered_works===>"+json.dumps(time_ordered_works), "formADSProfileBatchesFor1Vehicle", commander)
 
     except Exception as e:
         # Get the traceback information
@@ -1184,7 +1184,7 @@ def formADSProfileBatches(AllVTasks, commander):
         if vehicle:
             formADSProfileBatchesFor1Vehicle(AllVTasks['vname'], vehicle, commander)
         else:
-            log3("ERROR: Vehicle NOT FOUND:" + vname)
+            log3("ERROR: Vehicle NOT FOUND:" + vname, "formADSProfileBatches", commander)
 
 # taskgroup will be the full task group on a vehicle.
 # profiles_dir is the path name that will hold the resulting files
@@ -1261,7 +1261,7 @@ def removeUselessCookies(pfJson, site_list):
     pfJson["cookie"] = qualified_cookies
 
 # this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
-def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
+def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists, thisHost):
     # Convert JSON data to a DataFrame
     new_pfJsons = []
     # log3("batch_bot_mid_keys:"+str(len(pfJsons))+" " + json.dumps(batch_bot_mid_keys))
@@ -1272,7 +1272,7 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
         un = "none"
         for original_pfJson in pfJsons:
             un = original_pfJson["username"].split("@")[0]
-            log3("searching user name. "+un+" "+one_un+" from:"+fname)
+            log3("searching user name. "+un+" "+one_un+" from:"+fname, "genProfileXlsx", thisHost)
             if un == one_un:
                 found_match = True
                 break
@@ -1283,16 +1283,16 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists):
             else:
                 # just use some default list.
                 site_list = DEFAULT_SITE_LIST
-            log3("found a match, filter a json cookie....")
+            log3("found a match, filter a json cookie....", "genProfileXlsx", thisHost)
             pfJson = copy.deepcopy(original_pfJson)
             removeUselessCookies(pfJson, site_list)
             pfJson["cookie"]=json.dumps(pfJson["cookie"])
             new_pfJsons.append(pfJson)
         else:
-            log3("WARNING: user not found in ADS profile txt..."+one_un+"  "+un)
+            log3("WARNING: user not found in ADS profile txt..."+one_un+"  "+un, "genProfileXlsx", thisHost)
 
     df = pd.DataFrame(new_pfJsons)
-    log3("genProfileXlsx writing to xlsx:"+fname)
+    log3("genProfileXlsx writing to xlsx:"+fname, "genProfileXlsx", thisHost)
     # Write DataFrame to Excel file
     df.to_excel(fname, index=False)
 
@@ -1354,12 +1354,13 @@ def genProfileTxt(pfJsons, fname):
 # the reason we need this is full cookie is too large to fit into an excel cell, and
 # ads batch import only recognize a xlsx file input. so the cookie field should be
 # filtered to contain only sites that a mission needs.
-def genProfileXlsxs(pfJsons, fnames, site_lists):
+def genProfileXlsxs(pfJsons, fnames, site_lists, thisHost):
     for pfJson, fname in zip(pfJsons, fnames):
-        genProfileXlsx(pfJson, fname, site_lists)
+        genProfileXlsx(pfJson, fname, site_lists, thisHost)
+
 
 # this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
-def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
+def covertTxtProfiles2XlsxProfiles(fnames, site_lists, thisHost):
     pf_idx = 0
     for fname in fnames:
         basename = os.path.basename(fname)
@@ -1367,7 +1368,7 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists):
         xls_name = dirname + "/" + basename.split(".")[0]+".xlsx"
         pfjsons = readTxtProfile(fname)
         log3("reading in # jsons:"+str(len(pfjsons)))
-        genProfileXlsx(pfjsons, xls_name, site_lists.keys(), site_lists)
+        genProfileXlsx(pfjsons, xls_name, site_lists.keys(), site_lists, thisHost)
         pf_idx = pf_idx + 1
 
 
@@ -1386,10 +1387,10 @@ def covertTxtProfiles2DefaultXlsxProfiles(fnames):
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
 def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
-    log3("host ads batch size:"+str(thisHost.getADSBatchSize()))
+    log3("host ads batch size:"+str(thisHost.getADSBatchSize()), "genAdsProfileBatchs", thisHost)
     ads_profile_dir = thisHost.getADSProfileDir()
     # ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
-    log3("time_ordered_works:"+json.dumps(task_groups))
+    log3("time_ordered_works:"+json.dumps(task_groups), "genAdsProfileBatchs", thisHost)
     pfJsons_batches = []
     bot_pfJsons=[]
     v_ads_profile_batch_xlsxs = []
@@ -1402,39 +1403,39 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
     for bot_work in task_groups:
         bid = bot_work["bid"]
         found_bots = list(filter(lambda cbot: cbot.getBid() == bid, thisHost.bots))
-        log3("genAdsProfileBatchs found # bots:" + str(len(found_bots)))
+        log3("genAdsProfileBatchs found # bots:" + str(len(found_bots)), "genAdsProfileBatchs", thisHost)
         mid = bot_work["mid"]
 
         found_missions = list(filter(lambda cm: cm.getMid() == mid, thisHost.missions))
-        log3("genAdsProfileBatchs found # missions:" + str(len(found_missions)))
+        log3("genAdsProfileBatchs found # missions:" + str(len(found_missions)), "genAdsProfileBatchs", thisHost)
 
         found_mision = None
         if len(found_missions) > 0:
             found_mision = found_missions[0]
             bot_work["fingerprint_profile"] = batch_file
             found_mision.setFingerPrintProfile(batch_file)
-            log3("reset found mission fingerprint profile:"+found_mision.getFingerPrintProfile())
+            log3("reset found mission fingerprint profile:"+found_mision.getFingerPrintProfile(), "genAdsProfileBatchs", thisHost)
         else:
             bot_work["fingerprint_profile"] = ""
 
-        log3("bot fingerprint_profile:" + bot_work["fingerprint_profile"] + ">")
+        log3("bot fingerprint_profile:" + bot_work["fingerprint_profile"] + ">", "genAdsProfileBatchs", thisHost)
 
         if len(found_bots) > 0 and found_mision:
             found_bot = found_bots[0]
             if found_bot.getEmail():
                 bot_txt_profile_name = ads_profile_dir + "/" + found_bot.getEmail().split("@")[0]+".txt"
                 bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
-                log3("bot_mid_key: "+bot_mid_key+" bot_txt_profile_name:"+bot_txt_profile_name)
+                log3("bot_mid_key: "+bot_mid_key+" bot_txt_profile_name:"+bot_txt_profile_name, "genAdsProfileBatchs", thisHost)
 
-                print("batch_bot_profiles_read:", batch_bot_profiles_read)
+                print("batch_bot_profiles_read:", batch_bot_profiles_read, "genAdsProfileBatchs", thisHost)
                 if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
                     newly_read = readTxtProfile(bot_txt_profile_name)
                     batch_bot_profiles_read.append(bot_txt_profile_name)
                 else:
                     if not thisHost.isPlatoon():
-                        log3("bot_txt_profile_name doesn't exist!")
+                        log3("bot_txt_profile_name doesn't exist!"+bot_txt_profile_name, "genAdsProfileBatchs", thisHost)
                         if not os.path.exists(batch_file):
-                            log3("batched xlsx file doesn't exist either!")
+                            log3("batched xlsx file doesn't exist either!", "genAdsProfileBatchs", thisHost)
                             found_mision.setFingerPrintProfile("")
 
                     newly_read = []
@@ -1448,7 +1449,7 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
 
                 if w_idx >= thisHost.getADSBatchSize()-1:
                     if not thisHost.isPlatoon():
-                        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists())
+                        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
                     v_ads_profile_batch_xlsxs.append(batch_file)
                     w_idx = 0
                     bot_pfJsons = []
@@ -1457,14 +1458,14 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
                     batch_idx = batch_idx + 1
                     batch_file = "Host" + target_vehicle_ip + "B" + str(batch_idx) + "profile.xlsx"
                     batch_file = ads_profile_dir + "/" + batch_file
-                    log3("batch_file:" + batch_file)
+                    log3("batch_file:" + batch_file, "genAdsProfileBatchs", thisHost)
                 else:
                     w_idx = w_idx + 1
 
     # take care of the last batch.
     if len(bot_pfJsons) > 0:
         if not thisHost.isPlatoon():
-            genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists())
+            genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
         v_ads_profile_batch_xlsxs.append(batch_file)
 
     return v_ads_profile_batch_xlsxs

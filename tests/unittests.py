@@ -926,7 +926,7 @@ def test_ads_profiling(username):
     # genProfileXlsxs(pfJsons, fnames)
 
 
-def test_batch_ads_profile_conversion():
+def test_batch_ads_profile_conversion(thisHost):
     fname = "C:/temp/adsProfilesTest0.json"
     fj = open(fname)
     pJsons = json.load(fj)
@@ -935,7 +935,7 @@ def test_batch_ads_profile_conversion():
     site_lists = pJsons["site_lists"]
     fnames =  pJsons["fnames"]
 
-    covertTxtProfiles2XlsxProfiles(fnames, site_lists)
+    covertTxtProfiles2XlsxProfiles(fnames, site_lists, thisHost)
 
 def test_get_all_wins():
     get_top_visible_window()

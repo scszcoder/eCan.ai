@@ -61,17 +61,20 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
 
 
     def data_received(self, data):
-        # message = data.decode()
-        self.buffer += data.decode()
-        # print("TCP recevied message:", message)
+        try:
+            # Append incoming data to the buffer
+            self.buffer += data.decode()
 
-        # Process each complete message in the buffer
-        while "!ENDMSG!" in self.buffer:  # Assuming "!ENDMSG!" is used as a delimiter
-            message, self.buffer = self.buffer.split("!ENDMSG!", 1)  # Split at the delimiter
-            print("TCP received message:", message)
+            # Process each complete message in the buffer
+            while "!ENDMSG!" in self.buffer:
+                message, self.buffer = self.buffer.split("!ENDMSG!", 1)
+                print("TCP received message:", message)
 
-            # Enqueue the complete message
-            asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message))
+                # Enqueue the complete message
+                asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message))
+
+        except Exception as e:
+            print(f"Error in data_received: {e}")
 
         # if not self.topgui == None:
         #     print("Queueing TCP recevied message:", message)
