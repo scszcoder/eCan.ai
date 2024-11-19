@@ -55,6 +55,24 @@ async def wanStopSubscription(mainwin):
             print(f"Failed to stop subscription: {e}")
 
 
+def validate_msg_fields(msg_req, mainwin):
+    # Expected fields and types based on the schema
+    expected_fields = {
+        "chatID": str,
+        "sender": str,
+        "receiver": str,
+        "type": str,
+        "contents": str,
+        "parameters": str
+    }
+
+    for field, expected_type in expected_fields.items():
+        value = msg_req.get(field)
+        if value is None:
+            log3(f"Field '{field}' is missing or None, which could cause an error."+json.dumps(msg_req), "wanSendMessage", mainwin)
+        elif not isinstance(value, expected_type):
+            log3(f"Field '{field}' has type {type(value)}, expected {expected_type}. Value: {value}"+json.dumps(msg_req), "wanSendMessage", mainwin)
+
 
 def wanSendMessage(msg_req, mainwin):
     APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
@@ -64,6 +82,7 @@ def wanSendMessage(msg_req, mainwin):
     token = mainwin.tokens["AuthenticationResult"]["IdToken"]
 
     try:
+        validate_msg_fields(msg_req, mainwin)
         variables = {
             "input": {
                 "chatID": msg_req["chatID"],
@@ -95,7 +114,7 @@ def wanSendMessage(msg_req, mainwin):
             timeout=30  # Timeout in seconds as int or float
         )
         jresp = response.json()
-        print("wan send JRESP:", jresp)
+        log3("wan send JRESP:"+json.dumps(jresp), "wanSendMessage", mainwin)
         return jresp
 
     except Exception as e:
@@ -106,7 +125,7 @@ def wanSendMessage(msg_req, mainwin):
             ex_stat = "ErrorwanSendMessage:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorwanSendMessage traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "wanSendMessage", mainwin)
 
 
 
@@ -134,8 +153,8 @@ async def wanSendMessage8(msg_req, mainwin):
             'Authorization': token,
             'cache-control': "no-cache",
         }
-        print("about to send wan msg:", variables, query_string, headers)
-        print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        log3("about to send wan msg: "+json.dumps(variables)+" "+query_string+" "+json.dumps(headers), "wanSendMessage", mainwin)
+        log3("++++++++++++++++++++++++++++++++++++++++++++++++++++", "wanSendMessage", mainwin)
         async with aiohttp.ClientSession() as session8:
             async with session8.post(
                     url=APPSYNC_API_ENDPOINT_URL,
@@ -147,7 +166,7 @@ async def wanSendMessage8(msg_req, mainwin):
                     }
             ) as response:
                 jresp = await response.json()
-                print("wan send8 JRESP:", jresp)
+                log3("wan send8 JRESP:"+json.dumps(jresp), "wanSendMessage", mainwin)
                 return jresp
 
     except Exception as e:
@@ -158,7 +177,7 @@ async def wanSendMessage8(msg_req, mainwin):
             ex_stat = "ErrorwanSendMessage8:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorwanSendMessage8 traceback information not available:" + str(e)
-        log3(ex_stat)
+        log3(ex_stat, "wanSendMessage", mainwin)
 
 async def wanHandleRxMessage(mainwin):
     print("START WAN RX TASK")

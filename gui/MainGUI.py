@@ -1948,7 +1948,6 @@ class MainWindow(QMainWindow):
         day = now.strftime("%d")
         time = now.strftime("%H:%M:%S - ")
         dailyScheduleLogFile = self.my_ecb_data_homepath + "/runlogs/{}/{}/schedule{}{}{}.txt".format(self.log_user, year, month, day, year)
-        print("netSched:: "+netSched)
         if os.path.isfile(dailyScheduleLogFile):
             file1 = open(dailyScheduleLogFile, "a")  # append mode
             file1.write(json.dumps(time+netSched) + "\n=====================================================================\n")
@@ -2554,7 +2553,7 @@ class MainWindow(QMainWindow):
             for vname in self.unassigned_scheduled_task_groups:
                 log3("assignwork scheduled checking vehicle: "+vname, "assignWork", self)
                 p_task_groups = self.unassigned_scheduled_task_groups[vname]      # flattend per vehicle tasks.
-                print("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
+                log3("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
                 if len(p_task_groups) > 0:
 
                     if self.machine_name in vname:
@@ -7494,13 +7493,16 @@ class MainWindow(QMainWindow):
     def wan_send_log(self, logmsg):
         if self.host_role != "Staff Officer":
             so_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            contents = {"msg": logmsg}
+            parameters = {}
             req_msg = {
                 "chatID": so_chat_id,
                 "sender": "commander",
                 "receiver": self.user,
                 "type": "logs",
-                "contents": json.dumps({"msg": logmsg}).replace('"', '\\"'),
-                "parameters": json.dumps({})
+                "contents": logmsg.replace('"', '\\"'),
+                # "contents": json.dumps({"msg": logmsg}).replace('"', '\\"'),
+                "parameters": json.dumps(parameters)
             }
             wanSendMessage(req_msg, self)
 
