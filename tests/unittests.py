@@ -34,7 +34,7 @@ from bot.seleniumScrapeAmz import processAmzSeleniumScrapeSearchResults
 from bot.ragSkill import storeDocToVectorDB
 from bot.wanChat import parseCommandString
 from bot.labelSkill import handleExtLabelGenResults
-
+from bot.seleniumSkill import *
 # global symTab
 import shutil
 import pyautogui
@@ -1601,8 +1601,6 @@ def setupExtSkillRunReportResultsTestData(mainwin):
     }]
 
 
-
-
 def testCloudAccessWithAPIKey(session, token):
     apikey = os.getenv('SC_ECB_TEST_API_KEY0')
     print("apikey:", apikey)
@@ -1644,3 +1642,110 @@ def testRegSteps(mwin):
     print("entering test....")
     resp = regSteps("Web Driver Wait Until Clickable", "", "2024-10-02 12:46:00.000", True, mwin)
     print("test done!!!")
+
+def testWebdriverADSAndChromeConnection(mwin, browser_setup_file):
+    print("test selenium connection to ADS power")
+
+    if os.path.exists(browser_setup_file):
+        with open(browser_setup_file, 'rb') as f:
+            testSetup = json.load(f)
+            # self.rebuildHTML()
+            f.close()
+    else:
+        testSetup = {
+            "chrome_driver_path": "C:/Users/sctis/PycharmProjects/ecbot/chromedriver-win32/v92.0.4515.107/chromedriver.exe",
+            "ads_api_key": "59fe1c634e8f3e8e3737eda0ae065ecd",
+            "ads_port": "50325",
+            "ads_profile_id": "9aqgv6fxxld",
+            "ads_options": "",
+            "chrome_debug_port": "9226"
+        }
+
+    global symTab
+
+    # run a few steps to connect to the already opend ads power.
+    # just drive it to open a known profile and open a new tab.
+    # that should be enough to prove the communication is set up right.
+    # same with a chrome
+
+    symTab["driver_path_var"] = testSetup["ads_chrome_driver_path"]
+    symTab["debug_port"] = testSetup["chrome_debug_port"]
+
+    symTab["port_var"] = testSetup["ads_port"]
+    symTab["ads_api_key_var"] = testSetup["ads_api_key"]
+    symTab["profile_id_var"] = testSetup["ads_profile_id"]
+    symTab["options_var"] = testSetup["ads_options"]
+
+
+    symTab["web_driver"] = None
+
+    symTab["result_var"] = False
+    symTab["flag_var"] = False
+
+
+    # test_step = {
+    #     "type": "Web Driver Start Existing ADS",
+    #     "driver_var": "web_driver",  # anchor, info, text
+    #     "ads_api_key_var": "ads_api_key_var",
+    #     "profile_id_var": "profile_id_var",
+    #     "port_var": "port_var",
+    #     "driver_path_var": "driver_path_var",
+    #     "options_var": "options_var",
+    #     "flag_var": "flag_var"
+    # }
+    # nexti, xstat = processWebdriverStartExistingADS(test_step, 1)
+    #
+    # symTab["url_var"] = "https://www.amazon.com"
+    # test_step = {
+    #     "type": "Web Driver New Tab",
+    #     "driver_var": "web_driver",  # anchor, info, text
+    #     "url_var": "url_var",  # anchor, info, text
+    #     "result": "result_var",
+    #     "flag": "flag_var"
+    # }
+    # nexti, xstat = processWebdriverNewTab(test_step, 1)
+
+
+    # symTab["driver_path_var"] = testSetup["chrome_driver_path"]
+    #
+    # test_step = {
+    #     "type": "Web Driver Start Existing Chrome",
+    #     "driver_path": "driver_path_var",
+    #     "debug_port": "debug_port",
+    #     "result": "web_driver",
+    #     "flag": "flag_var"
+    # }
+    # nexti, xstat = processWebdriverStartExistingChrome(test_step, 1)
+    #
+    # symTab["url_var"] = "https://www.amazon.com"
+    # test_step = {
+    #     "type": "Web Driver New Tab",
+    #     "driver_var": "web_driver",  # anchor, info, text
+    #     "url_var": "url_var",  # anchor, info, text
+    #     "result": "result_var",
+    #     "flag": "flag_var"
+    # }
+    # nexti, xstat = processWebdriverNewTab(test_step, 1)
+
+
+    symTab["driver_path_var"] = testSetup["chrome_driver_path"]
+    test_step = {
+        "type": "Web Driver Start New Chrome",
+        "driver_path": "driver_path_var",
+        "port": "debug_port",
+        "result": "web_driver",
+        "flag": "flag_var"
+    }
+    nexti, xstat = processWebdriverStartNewChrome(test_step, 1)
+
+    symTab["url_var"] = "https://www.amazon.com"
+    test_step = {
+        "type": "Web Driver New Tab",
+        "driver_var": "web_driver",  # anchor, info, text
+        "url_var": "url_var",  # anchor, info, text
+        "result": "result_var",
+        "flag": "flag_var"
+    }
+    nexti, xstat = processWebdriverNewTab(test_step, 1)
+
+

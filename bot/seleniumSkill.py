@@ -500,8 +500,13 @@ def processWebdriverStartNewChrome(step, i):
         chrome_options = Options()
         # chrome_options.add_argument('--headless')
         if step["port"] == "":
-            step["port"] = "9228"       # set to default
-        chrome_options.add_argument('--remote-debugging-port='+str(step["port"]))
+            step["port"] = "9226"       # set to default
+
+        if step["port"].isdigit():
+            port = step["port"]
+        else:
+            port = symTab[step["port"]]
+        chrome_options.add_argument('--remote-debugging-port='+str(port))
         chrome_options.add_argument('--user-data-dir=C:\\chrome_data')
         chrome_options.add_argument("--disable-features=SharedStorage,InterestCohort")
 
@@ -555,6 +560,7 @@ def processWebdriverStartExistingADS(step, i):
         else:
             ex_stat = "ErrorWebdriverStartExistingADS: traceback information not available:" + str(e)
         print(ex_stat)
+        symTab[step["driver_var"]] = None
         symTab[step["flag_var"]] = False
     return (i + 1), ex_stat
 
@@ -874,8 +880,12 @@ def processWebdriverNewTab(step, i):
         time.sleep(3)
         # Navigate to the new URL in the new tab
         if url:
-            driver.get(url)  # Replace with the new URL
-            log3("with URL: "+url)
+            if "//" in url:
+                driver.get(url)  # Replace with the new URL
+                log3("with URL: "+url)
+            else:
+                driver.get(symTab[url])  # Replace with the new URL
+                log3("with URL: "+symTab[url])
             # home_page_loaded = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//a[@href='/Dashboard/UploadBulk' and @data='UploadBulk']")))
             # if home_page_loaded:
             #     # Wait until the "Create Bulk" button is clickable
