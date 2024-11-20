@@ -1712,10 +1712,19 @@ class MainWindow(QMainWindow):
         # testReportVehicles(self)
         # testDequeue(self)
         # Start Gradio in a separate thread
-        self.gradioWin.show()
+        # self.gradioWin.show()
         # test_processSearchWordLine()
         # test_UpdateBotADSProfileFromSavedBatchTxt()
         # test_run_group_of_tasks(self)
+
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            QApplication.translate("QFileDialog", "Open Browser Test Setup File"),
+            '',
+            QApplication.translate("QFileDialog", "Setup Files (*.json)")
+        )
+
+        testWebdriverADSAndChromeConnection(self, filename)
 
         #the grand tests,
         # 1) fetch today's schedule.
