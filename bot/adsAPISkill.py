@@ -45,27 +45,37 @@ def startAdspowerProfile(api_key, profile_id, port):
 
 def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, options):
     # webdriver_info = startAdspowerProfile(API_KEY, PROFILE_ID)
-    loal_api_info = startAdspowerProfile(local_api_key, profile_id, port_string)
-    print('WebDriver Info:', loal_api_info)
+    result = ""
+    local_api_info = startAdspowerProfile(local_api_key, profile_id, port_string)
+    print('WebDriver Info:', local_api_info)
     print('WebDriver full path:', in_driver_path)
     # driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/chromedriver.exe'
     driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win32/v92.0.4515.107/chromedriver.exe'
     # driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/v128.0.6613.86/chromedriver.exe'
     driver_path = in_driver_path
-    selenium_address = loal_api_info['data']['ws']['selenium']
-    debug_port = loal_api_info['data']['debug_port']
+    if "data" in local_api_info:
+        selenium_address = local_api_info['data']['ws']['selenium']
+        debug_port = local_api_info['data']['debug_port']
 
-    # Configure Chrome options
-    chrome_options = Options()
-    # chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
-    chrome_options.add_experimental_option("debuggerAddress", selenium_address)
+        # Configure Chrome options
+        chrome_options = Options()
+        # chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
+        chrome_options.add_experimental_option("debuggerAddress", selenium_address)
 
-    # Create a Service object using the path to chromedriver
-    service = Service(executable_path=driver_path)
-    # service = Service(ChromeDriverManager().install())
+        # Create a Service object using the path to chromedriver
+        service = Service(executable_path=driver_path)
+        # service = Service(ChromeDriverManager().install())
 
-    # Initialize WebDriver with the specified options and service
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+        # Initialize WebDriver with the specified options and service
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+
+    elif "msg" in local_api_info:
+        if local_api_info['msg'] == 'user account does not exist':
+            driver = None
+            result = local_api_info['msg']
+    else:
+        driver = None
+        result = "port or driver"
 
     # webdriver_url = 'http://'+selenium_address+'/wd/hub'
     # options = webdriver.ChromeOptions()
@@ -84,7 +94,6 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
     # # Connect to the Adspower browser instance
     # # driver = webdriver.Remote(command_executor=webdriver_url, desired_capabilities=DesiredCapabilities.CHROME, options=options)
     # driver = webdriver.Remote(command_executor=webdriver_url, options=options)
-    print("here it is...")
-    print("DRIVER:", driver)
-    return driver
+    print("here it is...DRIVER:", driver)
+    return driver, result
 

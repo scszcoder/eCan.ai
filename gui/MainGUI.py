@@ -1767,19 +1767,16 @@ class MainWindow(QMainWindow):
         # skfp.close()
 
     def handleCloudScheduledWorks(self, bodyobj):
-        print("handleCloudScheduledWorks....", len(bodyobj), type(bodyobj))
+        log3("handleCloudScheduledWorks...."+str(len(bodyobj))+" "+type(bodyobj), "fetchSchedule", self)
         for nm in bodyobj["added_missions"]:
             today = datetime.today()
             formatted_today = today.strftime('%Y-%m-%d')
             bd_parts = nm["createon"].split()
             nm["createon"] = formatted_today + " " + bd_parts[1]
 
-
-
-        print("created on date generated.")
-        # self.showMsg("bodyobj: " + json.dumps(bodyobj))
+        log3("cloud schedule works: " + json.dumps(bodyobj), "fetchSchedule", self)
         if len(bodyobj) > 0:
-            print("BEGIN ASSIGN INCOMING MISSION....")
+            log3("BEGIN ASSIGN INCOMING MISSION....", "fetchSchedule", self)
             self.build_cookie_site_lists()
             # convert new added mission json to MISSIONs object
             newlyAdded = self.addNewlyAddedMissions(bodyobj)
@@ -1794,17 +1791,17 @@ class MainWindow(QMainWindow):
             # for works on this host, add to the list of todos, otherwise send to the designated vehicle.
             self.assignWork()
 
-            print("current unassigned scheduled task groups after assignwork:", self.unassigned_scheduled_task_groups)
-            print("current work to do after assignwork:", self.todays_work)
+            log3("current unassigned scheduled task groups after assignwork:"+json.dumps(self.unassigned_scheduled_task_groups), "fetchSchedule", self)
+            log3("current work to do after assignwork:"+json.dumps(self.todays_work), "fetchSchedule", self)
 
             self.logDailySchedule(json.dumps(bodyobj))
         else:
-            print("WARN: empty obj")
+            log3("WARN: empty obj", "fetchSchedule", self)
             self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
 
     # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings):
-        log3("start fetching schedule...")
+        log3("start fetching schedule...", "fetchSchedule", self)
         ex_stat = "Completed:0"
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
@@ -1812,20 +1809,20 @@ class MainWindow(QMainWindow):
             self.createNewBotsFromBotsXlsx()
             self.createNewMissionsFromOrdersXlsx()
 
-            self.showMsg("Done handling today's new Buy orders...")
+            log3("Done handling today's new Buy orders...", "fetchSchedule", self)
 
             # next line commented out for testing purpose....
             if not self.debug_mode or self.schedule_mode == "auto":
-                print("schedule setting:", settings)
+                log3("schedule setting:"+json.dumps(settings), "fetchSchedule", self)
                 jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
-                print("schedule JRESP:", jresp)
+                log3("schedule JRESP:"+json.dumps(jresp), "fetchSchedule", self)
             else:
-                print("debug mode, skipping cloud fetch schedule")
+                log3("debug mode, skipping cloud fetch schedule", "fetchSchedule", self)
                 jresp = {}
 
             if "errorType" in jresp:
                 screen_error = True
-                self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                log3("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]), "fetchSchedule", self)
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
@@ -1838,7 +1835,7 @@ class MainWindow(QMainWindow):
                 # json file instead.
 
                 # uncompressed = jresp["body"]
-                self.showMsg("decomppressed response:"+uncompressed+"!")
+                log3("decomppressed response:"+uncompressed+"!", "fetchSchedule", self)
                 if uncompressed != "":
                     self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
 
@@ -1847,7 +1844,7 @@ class MainWindow(QMainWindow):
                     if not self.debug_mode or self.schedule_mode == "auto":
                         bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
                     else:
-                        print("debug mode, using test vector....")
+                        log3("debug mode, using test vector....", "fetchSchedule", self)
                         # file = 'C:/software/scheduleResultTest7.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
@@ -1867,7 +1864,7 @@ class MainWindow(QMainWindow):
                 # now that a new day starts, clear all reports data structure
                 self.todaysReports = []
             else:
-                self.showMsg("WARNING!!!! no work TBD after fetching schedule...")
+                log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", self)
 
         # ni is already incremented by processExtract(), so simply return it.
         except Exception as e:
@@ -1883,17 +1880,30 @@ class MainWindow(QMainWindow):
         self.showMsg("done with fetch schedule:"+ ex_stat)
         return ex_stat
 
+
     def fetchScheduleFromFile(self):
         try:
             ex_stat = "Completed:0"
             file = 'C:/temp/scheduleResultTest9D.json'  # ads ebay amz etsy sell test.
-            # file = 'C:/temp/scheduleResultTest999.json'
-            # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
-            if exists(file):
-                with open(file) as test_schedule_file:
-                    bodyobj = json.load(test_schedule_file)
+            filename, _ = QFileDialog.getOpenFileName(
+                self,
+                QApplication.translate("QFileDialog", "Open Browser Test Setup File"),
+                '',
+                QApplication.translate("QFileDialog", "Setup Files (*.json)")
+            )
+            if os.path.exists(filename):
+                with open(filename, 'rb') as test_schedule_file:
+                    testSchedule = json.load(test_schedule_file)
+                    # self.rebuildHTML()
+                    test_schedule_file.close()
 
-                self.handleCloudScheduledWorks(bodyobj)
+                if "Commander" in self.machine_role:
+                    self.handleCloudScheduledWorks(testSchedule)
+                elif "Platoon" in self.machine_role:
+                    # put this into Platoon's commander message queue, the rest will be take care of by itself.
+                    asyncio.create_task(
+                        self.gui_net_msg_queue.put("192.168.0.8!net data!" + json.dumps(testSchedule)))
+
             else:
                 self.warn(QApplication.translate("QMainWindow", "Warning: Test Vector File Not Found."))
             # ni is already incremented by processExtract(), so simply return it.
@@ -1907,7 +1917,7 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorFetchScheduleFromFile: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
 
-        self.showMsg("done with fetch schedule from file:" + ex_stat)
+        log3("done with fetch schedule from file:" + ex_stat, "fetchSchedule", self)
         return ex_stat
 
     def warn(self, msg, level="info"):
@@ -1958,10 +1968,12 @@ class MainWindow(QMainWindow):
         time = now.strftime("%H:%M:%S - ")
         dailyScheduleLogFile = self.my_ecb_data_homepath + "/runlogs/{}/{}/schedule{}{}{}.txt".format(self.log_user, year, month, day, year)
         if os.path.isfile(dailyScheduleLogFile):
+            log3("append to daily schedule file:" + dailyScheduleLogFile, "fetchSchedule", self)
             file1 = open(dailyScheduleLogFile, "a")  # append mode
             file1.write(json.dumps(time+netSched) + "\n=====================================================================\n")
             file1.close()
         else:
+            log3("daily schedule file not exist:"+dailyScheduleLogFile, "fetchSchedule", self)
             file1 = open(dailyScheduleLogFile, "w")  # write mode
             file1.write(json.dumps(time+netSched) + "\n=====================================================================\n")
             file1.close()
@@ -2040,12 +2052,12 @@ class MainWindow(QMainWindow):
                     for w in wg["other_works"]:
                         mb_words = mb_words + "M"+str(w["mid"])+"B"+str(wg["bid"]) + ", "
 
-        print(mb_words)
+        log3(mb_words, "fetchSchedule", self)
 
         newAdded = []
         newly_added_missions = resp_data["added_missions"]
         true_newly_added = []       # newly_added_missions includes some previous incompleted missions, they're not really NEW.
-        print("Added MS:"+json.dumps(["M"+str(m["mid"])+"B"+str(m["botid"]) for m in newly_added_missions]))
+        log3("Added MS:"+json.dumps(["M"+str(m["mid"])+"B"+str(m["botid"]) for m in newly_added_missions]), "fetchSchedule", self)
         loadedMids = [m.getMid() for m in self.missions]
         for m in newly_added_missions:
             if m["mid"] not in loadedMids:
@@ -2055,11 +2067,11 @@ class MainWindow(QMainWindow):
                 new_mission.updateDisplay()
                 self.missions.append(new_mission)
                 self.missionModel.appendRow(new_mission)
-                self.showMsg("adding mission.... "+str(new_mission.getRetry()))
+                log3("adding mission.... "+str(new_mission.getRetry()), "fetchSchedule", self)
                 true_newly_added.append(new_mission)
                 newAdded.append(new_mission)
             else:
-                print("this mission already exists:", m["mid"])
+                log3("this mission already exists:"+str(m["mid"]), "fetchSchedule", self)
                 # in such a case, simply sync up the data
                 existingMission = self.getMissionByID(m["mid"])
                 # now, update data from cloud...
@@ -4085,9 +4097,9 @@ class MainWindow(QMainWindow):
 
     def addBotsMissionsSkillsFromCommander(self, botsJson, missionsJson, skillsJson):
 
-        self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
-        self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
-        self.showMsg("Skills String:" + str(type(skillsJson)) + json.dumps(skillsJson))
+        # self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
+        # self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
+        # self.showMsg("Skills String:" + str(type(skillsJson)) + json.dumps(skillsJson))
         for bjs in botsJson:
             self.newBot = EBBOT(self)
             self.newBot.loadJson(bjs)
@@ -6422,7 +6434,7 @@ class MainWindow(QMainWindow):
         return results
 
     async def serveCommander(self, msgQueue):
-        self.showMsg("starting serve Commanders")
+        log3("starting serve Commanders", "serveCommander", self)
         heartbeat = 0
         while True:
             try:
@@ -6445,40 +6457,40 @@ class MainWindow(QMainWindow):
                     msg = json.dumps(hbJson)
                     # send to commander
                     msg_with_delimiter = msg + "!ENDMSG!"
-                    print("sending heartbeat")
+                    log3("sending heartbeat", "serveCommander", self)
                     if self.commanderXport:
                         self.commanderXport.write(msg_with_delimiter.encode('utf8'))
             except (json.JSONDecodeError, AttributeError) as e:
                 # Handle JSON encoding or missing attributes issues
-                print(f"Error encoding heartbeat JSON or missing attribute: {e}")
+                log3(f"Error encoding heartbeat JSON or missing attribute: {e}", "serveCommander", self)
             except OSError as e:
                 # Handle network-related errors
-                print(f"Error sending heartbeat to Commander: {e}")
+                log3(f"Error sending heartbeat to Commander: {e}", "serveCommander", self)
 
             if not msgQueue.empty():
                 try:
                     net_message = await msgQueue.get()
-                    print("From Commander, recevied queued net message:", net_message)
+                    log3("From Commander, recevied queued net message: "+net_message, "serveCommander", self)
                     self.processCommanderMsgs(net_message)
                     msgQueue.task_done()
                 except asyncio.QueueEmpty:
                     # If for some reason the queue is unexpectedly empty, handle it
-                    print("Queue unexpectedly empty when trying to get message.")
+                    log3("Queue unexpectedly empty when trying to get message.", "serveCommander", self)
                 except Exception as e:
                     # Catch any other issues while processing the message
                     traceback_info = traceback.extract_tb(e.__traceback__)
                     # Extract the file name and line number from the last entry in the traceback
-                    print("Error processing commander msg:" + traceback.format_exc() + " " + str(e))
+                    log3("Error processing commander msg:" + traceback.format_exc() + " " + str(e), "serveCommander", self)
 
 
             await asyncio.sleep(1)
-            self.showMsg("watching Commanders...")
+            # log3("watching Commanders...", "serveCommander", self)
 
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
         try:
-            self.showMsg("received from commander: "+msgString)
+            log3("received from commander: "+msgString, "serveCommander", self)
             if "!connection!" in msgString:
                 msg = {"cmd": "connection"}
                 msg_parts = msgString.split("!")
@@ -6505,7 +6517,7 @@ class MainWindow(QMainWindow):
 
             elif msg["cmd"] == "reqSendFile":
                 # update vehicle status display.
-                self.showMsg("received a file: "+msg["file_name"])
+                log3("received a file: "+msg["file_name"], "serveCommander", self)
                 file_name = self.ads_profile_dir + msg["file_name"]
                 file_type = msg["file_type"]
                 file_contents = msg["file_contents"].encode('latin1')  # Encode string to binary data
@@ -6525,11 +6537,14 @@ class MainWindow(QMainWindow):
                 localworks = msg["todos"]
                 self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
 
-                self.showMsg("received work request:"+json.dumps(localworks))
+                # this is the time to rebuild skills to make them up to date....
+                self.dailySkillsetUpdate()
+
+                log3("received work request:"+json.dumps(localworks), "serveCommander", self)
                 # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
                 self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
-                self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
+                log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
 
                 platform_os = self.platform            # win, mac or linux
                 self.todays_scheduled_task_groups[platform_os] = localworks
@@ -6548,11 +6563,11 @@ class MainWindow(QMainWindow):
                 localworks = msg["todos"]
                 self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
 
-                self.showMsg("received reactive work request:"+json.dumps(localworks))
+                log3("received reactive work request:"+json.dumps(localworks), "serveCommander", self)
                 # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
                 self.reactive_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
-                self.showMsg("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]))
+                log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
 
                 platform_os = self.platform            # win, mac or linux
                 self.todays_scheduled_task_groups[platform_os] = localworks
@@ -6568,28 +6583,28 @@ class MainWindow(QMainWindow):
 
             elif msg["cmd"] == "reqCancelAllMissions":
                 # update vehicle status display.
-                self.showMsg(json.dumps(msg["content"]))
+                log3(json.dumps(msg["content"]), "serveCommander", self)
                 self.sendRPAMessage(msg_data)
             elif msg["cmd"] == "reqHaltMissions":
                 # update vehicle status display.
-                self.showMsg(json.dumps(msg["content"]))
+                log3(json.dumps(msg["content"]), "serveCommander", self)
                 self.sendRPAMessage(msg_data)
                 # simply change the mission's status to be "Halted" again, this will make task runner to run this mission
             elif msg["cmd"] == "reqResumeMissions":
                 # update vehicle status display.
-                self.showMsg(json.dumps(msg["content"]))
+                log3(json.dumps(msg["content"]), "serveCommander", self)
                 self.sendRPAMessage(msg_data)
                 # simply change the mission's status to be "Scheduled" again, this will make task runner to run this mission
             elif msg["cmd"] == "reqAddMissions":
                 # update vehicle status display.
-                self.showMsg(json.dumps(msg["content"]))
+                log3(json.dumps(msg["content"]), "serveCommander", self)
                 # this is for manual generated missions, simply added to the todo list.
             elif msg["cmd"] == "ping":
                 # respond to ping with pong
                 self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
                 resp = {"ip": self.ip, "type":"pong", "content": self_info}
                 # send to commander
-                print("sending "+json.dumps(resp)+ " to commanderIP - " + self.commanderIP)
+                log3("sending "+json.dumps(resp)+ " to commanderIP - " + self.commanderIP, "serveCommander", self)
                 print(self.commanderXport)
                 msg = json.dumps(resp)
                 msg_with_delimiter = msg + "!ENDMSG!"
@@ -6597,7 +6612,7 @@ class MainWindow(QMainWindow):
 
             elif msg["cmd"] == "chat":
                 # update vehicle status display.
-                self.showMsg(json.dumps(msg))
+                log3(json.dumps(msg), "serveCommander", self)
                 # this message is a chat to a bot/bot group, so forward it to the bot(s)
                 # first, find out the bot's queue(which is kind of a temp mailbox for the bot and drop it there)
                 self.receiveBotChatMessage(msg["message"])
@@ -6610,7 +6625,7 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorwanrunbotworks:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
-            print(f"{ex_stat}")
+            log3(f"{ex_stat}", "serveCommander", self)
 
     def sendCommanderMissionsStatMsg(self, mids):
         statusJson = self.genMissionStatusReport(mids, False)
@@ -6645,16 +6660,16 @@ class MainWindow(QMainWindow):
         # self.showMsg("GEN REPORT FOR WORKS:"+json.dumps(works))
         if not self.host_role == "Commander Only":
             mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
-            self.showMsg("mission_report:"+json.dumps(mission_report))
+            log3("mission_report:"+json.dumps(mission_report), "genRunReport", self)
 
             if self.host_role != "Platoon":
                 # add generated report to report list....
-                self.showMsg("commander gen run report....."+str(len(self.todaysReport)) + str(len(works)))
+                log3("commander gen run report....."+str(len(self.todaysReport)) + str(len(works)), "genRunReport", self)
                 self.todaysReport.append(mission_report)
                 # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
                 # on commander machine, todaysPlatoonReports contains a collection of reports from each host machine
                 if len(self.todaysReport) == len(works):
-                    self.showMsg("time to pack today's non-platoon report")
+                    log3("time to pack today's non-platoon report", "genRunReport", self)
                     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
                     self.todaysPlatoonReports.append(rpt)
                     self.todaysReport = []
@@ -6665,12 +6680,12 @@ class MainWindow(QMainWindow):
                 # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
                 # on platoon machine, todaysPlatoonReports contains a collection of individual task reports on this machine.
                 if len(self.todaysReport) == len(works):
-                    self.showMsg("time to pack today's platoon report")
+                    log3("time to pack today's platoon report", "genRunReport", self)
                     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
                     self.todaysPlatoonReports.append(rpt)
                     self.todaysReport = []
 
-        self.showMsg("GEN REPORT FOR WORKS..."+json.dumps(self.todaysReport))
+        log3("GEN REPORT FOR WORKS..."+json.dumps(self.todaysReport), "genRunReport", self)
         return self.todaysReport
 
     def updateMissionsStatsFromReports(self, all_reports):
@@ -6689,7 +6704,7 @@ class MainWindow(QMainWindow):
     def doneWithToday(self):
         global commanderXport
         # call reportStatus API to send today's report to API
-        self.showMsg("Done with today!")
+        log3("Done with today!", "doneWithToday", self)
 
         if not self.DONE_WITH_TODAY:
             self.DONE_WITH_TODAY = True
@@ -6704,14 +6719,14 @@ class MainWindow(QMainWindow):
                 if len(self.todaysPlatoonReports) > 0:
                     # flatten the report data structure...
                     allTodoReports = [item for pr in self.todaysPlatoonReports for item in pr["content"]]
-                    self.showMsg("ALLTODOREPORTS:"+json.dumps(allTodoReports))
+                    log3("ALLTODOREPORTS:"+json.dumps(allTodoReports), "doneWithToday", self)
                     # missionReports = [item for pr in allTodoReports for item in pr]
                 else:
                     missionReports = []
 
                 self.updateMissionsStatsFromReports(allTodoReports)
 
-                self.showMsg("TO be sent to cloud side::"+json.dumps(allTodoReports))
+                log3("TO be sent to cloud side::"+json.dumps(allTodoReports), "doneWithToday", self)
                 # if this is a commmander, then send report to cloud
                 # send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'])
             else:

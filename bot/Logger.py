@@ -127,6 +127,7 @@ LOG_SWITCH_BOARD = {
     "skillGUI": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "botGUI": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "missionGUI": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
+    "gen_addresses": {"log": True, "py_console": False, "win_console": False, "range": "lan"},
 
     "serveCommander": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "runAllSteps": {"log": True, "py_console": True, "win_console": True, "range": "lan"},

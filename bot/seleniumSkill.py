@@ -354,7 +354,7 @@ def genStepWebdriverStartNewChrome(driver_path, port, result_var, flag_var, step
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 # local_api_key, port_var, profile_id_var, options):
-def genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var, port_var, driver_path_var, options_var, flag_var, stepN):
+def genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var, port_var, driver_path_var, options_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Start Existing ADS",
         "driver_var": driver_var,  # anchor, info, text
@@ -363,6 +363,7 @@ def genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var
         "port_var": port_var,
         "driver_path_var": driver_path_var,
         "options_var": options_var,
+        "result_var": result_var,
         "flag_var": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -549,7 +550,7 @@ def processWebdriverStartExistingADS(step, i):
         driver_path = symTab[step["driver_path_var"]]
         options = symTab[step["options_var"]]
         print("profile_id, port, api_key, options:", profile_id, port, api_key, options)
-        symTab[step["driver_var"]] = startADSWebDriver(api_key, port, profile_id, driver_path, options)
+        symTab[step["driver_var"]],symTab[step["result_var"]]  = startADSWebDriver(api_key, port, profile_id, driver_path, options)
 
     except Exception as e:
         # Get the traceback information
@@ -561,6 +562,7 @@ def processWebdriverStartExistingADS(step, i):
             ex_stat = "ErrorWebdriverStartExistingADS: traceback information not available:" + str(e)
         print(ex_stat)
         symTab[step["driver_var"]] = None
+        symTab[step["result_var"]] = ""
         symTab[step["flag_var"]] = False
     return (i + 1), ex_stat
 
