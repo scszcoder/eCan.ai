@@ -2422,8 +2422,7 @@ def processKeyInput(step, i, mission):
         if traceback_info:
             ex_stat = "ErrorKeyInput:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)
-        log3(ex_stat)
+            ex_stat = "ErrorKeyInput: traceback information not available:" + str(e)(ex_stat)
 
     return (i + 1), ex_stat
 
@@ -2743,7 +2742,7 @@ def processFillData(step, i):
                 statement = "global " + sink + "; " + step["to"] + " = " + json.dumps(step["from"])
             else:
                 statement = "global " + sink + "; " + step["to"] + " = " + str(step["from"])
-        log3("Statement: ", statement)
+        log3("Statement: "+statement)
         exec(statement)
 
 
@@ -2854,7 +2853,7 @@ def evalCondition(condition):
     # log3("varnames:"+json.dumps(varnames))
     # now filter out special keywords such int, str, float what's left should be variable names.
     varnames = list(filter(lambda k: not (k == "float" or k == "int" or k == "str" or k == "len"), varnames))
-    log3("filtered varnames:"+json.dumps(varnames), "", "evalCondition")
+    log3("filtered varnames:"+json.dumps(varnames))
     prefix = "global "
     for varname in varnames:
         if varname in symTab:
@@ -2865,9 +2864,9 @@ def evalCondition(condition):
 
     prefix = prefix + "cmp_result\ncmp_result = ("
     condition = prefix + condition + ")"
-    log3("TBE: " + condition, "", "evalCondition")
+    log3("TBE: " + condition)
     exec(condition)
-    log3("TBE result: "+json.dumps(cmp_result), "", "evalCondition")
+    log3("TBE result: "+json.dumps(cmp_result))
 
     return cmp_result
 
@@ -3330,7 +3329,7 @@ def processReturn(step, i, stack, step_keys):
 
         #  set the pointer to the return to pointer.
         next_i = stack.pop()
-        log3("after return, will run @"+str(next_i), "processReturn")
+        log3("after return, will run @"+str(next_i))
 
 
 
@@ -3342,7 +3341,7 @@ def processReturn(step, i, stack, step_keys):
             ex_stat = "ErrorReturn:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorReturn: traceback information not available:" + str(e)
-        log3(ex_stat, "processReturn")
+        log3(ex_stat)
 
     return next_i, ex_stat
 
@@ -4288,7 +4287,7 @@ def processScrollToLocation(step, i):
 def genScrollDownUntilLoc(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    log3("DEBUG", "gen_psk_for_scroll_down_until...")
+    log3("DEBUG genScrollDownUntilLoc...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
@@ -4323,7 +4322,7 @@ def genScrollDownUntilLoc(target_anchor, target_type, tilpos, page, section, adj
 def genScrollDownUntil(target_anchor, target_type, page, section, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    log3("DEBUG", "gen_psk_for_scroll_down_until...")
+    log3("DEBUG genScrollDownUntil...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
@@ -4352,7 +4351,7 @@ def genScrollDownUntil(target_anchor, target_type, page, section, stepN, workset
 def genScrollUpUntilLoc(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    log3("DEBUG", "gen_psk_for_scroll_down_until...")
+    log3("DEBUG genScrollUpUntilLoc...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
@@ -4385,7 +4384,7 @@ def genScrollUpUntilLoc(target_anchor, target_type, tilpos, page, section, adjus
 def genScrollUpUntil(target_anchor, target_type, page, section, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    log3("DEBUG", "gen_psk_for_scroll_down_until...")
+    log3("DEBUG genScrollUpUntil...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 

@@ -1442,6 +1442,9 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("bool", "not_logged_in", "NA", False, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("string", "drive_result", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
     # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
     # Note: this skill simply opens the profiles button, whether the target profile is loaded is yet to be determined.
     this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
@@ -1462,7 +1465,7 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0, 0, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # look at the profiles list and check whether the target profile is listed.
@@ -1481,6 +1484,9 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("string", "ads_ver", "NA", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCheckCondition("ver_lines", "", "", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCallExtern("global ver_lines, pattern, vers\npattern = '\\d\\.\\d'\nvers = [s for s in ver_lines[0]['line_txt'].split() if re.search(pattern, s)]\nprint('ver_lines:', ver_lines)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -1488,6 +1494,16 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern("global sk_work_settings, ads_ver\nsk_work_settings['fp_browser_settings']['ads_version'] = ads_ver", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global sk_work_settings\nsk_work_settings['fp_browser_settings']['ads_version'] = '6.2.29:2.7.1.1'", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchWordLine("screen_info", "bot_email", "expr", "any", "useless", "bot_loaded", "ads", False, this_step)
@@ -1595,17 +1611,28 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("string", "web_driver_path", "NA", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global web_driver_path, ads_chrome_version, sk_work_settings\nweb_driver_path =  sk_work_settings['root_path'] + '/' + sk_work_settings['fp_browser_settings']['chromedriver_lut'][ads_chrome_version]\nprint('web_driver_path:', web_driver_path)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global web_driver_path, ads_chrome_version, sk_work_settings\nweb_driver_path =  sk_work_settings['root_path'] + '/' + sk_work_settings['fp_browser_settings']['ads_chromedriver_lut'][ads_chrome_version]\nprint('web_driver_path:', web_driver_path)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "local_api_key", "ads_profile_id", "local_api_port", "web_driver_path","web_driver_options", "web_driver_successful", this_step)
+    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "local_api_key", "ads_profile_id", "local_api_port", "web_driver_path","web_driver_options", "drive_result", "web_driver_successful", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not web_driver_successful", "", "", this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCheckCondition("drive_result == 'user account does not exist'", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # in case connecting to ads failed due to account not currently loaded, now it's time to load in the correct batch of profiles.
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
     # this could be the case where the ads power's local api port and api key has changed, so re-gain it.
     this_step, step_words = genStepADSSaveAPISettings("sk_work_settings", "save_result", "setting_saved", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
