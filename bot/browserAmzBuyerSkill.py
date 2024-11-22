@@ -1562,6 +1562,15 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input", "browser_up", this_step)
     psk_words = psk_words + step_words
 
+    # afer batch import each profile's id is now chnaged, and we need to re-capture the ids so that chromediver can call it.
+    # the easiest way is to do a quick save all profiles and then grab the ids from the saved profiles.
+
+    this_step, step_words = genStepsADSPowerExitProfile(worksettings, this_step, theme)
+    psk_words = psk_words + step_words
+
+    # now need to update every bot in this batch of bots' id which will be used to launch ads browser
+
+
     this_step, step_words = genStepStub("else", "", "", this_step)
     psk_words = psk_words + step_words
 

@@ -1652,3 +1652,39 @@ def processADSSaveAPISettings(step, i, mission):
         symTab[step["flag_var"]] = False
 
     return (i + 1), ex_stat
+
+def genStepADSUpdateProfileIds(settings_var, result_var, flag_var, stepN):
+        stepjson = {
+            "type": "ADS Update Profile Ids",
+            "settings_var": settings_var,
+            "result_var": result_var,
+            "flag_var": flag_var
+        }
+
+        return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def processADSUpdateProfileIds(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    mainwin = mission.get_main_win()
+    symTab[step["flag_var"]] = True
+    try:
+        # now save for roll back if ever needed.
+        # first remove the previously save rollback point, but leave up to 3 rollback points
+        settings = symTab[step["settings_var"]]
+        mainwin.saveADSSettings(settings)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorADSUpdateProfileIds:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorADSUpdateProfileIds: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag_var"]] = False
+
+    return (i + 1), ex_stat
+
+
