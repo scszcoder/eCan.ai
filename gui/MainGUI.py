@@ -52,7 +52,7 @@ from gui.ScheduleGUI import ScheduleWin
 from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
-from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
 from bot.basicSkill import STEP_GAP, setMissionInput, unzip_file, list_zip_file
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
@@ -3715,7 +3715,7 @@ class MainWindow(QMainWindow):
         try:
             if exists(filename):
                 print("file name:", filename)
-                covertTxtProfiles2DefaultXlsxProfiles([filename])
+                convertTxtProfiles2DefaultXlsxProfiles([filename])
 
         except IOError:
             QMessageBox.information(self, "Unable to open/save file: %s" % filename)

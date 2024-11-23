@@ -8,7 +8,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
-    processADSProfileBatches, processADSSaveAPISettings, processUpdateADSProfileIds
+    processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
     processAMZMatchProduct, genStepAMZSearchReviews
@@ -164,7 +164,7 @@ RAIS = {
     "print Label": lambda x, y: processPrintLabels(x, y),
     "Read Json File": lambda x, y: processReadJsonFile(x, y),
     "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
-    "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
+    "ADS Batch Text To Profiles": lambda x,y,z: processUpdateBotADSProfileFromSavedBatchTxt(x, y,z),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "ADS Save API Settings": lambda x,y,z: processADSSaveAPISettings(x, y,z),
     "ADS Update Profile Ids": lambda x,y,z: processADSUpdateProfileIds(x, y,z),
@@ -305,7 +305,7 @@ ARAIS = {
     "print Label": lambda x,y: processPrintLabels(x, y),
     "Read Json File": lambda x,y: processReadJsonFile(x, y),
     "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
-    "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
+    "ADS Batch Text To Profiles": lambda x,y,z: processUpdateBotADSProfileFromSavedBatchTxt(x, y,z),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "ADS Save API Settings": lambda x,y,z: processADSSaveAPISettings(x, y, z),
     "ADS Update Profile Ids": lambda x,y,z: processADSUpdateProfileIds(x, y,z),
@@ -639,7 +639,7 @@ def run1step(steps, si, mission, skill, stack):
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
             step["type"] == "Update Mission Status" or step["type"] == "ADS Save API Settings" or \
-            step["type"] == "ADS Update Profile Ids" or \
+            step["type"] == "ADS Update Profile Ids" or step["type"] == "ADS Batch Text To Profiles" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
@@ -703,6 +703,7 @@ async def run1step8(steps, si, mission, skill, stack):
              step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
              step["type"] == "AMZ Browser Scrape Products List" or step["type"] == "ADS Update Profile Ids" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
+             step["type"] == "ADS Batch Text To Profiles" or \
              step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)

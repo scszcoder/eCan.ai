@@ -27,7 +27,7 @@ PLATOON_UDP_PERIOD = 8
 COMMANDER_WAIT_TIMEOUT = 8      # 8x8 = 64 seconds.
 
 commanderXport = None
-commanderIP = "0.0.0.0"
+commanderIP = "127.0.0.1"
 platoonProtocol = None
 commanderServer = None
 fieldLinks = []
