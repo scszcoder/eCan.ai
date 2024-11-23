@@ -963,24 +963,30 @@ def processWebdriverGoToTab(step, i):
 
         log3("swtich to tab")
         found = False
-        for handle in driver.window_handles:
-            driver.switch_to.window(handle)
-            if tab_title_txt in driver.current_url:
-                found = True
-                break
 
-        if not found:
-            driver.execute_script("window.open('');")
+        if not tab_title_txt.isdigit():
+            for handle in driver.window_handles:
+                driver.switch_to.window(handle)
+                if tab_title_txt in driver.current_url:
+                    found = True
+                    break
 
-            # Switch to the new tab
-            driver.switch_to.window(driver.window_handles[-1])
+            if not found:
+                driver.execute_script("window.open('');")
 
-            # Navigate to the new URL in the new tab
-            if url:
-                driver.get(url)  # Replace with the new URL
+                # Switch to the new tab
+                driver.switch_to.window(driver.window_handles[-1])
+
+                # Navigate to the new URL in the new tab
+                if url:
+                    driver.get(url)  # Replace with the new URL
+            else:
+                if url:
+                    driver.get(url)
+
         else:
-            if url:
-                driver.get(url)
+            if int(tab_title_txt) < len(driver.window_handles):
+                driver.switch_to.window(driver.window_handles[int(tab_title_txt)])
 
     except Exception as e:
         # Get the traceback information
