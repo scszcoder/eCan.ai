@@ -84,6 +84,8 @@ PUBLIC = {
     'genStepMouseClick': genStepMouseClick,
     'genStepMouseScroll': genStepMouseScroll,
     'genStepMouseMove': genStepMouseMove,
+    'genStepGetWindowsInfo': genStepGetWindowsInfo,
+    'genStepBringWindowToFront': genStepBringWindowToFront,
     'genScrollDownUntilLoc': genScrollDownUntilLoc,
     'genScrollDownUntil': genScrollDownUntil,
     'genScrollUpUntilLoc': genScrollUpUntilLoc,
