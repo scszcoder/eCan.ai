@@ -125,7 +125,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 
     # now that we have logged in, first get api settings ready if not yet directly ready from the
     # settings json file, then read it out and save it, and now we should be ready.
-    this_step, step_words = genStepsADSPowerObtainLocalAPISettings(this_step, theme)
+    this_step, step_words = genStepsADSPowerObtainLocalAPISettings(worksettings, theme, this_step)
     psk_words = psk_words + step_words
 
 
@@ -162,14 +162,14 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 #     new api key pop up appears, grab it, and close the pop up,
 # 3) save the info to local profile.
 # also, assume sk_work_settings is available to use.
-def genStepsADSPowerObtainLocalAPISettings(stepN, settings_var, theme):
+def genStepsADSPowerObtainLocalAPISettings(settings_var, theme, stepN):
     psk_words = ""
     log3("DEBUG", "genADSPowerObtainLocalAPISettings..."+"stepN:"+str(stepN))
 
     this_step, step_words = genStepCreateData("string", "local_api_key", "NA", "", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "local_api_port", "NA", "", stepN)
+    this_step, step_words = genStepCreateData("string", "local_api_port", "NA", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -250,9 +250,11 @@ def genStepsADSPowerObtainLocalAPISettings(stepN, settings_var, theme):
     this_step, step_words = genStepADSSaveAPISettings("sk_work_settings", "save_result", "setting_saved", this_step)
     psk_words = psk_words + step_words
 
+    # close condition for api_key_resettable
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
-    # close bracket
+
+    # close bracket for "not local_api_key"
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -378,7 +380,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # use saved text to update individial bot profile cookie file
-    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, this_step)
+    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, "saved_batch", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
@@ -528,7 +530,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
     psk_words = psk_words + step_words
 
     # use saved text to update individial bot profile cookie file
-    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, this_step)
+    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, "saved_batch", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
