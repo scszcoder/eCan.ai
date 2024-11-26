@@ -2382,8 +2382,8 @@ class MainWindow(QMainWindow):
         # simply duplate the last prodlist_pages enough times to satisfy up to 5 pages requreiment
         if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
             last_page = work["config"]["searches"][nth_search]["prodlist_pages"][n_pages-1]
-            if n_pages < 5:  # we will browse up to 5 pages for a product purchase.
-                for i in range(5-n_pages):
+            if n_pages < 6:  # we will browse up to 6 pages for a product purchase.
+                for i in range(6-n_pages):
                     work["config"]["searches"][nth_search]["prodlist_pages"].append(copy.deepcopy(last_page))
 
             # on each pages, add the target buy product onto the list.
@@ -2497,24 +2497,31 @@ class MainWindow(QMainWindow):
     # main types will be: "buy", "goodFB", "badFB", "goodRating", "badRating"
     # sub types will be: 'addCart', 'pay', "checkShipping", 'rate', 'feedback', "checkFB"
     # 06-07-2024 actually not add, but again replace the configuration, otherwise, time will be wasted...
+    # scheduler on the cloud side:
+    #  1) any previously unfinished buy/browse tasks, will be re-attempted.
+    #  2a) for each bot, going thru bot's roles, if a role is buyer, check if the site is not covered in step 1), then create a new walk task
+    #  2b)                                       if a role is seller, simply create a new task (since sell needs to be done every day regardless)
+
     def add_buy_searchs(self, p_task_groups):
         print("add buy to taskgroup:", p_task_groups)
 
         #1st find all 1st stage buy missions.
         self.showMsg("task name:" + json.dumps([tsk["name"]  for tsk in p_task_groups]))
         buys = [tsk for tsk in p_task_groups if (tsk["name"].split("_")[0] in self.static_resource.BUY_TYPES)]
-        initial_buys = []
-        later_buys = []
+        pre_payment_buys = []
+        post_payment_buys = []
         for buy in buys:
             buy_parts = buy["name"].split("_")
             if len(buy_parts) > 1:
                 if buy_parts[1] in ['addCart', 'pay', 'addCartPay']:
-                    initial_buys.append(buy)
+                    pre_payment_buys.append(buy)
                 else:
-                    later_buys.append(buy)
+                    post_payment_buys.append(buy)
 
-        print(len(buys), len(initial_buys), len(later_buys))
-        for buytask in buys:
+        print(len(buys), len(pre_payment_buys), len(post_payment_buys))
+
+        # if the buy action in the task is pre-payment, then attach a search task to go with it.
+        for buytask in pre_payment_buys:
             # make sure we do search before buy
             midx = next( (i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
             if midx >= 0:
