@@ -701,6 +701,9 @@ def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 253, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("str", "driver_result", "NA", '', this_step)
+    psk_words = psk_words + step_words
+
     # hard default exe path code here just for testing purpose, eventually will be from input or settings....
     this_step, step_words = genStepCreateData("str", "sevenZExe", "NA", 'C:/Program Files/7-Zip/7z.exe', this_step)
     psk_words = psk_words + step_words
@@ -843,8 +846,7 @@ def genWinADSEbayBrowserInitializeSetup(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # use web driver to open the profile.
-    # genStepWebdriverStartExistingADS(driver_var, ads_api_key_var, profile_id_var, port_var, options_var, flag_var, stepN):
-    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port", "web_driver_path", "web_driver_options", "web_driver_successful", this_step)
+    this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "ads_api_key", "ads_profile_id", "ads_port", "web_driver_path", "web_driver_options", "driver_result", "web_driver_successful", this_step)
     psk_words = psk_words + step_words
 
     # now open the target web site.

@@ -56,6 +56,7 @@ elif sys.platform == 'darwin':
 import pyscreeze
 import PIL
 import pyautogui
+import pygetwindow as gw
 
 __PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
 pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
@@ -195,6 +196,27 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
         "theme": theme,
         "page_data_info": page_data,
         "section": sect
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepGetWindowsInfo(nth_var, results_var, flag_var, stepN):
+    stepjson = {
+        "type": "Get Windows Info",
+        "nth_var": nth_var,
+        "results_var": results_var,
+        "flag_var": flag_var
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepBringWindowToFront(title_var, flag_var, stepN):
+    stepjson = {
+        "type": "Bring Window To Front",
+        "title_var": title_var,
+        "flag_var": flag_var
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -5729,6 +5751,81 @@ def processMouseMove(step, i, mission):
             ex_stat = "ErrorMouseMove:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorMouseMove: traceback information not available:" + str(e)
+        symTab[step["flag_var"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+def processGetWindowsInfo(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag_var"]] = True
+        found_wins = []
+        if sys.platform == 'win32':
+            names = []
+
+            def winEnumHandler(hwnd, ctx):
+                if win32gui.IsWindowVisible(hwnd):
+                    n = win32gui.GetWindowText(hwnd)
+                    # log3("windows: "+str(n))
+                    if n:
+                        names.append(n)
+
+            win32gui.EnumWindows(winEnumHandler, None)
+
+            log3("TOP5 WINDOWS:" + ",".join(names[0:5]))
+            effective_names = [nm for nm in names if "dummy" not in nm]
+            found = False
+            if isinstance(step["nth_var"], str):
+                for wi, wn in enumerate(effective_names):
+                    win_title = effective_names[wi]
+                    window_handle = win32gui.FindWindow(None, effective_names[wi])
+                    win_rect = win32gui.GetWindowRect(window_handle)
+                    found_wins.append({"title": win_title, "rect": win_rect})
+
+            else:
+                # set to default top window
+                nth = step["nth_var"]
+                win_title = effective_names[nth]
+                window_handle = win32gui.FindWindow(None, effective_names[nth])
+                win_rect = win32gui.GetWindowRect(window_handle)
+                log3("default top window: " + names[nth] + " rect: " + json.dumps(win_rect))
+                found_wins.append({"title": names[nth], "rect": win_rect})
+
+        symTab[step["results_var"]] = found_wins
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWindowsInfo:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWindowsInfo: traceback information not available:" + str(e)
+        symTab[step["flag_var"]] = False
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
+
+
+def processBringWindowToFront(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        symTab[step["flag_var"]] = True
+        # Find the window by its title
+        target_window = gw.getWindowsWithTitle(symTab[step["title_var"]])[0]
+
+        # Activate the window (bring it to front)
+        target_window.activate()
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorBringWindowToFront:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorBringWindowToFront: traceback information not available:" + str(e)
         symTab[step["flag_var"]] = False
         log3(ex_stat)
 

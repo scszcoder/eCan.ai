@@ -11,7 +11,7 @@ import pytz
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud, \
     req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review, send_report_vehicles_to_cloud, send_dequeue_tasks_to_cloud, \
     send_update_missions_ex_status_to_cloud
-from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXlsx, covertTxtProfiles2XlsxProfiles, \
+from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXlsx, convertTxtProfiles2XlsxProfiles, \
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
 from bot.basicSkill import symTab, processSearchWordLine, process7z, convert_to_2d_array, genStepSearchWordLine, \
@@ -935,7 +935,7 @@ def test_batch_ads_profile_conversion(thisHost):
     site_lists = pJsons["site_lists"]
     fnames =  pJsons["fnames"]
 
-    covertTxtProfiles2XlsxProfiles(fnames, site_lists, thisHost)
+    convertTxtProfiles2XlsxProfiles(fnames, site_lists, thisHost)
 
 def test_get_all_wins():
     get_top_visible_window()
