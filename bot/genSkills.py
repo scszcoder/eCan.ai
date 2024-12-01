@@ -29,7 +29,8 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepReadFile, genStepWriteFile, genStepDeleteFile, genStepObtainReviews, genStepReportExternalSkillRunStatus, \
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
     genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
-    genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove
+    genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove, genStepGetWindowsInfo, \
+    genStepBringWindowToFront
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -37,7 +38,7 @@ from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, g
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
     genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
     genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent, genStepWebdriverCheckConnection, \
-    genStepWebdriverCheckVisibility
+    genStepWebdriverCheckVisibility, genStepWebdriverGetValueFromWebElement
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -83,6 +84,8 @@ PUBLIC = {
     'genStepMouseClick': genStepMouseClick,
     'genStepMouseScroll': genStepMouseScroll,
     'genStepMouseMove': genStepMouseMove,
+    'genStepGetWindowsInfo': genStepGetWindowsInfo,
+    'genStepBringWindowToFront': genStepBringWindowToFront,
     'genScrollDownUntilLoc': genScrollDownUntilLoc,
     'genScrollDownUntil': genScrollDownUntil,
     'genScrollUpUntilLoc': genScrollUpUntilLoc,
@@ -115,6 +118,7 @@ PUBLIC = {
     "genStepWebdriverSwitchToFrame": genStepWebdriverSwitchToFrame,
     "genStepWebdriverCheckConnection": genStepWebdriverCheckConnection,
     "genStepWebdriverCheckVisibility": genStepWebdriverCheckVisibility,
+    "genStepWebdriverGetValueFromWebElement": genStepWebdriverGetValueFromWebElement,
     'genStepCheckCondition': genStepCheckCondition,
     'genStepGetDefault': genStepGetDefault,
     'genStepGoto': genStepGoto,
@@ -786,7 +790,6 @@ def genTestRunSimpleLoopSkill(worksettings, stepN, theme):
 
     this_step, step_words = genStepStub("end loop", "", "", this_step)
     psk_words = psk_words + step_words
-
 
     this_step, step_words = genStepStub("end skill", "public/win_test_local_loop/run_simple_loop", "", this_step)
     psk_words = psk_words + step_words

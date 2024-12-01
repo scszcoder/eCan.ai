@@ -8,7 +8,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
-    processADSProfileBatches, processADSSaveAPISettings, processUpdateADSProfileIds
+    processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
     processAMZMatchProduct, genStepAMZSearchReviews
@@ -27,7 +27,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
     processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist, \
-    processPasteToData, processMouseMove
+    processPasteToData, processMouseMove, processGetWindowsInfo, processBringWindowToFront
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -36,7 +36,7 @@ from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, p
     processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, \
     processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer, \
     processWebdriverWaitForVisibility, processWebdriverSwitchToFrame, processWebdriverSwitchToDefaultContent, \
-    processWebdriverCheckConnection, processWebdriverCheckVisibility
+    processWebdriverCheckConnection, processWebdriverCheckVisibility, processWebdriverGetValueFromWebElement
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -122,6 +122,8 @@ RAIS = {
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
     "Mouse Move": lambda x,y,z: processMouseMove(x, y, z),
+    "Get Windows Info": lambda x,y: processGetWindowsInfo(x, y),
+    "Bring Window To Front": lambda x,y: processBringWindowToFront(x, y),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
     "Key Input": lambda x,y,z: processKeyInput(x, y, z),
@@ -164,7 +166,7 @@ RAIS = {
     "print Label": lambda x, y: processPrintLabels(x, y),
     "Read Json File": lambda x, y: processReadJsonFile(x, y),
     "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
-    "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
+    "ADS Batch Text To Profiles": lambda x,y,z: processUpdateBotADSProfileFromSavedBatchTxt(x, y,z),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "ADS Save API Settings": lambda x,y,z: processADSSaveAPISettings(x, y,z),
     "ADS Update Profile Ids": lambda x,y,z: processADSUpdateProfileIds(x, y,z),
@@ -237,6 +239,7 @@ RAIS = {
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
     "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
+    "Web Driver Get Value": lambda x, y: processWebdriverGetValueFromWebElement(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
@@ -263,6 +266,8 @@ ARAIS = {
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
     "Mouse Move": lambda x,y,z: processMouseMove(x, y, z),
+    "Get Windows Info": lambda x, y: processGetWindowsInfo(x, y),
+    "Bring Window To Front": lambda x, y: processBringWindowToFront(x, y),
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
     "Key Input": lambda x,y,z: processKeyInput(x, y, z),
@@ -305,7 +310,7 @@ ARAIS = {
     "print Label": lambda x,y: processPrintLabels(x, y),
     "Read Json File": lambda x,y: processReadJsonFile(x, y),
     "Read Xlsx File": lambda x,y: processReadXlsxFile(x, y),
-    "ADS Batch Text To Profiles": lambda x,y: processUpdateBotADSProfileFromSavedBatchTxt(x, y),
+    "ADS Batch Text To Profiles": lambda x,y,z: processUpdateBotADSProfileFromSavedBatchTxt(x, y,z),
     "ADS Gen XLSX Batch Profiles": lambda x,y: processADSGenXlsxBatchProfiles(x, y),
     "ADS Save API Settings": lambda x,y,z: processADSSaveAPISettings(x, y, z),
     "ADS Update Profile Ids": lambda x,y,z: processADSUpdateProfileIds(x, y,z),
@@ -378,6 +383,7 @@ ARAIS = {
     "Web Driver Wait Download Done And Transfer": lambda x, y: processWebdriverWaitDownloadDoneAndTransfer(x, y),
     "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
     "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
+    "Web Driver Get Value": lambda x, y: processWebdriverGetValueFromWebElement(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
@@ -639,7 +645,7 @@ def run1step(steps, si, mission, skill, stack):
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
             step["type"] == "Update Mission Status" or step["type"] == "ADS Save API Settings" or \
-            step["type"] == "ADS Update Profile Ids" or \
+            step["type"] == "ADS Update Profile Ids" or step["type"] == "ADS Batch Text To Profiles" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
@@ -703,6 +709,7 @@ async def run1step8(steps, si, mission, skill, stack):
              step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
              step["type"] == "AMZ Browser Scrape Products List" or step["type"] == "ADS Update Profile Ids" or \
              step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
+             step["type"] == "ADS Batch Text To Profiles" or \
              step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                 si,isat = await ARAIS[step["type"]](step, si, mission)

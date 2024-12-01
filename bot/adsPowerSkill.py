@@ -11,6 +11,9 @@ from bot.basicSkill import genStepStub, genStepCreateData, genStepCallExtern, ge
     genStepMouseScroll, genStepTextInput, genStepHeader, STEP_GAP, symTab, DEFAULT_RUN_STATUS, genStepSearchWordLine,  \
     genStepUseSkill, genStepPasteToData
 
+from pathlib import Path
+
+
 ADS_BATCH_SIZE = 2
 
 FULL_SITE_MAP = {
@@ -122,7 +125,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 
     # now that we have logged in, first get api settings ready if not yet directly ready from the
     # settings json file, then read it out and save it, and now we should be ready.
-    this_step, step_words = genStepsADSPowerObtainLocalAPISettings(this_step, theme)
+    this_step, step_words = genStepsADSPowerObtainLocalAPISettings(worksettings, theme, this_step)
     psk_words = psk_words + step_words
 
 
@@ -159,14 +162,14 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 #     new api key pop up appears, grab it, and close the pop up,
 # 3) save the info to local profile.
 # also, assume sk_work_settings is available to use.
-def genStepsADSPowerObtainLocalAPISettings(stepN, theme):
+def genStepsADSPowerObtainLocalAPISettings(settings_var, theme, stepN):
     psk_words = ""
     log3("DEBUG", "genADSPowerObtainLocalAPISettings..."+"stepN:"+str(stepN))
 
     this_step, step_words = genStepCreateData("string", "local_api_key", "NA", "", stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "local_api_port", "NA", "", stepN)
+    this_step, step_words = genStepCreateData("string", "local_api_port", "NA", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -247,9 +250,11 @@ def genStepsADSPowerObtainLocalAPISettings(stepN, theme):
     this_step, step_words = genStepADSSaveAPISettings("sk_work_settings", "save_result", "setting_saved", this_step)
     psk_words = psk_words + step_words
 
+    # close condition for api_key_resettable
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
-    # close bracket
+
+    # close bracket for "not local_api_key"
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -375,7 +380,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # use saved text to update individial bot profile cookie file
-    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, this_step)
+    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, "saved_batch", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
@@ -406,6 +411,138 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
     # psk_words = psk_words + step_words
 
     return this_step, psk_words
+
+
+def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
+    psk_words = ""
+    log3("DEBUG", "genAMZBrowseDetails..."+json.dumps(worksettings)+"stepN:"+str(stepN))
+
+    # 1st save all profiles, click on select all checkbox, then hit export button, at the dialog do  things:
+    #     i) select all under fingerprint
+    #    ii) select all under region
+    #   iii) select all under proxy?
+    #    iv) click and set directory
+    #    then hit save button.
+    #   then hit OK button.
+    #   obtain saved file and extract info for each user porfile and save into each user profile.
+    # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, stepN, None)
+    this_step, step_words = genStepWait(2, 0, 0, stepN)
+    psk_words = psk_words + step_words
+
+    # now read screen, if there is log in, then click on log in.
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("expr", "ads_file_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
+    psk_words = psk_words + step_words
+
+    # first click on select all checkbox
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checkbox", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
+    # click on the 2nd log in on the screen (index start at 0, so 1 is the 2nd one)
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_icon", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_selected", "anchor text", "", 0, "center", [0, 0], "box", 2, 3, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "tags", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "url_open", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "proxy", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "region", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "city", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "fingerprints", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "text_file", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 1, False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # now file dialog will show up for you to input the dir name, so do so.....
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "file_dialog", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [4, 0], "box", 1, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepTextInput("var", False, "ads_file_path", "direct", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "select_folder", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok_button", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # wait 5 seconds for batch text to save, once done, a pop up with "Close" button will pop up.
+    this_step, step_words = genStepWait(6, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.85, 0.66],'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # click "Close" button on the pop up.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "close", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    # use saved text to update individial bot profile cookie file
+    this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, "saved_batch", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    psk_words = psk_words + step_words
+
+    # uncheck all the checkboxes.
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checked", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+
+    return this_step, psk_words
+
 
 
 def genADSPowerNewProfileSkill(worksettings, stepN, theme):
@@ -1340,14 +1477,15 @@ def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
 
 def genProfileTxt(pfJsons, fname):
     # Convert JSON data to a DataFrame
-    with open(fname, 'w') as f:
-        for pfJson in pfJsons:
-            f.write("\n")
-            pfJson["cookie"]=json.dumps(pfJson["cookie"])
+    if os.path.exists(fname):
+        with open(fname, 'w') as f:
+            for pfJson in pfJsons:
+                f.write("\n")
+                pfJson["cookie"]=json.dumps(pfJson["cookie"])
 
-            for pfkey in pfJson.keys():
-                f.write(pfkey+"="+pfJson[pfkey]+"\n")
-    f.close()
+                for pfkey in pfJson.keys():
+                    f.write(pfkey+"="+pfJson[pfkey]+"\n")
+        f.close()
 
 # this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
 # site_lists is in the format "{email_before@ : ["google", "gmail", "amazon"]}, .... }
@@ -1360,7 +1498,7 @@ def genProfileXlsxs(pfJsons, fnames, site_lists, thisHost):
 
 
 # this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
-def covertTxtProfiles2XlsxProfiles(fnames, site_lists, thisHost):
+def convertTxtProfiles2XlsxProfiles(fnames, site_lists, thisHost):
     pf_idx = 0
     for fname in fnames:
         basename = os.path.basename(fname)
@@ -1372,7 +1510,7 @@ def covertTxtProfiles2XlsxProfiles(fnames, site_lists, thisHost):
         pf_idx = pf_idx + 1
 
 
-def covertTxtProfiles2DefaultXlsxProfiles(fnames):
+def convertTxtProfiles2DefaultXlsxProfiles(fnames):
     pf_idx = 0
     for fname in fnames:
         basename = os.path.basename(fname)
@@ -1427,16 +1565,16 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
                 bot_mid_key = found_bot.getEmail().split("@")[0]+"_m"+str(found_mision.getMid()) + ".txt"
                 log3("bot_mid_key: "+bot_mid_key+" bot_txt_profile_name:"+bot_txt_profile_name, "genAdsProfileBatchs", thisHost)
 
-                print("batch_bot_profiles_read:", batch_bot_profiles_read, "genAdsProfileBatchs", thisHost)
+                log3("batch_bot_profiles_read:"+json.dumps(batch_bot_profiles_read), "genAdsProfileBatchs", thisHost)
                 if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
                     newly_read = readTxtProfile(bot_txt_profile_name)
                     batch_bot_profiles_read.append(bot_txt_profile_name)
                 else:
-                    if not thisHost.isPlatoon():
-                        log3("bot_txt_profile_name doesn't exist!"+bot_txt_profile_name, "genAdsProfileBatchs", thisHost)
-                        if not os.path.exists(batch_file):
-                            log3("batched xlsx file doesn't exist either!", "genAdsProfileBatchs", thisHost)
-                            found_mision.setFingerPrintProfile("")
+                    # if not thisHost.isPlatoon():
+                    log3("bot_txt_profile_name doesn't exist!"+bot_txt_profile_name, "genAdsProfileBatchs", thisHost)
+                    if not os.path.exists(batch_file):
+                        log3("batched xlsx file doesn't exist either!", "genAdsProfileBatchs", thisHost)
+                        found_mision.setFingerPrintProfile("")
 
                     newly_read = []
 
@@ -1444,12 +1582,12 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
 
                 bot_pfJsons = bot_pfJsons + newly_read
 
-                if not thisHost.isPlatoon():
-                    found_bot.setADSProfile(bot_pfJsons)
+                # if not thisHost.isPlatoon():
+                found_bot.setADSProfile(bot_pfJsons)
 
                 if w_idx >= thisHost.getADSBatchSize()-1:
-                    if not thisHost.isPlatoon():
-                        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
+                    # if not thisHost.isPlatoon():
+                    genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
                     v_ads_profile_batch_xlsxs.append(batch_file)
                     w_idx = 0
                     bot_pfJsons = []
@@ -1464,8 +1602,8 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
 
     # take care of the last batch.
     if len(bot_pfJsons) > 0:
-        if not thisHost.isPlatoon():
-            genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
+        # if not thisHost.isPlatoon():
+        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
         v_ads_profile_batch_xlsxs.append(batch_file)
 
     return v_ads_profile_batch_xlsxs
@@ -1475,11 +1613,13 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
 # a batch can be done easily.
 # input: batch_profiles_txt: just saved batch of profiles in txt format:
 # site_list:
-def updateIndividualProfileFromBatchSavedTxt(batch_profiles_txt):
+def updateIndividualProfileFromBatchSavedTxt(batch_profiles_txt, mainwin, settings_var_name):
     pfJsons = readTxtProfile(batch_profiles_txt)
     pf_dir = os.path.dirname(batch_profiles_txt)
     # log3("pf_dir:"+pf_dir)
     # log3("pfJsons:"+json.dumps(pfJsons))
+
+    # each pfJson is a full pfJson for a bot
     for pfJson in pfJsons:
         # each pfJson is a json for the bot-mission pair
         # xlsx_file_path = pf_dir + "/" + pfJson["username"].split("@")[0]+".xlsx"
@@ -1503,6 +1643,17 @@ def updateIndividualProfileFromBatchSavedTxt(batch_profiles_txt):
         #now update txt version of the profile of the bot
         genProfileTxt([pfJson], txt_file_path)
 
+        # find the bot
+        found_bot = next((bot for i, bot in enumerate(mainwin.bots) if bot.getEmail() == pfJson["username"]), None)
+        if found_bot:
+            found_bot.setADSProfile([pfJson])
+            # also need to update settings, make sure the ads profile id
+            symTab[settings_var_name]["ads_profile_id"] = pfJson["id"]
+
+        else:
+            log3("Bot pfJson:" + pfJson["username"] + " not found.", "genAdsProfileBatchs", mainwin)
+
+
 # for a list of existing cookies, find matching in name and domain and path, if matched all three in newones,
 # replace the existing cookie with the one in newones, otherwise, simply add newones into the existing ones.
 def merge_cookies(existing, new_ones):
@@ -1524,10 +1675,11 @@ def merge_cookies(existing, new_ones):
 
     return merged_cookies
 
-def genStepUpdateBotADSProfileFromSavedBatchTxt(batch_txt_dir, output, n, stepN):
+def genStepUpdateBotADSProfileFromSavedBatchTxt(batch_txt_dir, settings_var,  n, output, stepN):
         stepjson = {
             "type": "ADS Batch Text To Profiles",
             "batch_txt_dir": batch_txt_dir,
+            "settings_var": settings_var,
             "n_files": n,
             "output": output
         }
@@ -1535,9 +1687,11 @@ def genStepUpdateBotADSProfileFromSavedBatchTxt(batch_txt_dir, output, n, stepN)
         return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
-
+#  after saving bots's batch profile in text format,
+#  update it each bot's individual profile in text format. (main thing is merge of coookies)
+def processUpdateBotADSProfileFromSavedBatchTxt(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
+    mainwin = mission.get_main_win()
     try:
         # it stinks that ADS batch save doesn't allow you to pick an output file name, so you have to grab the one with the latest time stamp.
         log3("batch_txt_dir:" + step["batch_txt_dir"] + " " + symTab[step["batch_txt_dir"]])
@@ -1560,7 +1714,8 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i):
         # first remove the previously save rollback point, but leave up to 3 rollback points
         for latest in latest_n_files:
             log3("extract individual ADS profile from latest_file:" + latest)
-            updateIndividualProfileFromBatchSavedTxt(latest)
+            updateIndividualProfileFromBatchSavedTxt(latest, mainwin, step["settings_var"])
+
 
         # wait after key action.
         # time.sleep(step["wait_after"])
@@ -1633,8 +1788,7 @@ def processADSSaveAPISettings(step, i, mission):
     mainwin = mission.get_main_win()
     symTab[step["flag_var"]] = True
     try:
-        # now save for roll back if ever needed.
-        # first remove the previously save rollback point, but leave up to 3 rollback points
+
         settings = symTab[step["settings_var"]]
         mainwin.saveADSSettings(settings)
 
@@ -1672,7 +1826,11 @@ def processADSUpdateProfileIds(step, i, mission):
         # now save for roll back if ever needed.
         # first remove the previously save rollback point, but leave up to 3 rollback points
         settings = symTab[step["settings_var"]]
-        mainwin.saveADSSettings(settings)
+
+        # given the batch profile name, use email to find all bots
+        # then go change bot's ads profile id.
+
+
 
     except Exception as e:
         # Get the traceback information
@@ -1686,5 +1844,17 @@ def processADSUpdateProfileIds(step, i, mission):
         symTab[step["flag_var"]] = False
 
     return (i + 1), ex_stat
+
+
+def updateBatchedProfilesDueToUnknownBatchSave(settings_name, savedPfJsons):
+    missionBatchXlsx = symTab[settings_name]["batch_profile"]
+    directory = Path(missionBatchXlsx)
+    fileParts = missionBatchXlsx.split("B")
+    batchPrefix = fileParts[0]+"B"
+    xlsxFiles = list(directory.glob(batchPrefix+'*.xlsx'))
+
+    # now read each file in xlsxFiles see whether the xlsx contains any entry of savedPfJsons
+    # if so, regenerate the row in xlsxFile .
+
 
 
