@@ -1823,7 +1823,7 @@ def genScroll1StarReviewsPage(stepN, start):
 #                                                       double confirm.
 #                                                    if dropdown, then click on drop down menu and seach selection, scroll if needed.
 #    after selection,
-def genAMZBuySelectVariations(pd_var_name, stepN):
+def genAMZBuySelectVariations(pd_var_name, stepN, theme):
     psk_words = ""
 
     this_step, step_words = genStepCreateData("expr", "n_var", "NA", "len("+pd_var_name+"['dimensions'])", stepN)

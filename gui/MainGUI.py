@@ -53,7 +53,7 @@ from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, covertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
-from bot.basicSkill import STEP_GAP, setMissionInput, unzip_file, list_zip_file
+from bot.basicSkill import STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
 from bot.inventories import INVENTORY
@@ -227,6 +227,8 @@ class MainWindow(QMainWindow):
         self.cog = None
         self.cog_client = None
         self.host_role = machine_role
+        self.screen_size = getScreenSize()
+        self.display_resolution = "D"+str(screen_size[0])+"X"+str(screen_size[1])
         if "Only" in self.host_role:
             self.chat_id = self.chat_id + "_Commander"
         else:
@@ -375,6 +377,9 @@ class MainWindow(QMainWindow):
 
                 if "default_printer" in self.general_settings:
                     self.default_printer = self.general_settings["default_printer"]
+
+                if "display_resolution" in self.general_settings:
+                    self.display_resolution = self.general_settings["display_resolution"]
 
                 if "default_webdriver" in self.general_settings:
                     if self.general_settings["default_webdriver"]:
@@ -1664,6 +1669,8 @@ class MainWindow(QMainWindow):
             index_value = -1
         return index_value
 
+    def getDisplayResolution(self):
+        return self.display_resolution
 
     def test_scroll(self):
         mouse = Controller()

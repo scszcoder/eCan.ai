@@ -92,6 +92,9 @@ icon_match_dict = {}
 #####################################################################################
 #  some useful utility functions
 #####################################################################################
+def getScreenSize():
+    return pyautogui.size()
+
 
 def get_default_download_dir():
     home = os.path.expanduser("~").replace("\\", "/")
@@ -1194,7 +1197,10 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
     m_skill_names = [sk_settings["skname"]]
     m_psk_names = [sk_settings["skfname"]]
     csk_name = sk_settings["skfname"].replace("psk", "csk")
-    m_csk_names = [csk_name]
+    csk_dir = os.path.dirname(csk_name)
+    csk_file = os.path.basename(csk_name)
+    local_csk_name = csk_dir + "/" + sk_settings["display_resolution"] + "/" + csk_file
+    m_csk_names = [local_csk_name]
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1C: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1225,6 +1231,7 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
     if options != "":
         if isinstance(symTab[options], str):
             request[0]["options"] = symTab[options]
+
         elif isinstance(symTab[options], dict):
             full_width = window_rect[2] - window_rect[0]
             full_height = window_rect[3] - window_rect[1]
@@ -1235,6 +1242,9 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
                                                       int(symTab[options]["attention_area"][1]*full_height),
                                                       int(symTab[options]["attention_area"][2]*full_width),
                                                       int(symTab[options]["attention_area"][3]*full_height) ]
+
+            if "display_resolution" not in symTab[options]:
+                symTab[options]["display_resolution"] = sk_settings["display_resolution"]
 
             request[0]["options"] = json.dumps(symTab[options]).replace('"', '\\"')
     else:
@@ -1249,7 +1259,7 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
         full_height = window_rect[3] - window_rect[1]
         # request[0]["options"]["attention_area"] = [half_width, 0, full_width, full_height]
         # request[0]["options"]["attention_targets"] = []
-        request[0]["options"] = json.dumps({"attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
+        request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1366,6 +1376,9 @@ async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout,
                                                       int(symTab[options]["attention_area"][2]*full_width),
                                                       int(symTab[options]["attention_area"][3]*full_height) ]
 
+            if "display_resolution" not in symTab[options]:
+                symTab[options]["display_resolution"] = sk_settings["display_resolution"]
+
             request[0]["options"] = json.dumps(symTab[options]).replace('"', '\\"')
     else:
         # attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
@@ -1375,7 +1388,7 @@ async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout,
         # or center half of the screen.
         half_width = int(full_width/2)
         half_height = int((full_height)/2)
-        request[0]["options"] = json.dumps({"attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
+        request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
