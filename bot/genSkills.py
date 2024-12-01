@@ -523,6 +523,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "ads_profile_id": bot.getADSProfile()[0]["id"],
             "options": "{}",
             "self_ip": lieutenant.ip,
+            "display_resolution": lieutenant.getDisplayResolution(),
             "machine_name": lieutenant.machine_name,
             "scroll_resolution": scroll_resolution,
             "as_server": as_server,

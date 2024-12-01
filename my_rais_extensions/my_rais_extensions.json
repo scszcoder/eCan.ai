@@ -18,5 +18,93 @@
                 "handler args": []
             }
         ]
+    },
+    {
+        "file": "kookeey_skill.py",
+        "dir": "my_skills/win_chrome_kookey_ip",
+        "instructions": [
+            {
+                "instruction name": "Kookeey List IPs",
+                "generator": "genStepMyKookeeyListIPs",
+                "handler": "processMyKookeeyListIPs",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "Kookeey Top Up",
+                "generator": "genStepMyKookeeyTopUp",
+                "handler": "processMyKookeyTopUp",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "Kookeey Buy IPs",
+                "generator": "genStepMyKookeeyBuyIPs",
+                "handler": "processMyKookeyBuyIPs",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "Kookeey Update IPs",
+                "generator": "genStepMyKookeeyUpdateIPs",
+                "handler": "processMyKookeyUpdateIPs",
+                "generator args": [],
+                "handler args": []
+            }
+        ]
+    },
+    {
+        "file": "vcc_skill.py",
+        "dir": "my_skills/win_chrome_vcc_card",
+        "instructions": [
+            {
+                "instruction name": "VCC List Cards",
+                "generator": "genStepMyVCCListCards",
+                "handler": "processMyVCCListCards",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "VCC Top Up",
+                "generator": "genStepMyVCCTopUp",
+                "handler": "processMyVCCTopUp",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "VCC Buy Cards",
+                "generator": "genStepMyVCCBuyCards",
+                "handler": "processMyVCCBuyCards",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "VCC Delete Cards",
+                "generator": "genStepMyVCCDeleteCards",
+                "handler": "processMyVCCDeleteCards",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "VCC Update Cards",
+                "generator": "genStepMyVCCUpdateCards",
+                "handler": "processMyVCCUpdateCards",
+                "generator args": [],
+                "handler args": []
+            }
+        ]
+    },
+    {
+        "file": "changelly_skill.py",
+        "dir": "my_skills/win_chrome_changelly_swap",
+        "instructions": [
+            {
+                "instruction name": "Changelly Exchange",
+                "generator": "genStepMyChangellyExchange",
+                "handler": "processMyChangellyExchange",
+                "generator args": [],
+                "handler args": []
+            }
+        ]
     }
 ]
