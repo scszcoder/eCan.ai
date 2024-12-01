@@ -1826,6 +1826,7 @@ def genScroll1StarReviewsPage(stepN, start):
 def genAMZBuySelectVariations(pd_var_name, stepN, theme):
     psk_words = ""
 
+
     this_step, step_words = genStepCreateData("expr", "n_var", "NA", "len("+pd_var_name+"['dimensions'])", stepN)
     psk_words = psk_words + step_words
 
