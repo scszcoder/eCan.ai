@@ -547,7 +547,7 @@ def genStepsAMZBrowserBrowseProductLists(pageCfgsName, ith, lastone, flows, step
 
     # back up is always a quick scroll, will never browse along the way.
     this_step, step_words = genStepsAMZBrowserScrollProductListToTop(this_step)
-    psk_words = psk_words + step_words
+    psk_words = psk_words + step_words12/27
 
     # # close bracket for condition (pageOfOrders['num_pages'] == pageOfOrders['page'])
     this_step, step_words = genStepStub("end condition", "", "", this_step)
