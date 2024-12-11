@@ -570,7 +570,7 @@ def gen_query_missions_string(query):
 def gen_schedule_request_string(test_name, schedule_settings):
     if test_name == "":
         qvs = None
-        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"test_name\\\": \\\""+test_name+"\\\", \\\"forceful\\\": " + schedule_settings.get("forceful", "false") + ", \\\"tz\\\": \\\"" + schedule_settings.get("tz", "America/Los_Angeles") + "\\\"}\") } "
+        query_string = "query MySchQuery { genSchedules(settings: \"{ \\\"testmode\\\": false, \\\"test_name\\\": \\\""+test_name+"\\\", \\\"forceful\\\": " + schedule_settings.get("forceful", "false") + ", \\\"skillPreferences\\\": " + schedule_settings.get("skillPreferences", "{\\\"no_preference\\\":false, \\\"use_in_browser_skill\\\":true}") + ", \\\"tz\\\": \\\"" + schedule_settings.get("tz", "America/Los_Angeles") + "\\\"}\") } "
     else:
         serialized_settings = json.dumps(schedule_settings)
         escaped_settings = serialized_settings.replace('"', '\"')
