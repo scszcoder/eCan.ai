@@ -228,7 +228,7 @@ class MainWindow(QMainWindow):
         self.cog_client = None
         self.host_role = machine_role
         self.screen_size = getScreenSize()
-        self.display_resolution = "D"+str(screen_size[0])+"X"+str(screen_size[1])
+        self.display_resolution = "D"+str(self.screen_size[0])+"X"+str(self.screen_size[1])
         if "Only" in self.host_role:
             self.chat_id = self.chat_id + "_Commander"
         else:
@@ -893,7 +893,7 @@ class MainWindow(QMainWindow):
                         if hasattr(module, ins["handler"]):
                             RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
                             ARAIS[ins["instruction name"]] = getattr(module, ins["handler"])
-                            print("EXTENDING ARAIS")
+                            print("EXTENDING ARAIS", ins["instruction name"])
 
         # now load experience file which will speed up icon matching
         run_experience_file = self.my_ecb_data_homepath + "/run_experience.txt"
@@ -5548,7 +5548,7 @@ class MainWindow(QMainWindow):
         json_files = []
 
         skdir = self.homepath + "/resource/skills/public/"
-        print("LISTING myskills:", skdir, os.walk(skdir))
+        print("LISTING pub skills:", skdir, os.walk(skdir))
         # Iterate over all files in the directory
         # Walk through the directory tree recursively
         for root, dirs, files in os.walk(skdir):
@@ -5590,52 +5590,64 @@ class MainWindow(QMainWindow):
 
     # load locally stored skills
     def loadLocalPrivateSkills(self):
-        skill_def_files = []
-        skid_files = []
-        psk_files = []
-        csk_files = []
-        json_files = []
+        try:
+            skill_def_files = []
+            skid_files = []
+            psk_files = []
+            csk_files = []
+            json_files = []
 
-        skdir = self.my_ecb_data_homepath + "/my_skills/"
-        print("LISTING myskills:", skdir, os.walk(skdir))
-        # Iterate over all files in the directory
-        # Walk through the directory tree recursively
-        for root, dirs, files in os.walk(skdir):
-            for file in files:
-                if file.endswith(".json"):
-                    file_path = os.path.join(root, file)
-                    skill_def_files.append(file_path)
-                    print("load private skill definition json file:" + file+"::"+file_path)
+            skdir = self.my_ecb_data_homepath + "/my_skills/"
+            print("LISTING myskills:", skdir, os.walk(skdir))
+            # Iterate over all files in the directory
+            # Walk through the directory tree recursively
+            for root, dirs, files in os.walk(skdir):
+                for file in files:
+                    if file.endswith(".json"):
+                        file_path = os.path.join(root, file)
+                        skill_def_files.append(file_path)
+                        print("load private skill definition json file:" + file+"::"+file_path)
 
-        # self.showMsg("local skill files: "+json.dumps(skill_def_files))
+            # self.showMsg("local skill files: "+json.dumps(skill_def_files))
 
-        # if json exists, use json to guide what to do
-        existing_skids = [sk.getSkid() for sk in self.skills]
-        for file_path in skill_def_files:
-            print("working on:", file_path)
-            with open(file_path) as json_file:
-                sk_data = json.load(json_file)
-                json_file.close()
-                self.showMsg("loading private skill f: "+str(sk_data["skid"])+" "+file_path)
-                if sk_data["skid"] in existing_skids:
-                    new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
-                    new_skill.loadJson(sk_data)
-                    self.skills.append(new_skill)
-                    print("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(), new_skill.getPath())
-                else:
-                    #update the existing skill or no even needed?
-                    found_skill = next((x for x in self.skills if x.getSkid()==sk_data["skid"]), None)
-                    # if found_skill:
+            # if json exists, use json to guide what to do
+            existing_skids = [sk.getSkid() for sk in self.skills]
+            for file_path in skill_def_files:
+                print("working on:", file_path)
+                with open(file_path) as json_file:
+                    sk_data = json.load(json_file)
+                    json_file.close()
+                    print("sk_data::", sk_data)
+                    self.showMsg("loading private skill f: "+str(sk_data["skid"])+" "+file_path)
+                    if sk_data["skid"] in existing_skids:
+                        new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
+                        new_skill.loadJson(sk_data)
+                        self.skills.append(new_skill)
+                        print("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(), new_skill.getPath())
+                    else:
+                        #update the existing skill or no even needed?
+                        found_skill = next((x for x in self.skills if x.getSkid()==sk_data["skid"]), None)
+                        # if found_skill:
 
 
-                this_skill_dir = skdir+sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"/"
-                gen_string = sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"_"+sk_data["name"]
-                self.showMsg("total skill files loaded: "+str(len(self.skills)))
-                self.load_external_functions(this_skill_dir, sk_data["name"], gen_string, sk_data["generator"])
-                # no need to run genSkillCode, since once in table, will be generated later....
-                # genSkillCode(sk_full_name, privacy, root_path, start_step, theme)
+                    this_skill_dir = skdir+sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"/"
+                    gen_string = sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"_"+sk_data["name"]
+                    self.showMsg("total skill files loaded: "+str(len(self.skills)))
+                    self.load_external_functions(this_skill_dir, sk_data["name"], gen_string, sk_data["generator"])
+                    # no need to run genSkillCode, since once in table, will be generated later....
+                    # genSkillCode(sk_full_name, privacy, root_path, start_step, theme)
 
-        self.showMsg("Added Local Private Skills:"+str(len(self.skills)))
+            self.showMsg("Added Local Private Skills:"+str(len(self.skills)))
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorLoadLocalPrivateSkills:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorLoadLocalPrivateSkills: traceback information not available:" + str(e)
+            self.showMsg(ex_stat)
 
 
     #  in case private skill use certain external functions, load them

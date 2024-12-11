@@ -68,6 +68,7 @@ from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
 from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
+from utils.logger_helper import login
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -237,6 +238,8 @@ PUBLIC = {
     'genStepObtainReviews': genStepObtainReviews,
     'genStepKillProcesses': genStepKillProcesses,
     # done exposing all methods.....now expose data structure defs.
+    "loginMain": login,
+    # 'mainwin': login.main_win,
     'OrderedProduct': OrderedProduct,
     'ORDER': ORDER,
     'Shipping': Shipping,

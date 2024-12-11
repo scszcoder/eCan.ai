@@ -162,7 +162,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 #     new api key pop up appears, grab it, and close the pop up,
 # 3) save the info to local profile.
 # also, assume sk_work_settings is available to use.
-def genStepsADSPowerObtainLocalAPISettings(settings_var, theme, stepN):
+def genStepsADSPowerObtainLocalAPISettings(stepN, settings_var, theme):
     psk_words = ""
     log3("DEBUG", "genADSPowerObtainLocalAPISettings..."+"stepN:"+str(stepN))
 
