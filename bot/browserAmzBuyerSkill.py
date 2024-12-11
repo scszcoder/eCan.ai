@@ -1677,178 +1677,189 @@ def genStubWinADSAMZWalkSkill(worksettings, stepN):
 
 
 def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
-    log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill======>")
-    psk_words = "{"
-    site_url = "https://www.amazon.com/"
+    try:
+        log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill======>")
+        psk_words = "{"
+        site_url = "https://www.amazon.com/"
 
-    this_step, step_words = genStepHeader("win_ads_amz_browser_browse_search", "win", "1.0", "AIPPS LLC",
-                                          "PUBWINADSAMZBROWSE011",
-                                          "AMZ Webdriver Browse On Windows ADS.", stepN)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepHeader("win_ads_amz_browser_browse_search", "win", "1.0", "AIPPS LLC",
+                                              "PUBWINADSAMZBROWSE011",
+                                              "AMZ Webdriver Browse On Windows ADS.", stepN)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_home/browser_browse_search", "", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_home/browser_browse_search", "", this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "[sk_work_settings['batch_profile']]", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "[sk_work_settings['batch_profile']]", this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 250, this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("int", "scroll_resolution", "NA", 250, this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("int", "retry_count", "NA", 5, this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("int", "retry_count", "NA", 5, this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("bool", "mission_failed", "NA", False, this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("bool", "mission_failed", "NA", False, this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("bool", "not_logged_in", "NA", False, this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("bool", "not_logged_in", "NA", False, this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("string", "drive_result", "NA", "", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("string", "drive_result", "NA", "", this_step)
+        psk_words = psk_words + step_words
 
-    # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
-    # Note: this skill simply opens the profiles button, whether the target profile is loaded is yet to be determined.
-    this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
-    psk_words = psk_words + step_words
-    #
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
+        # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
+        # Note: this skill simply opens the profiles button, whether the target profile is loaded is yet to be determined.
+        this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
+        psk_words = psk_words + step_words
+        #
+        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        psk_words = psk_words + step_words
 
-    # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
-    # scroll down half screen and check again if nothing found in the 1st glance.
-    this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0, 0, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    # look at the profiles list and check whether the target profile is listed.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "win_title", "NA", "AdsPower Browser", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepSearchWordLine("screen_info", "win_title", "expr", "any", "ver_lines", "version_available", "ads", False, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "vers", "NA", [], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("string", "ads_ver", "NA", "", this_step)
-    psk_words = psk_words + step_words
-
-    # grab the ADS version if the ADS version line is found.
-    this_step, step_words = genStepCheckCondition("ver_lines", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global ver_lines, pattern, vers\npattern = '\\d\\.\\d'\nvers = [s for s in ver_lines[0]['line_txt'].split() if re.search(pattern, s)]\nprint('ver_lines:', ver_lines)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global vers, ads_ver\nads_ver = ':'.join(vers)\nprint('ads_ver:', ads_ver)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global sk_work_settings, ads_ver\nsk_work_settings['fp_browser_settings']['ads_version'] = ads_ver", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
+        # now check the to be run bot's profile is already loaded, do this by examine whether bot's email appears on the ads page.
+        # scroll down half screen and check again if nothing found in the 1st glance.
+        this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email'].split('@')[0]+'@'", this_step)
+        psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepStub("else", "", "", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("expr", "bemail", "NA", "sk_work_settings['b_email']", this_step)
+        psk_words = psk_words + step_words
 
-    # just give it a default version number..
-    this_step, step_words = genStepCallExtern("global sk_work_settings\nsk_work_settings['fp_browser_settings']['ads_version'] = '6.2.29:2.7.1.1'", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0, 0, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
 
-    # now simply try to open the bot's profile with profile id, if it failed, that means the current
-    # batch doesn't contain the bot, so it's time to batch import the batch that contains the
-    # bot's profile.
-    # however do note, that once the batch is loaded, the profile id will be changed by ADS,
-    # will will have to update profile id on all bots in this batch
+        # look at the profiles list and check whether the target profile is listed.
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepsLoadRightBatchForBot(worksettings, theme, this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("string", "win_title", "NA", "AdsPower Browser", this_step)
+        psk_words = psk_words + step_words
 
+        this_step, step_words = genStepSearchWordLine("screen_info", "win_title", "expr", "any", "ver_lines", "version_available", "ads", False, this_step)
+        psk_words = psk_words + step_words
 
-    #  at this point all webdriver connection to ADS issue should have been cleared. and profiles loaded.
-    #  also ads api port should already be made sure to be correct.
-    #  and the correct batch should be loaded too at this point, and we should be able to just
-    #  go straight into actions with selenium web driver all the way.....
+        this_step, step_words = genStepCreateData("obj", "vers", "NA", [], this_step)
+        psk_words = psk_words + step_words
 
-    # wait 9 seconds for the browser to be brought up.
-    this_step, step_words = genStepWait(5, 1, 3, this_step)
-    psk_words = psk_words + step_words
-    #
-    #
-    # # following is for tests purpose. hijack the flow, go directly to browse....
-    # # this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
-    # # this_step, step_words = genStepGoToWindow("Chrome", "", "g2w_status", this_step)
-    # # psk_words = psk_words + step_words
-    #
-    # this_step, step_words = genStepWait(3, 1, 3, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # now that the profile is loaded, we connect webdriver to ADS power.
-    # this_step, step_words = genStepWebdriverNewTab("web_driver", "https://www.amazon.com/", "site_result", "site_flag", this_step)
-    # psk_words = psk_words + step_words
+        this_step, step_words = genStepCreateData("string", "ads_ver", "NA", "", this_step)
+        psk_words = psk_words + step_words
 
-    # now open the target amazon web site，(this step will internall check whether the tab is already open, if open, simply switch to it)
-    this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com", "site_result", "site_flag", this_step)
-    # this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com/iMBAPrice-Sealing-Tape-Shipping-Packaging/dp/B072MD8W9Q?th=1", "site_result", "site_flag", this_step)
-    psk_words = psk_words + step_words
+        # grab the ADS version if the ADS version line is found.
+        this_step, step_words = genStepCheckCondition("ver_lines", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global ver_lines, pattern, vers\npattern = '\\d\\.\\d'\nvers = [s for s in ver_lines[0]['line_txt'].split() if re.search(pattern, s)]\nprint('ver_lines:', ver_lines)", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global vers, ads_ver\nads_ver = ':'.join(vers)\nprint('ads_ver:', ads_ver)", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global sk_work_settings, ads_ver\nsk_work_settings['fp_browser_settings']['ads_version'] = ads_ver", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepsAMZBrowserLoginIn(this_step, theme)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
-    psk_words = psk_words + step_words
+        # just give it a default version number..
+        this_step, step_words = genStepCallExtern("global sk_work_settings\nsk_work_settings['fp_browser_settings']['ads_version'] = '6.2.29:2.7.1.1'", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWait(1, 0, 0, this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
 
-    #now call the amz chrome browse sub-skill to go thru the walk process.
-    this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
-    # this_step, step_words = genStubWinChromeAMZBrowserWalk("sk_work_settings", this_step)
-    psk_words = psk_words + step_words
+        # now simply try to open the bot's profile with profile id, if it failed, that means the current
+        # batch doesn't contain the bot, so it's time to batch import the batch that contains the
+        # bot's profile.
+        # however do note, that once the batch is loaded, the profile id will be changed by ADS,
+        # will will have to update profile id on all bots in this batch
 
-    # end condition for "not_logged_in == False"
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-    #
-    # close the browser and exit the skill, assuming at the end of genWinChromeAMZWalkSteps, the browser tab
-    # should return to top of the amazon home page with the search text box cleared.
-    this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepsLoadRightBatchForBot(worksettings, theme, this_step)
+        psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
-    psk_words = psk_words + step_words
+        #  at this point all webdriver connection to ADS issue should have been cleared. and profiles loaded.
+        #  also ads api port should already be made sure to be correct.
+        #  and the correct batch should be loaded too at this point, and we should be able to just
+        #  go straight into actions with selenium web driver all the way.....
 
-    # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
-    this_step, step_words = genStepsADSPowerExitProfile(worksettings, this_step, theme)
-    psk_words = psk_words + step_words
+        # wait 9 seconds for the browser to be brought up.
+        this_step, step_words = genStepWait(5, 1, 3, this_step)
+        psk_words = psk_words + step_words
+        #
+        #
+        # # following is for tests purpose. hijack the flow, go directly to browse....
+        # # this_step, step_words = genStepGoToWindow("SunBrowser", "", "g2w_status", this_step)
+        # # this_step, step_words = genStepGoToWindow("Chrome", "", "g2w_status", this_step)
+        # # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepWait(3, 1, 3, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # now that the profile is loaded, we connect webdriver to ADS power.
+        # this_step, step_words = genStepWebdriverNewTab("web_driver", "https://www.amazon.com/", "site_result", "site_flag", this_step)
+        # psk_words = psk_words + step_words
+
+        # now open the target amazon web site，(this step will internall check whether the tab is already open, if open, simply switch to it)
+        this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com", "site_result", "site_flag", this_step)
+        # this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com/iMBAPrice-Sealing-Tape-Shipping-Packaging/dp/B072MD8W9Q?th=1", "site_result", "site_flag", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepsAMZBrowserLoginIn(this_step, theme)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+        #now call the amz chrome browse sub-skill to go thru the walk process.
+        this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
+        # this_step, step_words = genStubWinChromeAMZBrowserWalk("sk_work_settings", this_step)
+        psk_words = psk_words + step_words
+
+        # end condition for "not_logged_in == False"
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+        #
+        # close the browser and exit the skill, assuming at the end of genWinChromeAMZWalkSteps, the browser tab
+        # should return to top of the amazon home page with the search text box cleared.
+        this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
+        psk_words = psk_words + step_words
+
+        # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
+        this_step, step_words = genStepsADSPowerExitProfile(worksettings, this_step, theme)
+        psk_words = psk_words + step_words
 
 
 
-    this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browser_browse_search", "", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browser_browse_search", "", this_step)
+        psk_words = psk_words + step_words
 
-    psk_words = psk_words + "\"dummy\" : \"\"}"
-    # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
+        psk_words = psk_words + "\"dummy\" : \"\"}"
+        # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGenWinADSAMZBrowserBrowseSearchSkill:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGenWinADSAMZBrowserBrowseSearchSkill: traceback information not available:" + str(e)
+        log3(ex_stat)
 
     return this_step, psk_words
 
