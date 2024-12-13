@@ -2800,6 +2800,7 @@ class MainWindow(QMainWindow):
         log3("checkNextToRun: todays tbd... "+json.dumps(self.todays_work["tbd"]), "checkNextToRun", self)
         log3("checkNextToRun: reactive tbd... " + json.dumps(self.reactive_work["tbd"]), "checkNextToRun", self)
         nextrun = None
+        runType = "scheduled"
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
         ten_hours = timedelta(hours=10)
@@ -2842,10 +2843,11 @@ class MainWindow(QMainWindow):
             if self.reactive_work["tbd"]:
                 log3("run contracted work netxt", "checkNextToRun", self)
                 nextrun = self.reactive_work["tbd"][0]
+                runType = "reactive"
             else:
                 log3("no contract work to run", "checkNextToRun", self)
 
-        return nextrun
+        return nextrun, runType
 
     def getNumUnassignedWork(self):
         num = 0
@@ -5989,7 +5991,7 @@ class MainWindow(QMainWindow):
                         self.assignWork()
 
                     log3("check next to run"+str(len(self.todays_work["tbd"]))+" "+str(len(self.reactive_work["tbd"]))+" "+str(self.getNumUnassignedWork()), "runbotworks", self)
-                    botTodos = self.checkNextToRun()
+                    botTodos, runType = self.checkNextToRun()
                     log3("fp profiles of mission: "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
                     if not (botTodos == None):
                         log3("working on..... "+botTodos["name"], "runbotworks", self)
@@ -6006,7 +6008,7 @@ class MainWindow(QMainWindow):
                             # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
                             # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
                             # if "Completed" in botTodos["status"]:
-                            current_run_report = self.genRunReport(last_start, last_end, 0, 0, botTodos["status"])
+                            current_run_report = self.genRunReport(runType, last_start, last_end, 0, 0, botTodos["status"])
                             log3("POP the daily initial fetch schedule task from queue", "runbotworks", self)
                             finished = self.todays_work["tbd"].pop(0)
                             self.todays_completed.append(finished)
@@ -6028,7 +6030,7 @@ class MainWindow(QMainWindow):
                                 #
                                 log3("total # of works:"+str(botTodos["current widx"])+":"+str(len(botTodos["works"])), "runbotworks", self)
                                 if current_mid >= 0:
-                                    current_run_report = self.genRunReport(last_start, last_end, current_mid, current_bid, run_result)
+                                    current_run_report = self.genRunReport(runType, last_start, last_end, current_mid, current_bid, run_result)
 
                                 # if all tasks in the task group are done, we're done with this group.
                                 if botTodos["current widx"] >= len(botTodos["works"]):
@@ -6041,28 +6043,28 @@ class MainWindow(QMainWindow):
                                         self.todays_completed.append(just_finished)
 
                                         finished = self.todays_work["tbd"].pop(0)
-                                        log3("JUST FINISHED A WORK GROUP:"+json.dumps(finished), "runbotworks", self)
+                                        self.showMsg("JUST FINISHED A WORK GROUP:"+json.dumps(finished))
                                     else:
-                                        log3("empty first WORK GROUP", "runbotworks", self)
+                                        self.showMsg("empty first WORK GROUP" )
 
 
                                 if len(self.todays_work["tbd"]) == 0:
                                     if self.host_role == "Platoon":
-                                        log3("Platoon Done with today!!!!!!!!!", "runbotworks", self)
+                                        self.showMsg("Platoon Done with today!!!!!!!!!")
                                         self.doneWithToday()
                                     else:
                                         # check whether we have collected all reports so far, there is 1 count difference between,
                                         # at this point the local report on this machine has not been added to toddaysReports yet.
                                         # this will be done in doneWithToday....
-                                        log3("n todaysPlatoonReports: "+str(len(self.todaysPlatoonReports))+" n todays_completed: "+str(len(self.todays_completed)), "runbotworks", self)
-                                        log3("todaysPlatoonReports"+json.dumps(self.todaysPlatoonReports), "runbotworks", self)
-                                        log3("todays_completed"+json.dumps(self.todays_completed), "runbotworks", self)
+                                        self.showMsg("n todaysPlatoonReports: "+str(len(self.todaysPlatoonReports))+" n todays_completed: "+str(len(self.todays_completed)))
+                                        self.showMsg("todaysPlatoonReports"+json.dumps(self.todaysPlatoonReports))
+                                        self.showMsg("todays_completed"+json.dumps(self.todays_completed))
                                         if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
-                                            log3("Commander Done with today!!!!!!!!!", "runbotworks", self)
+                                            self.showMsg("Commander Done with today!!!!!!!!!")
                                             self.doneWithToday()
                         else:
-                            log3("Unrecogizable todo...."+botTodos["name"], "runbotworks", self)
-                            log3("POP a unrecognized task from queue", "runbotworks", self)
+                            self.showMsg("Unrecogizable todo...."+botTodos["name"])
+                            self.showMsg("POP a unrecognized task from queue")
                             self.todays_work["tbd"].pop(0)
 
                     else:
@@ -6076,7 +6078,7 @@ class MainWindow(QMainWindow):
                     # clear to make next round ready to work
                     self.working_state = "running_idle"
 
-                log3("running bot works whenever there is some to run....", "runbotworks", self)
+                print("running bot works whenever there is some to run....")
                 await asyncio.sleep(1)
 
         except Exception as e:
@@ -6087,7 +6089,7 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorwanrunbotworks:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
-            log3(ex_stat, "runbotworks", self)
+            log3(ex_stat)
 
     #update a vehicle's missions status
     # rx_data is a list of mission status for each mission that belongs to the vehicle.
@@ -6095,12 +6097,12 @@ class MainWindow(QMainWindow):
         foundV = None
         for v in self.vehicles:
             if v.getIP() == rx_data["ip"]:
-                log3("found vehicle by IP", "runbotworks", self)
+                self.showMsg("found vehicle by IP")
                 foundV = v
                 break
 
         if foundV:
-            log3("updating vehicle Mission status...", "runbotworks", self)
+            self.showMsg("updating vehicle Mission status...")
             foundV.setMStats(rx_data)
 
     # create some tests data just to tests out the vehichle view GUI.
@@ -6453,7 +6455,7 @@ class MainWindow(QMainWindow):
         return results
 
     async def serveCommander(self, msgQueue):
-        log3("starting serve Commanders", "serveCommander", self)
+        self.showMsg("starting serve Commanders")
         heartbeat = 0
         while True:
             try:
@@ -6667,11 +6669,14 @@ class MainWindow(QMainWindow):
     #     status: String!
     #     }
     # 1 report is for 1 TBD workgroup.
-    def genRunReport(self, last_start, last_end, current_mid, current_bid, run_status):
+    def genRunReport(self, run_type, last_start, last_end, current_mid, current_bid, run_status):
         statReport = None
         tzi = 0
         #only generate report when all done.
-        works = self.todays_work["tbd"][0]["works"]
+        if run_type == "scheduled":
+            works = self.todays_work["tbd"][0]["works"]
+        else:
+            works = self.reactive_work["tbd"][0]["works"]
 
         if current_bid < 0:
             current_bid = 0
