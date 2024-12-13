@@ -184,6 +184,8 @@ class communicatorProtocol(asyncio.Protocol):
     def _construct_file_path(self, json_data):
         fdir = os.path.dirname(json_data['file_name'])
         fname = os.path.basename(json_data['file_name'])
+        print("json_data:", json_data['file_name'])
+        dir_names = os.path.normpath(fdir).split(os.sep)
 
         if json_data["file_type"] == "ads profile":
             if utils.logger_helper.login:
@@ -193,15 +195,32 @@ class communicatorProtocol(asyncio.Protocol):
             fullfdir = ecb_data_homepath + f"/{log_user}/ads_profiles/"
             fullfname = fullfdir + fname
         elif json_data["file_type"] == "skill psk":
-            start_index = fdir.find("resource")
-            half_path = fdir[start_index:]
-            fullfdir = app_info.app_home_path + "/" + half_path + "/"
-            fullfname = fullfdir + fname
+            if "my_skills" in fdir:
+                target_dir_level = 2
+                target_index = len(dir_names) - target_dir_level - 1  # Adjust for 0-based indexing
+                # Construct the relative path, starting from the target directory
+                relative_path = os.path.join(*dir_names[target_index:])
+
+                print("relative_path:", dir_names, target_index, relative_path)
+
+                # Combine the prefix and relative path
+                fullfdir = os.path.join(app_info.app_home_path, relative_path)
+                fullfname = os.path.join(fullfdir, fname)
+            else:
+                start_index = fdir.find("resource")
+                half_path = fdir[start_index:]
+                fullfdir = app_info.app_home_path + "/" + half_path + "/"
+                fullfname = fullfdir + fname
+                print("half path", fdir, start_index, half_path, fullfdir, fullfname)
+
+        else:
+            print("unknow file type")
 
         # Ensure the directory exists
         if not os.path.exists(fullfdir):
             os.makedirs(fullfdir)
 
+        print("fullfdir:", fullfdir, fullfname)
         return fullfname
 
     def connection_lost(self, exec):
