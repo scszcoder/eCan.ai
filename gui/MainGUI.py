@@ -5927,64 +5927,6 @@ class MainWindow(QMainWindow):
             await asyncio.sleep(1)  # Short sleep to avoid busy-waiting
 
 
-    # the message queue is for messsage from tcpip task to the GUI task.
-    # async def servePlatoons(self, msgQueue):
-    #     self.showMsg("starting servePlatoons")
-    #     buffer = ""
-    #     delimiter = "!ENDMSG!"
-    #
-    #     while True:
-    #         print("listening to platoons")
-    #         if not msgQueue.empty():
-    #             try:
-    #                 while not msgQueue.empty():
-    #                     net_message = await msgQueue.get()
-    #                     self.showMsg("received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message)
-    #                     msg_parts = net_message.split("!")
-    #                     if msg_parts[1] == "net data":
-    #                         self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
-    #                     elif msg_parts[1] == "connection":
-    #                         # this is the initial connection msg from a client
-    #                         print("recevied connection message: "+msg_parts[0]+" "+msg_parts[2])
-    #
-    #                         if self.platoonWin == None:
-    #                             self.platoonWin = PlatoonWindow(self, "conn")
-    #
-    #                         # vinfo = json.loads(msg_parts[2])
-    #
-    #                         addedV = self.addVehicle(msg_parts[2], msg_parts[0])
-    #                         await asyncio.sleep(5)
-    #
-    #                         # after adding a vehicle, try to get this vehicle's info
-    #                         if len(self.vehicles) > 0:
-    #                             print("pinging platoon: "+str(len(self.vehicles)-1))
-    #                             last_idx = len(self.vehicles)-1
-    #                             self.sendToVehicleByVip(msg_parts[0])         # sends a default ping command to get userful info.
-    #
-    #                     elif msg_parts[1] == "net loss":
-    #                         print("received net loss")
-    #                         # field link is already removed in the network.py
-    #                         # here we simply update the vehicle's display and gray it out.
-    #                         # also inform cloud about.
-    #                         # we don't really delete this vehicle.
-    #                         found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
-    #
-    #                         # immediately report the vehicle situation to the cloud.
-    #                         vehicle_report = self.prepVehicleReportData(found_vehicle)
-    #                         resp = send_report_vehicles_to_cloud(self.session,
-    #                                                              self.tokens['AuthenticationResult']['IdToken'],
-    #                                                              vehicle_report)
-    #                         self.saveVehiclesJsonFile()
-    #
-    #
-    #                 msgQueue.task_done()
-    #             except asyncio.QueueEmpty:
-    #                 # If for some reason the queue is unexpectedly empty, handle it
-    #                 print("Queue unexpectedly empty when trying to get message.")
-    #             except Exception as e:
-    #                 # Catch any other issues while processing the message
-    #                 print(f"Error processing Commander message: {e}")
-    #         await asyncio.sleep(1)
 
     # this is be run as an async task.
     async def runbotworks(self, gui_rpa_queue, gui_monitor_queue):
@@ -6119,11 +6061,19 @@ class MainWindow(QMainWindow):
         # run all the work
         try:
             running = True
-            wan_pre_time = datetime.now()
-            lan_pre_time = datetime.now()
             while running:
                 log3("runmanagerwork.....", "runmanagerworks", self)
                 current_time = datetime.now()
+
+                # check mission queue, how to make this flexible? (just run the mission)
+                # check msg queue, (msg source: flask server, there needs to be a
+                #                      api msg <-> handler skill table, there needs to be a
+                #                       generic function to create a mission given the skill and run
+                #                       it. and the skill can be overwritten with custom skill).
+                # check time. @certain time, time based, read out all manager missions, user can
+                #                  create missions and let them use certain skill and run at certain time.
+
+
 
 
                 log3("running manager works whenever there is some to run....", "runmanagerworks", self)

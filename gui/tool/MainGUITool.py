@@ -43,4 +43,6 @@ class StaticResource:
         self.BUY_STATUS_TYPES = ['Searched', 'InCart', 'Paid', 'Arrived', 'RatingDone', 'FBDone', 'RatingConfirmed',
                                  'FBConfirmed']
         self.PRODUCT_SEL_TYPES = ["ac", "op", "bs", "mr", "mhr", "cp", "cus"]
-
+        self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
+        self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
+        self.MONTH_TYPES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
