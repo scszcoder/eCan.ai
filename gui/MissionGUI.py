@@ -286,10 +286,42 @@ class MissionNewWin(QMainWindow):
         for st in self.static_resource.OP_TYPES:
             self.op_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
+        self.repeat_type_label = QLabel(QApplication.translate("QLabel", "Repeat Type:"), alignment=Qt.AlignLeft)
+        self.repeat_type_sel = QComboBox()
+        for rt in self.static_resource.REPEAT_TYPES:
+            self.repeat_type_sel.addItem(QApplication.translate("QComboBox", rt))
+
+        self.repeat_type_sel.currentTextChanged.connect(self.repeatTypeSel_changed)
+
         self.repeat_label = QLabel(QApplication.translate("QLabel", "Repeat every:"), alignment=Qt.AlignLeft)
         self.repeat_edit = QLineEdit()
         self.repeat_edit.setPlaceholderText("1")
+        self.repeat_unit_label = QLabel(QApplication.translate("QLabel", "second"), alignment=Qt.AlignLeft)
 
+        self.week_day_sel = QComboBox()
+        for wd in self.static_resource.WEEK_DAY_TYPES:
+            self.week_day_sel.addItem(QApplication.translate("QComboBox", wd))
+
+        self.month_label = QLabel(QApplication.translate("QLabel", "month"), alignment=Qt.AlignLeft)
+        self.month_sel = QComboBox()
+        for mo in self.static_resource.MONTH_TYPES:
+            self.month_sel.addItem(QApplication.translate("QComboBox", mo))
+
+        self.day_label = QLabel(QApplication.translate("QLabel", "day"), alignment=Qt.AlignLeft)
+        self.day_edit = QLineEdit()
+        self.year_label = QLabel(QApplication.translate("QLabel", "year"), alignment=Qt.AlignLeft)
+
+        self.year_edit = QLineEdit()
+
+        self.repeat_until_label = QLabel(QApplication.translate("QLabel", "until:"), alignment=Qt.AlignLeft)
+        self.repeat_until_edit = QLineEdit()
+        self.repeat_until_edit.setPlaceholderText("2050-01-01")
+
+        self.gap_label = QLabel(" ", alignment=Qt.AlignLeft)
+
+        self.retry_label = QLabel(QApplication.translate("QLabel", "Failed Retries:"), alignment=Qt.AlignLeft)
+        self.retry_edit = QLineEdit()
+        self.retry_edit.setPlaceholderText("3")
         # self.repeat_interval_label = QLabel(QApplication.translate("QLabel", " "), alignment=Qt.AlignLeft)
         # self.repeat_interval_sel = QComboBox()
         #
@@ -370,8 +402,26 @@ class MissionNewWin(QMainWindow):
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2BLayout)
 
         self.pubAttrLine3Layout = QHBoxLayout(self)
+        self.pubAttrLine3Layout.addWidget(self.repeat_type_label)
+        self.pubAttrLine3Layout.addWidget(self.repeat_type_sel)
         self.pubAttrLine3Layout.addWidget(self.repeat_label)
         self.pubAttrLine3Layout.addWidget(self.repeat_edit)
+        self.pubAttrLine3Layout.addWidget(self.repeat_unit_label)
+        self.pubAttrLine3Layout.addWidget(self.week_day_sel)
+        self.pubAttrLine3Layout.addWidget(self.month_label)
+        self.pubAttrLine3Layout.addWidget(self.month_sel)
+        self.pubAttrLine3Layout.addWidget(self.day_label)
+        self.pubAttrLine3Layout.addWidget(self.day_edit)
+        self.pubAttrLine3Layout.addWidget(self.year_label)
+        self.pubAttrLine3Layout.addWidget(self.year_edit)
+        self.pubAttrLine3Layout.addWidget(self.repeat_until_label)
+        self.pubAttrLine3Layout.addWidget(self.repeat_until_edit)
+        self.pubAttrLine3Layout.addWidget(self.gap_label)
+        self.pubAttrLine3Layout.addWidget(self.retry_label)
+        self.pubAttrLine3Layout.addWidget(self.retry_edit)
+
+
+
         # self.pubAttrLine3Layout.addWidget(self.repeat_interval_label)
         # self.pubAttrLine3Layout.addWidget(self.repeat_interval_sel)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine3Layout)
@@ -665,6 +715,7 @@ class MissionNewWin(QMainWindow):
 
         self.buy_rb.setChecked(False)
         self.buy_rb.setChecked(True)
+        self.hide_week_day_month_year()
 
     def setMode(self, mode):
         self.mode = mode
@@ -697,6 +748,41 @@ class MissionNewWin(QMainWindow):
         if file_name:
             self.fingerprint_profile_edit.setText(file_name)
 
+    def getMonthNumber(self, mo):
+        moTable = {
+            "Jan": "01",
+            "Feb": "02",
+            "Mar": "03",
+            "Apr": "04",
+            "May": "05",
+            "Jun": "06",
+            "Jul": "07",
+            "Aug": "08",
+            "Sep": "09",
+            "Oct": "10",
+            "Nov": "11",
+            "Dec": "12"
+        }
+        return moTable[mo]
+
+    def getMonthString(self, mo):
+        moTable = {
+            "01":"Jan",
+            "02":"Feb",
+            "03":"Mar",
+            "04":"Apr",
+            "05":"May",
+            "06":"Jun",
+            "07":"Jul",
+            "08":"Aug",
+            "09":"Sep",
+            "10":"Oct",
+            "11":"Nov",
+            "12":"Dec"
+        }
+        return moTable[mo]
+
+
     def saveMission(self):
         self.main_win.showMsg("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
@@ -725,8 +811,46 @@ class MissionNewWin(QMainWindow):
             self.newMission.setAssignmentType("auto")
             self.newMission.setConfig("{}")
 
-        if self.repeat_edit.text().isnumeric():
-            self.newMission.setRetry(int(self.repeat_edit.text()))
+        if self.retry_edit.text().isnumeric():
+            self.newMission.setRetry(int(self.retry_edit.text()))
+
+        # start capturing repeat definition.
+        self.newMission.setRepeatType(self.repeat_type_sel.currentText())
+        self.newMission.setRepeatNumber(int(self.repeat_edit.text()))
+        if self.repeat_type_sel.currentText() == "none":
+            self.newMission.setRepeatUnit("second")
+            self.repeat_on = "now"
+        elif self.repeat_type_sel.currentText() == "by seconds":
+            self.newMission.setRepeatUnit("second")
+            self.repeat_on = "now"
+            self.repeat_until = "2050-01-01"
+        elif self.repeat_type_sel.currentText() == "by minutes":
+            self.newMission.setRepeatUnit("minute")
+        elif self.repeat_type_sel.currentText() == "by hours":
+            self.newMission.setRepeatUnit("hour")
+        elif self.repeat_type_sel.currentText() == "by days":
+            self.newMission.setRepeatUnit("day")
+        elif self.repeat_type_sel.currentText() == "by weeks":
+            self.newMission.setRepeatUnit("week")
+            nextDate = self.week_day_sel.currentText()
+            self.newMission.setRepeatOn(nextDate)
+        elif self.repeat_type_sel.currentText() == "by months":
+            self.newMission.setRepeatUnit("month")
+            mo = self.getMonthNumber(self.month_sel.currentText())
+            onDate = self.year_edit.text()+"-"+mo+"-"+self.day_edit.text()
+            self.newMission.setRepeatOn(onDate)
+        elif self.repeat_type_sel.currentText() == "by years":
+            self.newMission.setRepeatUnit("year")
+            mo = self.getMonthNumber(self.month_sel.currentText())
+            onDate = self.year_edit.text() + "-" + mo + "-" + self.day_edit.text()
+            self.newMission.setRepeatOn(onDate)
+
+        if self.repeat_until_edit.text():
+            # no error checking done, maybe need later....
+            self.newMission.setRepeatUntil(self.repeat_until_edit.text())
+
+        self.newMission.addRepeatToConfig()
+        # done with capturing repeat definition.
 
         if self.buy_rb.isChecked():
             if self.buy_mission_type_sel.currentText() == "browse":
@@ -863,7 +987,48 @@ class MissionNewWin(QMainWindow):
             self.est_edit.setText(str(self.newMission.getEstimatedStartTime()))
             self.ert_edit.setText(str(self.newMission.getEstimatedRunTime()))
 
-            self.repeat_edit.setText(str(self.newMission.getRetry()))
+            self.retry_edit.setText(str(self.newMission.getRetry()))
+
+            # start loading repeat definition.
+            self.repeat_type_sel.setCurrentText(self.newMission.getRepeatType())
+            self.repeat_edit.setText(str(self.newMission.getRepeatNumber()))
+            if self.repeat_type_sel.currentText() == "none":
+                self.repeat_on = "now"
+            elif self.repeat_type_sel.currentText() == "by seconds":
+                self.repeat_unit_label.setText("second")
+                self.repeat_on = "now"
+                self.repeat_until = "2050-01-01"
+            elif self.repeat_type_sel.currentText() == "by minutes":
+                self.repeat_unit_label.setText("minute")
+            elif self.repeat_type_sel.currentText() == "by hours":
+                self.repeat_unit_label.setText("hour")
+            elif self.repeat_type_sel.currentText() == "by days":
+                self.repeat_unit_label.setText("day")
+            elif self.repeat_type_sel.currentText() == "by weeks":
+                self.repeat_unit_label.setText("week")
+                dateParts=self.newMission.getRepeatOn().splirt("-")
+                mo = self.getMonthString(dateParts[1])
+                self.month_sel.setCurrentText(mo)
+                self.year_edit.setText(dateParts[0])
+                self.day_edit.setText(dateParts[2])
+            elif self.repeat_type_sel.currentText() == "by months":
+                self.repeat_unit_label.setText("month")
+                dateParts = self.newMission.getRepeatOn().splirt("-")
+                mo = self.getMonthString(dateParts[1])
+                self.month_sel.setCurrentText(mo)
+                self.year_edit.setText(dateParts[0])
+                self.day_edit.setText(dateParts[2])
+            elif self.repeat_type_sel.currentText() == "by years":
+                self.repeat_unit_label.setText("year")
+                dateParts = self.newMission.getRepeatOn().splirt("-")
+                mo = self.getMonthString(dateParts[1])
+                self.month_sel.setCurrentText(mo)
+                self.year_edit.setText(dateParts[0])
+                self.day_edit.setText(dateParts[2])
+
+            self.repeat_until_edit.setText(self.newMission.getRepeatUntil())
+            # done with loading repeat definition.
+
             if "browse" in self.newMission.getMtype() or "buy" in self.newMission.getMtype() or "Rating" in self.newMission.getMtype() or "FB" in self.newMission.getMtype():
                 self.buy_rb.setChecked(True)
                 self.buy_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
@@ -1307,3 +1472,47 @@ class MissionNewWin(QMainWindow):
         self.op_mission_type_sel.setVisible(False)
         self.op_mission_type_custome_label.setVisible(False)
         self.op_mission_type_custome_edit.setVisible(False)
+
+    def show_week_day_month_year(self):
+        self.week_day_sel.setVisible(True)
+        self.month_label.setVisible(True)
+        self.month_sel.setVisible(True)
+        self.day_label.setVisible(True)
+        self.day_edit.setVisible(True)
+        self.year_label.setVisible(True)
+        self.year_edit.setVisible(True)
+
+    def hide_week_day_month_year(self):
+        self.week_day_sel.setVisible(False)
+        self.month_label.setVisible(False)
+        self.month_sel.setVisible(False)
+        self.day_label.setVisible(False)
+        self.day_edit.setVisible(False)
+        self.year_label.setVisible(False)
+        self.year_edit.setVisible(False)
+
+
+    def repeatTypeSel_changed(self):
+        if self.repeat_type_sel.currentText() == "none":
+            self.day_label.setVisible(False)
+        elif self.repeat_type_sel.currentText() == "by minutes":
+            self.repeat_unit_label.setText("minute")
+            self.hide_week_day_month_year()
+        elif self.repeat_type_sel.currentText() == "by hours":
+            self.repeat_unit_label.setText("hour")
+            self.hide_week_day_month_year()
+        elif self.repeat_type_sel.currentText() == "by days":
+            self.repeat_unit_label.setText("day")
+            self.hide_week_day_month_year()
+        elif self.repeat_type_sel.currentText() == "by weeks":
+            self.repeat_unit_label.setText("week")
+            self.hide_week_day_month_year()
+            self.week_day_sel.setVisible(True)
+        elif self.repeat_type_sel.currentText() == "by months":
+            self.repeat_unit_label.setText("month")
+            self.show_week_day_month_year()
+            self.week_day_sel.setVisible(False)
+        elif self.repeat_type_sel.currentText() == "by years":
+            self.repeat_unit_label.setText("year")
+            self.show_week_day_month_year()
+            self.week_day_sel.setVisible(False)
