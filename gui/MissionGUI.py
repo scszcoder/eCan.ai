@@ -222,6 +222,10 @@ class MissionNewWin(QMainWindow):
 
         self.mission_type_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission Type:</b>"),
                                          alignment=Qt.AlignLeft)
+
+        self.manage_rb = QRadioButton(QApplication.translate("QRadioButton", "Manage Side"))
+        self.manage_rb.toggled.connect(self.manage_rb_checked_state_changed)
+
         self.buy_rb = QRadioButton(QApplication.translate("QRadioButton", "Buy Side"))
         self.buy_rb.toggled.connect(self.buy_rb_checked_state_changed)
 
@@ -330,6 +334,7 @@ class MissionNewWin(QMainWindow):
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine1Layout)
 
         self.buy_sell_button_group = QButtonGroup()
+        self.buy_sell_button_group.addButton(self.manage_rb)
         self.buy_sell_button_group.addButton(self.buy_rb)
         self.buy_sell_button_group.addButton(self.sell_rb)
         self.buy_sell_button_group.addButton(self.op_rb)
@@ -337,6 +342,7 @@ class MissionNewWin(QMainWindow):
 
         self.pubAttrLine2Layout = QHBoxLayout(self)
         self.pubAttrLine2Layout.addWidget(self.mission_type_label)
+        self.pubAttrLine2Layout.addWidget(self.manage_rb)
         self.pubAttrLine2Layout.addWidget(self.buy_rb)
         self.pubAttrLine2Layout.addWidget(self.sell_rb)
         self.pubAttrLine2Layout.addWidget(self.op_rb)
@@ -873,6 +879,9 @@ class MissionNewWin(QMainWindow):
                 if self.newMission.getMtype().split("_")[0] == "opCustom":
                     if "_" in self.newMission.getMtype():
                         self.op_mission_type_custome_edit.setText("_".join(self.newMission.getMtype().split("_")[1:]))
+            elif "manage" in self.newMission.getMtype():
+                self.manage_rb.setChecked(True)
+
             self.mission_status_sel.setCurrentText(self.newMission.getStatus().split(":")[0])
 
             if self.newMission.getAssignmentType() == "auto":
@@ -1173,6 +1182,16 @@ class MissionNewWin(QMainWindow):
             self.skill_action_sel.addItem(QApplication.translate("QComboBox",
                                                                  sk.getPlatform() + "_" + sk.getApp() + "_" + sk.getSiteName() + "_" + sk.getPage() + "_" + sk.getName()))
 
+    def manage_rb_checked_state_changed(self):
+        if self.manage_rb.isChecked():
+            self.main_win.showMsg("manage mission is selected....")
+            self.show_manage_attributes()
+
+            self.hide_sell_attributes()
+            self.hide_op_attributes()
+            self.hide_buy_attributes()
+
+
     def buy_rb_checked_state_changed(self):
         if self.buy_rb.isChecked():
             self.main_win.showMsg("buy mission is selected....")
@@ -1199,6 +1218,14 @@ class MissionNewWin(QMainWindow):
             self.hide_sell_attributes()
         else:
             self.hide_op_attributes()
+
+    def show_manage_attributes(self):
+        print("show manage related attributes.")
+        # self.pseudo_store_label.setVisible(True)
+
+    def hide_manage_attributes(self):
+        print("hide manage related attributes.")
+        # self.pseudo_store_label.setVisible(False)
 
     def show_buy_attributes(self):
         self.pseudo_store_label.setVisible(True)

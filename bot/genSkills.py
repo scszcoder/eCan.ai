@@ -3,6 +3,7 @@ import os
 import traceback
 from datetime import datetime
 
+from basicSkill import genStepCreateRequestsSession
 from bot.Logger import log3
 from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfilesSkill, \
     genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genStepsADSPowerExitProfile, \
@@ -17,7 +18,7 @@ from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, g
 from bot.amzBuyerSkillMac import genMacChromeAMZWalkSkill, genMacChromeAMZWalkSteps
 from bot.amzSellerSkill import genWinChromeAMZFullfillOrdersSkill, genWinChromeAMZCollectOrdersSkill, \
     genWinChromeAMZUpdateShipmentTrackingSkill, genWinChromeAMZHandleMessagesSkill
-from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genStepExtractInfo, genStepFillRecipients, \
+from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtml, genStepExtractInfo, genStepFillRecipients, \
     genStepSearchAnchorInfo, genStepSearchWordLine, genStepSearchScroll, genStepRecordTxtLineLocation, \
     genStepMouseClick, genStepKeyInput, genStepTextInput, genStepCheckCondition, genStepGoto, genStepLoop, genStepStub, \
     genStepListDir, genStepCheckExistence, genStepCreateDir, genStep7z, genStepTextToNumber, genStepEndException, \
@@ -30,7 +31,7 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
     genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
     genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove, genStepGetWindowsInfo, \
-    genStepBringWindowToFront
+    genStepBringWindowToFront, genStepCreateRequestsSession
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -237,7 +238,9 @@ PUBLIC = {
     'genStepDeleteFile': genStepDeleteFile,
     'genStepObtainReviews': genStepObtainReviews,
     'genStepKillProcesses': genStepKillProcesses,
+    'genStepCreateRequestsSession': genStepCreateRequestsSession,
     # done exposing all methods.....now expose data structure defs.
+    'selfName': "PUBLIC",
     "loginMain": login,
     # 'mainwin': login.main_win,
     'OrderedProduct': OrderedProduct,
@@ -246,6 +249,7 @@ PUBLIC = {
     'OrderPerson': OrderPerson
 }
 
+symTab["ecb_pub"] = PUBLIC
 
 SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
@@ -621,10 +625,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
 
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            file_name, line_number, _, _ = traceback_info[-1]
-
-            # log3 the file name and line number
-            ex_stat = "ErrorWritePSK:" + file_name + " " + str(line_number) + " " + str(e)
+            ex_stat = "ErrorWritePSK:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWritePSK traceback information not available"
 

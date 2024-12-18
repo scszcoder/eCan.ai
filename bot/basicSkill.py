@@ -18,6 +18,7 @@ import pandas as pd
 import numpy as np
 from deepdiff import DeepDiff
 import importlib.util
+import requests
 
 from ping3 import ping
 
@@ -1073,6 +1074,15 @@ def genStepExternalHook(file_name_type, file_name, params, result_var, flag_var,
         "file_name": file_name,
         "params": params,  # Optional dictionary of parameters for the external script
         "result": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepCreateRequestsSession(session_var, flag_var, stepN):
+    stepjson = {
+        "type": "Create Requests Session",
+        "session_var": session_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -5891,6 +5901,26 @@ def processExternalHook(step, i):
         ex_stat = f"Error in Hook: {traceback.format_exc()} {str(e)}"
         print(f"Error while executing hook: {ex_stat}")
         symTab[step["result"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processCreateRequestsSession(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["session_var"]] = requests.Session()
+        symTab[step["flag"]] = True
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in Create Requests Session: {traceback.format_exc()} {str(e)}"
+        print(f"Error while creating requests session: {ex_stat}")
+        symTab[step["session_var"]] = None
         symTab[step["flag"]] = False
 
     # Always proceed to the next instruction

@@ -100,6 +100,9 @@ class M_Private_Attributes():
     def getPrice(self):
         return self.price
 
+    def setReqFile(self, rf):
+        self.original_req_file = rf
+
     def loadJson(self, dj):
         self.item_number = dj.get("item_number", "")
         self.seller = dj.get("seller", "")
@@ -120,6 +123,7 @@ class M_Private_Attributes():
         self.follow_price = dj.get("follow_price", 0.0)
         self.follow_seller = dj.get("follow_seller", "")
         self.fingerprint_profile = dj.get("fingerprint_profile", "")
+        self.original_req_file = dj.get("original_req_file", "")
 
     def genJson(self):
         jd = {
@@ -140,7 +144,8 @@ class M_Private_Attributes():
                 "feedback_text": self.feedback_text,
                 "feedback_rating": self.feedback_rating,
                 "order_id": self.order_id,
-                "fingerprint_profile": self.fingerprint_profile
+                "fingerprint_profile": self.fingerprint_profile,
+                "original_req_file": self.original_req_file
             }
         return jd
 
@@ -930,6 +935,9 @@ class EBMISSION(QStandardItem):
     def setAsServer(self, ias):
         self.pubAttributes.as_server = ias
 
+    def setReqFile(self,rf):
+        self.privateAttributes.setReqFile(rf)
+
     def getType(self):
         return self.pubAttributes.getType()
     # self.
@@ -1007,6 +1015,7 @@ class EBMISSION(QStandardItem):
         self.setFingerPrintProfile(dbd.fingerprint_profile)
         self.setAsServer(dbd.as_server)
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
+        self.setReqFile(dbd.original_req_file)
 
     def loadXlsxData(self, dj):
         self.setMid(dj.get("mid", 0))
@@ -1042,9 +1051,10 @@ class EBMISSION(QStandardItem):
         self.setFollowPrice(dj.get("follow_price", 0.0))
         self.setFingerPrintProfile(dj.get("fingerprint_profile", ""))
         self.setAsServer(dj.get("as_server", False))
+        self.setReqFile(dj.get("original_req_file", ""))
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
-    def loadAMZReqData(self,jd):
+    def loadAMZReqData(self,jd, reqFile):
         self.setApp("ads")
         self.setSite("amz")
         self.setSearchKW(jd["search term"])
@@ -1072,6 +1082,7 @@ class EBMISSION(QStandardItem):
         self.setCustomerID(jd["email"])
         self.setFollowSeller(jd["follow seller"])
         self.setFollowPrice(jd["follow price"])
+        self.setReqFile(reqFile)
 
 
     def loadJsonData(self, jd):

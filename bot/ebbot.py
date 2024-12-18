@@ -110,6 +110,8 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrzip = ""
         self.createon = datetime.today().strftime('%Y-%m-%d')
         self.adsProfile = []
+        self.vc_card_fund = 0.0
+        self.gift_card_fund = 0.0
 
     def setFirstLastName(self, fn, ln):
         self.name = fn + " " + ln
@@ -823,6 +825,12 @@ class EBBOT(QStandardItem):
         else:
             self.setText(
                 'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
+
+    def getVCCardFund(self):
+        return self.privateProfile.vc_card_fund
+
+    def getGiftCardFund(self) :
+        return self.privateProfile.gift_card_fund
 
     def getVid(self):
         return self.pubProfile.vid

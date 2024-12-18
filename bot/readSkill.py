@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from difflib import SequenceMatcher
 
+from basicSkill import processExternalHook
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
@@ -27,7 +28,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processGetDefault, processUploadFiles, processDownloadFiles, processWaitUntil, processZipUnzip, processReadFile, \
     processWriteFile, processDeleteFile, processWaitUntil8, processKillProcesses, processCheckAppRunning, \
     processBringAppToFront, processUpdateMissionStatus, processCheckAlreadyProcessed, processCheckSublist, \
-    processPasteToData, processMouseMove, processGetWindowsInfo, processBringWindowToFront
+    processPasteToData, processMouseMove, processGetWindowsInfo, processBringWindowToFront, \
+    processExternalHook, processCreateRequestsSession
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -52,7 +54,7 @@ from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOr
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
 from bot.seleniumScrapeAmz import processAMZBrowserScrapePL
 from bot.envi import getECBotDataHome
-
+import traceback
 
 symTab["fout"] = ""
 symTab["fin"] = ""
@@ -148,6 +150,8 @@ RAIS = {
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
+    "External Hook": lambda x, y: processExternalHook(x, y),
+    "Create Requests Session": lambda x, y: processCreateRequestsSession(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
     "Think": lambda x, y, z: processThink(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
@@ -292,6 +296,8 @@ ARAIS = {
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
+    "External Hook": lambda x,y: processExternalHook(x, y),
+    "Create Requests Session": lambda x,y: processCreateRequestsSession(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
     "Think": lambda x, y, z: processThink8(x, y, z),
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
@@ -589,6 +595,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
             in_msg_queue.task_done()
 
+        print("current step stat:"+step_stat)
         if step_stat != DEFAULT_RUN_STATUS:
             break
 
@@ -654,15 +661,16 @@ def run1step(steps, si, mission, skill, stack):
             si,isat = RAIS[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
         elif step["type"] == "Call Function":
             si,isat = RAIS[step["type"]](step, si, stack, function_table, stepKeys)
-        elif "EXT:" in step["type"]:
-            if step["type"].index("EXT:") == 0:
-                # this is an extension instruction, execute differently, simply call extern. as to what to actually call, it's all
-                # embedded in the step dictionary.
-                si,isat = processCallExtern(step, si)
+        elif "My " in step["type"]:
+            si,isat = RAIS[step["type"]](step, si, symTab, mission)
         else:
             print("step type:"+step["type"])
-            si,isat = RAIS[step["type"]](step, si)
-
+            if step["type"] in RAIS:
+                si,isat = RAIS[step["type"]](step, si)
+            else:
+                si = si + 1
+                isat = "ErrorInstructionNotFoundType:404"
+                print("ERROR: UNKNOWN instruction: "+step["type"])
     else:
         si = si + 1
         isat = "ErrorInstructionNotType:400"
@@ -674,87 +682,101 @@ async def run1step8(steps, si, mission, skill, stack):
     global next_step
     global last_step
     # settings = mission.parent_settings
-    i = next_step
-    stepKeys = list(steps.keys())
-    step = steps[stepKeys[si]]
-    last_si = si
-    log3("============>running step ["+str(si)+"]: "+json.dumps(step))
+    try:
+        i = next_step
+        stepKeys = list(steps.keys())
+        step = steps[stepKeys[si]]
+        last_si = si
+        log3("============>running step ["+str(si)+"]: "+json.dumps(step))
 
-    if "type" in step:
-        if step["type"] == "Halt":
-            # run step using the funcion look up table.
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si)
-            else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si)
+        if "type" in step:
+            if step["type"] == "Halt":
+                # run step using the funcion look up table.
+                if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                    si,isat = await ARAIS[step["type"]](step, si)
+                else:
+                    si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si)
 
-        elif step["type"] == "Goto" or step["type"] == "Check Condition" or step["type"] == "Repeat":
-            # run step using the funcion look up table.
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si, stepKeys)
-            else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stepKeys)
+            elif step["type"] == "Goto" or step["type"] == "Check Condition" or step["type"] == "Repeat":
+                # run step using the funcion look up table.
+                if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                    si,isat = await ARAIS[step["type"]](step, si, stepKeys)
+                else:
+                    si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stepKeys)
 
-        elif step["type"] == "Extract Info" or step["type"] == "Save Html":
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si, mission, skill)
-            else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
+            elif step["type"] == "Extract Info" or step["type"] == "Save Html":
+                if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                    si,isat = await ARAIS[step["type"]](step, si, mission, skill)
+                else:
+                    si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
-        elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
-             step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
-             step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download Files" or \
-             step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or  step["type"] == "ADS Save API Settings" or \
-             step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
-             step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
-             step["type"] == "AMZ Browser Scrape Products List" or step["type"] == "ADS Update Profile Ids" or \
-             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-             step["type"] == "ADS Batch Text To Profiles" or \
-             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si, mission)
-            else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission)
+            elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
+                 step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
+                 step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download Files" or \
+                 step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or  step["type"] == "ADS Save API Settings" or \
+                 step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
+                 step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
+                 step["type"] == "AMZ Browser Scrape Products List" or step["type"] == "ADS Update Profile Ids" or \
+                 step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
+                 step["type"] == "ADS Batch Text To Profiles" or \
+                 step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
+                if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                    si,isat = await ARAIS[step["type"]](step, si, mission)
+                else:
+                    si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission)
 
-        elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si, stack, stepKeys)
-            else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, stepKeys)
+            elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
+                if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                    si,isat = await ARAIS[step["type"]](step, si, stack, stepKeys)
+                else:
+                    si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, stepKeys)
 
-        elif step["type"] == "Stub" or step["type"] == "Use Skill":
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
-            else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, skill_stack, skill_table, stepKeys)
+            elif step["type"] == "Stub" or step["type"] == "Use Skill":
+                if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                    si,isat = await ARAIS[step["type"]](step, si, stack, skill_stack, skill_table, stepKeys)
+                else:
+                    si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, skill_stack, skill_table, stepKeys)
 
-        elif step["type"] == "Call Function":
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si, stack, function_table, stepKeys)
-            else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, function_table, stepKeys)
+            elif step["type"] == "Call Function":
+                if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                    si,isat = await ARAIS[step["type"]](step, si, stack, function_table, stepKeys)
+                else:
+                    si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, stack, function_table, stepKeys)
 
-        elif step["type"] == "Request Human In Loop" or step["type"] == "Close Human In Loop":
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si, mission, hil_queue)
-            else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, hil_queue)
+            elif step["type"] == "Request Human In Loop" or step["type"] == "Close Human In Loop":
+                if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                    si,isat = await ARAIS[step["type"]](step, si, mission, hil_queue)
+                else:
+                    si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, hil_queue)
 
-        elif "EXT:" in step["type"]:
-            if step["type"].index("EXT:") == 0:
+            elif "My " in step["type"]:
                 # this is an extension instruction, execute differently, simply call extern. as to what to actually call, it's all
                 # embedded in the step dictionary.
-                si,isat = await asyncio.to_thread(processCallExtern, step, si)
-        else:
-            print("step type:"+step["type"])
-            if inspect.iscoroutinefunction(ARAIS[step["type"]]):
-                si,isat = await ARAIS[step["type"]](step, si)
+                si,isat = await asyncio.to_thread(RAIS[step["type"]], step, si, symTab, mission)
             else:
-                si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si)
+                print("step type:"+step["type"])
+                if step["type"] in RAIS:
+                    print("instruction found....")
+                    if inspect.iscoroutinefunction(ARAIS[step["type"]]):
+                        print("coroutine found....")
+                        si, isat = await ARAIS[step["type"]](step, si)
+                    else:
+                        print("not coroutine found....")
+                        si, isat = await asyncio.to_thread(ARAIS[step["type"]], step, si)
+                else:
+                    si = si + 1
+                    isat = "ErrorInstructionNotFoundType:404"
+                    print("ERROR: UNKNOWN instruction: "+step["type"])
 
-    else:
-        si = si + 1
-        isat = "ErrorInstructionNotType:400"
+
+        else:
+            si = si + 1
+            isat = "ErrorInstructionNotType:400"
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in run1step8: {traceback.format_exc()} {str(e)}"
+        print(f"Error while executing hook: {ex_stat}")
 
     return si, isat
 
