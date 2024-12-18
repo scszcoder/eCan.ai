@@ -50,7 +50,8 @@ MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'defa
                           {'name': 'customer', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'platoon', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'result', 'type': 'TEXT', 'nullable': True, 'default': ""},
-                        {'name': 'as_server', 'type': 'INTEGER', 'nullable': True, 'default': 0}
+                        {'name': 'as_server', 'type': 'INTEGER', 'nullable': True, 'default': 0},
+                        {'name': 'original_req_file', 'type': 'TEXT', 'nullable': True, 'default': ""}
                      ]
 
 
@@ -83,6 +84,13 @@ class MissionService:
         if result is not None:
             self.main_win.showMsg("Found Local DB Mission Row(s) by ticket: " + json.dumps(result.to_dict()), "debug")
         return result.to_dict()
+
+    def find_missions_by_orders(self, order_files) -> [MissionModel]:
+        results: [MissionModel] = self.session.query(MissionModel).filter(MissionModel.original_req_file.in_(order_files)).all()
+        dict_results = [result.to_dict() for result in results]
+        if results is not None:
+            self.main_win.showMsg("Found Local DB Mission Row(s) by order files: " + json.dumps(dict_results), "debug")
+        return dict_results
 
     def insert_missions_batch_(self, missions: [MissionModel]):
         self.session.add_all(missions)
@@ -143,6 +151,7 @@ class MissionService:
             local_mission.follow_price = mission["follow_price"]
             local_mission.fingerprint_profile = mission["fingerprint_profile"]
             local_mission.as_server = mission["as_server"]
+            local_mission.original_req_file = mission["original_req_file"]
             self.session.add(local_mission)
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
         self.session.commit()
@@ -193,6 +202,7 @@ class MissionService:
             result.follow_price = amission["follow_price"]
             result.fingerprint_profile = amission["fingerprint_profile"]
             result.as_server = amission["as_server"]
+            result.original_req_file = amission["original_req_file"]
             self.session.commit()
             self.main_win.showMsg("update row: " + json.dumps(result.to_dict()))
 
@@ -233,6 +243,13 @@ class MissionService:
             self.session.delete(mission_instance)
             self.session.commit()
         return mission_instance
+
+    def delete_missions_by_order(self, order_files):
+        mission_instances = self.session.query(MissionModel).filter(MissionModel.original_req_file.in_(order_files)).all()
+        if mission_instances:
+            deleted_count = self.session.query(MissionModel).filter(MissionModel.original_req_file.in_(order_files)).delete(synchronize_session=False)
+            self.session.commit()
+        return mission_instances
 
     def sync_cloud_mission_data(self, session, tokens):
 

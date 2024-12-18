@@ -133,7 +133,8 @@ LOG_SWITCH_BOARD = {
     "runAllSteps": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "servePlatoons": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "assignWork": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
-    "runbotworks": {"log": True, "py_console": True, "win_console": True, "range": "wan"}
+    "runbotworks": {"log": True, "py_console": True, "win_console": True, "range": "wan"},
+    "runmanagerworks": {"log": True, "py_console": True, "win_console": True, "range": "wan"}
 
 }
 

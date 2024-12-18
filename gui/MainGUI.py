@@ -24,6 +24,7 @@ import webbrowser
 from _csv import reader
 from os.path import exists
 import glob
+import threading
 
 from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent, QSize
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
@@ -200,6 +201,7 @@ class MainWindow(QMainWindow):
             self.homepath = homepath
         self.gui_net_msg_queue = gui_msg_queue
         self.gui_rpa_msg_queue = asyncio.Queue()
+        self.gui_manager_msg_queue = asyncio.Queue()
         self.virtual_cloud_task_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
         self.lang = lang
@@ -384,6 +386,16 @@ class MainWindow(QMainWindow):
                 if "default_webdriver" in self.general_settings:
                     if self.general_settings["default_webdriver"]:
                         self.default_webdriver = self.general_settings["default_webdriver"]
+
+                if "new_orders_dir" in self.general_settings:
+                    self.new_orders_dir = self.general_settings["new_orders_dir"]
+                else:
+                    self.new_orders_dir = "c:/ding_dan/"
+
+                if "local_db_server" in self.general_settings:
+                    self.local_db_server = self.general_settings["local_db_server"]
+                else:
+                    self.local_db_server = "http://192.168.0.18:5000/api"
 
 
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
@@ -987,6 +999,8 @@ class MainWindow(QMainWindow):
     async def run_async_tasks(self):
         if self.host_role != "Staff Officer":
             self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+            self.manager_task = asyncio.create_task(self.runmanagerworks(self.gui_manager_msg_queue, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+
         else:
             self.rpa_task = asyncio.create_task(self.wait_forever())
 
@@ -998,10 +1012,6 @@ class MainWindow(QMainWindow):
     # 3) regenerate psk files for each skill
     # 4) build up skill_table (a look up table)
     def dailySkillsetUpdate(self):
-        # this will handle all skill bundled into software itself.
-        self.showMsg("load local private skills")
-        self.loadLocalPrivateSkills()
-
         cloud_skills_results = self.SkillManagerWin.fetchMySkills()
         print("DAILY SKILL FETCH:", cloud_skills_results)
         existing_skids = [sk.getSkid() for sk in self.skills]
@@ -1023,6 +1033,10 @@ class MainWindow(QMainWindow):
 
 
                     self.skills.append(cloud_work_skill)
+
+            # this will handle all skill bundled into software itself.
+            self.showMsg("load local private skills")
+            self.loadLocalPrivateSkills()
 
             # read public skills from local json files and merge with what's just read from the cloud.
             # if there is any conlict will use the cloud data as the true data.
@@ -5246,7 +5260,7 @@ class MainWindow(QMainWindow):
                         else:
                             mJson["type"] = "buy"
 
-                        # each buy should be an separate mission.
+                        # each buy should be a separate mission.
                         n_orders = int(mJson["quantity"])
                         missionsJson = missionsJson + [copy.deepcopy(mJson) for _ in range(n_orders)]
 
@@ -5265,6 +5279,7 @@ class MainWindow(QMainWindow):
 
         print("about to really add these missions...")
         # self.addNewMissions(missions_from_file)
+        return missionsJson
 
 
     def process_original_xlsx_file(self, file_path):
@@ -5314,17 +5329,25 @@ class MainWindow(QMainWindow):
         print(f"File saved as {new_file_name}")
 
 
-    def newMissionFromNewReq(self, reqJson):
+    def newMissionFromNewReq(self, reqJson, reqFile):
         new_mission = EBMISSION(self)
-        new_mission.loadAMZReqData(reqJson)
+        new_mission.loadAMZReqData(reqJson, reqFile)
         return new_mission
+
+
 
     # sc - 10/11/2024 - add new missions are they in todays_work?
     def newBuyMissionFromFiles(self):
         dtnow = datetime.now()
+
+        recent = dtnow - timedelta(days=3)
         date_word = dtnow.strftime("%Y%m%d")
+        year = dtnow.strftime("%Y")
+        month = f"m{dtnow.month}"
+        day = f"m{dtnow.day}"
 
         new_orders_dir = self.my_ecb_data_homepath + "/new_orders/ORDER" + date_word + "/"
+        new_orders_dir = os.path.join(self.new_orders_dir, year, month, day)
         self.showMsg("working on new orders:" + new_orders_dir)
 
         new_buy_missions = []
@@ -5342,7 +5365,7 @@ class MainWindow(QMainWindow):
                     if len(n_buys) > 0:
                         for n in range(n_buys):
                             print("creating new buy mission:", n)
-                            new_buy_missions.append(self.newMissionFromNewReq(buy_req))
+                            new_buy_missions.append(self.newMissionFromNewReq(buy_req, xlsx_file))
 
         # now that we have created all the new missions,
         # create the mission in the cloud and local DB.
@@ -5370,6 +5393,8 @@ class MainWindow(QMainWindow):
                 self.missions = self.missions + new_buy_missions
                 for new_buy in new_buy_missions:
                     self.missionModel.appendRow(new_buy)
+
+        return new_buy_missions
 
     def fillNewSkill(self, nskjson, nsk):
         self.showMsg("filling skill data")
@@ -6077,7 +6102,7 @@ class MainWindow(QMainWindow):
                     self.working_state = "running_idle"
 
                 log3("running bot works whenever there is some to run....", "runbotworks", self)
-                await asyncio.sleep(1)
+                await asyncio.sleep(3)
 
         except Exception as e:
             # Get the traceback information
@@ -6088,6 +6113,32 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
             log3(ex_stat, "runbotworks", self)
+
+
+    async def runmanagerworks(self, gui_manager_queue, manager_rpa_queue, gui_monitor_queue):
+        # run all the work
+        try:
+            running = True
+            wan_pre_time = datetime.now()
+            lan_pre_time = datetime.now()
+            while running:
+                log3("runmanagerwork.....", "runmanagerworks", self)
+                current_time = datetime.now()
+
+
+                log3("running manager works whenever there is some to run....", "runmanagerworks", self)
+                await asyncio.sleep(3)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "Errorwanrunmanagerworks:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "Errorwanrunmanagerworks traceback information not available:" + str(e)
+            log3(ex_stat, "runmanagerworks", self)
+
 
     #update a vehicle's missions status
     # rx_data is a list of mission status for each mission that belongs to the vehicle.
@@ -8126,3 +8177,13 @@ class MainWindow(QMainWindow):
 
     def isPlatoon(self):
         return (self.machine_role == "Platoon")
+
+
+    def findManagerOfThisVehicle(self):
+        foundBots = [x for x in self.bots if "manage" in x.getRoles().lower() and x.getVehicle() == self.machine_name]
+        return foundBots
+
+    def findManagerMissionsOfThisVehicle(self, managerBots):
+        managerBids = [x.getBid() for x in managerBots]
+        managerMissions = [x for x in self.missions if x.getBid() in managerBids]
+        return managerMissions
