@@ -1150,6 +1150,14 @@ def genStepECBDeleteMissions(mids_var, result_var, flag_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepECBFetchDailySchedule(result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Fetch Daily Schedule",
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 
@@ -6119,6 +6127,28 @@ def processECBDeleteMissions(step, i):
         # Log and skip errors gracefully
         ex_stat = f"Error in ECB Delete Missions: {traceback.format_exc()} {str(e)}"
         print(f"Error while ECB deleting missions: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processECBFetchDailySchedule(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["result_var"]] = mainWin.fetchDailySchedule()
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Fetch Daily Schedule: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB fetch daily schedule: {ex_stat}")
         symTab[step["session_var"]] = None
         symTab[step["flag"]] = False
 

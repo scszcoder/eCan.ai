@@ -3192,6 +3192,157 @@ class MainWindow(QMainWindow):
         return worksettings["botid"], worksettings["mid"], runResult
 
 
+    # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
+    async def run1ManagerMission(self, mission, self_in_queue, rpa_msg_queue, monitor_msg_queue):
+        global rpaConfig
+        global skill_code
+
+        all_done = False
+        try:
+            worksettings = getWorkRunSettings(self, mission)
+            log3("worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"])+" "+str(worksettings["midx"])+" "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runRPA", self)
+
+
+            rpaScripts = []
+
+            # generate walk skills on the fly.
+            self.running_manager_mission = mission
+
+            # no finger print profile, no run for ads.
+            if 'ads' in self.running_manager_mission.getCusPAS() and self.running_manager_mission.getFingerPrintProfile() == "":
+                log3("ERROR ADS mission has no profile: " + str(self.running_manager_mission.getMid()) + " " + self.running_mission.getCusPAS() + " " + self.running_mission.getFingerPrintProfile(), "runRPA", self)
+                runResult = "ErrorRPA ADS mission has no profile " + str(self.running_manager_mission.getMid())
+            else:
+                log3("current RUNNING MISSION: "+json.dumps(self.running_manager_mission.genJson()), "runRPA", self)
+                log3("RPA all skill ids:"+json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
+                if self.running_manager_mission.getSkills() != "":
+                    rpaSkillIdWords = self.running_manager_mission.getSkills().split(",")
+                    log3("current RUNNING MISSION SKILL: "+json.dumps(self.running_manager_mission.getSkills()), "runRPA", self)
+                    rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
+
+                    log3("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(self.running_manager_mission.getMid()), "runRPA", self)
+
+                    # get skills data structure by IDs
+                    all_skids = [sk.getSkid() for sk in self.skills]
+                    log3("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
+                    rpaSkillIds = list(dict.fromkeys(rpaSkillIds))
+                    log3("rpaSkillIds:"+json.dumps(rpaSkillIds), "runRPA", self)
+
+                    relevant_skills = [self.skills[all_skids.index(skid)] for skid in rpaSkillIds]
+
+                    log3("N relevant skills:"+str(len(relevant_skills))+json.dumps([sk.getSkid() for sk in relevant_skills]), "runRPA", self)
+                    relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
+                    relevant_skill_ids = list(set(relevant_skill_ids))
+                    log3("relevant skills ids: "+json.dumps(relevant_skill_ids), "runRPA", self)
+                    dependent_skids=[]
+                    for sk in relevant_skills:
+                        log3("add dependency: " + json.dumps(sk.getDependencies()) + "for skill#" + str(sk.getSkid()), "runRPA", self)
+                        dependent_skids = dependent_skids + sk.getDependencies()
+
+                    dependent_skids = list(set(dependent_skids))
+                    dependent_skids = [skid for skid in dependent_skids if skid not in relevant_skill_ids]
+                    log3("all dependencies: "+json.dumps(dependent_skids), "runRPA", self)
+
+                    dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
+                    relevant_skills = relevant_skills + dependent_skills
+                    relevant_skill_ids = relevant_skill_ids + dependent_skids
+
+                    if len(relevant_skill_ids) < len(rpaSkillIds):
+                        s = set(relevant_skill_ids)
+                        missing = [x for x in rpaSkillIds if x not in s]
+                        log3("ERROR: Required Skills not found:"+json.dumps(missing), "runRPA", self)
+
+
+                    log3("all skids involved in this skill: "+json.dumps([sk.getSkid() for sk in relevant_skills]), "runRPA", self)
+                    all_skill_codes = []
+                    step_idx = 0
+                    for sk in relevant_skills:
+                        log3("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName()+" "+str(worksettings["b_email"]), "runRPA", self)
+                        setWorkSettingsSkill(worksettings, sk)
+                        # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
+
+                        # readPSkillFile will remove comments. from the file
+                        if sk.getPrivacy() == "public":
+                            sk_dir = self.homepath
+                        else:
+                            sk_dir = self.my_ecb_data_homepath
+                        pskJson = readPSkillFile(worksettings["name_space"], sk_dir+sk.getPskFileName(), lvl=0)
+                        # self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
+
+                        # now regen address and update settings, after running, pskJson will be updated.
+                        step_idx, pskJson = self.reAddrAndUpdateSteps(pskJson, step_idx, worksettings)
+                        # self.showMsg("AFTER READDRESS AND UPDATE PSK JSON::::" + json.dumps(pskJson))
+
+                        addNameSpaceToAddress(pskJson, worksettings["name_space"], lvl=0)
+
+                        # self.showMsg("RUNNABLE PSK JSON::::"+json.dumps(pskJson))
+
+                        # save the file to a .rsk file (runnable skill) which contains json only with comments stripped off from .psk file by the readSkillFile function.
+                        rskFileName = sk_dir + sk.getPskFileName().split(".")[0] + ".rsk"
+                        rskFileDir = os.path.dirname(rskFileName)
+                        if not os.path.exists(rskFileDir):
+                            os.makedirs(rskFileDir)
+                        log3("rskFileName: "+rskFileName+" step_idx: "+str(step_idx), "runRPA", self)
+                        with open(rskFileName, "w") as outfile:
+                            json.dump(pskJson, outfile)
+                        outfile.close()
+
+                        all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
+
+                    log3("all_skill_codes: "+json.dumps(all_skill_codes), "runRPA", self)
+
+                    rpa_script = prepRunSkill(all_skill_codes)
+                    log3("generated ready2run: "+json.dumps(rpa_script), "runRPA", self)
+                    # self.showMsg("generated psk: " + str(len(rpa_script.keys())))
+
+                    # doing this just so that the code below can run multiple codes if needed. but in reality
+                    # prepRunSkill put code in a global var "skill_code", even if there are multiple scripts,
+                    # this has to be corrected because, the following append would just have multiple same
+                    # skill_code...... SC, but for now this is OK, there is no multiple script scenario in
+                    # forseaable future.
+                    rpaScripts.append(rpa_script)
+                    # self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
+                    log3("rpaScripts:["+str(len(rpaScripts))+"] "+str(len(relevant_skills))+" "+str(worksettings["midx"])+" "+str(len(self.missions)), "runRPA", self)
+
+                    # Before running do the needed prep to get "fin" input parameters ready.
+                    # this is the case when this mission is run as an independent server, the input
+                    # of the mission will come from the another computer, and there might even be
+                    # files to be downloaded first as the input to the mission.
+                    if worksettings["as_server"]:
+                        log3("SETTING MISSSION INPUT:"+json.dumps(self.running_manager_mission.getConfig()), "runRPA", self)
+                        setMissionInput(self.running_manager_mission.getConfig())
+
+
+                    log3("BEFORE RUN: " + worksettings["b_email"], "runRPA", self)
+                    runResult = await runAllSteps(rpa_script, self.running_manager_mission, relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
+
+
+                    # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
+                    # the timer tick will trigger the run of the next mission on the list....
+                    log3("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult, "runRPA", self)
+                    mission.setResult(runResult)
+                else:
+                    log3("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1", "runRPA", self)
+                    mission.setResult("Incomplete: ERRORRunRPA:-1")
+                    raise Exception('ERROR: NO SKILL TO RUN!')
+
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorRun1ManagerMission:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorRun1ManagerMission: traceback information not available:" + str(e)
+            log3(ex_stat, "runRPA", self)
+            runResult = "Incomplete: ERRORRunRPA:-1"
+
+        log3("manager mission run result:"+json.dums(runResult), "runRPA", self)
+        return runResult
+
+
+
     def update1MStat(self, midx, result):
         log3("1 mission run completed."+str(midx)+" "+str(self.missions[midx].getMid())+" "+str(self.missions[midx].getRetry())+" "+str(self.missions[midx].getNRetries())+"status:"+result, "update1MStat", self)
         self.missions[midx].setStatus(result)
@@ -6275,29 +6426,165 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
             log3(ex_stat, "runbotworks", self)
 
-    def checkManangerToRuns(self, missions):
-        m2RunNow = []
+    def checkManagerToRuns(self, managerMissions):
+        """
+        Determines which missions are due to run based on their repeat settings.
 
-        return m2RunNow
+        Parameters:
+            managerMissions (list): List of mission objects containing repeat settings.
 
-    def runManagerMissions(self, missions):
-        m2RunNow = []
+        Returns:
+            list: Missions that need to run.
+        """
+        missions_to_run = []
+        current_time = datetime.now()
 
-        return m2RunNow
+        for mission in managerMissions:
+            try:
+                repeat_type = mission.getRepeatType()
+                repeat_unit = mission.getRepeatUnit()
+                repeat_number = mission.getRepeatNumber()
+                repeat_on = mission.getRepeatOn()
+                repeat_until = datetime.strptime(mission.getRepeatUntil(), "%Y-%m-%d")
 
-    def genOneTimeMissionWithSkill(self, skid):
-        otm = EBMISSION()
-        return otm
+                # Handle non-repeating missions
+                if repeat_type == "none":
+                    esd = datetime.strptime(mission.getEsd(), "%Y-%m-%d")
+                    esttime = mission.getEstimatedStartTime()
 
-    def run1mission(self, mission):
-        result = None
-        return result
+                    # Convert esttime to a datetime object
+                    esttime_minutes = esttime * 15
+                    esttime_timedelta = timedelta(minutes=esttime_minutes)
+                    mission_start_time = esd + esttime_timedelta
 
-    def processManagerNetMessage(self, msg):
-        if msg.type in ManagerTriggerTable:
-            otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg.type])
-            result = self.run1mission(otm)
-        return m2RunNow
+                    if current_time >= mission_start_time:
+                        missions_to_run.append(mission)
+                    continue
+
+                # Skip if the mission's repeat_until date has passed
+                if current_time > repeat_until:
+                    continue
+
+                # Determine the start time of the repetition
+                if repeat_on == "now":
+                    start_time = current_time
+                elif repeat_on in ["M", "Tu", "W", "Th", "F", "Sa", "Su"]:
+                    # Calculate the next occurrence of the specified weekday
+                    week_day_map = {"M": 0, "Tu": 1, "W": 2, "Th": 3, "F": 4, "Sa": 5, "Su": 6}
+                    target_weekday = week_day_map[repeat_on]
+                    start_time = current_time
+                    while start_time.weekday() != target_weekday:
+                        start_time += timedelta(days=1)
+                else:
+                    start_time = datetime.strptime(repeat_on, "%Y-%m-%d")
+
+                # Calculate the next run time based on repeat_type
+                if repeat_type == "by seconds":
+                    time_delta = timedelta(seconds=repeat_number)
+                elif repeat_type == "by minutes":
+                    time_delta = timedelta(minutes=repeat_number)
+                elif repeat_type == "by hours":
+                    time_delta = timedelta(hours=repeat_number)
+                elif repeat_type == "by days":
+                    time_delta = timedelta(days=repeat_number)
+                elif repeat_type == "by weeks":
+                    time_delta = timedelta(weeks=repeat_number)
+                elif repeat_type == "by months":
+                    time_delta = timedelta(days=30 * repeat_number)  # Approximation for months
+                elif repeat_type == "by years":
+                    time_delta = timedelta(days=365 * repeat_number)  # Approximation for years
+                else:
+                    time_delta = None
+
+                # Check if it's time to run the mission
+                if time_delta:
+                    elapsed_time = current_time - start_time
+                    if elapsed_time.total_seconds() % time_delta.total_seconds() < 3:  # Allow a small margin
+                        missions_to_run.append(mission)
+
+            except Exception as e:
+                print(f"Error processing mission: {e}")
+
+        return missions_to_run
+
+    async def runManagerMissions(self, missions, in_queue, out_team_queue, out_gui_queue):
+        for mission in missions:
+            await self.run1ManagerMission(mission, in_queue, out_team_queue, out_gui_queue)
+
+
+    def genOneTimeMissionWithSkill(self, skid, mtype, botid):
+        # simply search the past mission and check whether there are
+        # already mission running this skill, if there is simply copy it and run.
+        # if nothing found, then create a brand new mission on the fly.
+        foundMission = next((x for i, x in enumerate(self.missions) if str(skid) in x.getSkills()), None)
+        if foundMission:
+            log3("duplicate the found mission ", foundMission.getMid())
+            newMisssion = copy.deepcopy(foundMission)
+        else:
+            today = datetime.now()
+            formatted_date = today.strftime("%Y-%m-%d")
+            future_date = today + timedelta(days=1)
+            formatted_future = future_date.strftime("%Y-%m-%d")
+            far_future_date = today + timedelta(days=1000)
+            formatted_far_future = far_future_date.strftime("%Y-%m-%d")
+            mdbd = MissionModel()
+            mdbd.mid = 0
+            mdbd.ticket = 0
+            mdbd.botid = botid
+            mdbd.status = "Assiggned"
+            mdbd.createon = formatted_date
+            mdbd.owner = self.owner
+            mdbd.esd = formatted_date
+            mdbd.ecd = formatted_date
+            mdbd.asd = formatted_future
+            mdbd.abd = formatted_future
+            mdbd.aad = formatted_future
+            mdbd.afd = formatted_future
+            mdbd.acd = formatted_future
+            mdbd.actual_start_time = 0
+            mdbd.est_start_time = 0
+            mdbd.actual_runtime = 0
+            mdbd.est_runtime = 30
+            mdbd.n_retries = 3
+            mdbd.cuspas = "win,chrome,amz"
+            mdbd.category = ""
+            mdbd.phrase = ""
+            mdbd.pseudoStore = ""
+            mdbd.pseudoBrand = ""
+            mdbd.pseudoASIN = ""
+            mdbd.type = mtype
+            mdbd.config = "{}"
+            mdbd.skills = str(skid)
+            mdbd.delDate = formatted_far_future
+            mdbd.asin = ""
+            mdbd.store = ""
+            mdbd.follow_seller = ""
+            mdbd.brand = ""
+            mdbd.img = ""
+            mdbd.title = ""
+            mdbd.rating = ""
+            mdbd.feedbacks = ""
+            mdbd.price = 0
+            mdbd.follow_price = 0
+            mdbd.fingerprint_profile = ""
+            mdbd.customer = ""
+            mdbd.platoon = ""
+            mdbd.result = ""
+            mdbd.variations = ""
+            mdbd.as_server = False
+            new_mission = EBMISSION(self)
+            new_mission.loadDBData(mdbd)
+
+        return new_mission
+
+
+    # for now this is mainly used for after team run, a result to trigger some housekeeping work.
+    # like process new orders, turn them into new missions, and so on....
+    # the message will likely,
+    def processManagerNetMessage(self, msg, in_queue, out_team_queue, out_gui_queue):
+        if msg["type"] in ManagerTriggerTable:
+            otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg["type"]][0], ManagerTriggerTable[msg["type"]][1], msg["bid"])
+            result = self.run1ManagerMission(otm, in_queue, out_team_queue, out_gui_queue)
 
 
     async def runmanagerworks(self, gui_manager_queue, manager_rpa_queue, gui_monitor_queue):
@@ -6316,16 +6603,16 @@ class MainWindow(QMainWindow):
                 # check time. @certain time, time based, read out all manager missions, user can
                 #                  create missions and let them use certain skill and run at certain time.
                 managerMissions = self.findManagerMissionsOfThisVehicle()
-                managerToRun = self.checkManangerToRuns(managerMissions)
+                managerToRun = self.checkManagerToRuns(managerMissions)
 
                 if managerToRun:
-                    self.runManagerMissions(managerToRun)
-                elif not gui_manager_queue.empty():
+                    self.runManagerMissions(managerToRun, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
+
+                if not gui_manager_queue.empty():
                     # Process all available messages in the queue
                     while not gui_manager_queue.empty():
                         net_message = await gui_manager_queue.get()
-                        self.processManagerNetMessage(net_message)
-
+                        self.processManagerNetMessage(net_message, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
 
 
                 log3("running manager works whenever there is some to run....", "runmanagerworks", self)
@@ -8391,5 +8678,5 @@ class MainWindow(QMainWindow):
     def findManagerMissionsOfThisVehicle(self):
         managerBots = self.findManagerOfThisVehicle()
         managerBids = [x.getBid() for x in managerBots]
-        managerMissions = [x for x in self.missions if x.getBid() in managerBids]
+        managerMissions = [x for x in self.missions if x.getBid() in managerBids and ("completed" not in x.getStatus().lower())]
         return managerMissions

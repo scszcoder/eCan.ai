@@ -32,7 +32,9 @@ from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtm
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
     genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
     genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove, genStepGetWindowsInfo, \
-    genStepBringWindowToFront, genStepCreateRequestsSession
+    genStepBringWindowToFront, genStepCreateRequestsSession, genStepECBCreateBots, genStepECBDeleteBots, \
+    genStepECBUpdateBots, genStepECBUpdateMissions, genStepECBCreateMissions, genStepECBDeleteMissions, \
+    genStepECBFetchDailySchedule
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -240,6 +242,13 @@ PUBLIC = {
     'genStepObtainReviews': genStepObtainReviews,
     'genStepKillProcesses': genStepKillProcesses,
     'genStepCreateRequestsSession': genStepCreateRequestsSession,
+    'genStepECBDeleteMissions': genStepECBDeleteMissions,
+    'genStepECBUpdateMissions': genStepECBUpdateMissions,
+    'genStepECBCreateMissions': genStepECBCreateMissions,
+    'genStepECBDeleteBots': genStepECBDeleteBots,
+    'genStepECBUpdateBots': genStepECBUpdateBots,
+    'genStepECBCreateBots': genStepECBCreateBots,
+    'genStepECBFetchDailySchedule': genStepECBFetchDailySchedule,
     # done exposing all methods.....now expose data structure defs.
     'selfName': "PUBLIC",
     "loginMain": login,
@@ -253,8 +262,8 @@ PUBLIC = {
 symTab["ecb_pub"] = PUBLIC
 
 ManagerTriggerTable = {
-    "TEAM_COMPLETED": 110,
-    "SCHEDULE_READY": 111
+    "TEAM_COMPLETED": (110, "manageAfterWork"),
+    "SCHEDULE_READY": (111, "manageBeforeWork")
 }
 symTab["manager_trigger_table"] = ManagerTriggerTable
 
@@ -426,16 +435,37 @@ def getWorkSettings(lieutenant, bot_works):
             }
 
 def getWorkRunSettings(lieutenant, bot_works):
-    works = bot_works["works"]
-    widx = bot_works["current widx"]  # walk task index
 
-    log3("works:"+json.dumps(works))
-    log3("widx: "+str(widx)+" mid:"+str(works[widx]["mid"]))
+    if isinstance(bot_works, dict):
+        works = bot_works["works"]
+        widx = bot_works["current widx"]  # walk task index
 
-    log3("bot_works: "+json.dumps(works[widx]))
-    mission_id = works[widx]["mid"]
-    midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(mission_id)), -1)
-    log3("MissionIDs:"+json.dumps([m.getMid() for m in lieutenant.missions])+" midx:"+str(midx))
+        log3("works:"+json.dumps(works))
+        log3("widx: "+str(widx)+" mid:"+str(works[widx]["mid"]))
+
+        log3("bot_works: "+json.dumps(works[widx]))
+        mission_id = works[widx]["mid"]
+        midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(mission_id)), -1)
+        log3("MissionIDs:"+json.dumps([m.getMid() for m in lieutenant.missions])+" midx:"+str(midx))
+        rpa_name = works[widx]["name"]
+        # m_status = works[widx]["status"]
+
+        # cargs = lieutenant.skills[skidx].getAppArgs()
+
+        bot_id = works[widx]["bid"]
+        log3("bot_id: "+str(bot_id))
+        run_config = works[widx]["config"]
+        fp_profile = works[widx]["fingerprint_profile"]
+    else:
+        in_mission = bot_works
+        mission_id = in_mission.getMid()
+        midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(in_mission.getMid())), -1)
+        rpa_name = in_mission.getType()
+
+        bot_id = in_mission.getBid()
+        log3("bot_id: " + str(bot_id))
+        run_config = in_mission.getConfig()
+        fp_profile = in_mission.getFingerPrintProfile()
 
     if midx < 0 or midx >= len(lieutenant.missions):
         log3("ERROR: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
@@ -451,14 +481,6 @@ def getWorkRunSettings(lieutenant, bot_works):
     as_server = lieutenant.missions[midx].getAsServer()
     log3("settings setting app_exe: "+app+app_exe+platform+site)
 
-    rpa_name = works[widx]["name"]
-    # m_status = works[widx]["status"]
-
-    # cargs = lieutenant.skills[skidx].getAppArgs()
-
-    bot_id = works[widx]["bid"]
-    log3("bot_id: "+str(bot_id))
-
     products = lieutenant.getSellerProductCatelog()
 
     # for b in lieutenant.bots:
@@ -471,7 +493,7 @@ def getWorkRunSettings(lieutenant, bot_works):
 
     name_space = "B" + str(bot_id) + "M" + str(mission_id) + "!" + "" + "!"
 
-    run_config = works[widx]["config"]
+
     root_path = lieutenant.homepath
 
     dtnow = datetime.now()
@@ -518,7 +540,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "b_backup_email": bot.getBackEm() if bot.getBackEm() else "",
             "b_backup_email_pw": bot.getAcctPw() if bot.getAcctPw() else "",
             "b_backup_email_site": bot.getBackEmSite() if bot.getBackEmSite() else "",
-            "batch_profile": works[widx]["fingerprint_profile"],
+            "batch_profile": fp_profile,
             "full_site": full_site,
             "seller": sij,
             "mid": mission_id,
