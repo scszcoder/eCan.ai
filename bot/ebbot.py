@@ -308,8 +308,10 @@ class BOT_PRIVATE_PROFILE():
             "shipaddrcity": self.shipping_addrcity,
             "shipaddrstate": self.shipping_addrstate,
             "shipaddrzip": self.shipping_addrzip,
-            "adsProfile": self.adsProfile
-
+            "adsProfile": self.adsProfile,
+            "createon": self.createon,
+            "addr": self.addr,
+            "shipping_addr": self.shipping_addr
         }
         return jd
 
@@ -485,6 +487,7 @@ class BOT_PUB_PROFILE():
             "bid": self.bid,
             "vehicle": self.vehicle,
             "gender": self.gender,
+            "delDate": self.delDate,
             "status": self.status
         }
         return jd

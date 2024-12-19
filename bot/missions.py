@@ -120,6 +120,7 @@ class M_Private_Attributes():
         self.feedback_text = dj.get("feedback_text", "")
         self.feedback_rating = dj.get("feedback_rating", 0.0)
         self.order_id = dj.get("order_id", "")
+        self.customer_id = dj.get("customer_id", "")
         self.follow_price = dj.get("follow_price", 0.0)
         self.follow_seller = dj.get("follow_seller", "")
         self.fingerprint_profile = dj.get("fingerprint_profile", "")
@@ -129,6 +130,7 @@ class M_Private_Attributes():
         jd = {
                 "item_number": self.item_number,
                 "seller": self.seller,
+                "brand": self.brand,
                 "follow_seller": self.follow_seller,
                 "title": self.title,
                 "variations": self.variations,
@@ -136,6 +138,7 @@ class M_Private_Attributes():
                 "price": self.price,
                 "follow_price": self.follow_price,
                 "rank": self.rank,
+                "rating": self.rating,
                 "feedbacks": self.feedbacks,
                 "result": self.result,
                 "feedback_img_link": self.feedback_img_link,
@@ -145,7 +148,8 @@ class M_Private_Attributes():
                 "feedback_rating": self.feedback_rating,
                 "order_id": self.order_id,
                 "fingerprint_profile": self.fingerprint_profile,
-                "original_req_file": self.original_req_file
+                "original_req_file": self.original_req_file,
+                "customer_id": self.customer_id
             }
         return jd
 
@@ -751,7 +755,8 @@ class EBMISSION(QStandardItem):
 
     def setConfig(self, cfg):
         self.pubAttributes.config = cfg
-        cfgJson = json.loads(cfg)
+        print("cfg:", cfg, type(cfg))
+        cfgJson = json.loads(cfg.replace("'", '"'))
         if "repeat_type" in cfgJson:
             self.pubAttributes.repeat_type = cfgJson["repeat_type"]
 
