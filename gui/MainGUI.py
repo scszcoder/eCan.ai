@@ -56,7 +56,7 @@ from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
 from bot.basicSkill import STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
 from bot.envi import getECBotDataHome
-from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable
+from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable, ManagerTriggerTable
 from bot.inventories import INVENTORY
 from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage, wanSendMessage8, parseCommandString
 from lzstring import LZString
@@ -3915,7 +3915,7 @@ class MainWindow(QMainWindow):
                 "ebpw": abot.getAcctPw(),
                 "backemail_site": abot.getAcctPw()
             })
-            self.updateBotRelatedVehicles(abot)
+            # self.updateBotRelatedVehicles(abot)
 
         jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
@@ -3929,6 +3929,67 @@ class MainWindow(QMainWindow):
                 self.bot_service.update_bots_batch(api_bots)
             else:
                 self.showMsg("WARNING: bot NOT updated in Cloud!")
+
+    # update in cloud, local DB, and local Memory
+    def updateBotsWithJsData(self, bjs):
+        try:
+            api_bots = []
+            for abot in bjs:
+                api_bots.append({
+                    "bid": abot["pubAttributes"]["bid"],
+                    "owner": self.owner,
+                    "roles": abot["pubAttributes"]["roles"],
+                    "org": abot["pubAttributes"]["org"],
+                    "pubbirthday": abot["pubAttributes"]["pubbirthday"],
+                    "gender": abot["pubAttributes"]["gender"],
+                    "location": abot["pubAttributes"]["location"],
+                    "levels": abot["pubAttributes"]["levels"],
+                    "birthday": abot["privateProfile"]["birthday"],
+                    "interests": abot["pubAttributes"]["interests"],
+                    "status": abot["pubAttributes"]["status"],
+                    "delDate": abot["pubAttributes"]["delDate"],
+                    "createon": abot["privateProfile"]["createon"],
+                    "vehicle": abot["pubAttributes"]["vehicle"],
+                    "name": abot["privateProfile"]["bid"],
+                    "pseudoname": abot["pubAttributes"]["pseudo_name"],
+                    "nickname": abot["pubAttributes"]["pseudo_nick_name"],
+                    "addr": abot["privateProfile"]["addr"],
+                    "shipaddr": abot["privateProfile"]["shipping_addr"],
+                    "phone": abot["privateProfile"]["phone"],
+                    "email": abot["privateProfile"]["email"],
+                    "epw": abot["privateProfile"]["email_pw"],
+                    "backemail": abot["privateProfile"]["backup_email"],
+                    "ebpw": abot["privateProfile"]["acct_pw"],
+                    "backemail_site": abot["privateProfile"]["backup_email_site"],
+                })
+                self.updateBotRelatedVehicles(abot)
+
+            jresp = send_update_bots_request_to_cloud(self.session, bjs, self.tokens['AuthenticationResult']['IdToken'])
+            if "errorType" in jresp:
+                screen_error = True
+                self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]),
+                             "ERROR Info: " + json.dumps(jresp["errorInfo"]))
+            else:
+                jbody = jresp["body"]
+                if jbody['numberOfRecordsUpdated'] == len(bjs):
+                    self.bot_service.update_bots_batch(api_bots)
+
+                    # finally update into in-memory data structure.
+
+                else:
+                    self.showMsg("WARNING: bot NOT updated in Cloud!")
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorUpdateBotsWithJsData:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorUpdateBotsWithJsData: traceback information not available:" + str(e)
+
+            self.showMsg(ex_stat)
+
+
 
     def updateBotRelatedVehicles(self, bot):
         if bot.getVehicle() is not None and bot.getVehicle() != "" and bot.getVehicle() != "NA":
@@ -4688,6 +4749,9 @@ class MainWindow(QMainWindow):
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
+                selected_indexes = self.botListView.selectedIndexes()
+                print("selected indexes:", selected_indexes)
+
                 self.selected_bot_row = source.indexAt(event.pos()).row()
                 self.selected_bot_item = self.botModel.item(self.selected_bot_row)
                 if selected_act == self.rcbotEditAction:
@@ -4866,33 +4930,62 @@ class MainWindow(QMainWindow):
                     self.missionModel.removeRow(item.row())
                     api_removes.append({"id": item.getMid(), "owner": "", "reason": ""})
 
-                # remove on the cloud side
-                jresp = send_remove_missions_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'])
-                self.showMsg("DONE WITH CLOUD SIDE REMOVE MISSION REQUEST.....")
-                if "errorType" in jresp:
-                    screen_error = True
-                    self.showMsg("Delete Missions ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
-                else:
-                    self.showMsg("JRESP:"+json.dumps(jresp)+"<>"+json.dumps(jresp['body'])+"<>"+json.dumps(jresp['body']['$metadata'])+"<>"+json.dumps(jresp['body']['numberOfRecordsUpdated']))
-                    meta_data = jresp['body']['$metadata']
-                    if jresp['body']['numberOfRecordsUpdated'] == 0:
-                        self.showMsg("WARNING: CLOUD SIDE MISSION DELETE NOT EXECUTED.")
-
-                    for m in api_removes:
-                        # missionTBDId = next((x for x in self.missions if x.getMid() == m["id"]), None)
-                        self.mission_service.delete_missions_by_mid(m["id"])
-
-                    for m in api_removes:
-                        midx = next((i for i, x in enumerate(self.missions) if x.getMid() == m["id"]), -1)
-                        self.showMsg("removeing MID:"+str(midx))
-                        # If the element was found, remove it using pop()
-                        if midx != -1:
-                            self.missions.pop(midx)
+                # remove on the cloud side, local DB side, and MainGUI side
+                self.deleteMissionsWithJsons(False, api_removes)
 
                     # self.writeMissionJsonFile()
 
         #self.botModel.removeRow(self.selected_bot_row)
         #self.showMsg("delete bot" + str(self.selected_bot_row))
+
+    # delete from cloud side
+    # delete from local DB
+    # delete from in-memory data structure
+    # delete bots from GUI depends on the "del_gui" flag.
+    # note: the mjs is in this format [{"id": mid, "owner": "", "reason": ""} .... ]
+    def deleteMissionsWithJsons(self, del_gui, mjs):
+        try:
+            # remove on the cloud side
+            if del_gui:
+                print("delete GUI missions")
+
+            # remove on the cloud side
+            jresp = send_remove_missions_request_to_cloud(self.session, mjs,
+                                                          self.tokens['AuthenticationResult']['IdToken'])
+            self.showMsg("DONE WITH CLOUD SIDE REMOVE MISSION REQUEST.....")
+            if "errorType" in jresp:
+                screen_error = True
+                self.showMsg(
+                    "Delete Missions ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(
+                        jresp["errorInfo"]))
+            else:
+                self.showMsg("JRESP:" + json.dumps(jresp) + "<>" + json.dumps(jresp['body']) + "<>" + json.dumps(
+                    jresp['body']['$metadata']) + "<>" + json.dumps(jresp['body']['numberOfRecordsUpdated']))
+                meta_data = jresp['body']['$metadata']
+                if jresp['body']['numberOfRecordsUpdated'] == 0:
+                    self.showMsg("WARNING: CLOUD SIDE MISSION DELETE NOT EXECUTED.")
+
+                for m in mjs:
+                    # missionTBDId = next((x for x in self.missions if x.getMid() == m["id"]), None)
+                    self.mission_service.delete_missions_by_mid(m["id"])
+
+                for m in mjs:
+                    midx = next((i for i, x in enumerate(self.missions) if x.getMid() == m["id"]), -1)
+                    self.showMsg("removeing MID:" + str(midx))
+                    # If the element was found, remove it using pop()
+                    if midx != -1:
+                        self.missions.pop(midx)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorDeleteMissionsWithJsons:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorCreateMissionsWithJsons: traceback information not available:" + str(e)
+            log3(ex_stat)
+
 
     def updateCusMissionStatus(self, amission):
         # send this mission's status to Cloud
@@ -4905,6 +4998,85 @@ class MainWindow(QMainWindow):
         #     jbody = json.loads(jresp["body"])
         #     # now that delete is successfull, update local file as well.
         #     self.writeMissionJsonFile()
+
+
+    def updateMissionsWithJsData(self, mjs):
+        try:
+            api_missions = []
+            for amission in mjs:
+                api_missions.append({
+                    'mid': amission["pubAttributes"]["missionId"],
+                    'ticket': amission["pubAttributes"]["ticket"],
+                    'botid': amission["pubAttributes"]["bot_id"],
+                    'status': amission["pubAttributes"]["status"],
+                    'createon': amission["pubAttributes"]["createon"],
+                    'esd': amission["pubAttributes"]["esd"],
+                    'ecd': amission["pubAttributes"]["ecd"],
+                    'asd': amission["pubAttributes"]["asd"],
+                    'abd': amission["pubAttributes"]["abd"],
+                    'aad': amission["pubAttributes"]["aad"],
+                    'afd': amission["pubAttributes"]["afd"],
+                    'acd': amission["pubAttributes"]["acd"],
+                    'actual_start_time': amission["pubAttributes"]["actual_start_time"],
+                    'est_start_time': amission["pubAttributes"]["est_start_time"],
+                    'actual_runtime': amission["pubAttributes"]["actual_run_time"],
+                    'est_runtime': amission["pubAttributes"]["est_run_time"],
+                    'n_retries': amission["pubAttributes"]["repeat"],
+                    'cuspas': amission["pubAttributes"]["cuspas"],
+                    'category': amission["pubAttributes"]["category"],
+                    'phrase': amission["pubAttributes"]["phrase"],
+                    'pseudoStore': amission["pubAttributes"]["pseudo_store"],
+                    'pseudoBrand': amission["pubAttributes"]["pseudo_brand"],
+                    'pseudoASIN': amission["pubAttributes"]["pseudo_asin"],
+                    'type': amission["pubAttributes"]["ms_type"],
+                    'config': amission["pubAttributes"]["config"],
+                    'skills': amission["pubAttributes"]["skills"],
+                    'delDate': amission["pubAttributes"]["del_date"],
+                    'asin': amission["privateProfile"]["item_number"],
+                    'store': amission["privateProfile"]["seller"],
+                    'follow_seller': amission["privateProfile"]["follow_seller"],
+                    'brand': amission["privateProfile"]["brand"],
+                    'img': amission["privateProfile"]["imglink"],
+                    'title': amission["privateProfile"]["title"],
+                    'variations': amission["privateProfile"]["variations"],
+                    'rating': amission["privateProfile"]["rating"],
+                    'feedbacks': amission["privateProfile"]["feedbacks"],
+                    'price': amission["privateProfile"]["price"],
+                    'follow_price': amission["privateProfile"]["follow_price"],
+                    'fingerprint_profile': amission["privateProfile"]["fingerprint_profile"],
+                    'customer': amission["privateProfile"]["customer_id"],
+                    'platoon': amission["pubAttributes"]["platoon_id"],
+                    'result': amission["privateProfile"]["result"],
+                    'as_server': amission["pubAttributes"]["as_server"],
+                    'original_req_file': amission["privateProfile"]["original_req_file"]
+                })
+
+            jresp = send_update_bots_request_to_cloud(self.session, mjs, self.tokens['AuthenticationResult']['IdToken'])
+            if "errorType" in jresp:
+                screen_error = True
+                self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]),
+                             "ERROR Info: " + json.dumps(jresp["errorInfo"]))
+            else:
+                jbody = jresp["body"]
+                if jbody['numberOfRecordsUpdated'] == len(mjs):
+                    self.bot_service.update_bots_batch(api_missions)
+
+                    # finally update into in-memory data structure.
+
+                else:
+                    self.showMsg("WARNING: bot NOT updated in Cloud!")
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorUpdateMissionsWithJsData:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorUpdateMissionsWithJsData: traceback information not available:" + str(e)
+
+            self.showMsg(ex_stat)
+
 
     def runCusMissionNowSync(self):
         print("")
@@ -4984,7 +5156,9 @@ class MainWindow(QMainWindow):
 
         if ret == QMessageBox.Yes:
             api_removes = []
-            items = [self.selected_bot_item]
+            # items = [self.selected_bot_item]
+            items = [self.botModel.itemFromIndex(idx) for idx in self.botListView.selectedIndexes()]
+
             if len(items):
                 for item in items:
                     # remove file first, then the item in the model.
@@ -4995,29 +5169,58 @@ class MainWindow(QMainWindow):
                     self.botModel.removeRow(item.row())
                     api_removes.append({"id": item.getBid(), "owner": "", "reason": ""})
 
-                # remove on the cloud side
-                jresp = send_remove_bots_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'])
-                self.showMsg("DONE WITH CLOUD SIDE REMOVE BOT REQUEST.....")
-                if "errorType" in jresp:
-                    screen_error = True
-                    self.showMsg("Delete Bots ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
-                else:
-                    self.showMsg("JRESP:"+json.dumps(jresp)+"<>"+json.dumps(jresp['body']))
-                    if jresp['body']['numberOfRecordsUpdated'] == 0:
-                        self.showMsg("WARNING: CLOUD SIDE DELETE NOT EXECUTED.")
+                # remove on the cloud side, local side, MainGUI side.
+                self.deleteBotsWithJsons(False, api_removes)
 
-                    for b in api_removes:
-                        botTBDId = next((x for x in self.bots if x.getBid() == b["id"]), None)
-                        self.bot_service.delete_bots_by_botid(b["id"])
+                # self.saveBotJsonFile()
 
-                    for b in api_removes:
-                        bidx = next((i for i, x in enumerate(self.bots) if x.getBid() == b["id"]), -1)
 
-                        # If the element was found, remove it using pop()
-                        if bidx != -1:
-                            self.bots.pop(bidx)
+    # delete from cloud side
+    # delete from local DB
+    # delete from in-memory data structure
+    # delete bots from GUI depends on the "del_gui" flag.
+    # note: the bjs is in this format [{"id": bid, "owner": "", "reason": ""} .... ]
+    def deleteBotsWithJsons(self, del_gui, bjs):
+        try:
+            # remove on the cloud side
+            if del_gui:
+                print("delete GUI bots")
 
-                    # self.saveBotJsonFile()
+            # now the common part.
+            jresp = send_remove_bots_request_to_cloud(self.session, bjs,
+                                                      self.tokens['AuthenticationResult']['IdToken'])
+            self.showMsg("DONE WITH CLOUD SIDE REMOVE BOT REQUEST.....")
+            if "errorType" in jresp:
+                screen_error = True
+                self.showMsg("Delete Bots ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(
+                    jresp["errorInfo"]))
+            else:
+                self.showMsg("JRESP:" + json.dumps(jresp) + "<>" + json.dumps(jresp['body']))
+                if jresp['body']['numberOfRecordsUpdated'] == 0:
+                    self.showMsg("WARNING: CLOUD SIDE DELETE NOT EXECUTED.")
+
+                for b in bjs:
+                    botTBDId = next((x for x in self.bots if x.getBid() == b["id"]), None)
+                    self.bot_service.delete_bots_by_botid(b["id"])
+
+                for b in bjs:
+                    bidx = next((i for i, x in enumerate(self.bots) if x.getBid() == b["id"]), -1)
+
+                    # If the element was found, remove it using pop()
+                    if bidx != -1:
+                        self.bots.pop(bidx)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorDeleteBotsWithJsons:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorCreateBotsWithJsons: traceback information not available:" + str(e)
+            log3(ex_stat)
+
+
     # data format conversion. nb is in EBBOT data structure format., nbdata is json
     def fillNewBotPubInfo(self, nbjson, nb):
         self.showMsg("filling bot public data for bot-" + str(nbjson["pubProfile"]["bid"]))
@@ -5036,87 +5239,97 @@ class MainWindow(QMainWindow):
             QApplication.translate("QFileDialog", "Bot Files (*.json *.xlsx *.csv)")
         )
         log3("loading bots from a file..."+filename)
-        self.createBotsFromFiles([filename])
+        self.createBotsFromFilesOrJsData([filename])
 
-    def createBotsFromFiles(self, bfiles):
+    def createBotsFromFilesOrJsData(self, bfiles):
         try:
             bots_from_file = []
             botsJson = []
             for filename in bfiles:
                 if filename:
-                    if "json" in filename:
-                        try:
-                            api_bots = []
-                            with open(filename, 'r', encoding='utf-8') as uncompressed:
-                                filebbots = json.load(uncompressed)
-                                if filebbots:
-                                    # Add bots to the relevant data structure and add these bots to the cloud and local DB.
-                                    for fb in filebbots:
-                                        new_bot = EBBOT(self)
-                                        self.fillNewBotFullInfo(fb, new_bot)
-                                        bots_from_file.append(new_bot)
-                                else:
-                                    self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
-                        except (FileNotFoundError, json.JSONDecodeError) as e:
-                            self.warn(QApplication.translate("QMainWindow",
-                                                             f"Error opening or decoding JSON file: {filename} - {e}"))
+                    if isinstance(filename, str):
+                        if "json" in filename:
+                            try:
+                                api_bots = []
+                                with open(filename, 'r', encoding='utf-8') as uncompressed:
+                                    filebbots = json.load(uncompressed)
+                                    if filebbots:
+                                        # Add bots to the relevant data structure and add these bots to the cloud and local DB.
+                                        for fb in filebbots:
+                                            new_bot = EBBOT(self)
+                                            self.fillNewBotFullInfo(fb, new_bot)
+                                            bots_from_file.append(new_bot)
+                                    else:
+                                        self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
+                            except (FileNotFoundError, json.JSONDecodeError) as e:
+                                self.warn(QApplication.translate("QMainWindow",
+                                                                 f"Error opening or decoding JSON file: {filename} - {e}"))
 
-                    elif "xlsx" in filename:
-                        try:
-                            log3("working on file:" + str(filename))
-                            xls = openpyxl.load_workbook(filename, data_only=True)
-                            botsJson = []
-                            title_cells = []
+                        elif "xlsx" in filename:
+                            try:
+                                log3("working on file:" + str(filename))
+                                xls = openpyxl.load_workbook(filename, data_only=True)
+                                botsJson = []
+                                title_cells = []
 
-                            # Process each sheet in the Excel file
-                            for idx, sheet in enumerate(xls.sheetnames):
-                                ws = xls[sheet]
+                                # Process each sheet in the Excel file
+                                for idx, sheet in enumerate(xls.sheetnames):
+                                    ws = xls[sheet]
 
-                                for ri, row in enumerate(ws.iter_rows(values_only=True)):
-                                    # Capture header titles from the first row of the first sheet
-                                    if idx == 0 and ri == 0:
-                                        title_cells = [cell for cell in row]
-                                    elif ri > 0 and len(row) == len(title_cells):  # Ensure row length matches headers
-                                        botJson = {}
-                                        for ci, cell in enumerate(title_cells):
-                                            # Format dates if necessary
-                                            if cell == "DoB" and row[ci]:
-                                                botJson[cell] = row[ci].strftime('%Y-%m-%d')
-                                            else:
-                                                botJson[cell] = row[ci]
-                                        botsJson.append(botJson)
+                                    for ri, row in enumerate(ws.iter_rows(values_only=True)):
+                                        # Capture header titles from the first row of the first sheet
+                                        if idx == 0 and ri == 0:
+                                            title_cells = [cell for cell in row]
+                                        elif ri > 0 and len(row) == len(title_cells):  # Ensure row length matches headers
+                                            botJson = {}
+                                            for ci, cell in enumerate(title_cells):
+                                                # Format dates if necessary
+                                                if cell == "DoB" and row[ci]:
+                                                    botJson[cell] = row[ci].strftime('%Y-%m-%d')
+                                                else:
+                                                    botJson[cell] = row[ci]
+                                            botsJson.append(botJson)
 
-                            log3("total # of bot rows read:" + str(len(botsJson)))
-                            log3("all jsons from bot xlsx file:" + json.dumps(botsJson, ensure_ascii=False))
-                            for bjson in botsJson:
-                                new_bot = EBBOT(self)
-                                new_bot.loadXlsxData(bjson)
-                                bots_from_file.append(new_bot)
-                                print(new_bot.genJson())
+                                log3("total # of bot rows read:" + str(len(botsJson)))
+                                log3("all jsons from bot xlsx file:" + json.dumps(botsJson, ensure_ascii=False))
+                                for bjson in botsJson:
+                                    new_bot = EBBOT(self)
+                                    new_bot.loadXlsxData(bjson)
+                                    bots_from_file.append(new_bot)
+                                    print(new_bot.genJson())
 
-                        except FileNotFoundError as e:
-                            self.warn(QApplication.translate("QMainWindow", f"Excel file not found: {filename} - {e}"))
-                        except Exception as e:
-                            self.warn(
-                                QApplication.translate("QMainWindow", f"Error processing Excel file: {filename} - {e}"))
+                            except FileNotFoundError as e:
+                                self.warn(QApplication.translate("QMainWindow", f"Excel file not found: {filename} - {e}"))
+                            except Exception as e:
+                                self.warn(
+                                    QApplication.translate("QMainWindow", f"Error processing Excel file: {filename} - {e}"))
 
+                        else:
+                            self.showMsg("ERROR: bot files must either be in .json format or .xlsx format!")
                     else:
-                        self.showMsg("ERROR: bot files must either be in .json format or .xlsx format!")
+                        # this is the case where input is already in json format, so just directly use them.
+                        jsData = filename
+
+                        new_bot = EBBOT(self)
+                        self.fillNewBotFullInfo(jsData, new_bot)
+                        bots_from_file.append(new_bot)
+
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: No file provided."))
 
             if len(bots_from_file) > 0:
-                print("adding new bot...")
+                print("adding new bots to both cloud and local DB... update BID and Interests along the way since they're cloud generated.")
                 self.addNewBots(bots_from_file)
+
 
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
             # Extract the file name and line number from the last entry in the traceback
             if traceback_info:
-                ex_stat = "ErrorCreateBotsFromFiles:" + traceback.format_exc() + " " + str(e)
+                ex_stat = "ErrorCreateBotsFromFilesOrJsData:" + traceback.format_exc() + " " + str(e)
             else:
-                ex_stat = "ErrorCreateBotsFromFiles: traceback information not available:" + str(e)
+                ex_stat = "ErrorCreateBotsFromFilesOrJsData: traceback information not available:" + str(e)
             log3(ex_stat)
 
     # data format conversion. nb is in EBMISSION data structure format., nbdata is json
@@ -5187,88 +5400,92 @@ class MainWindow(QMainWindow):
         )
         self.createMissionsFromFile([filename])
 
-    def createMissionsFromFiles(self, mfiles):
+    def createMissionsFromFilesOrJsData(self, mfiles):
         missionsJson = []
+        mTypeTable = {
+            "溜号": "browse",
+            "免评": "buy",
+            "直评": "directbuy",
+            "产品点星": "goodRating",
+            "产品好评": "goodFB",
+            "店铺点星": "storeRating",
+            "店铺好评": "storeFB",
+            "加购物车": "addCart",
+        }
         for filename in mfiles:
             if filename != "":
-                if "json" in filename:
-                    api_missions = []
-                    # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
-                    filebmissions = json.load(filename)
-                    if len(filebmissions) > 0:
-                        #add bots to the relavant data structure and add these bots to the cloud and local DB.
+                if isinstance(filename, str):
+                    if "json" in filename:
+                        api_missions = []
+                        # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+                        filebmissions = json.load(filename)
+                        if len(filebmissions) > 0:
+                            #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
-                        jresp = send_add_missions_request_to_cloud(self.session, filebmissions,
-                                                               self.tokens['AuthenticationResult']['IdToken'])
+                            jresp = send_add_missions_request_to_cloud(self.session, filebmissions,
+                                                                   self.tokens['AuthenticationResult']['IdToken'])
 
-                        if "errorType" in jresp:
-                            screen_error = True
-                            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                            if "errorType" in jresp:
+                                screen_error = True
+                                self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                            else:
+                                self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
+                                jbody = jresp["body"]
+                                # now that add is successfull, update local file as well.
+
+                                # now add missions to local DB.
+                                new_missions: [EBMISSION] = []
+                                for i in range(len(jbody)):
+                                    self.showMsg(str(i))
+                                    new_mission = EBMISSION(self)
+                                    # move json file based mission into MISSION data structure.
+                                    new_mission.loadJson(filebmissions)
+                                    self.fillNewMissionFromCloud(jbody[i], new_mission)
+                                    self.missions.append(new_mission)
+                                    self.missionModel.appendRow(new_mission)
+                                    new_missions.append(new_mission)
+
+                                self.addMissionsToLocalDB(new_missions)
+
                         else:
-                            self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
-                            jbody = jresp["body"]
-                            # now that add is successfull, update local file as well.
+                            self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
 
-                            # now add missions to local DB.
-                            new_missions: [EBMISSION] = []
-                            for i in range(len(jbody)):
-                                self.showMsg(str(i))
-                                new_mission = EBMISSION(self)
-                                # move json file based mission into MISSION data structure.
-                                new_mission.loadJson(filebmissions)
-                                self.fillNewMissionFromCloud(jbody[i], new_mission)
-                                self.missions.append(new_mission)
-                                self.missionModel.appendRow(new_mission)
-                                new_missions.append(new_mission)
+                    elif "xlsx" in filename:
+                        # if getting missions from xlsx file it's automatically assumed that the
+                        # the mission will be for amz buy.
+                        log3("working on order file:"+filename)
+                        mJsons = self.convert_orders_xlsx_to_json(filename)
+                        log3("mJsons from xlsx:" + json.dumps(mJsons))
 
-                            self.addMissionsToLocalDB(new_missions)
+                        # now if quantity is N, there will be N missions created.
+                        # and add other required missions parameters....
+                        for mJson in mJsons:
+                            if "email" not in mJson:
+                                pkString = "songc@yahoo.com"
+                            elif not mJson["email"]:
+                                pkString = "songc@yahoo.com"
+                            else:
+                                pkString = mJson["email"]
+                            mJson["pseudoStore"] = self.generateShortHash(pkString+":"+mJson.get("store", "NoneStore"))
+                            mJson["pseudoBrand"] = self.generateShortHash(pkString+":"+mJson.get("brand", "NoneBrand"))
+                            mJson["pseudoASIN"] = self.generateShortHash(pkString+":"+mJson["asin"])
 
-                    else:
-                        self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
+                            if not mJson["feedback_type"]:
+                                mJson["type"] = mTypeTable[mJson["feedback_type"]]
+                            else:
+                                mJson["type"] = "buy"
 
-                elif "xlsx" in filename:
-                    # if getting missions from xlsx file it's automatically assumed that the
-                    # the mission will be for amz buy.
-                    log3("working on order file:"+filename)
-                    mJsons = self.convert_orders_xlsx_to_json(filename)
-                    log3("mJsons from xlsx:" + json.dumps(mJsons))
-                    mTypeTable = {
-                        "溜号": "browse",
-                        "免评": "buy",
-                        "直评": "directbuy",
-                        "产品点星": "goodRating",
-                        "产品好评": "goodFB",
-                        "店铺点星": "storeRating",
-                        "店铺好评": "storeFB",
-                        "加购物车": "addCart",
-                    }
-                    # now if quantity is N, there will be N missions created.
-                    # and add other required missions parameters....
-                    for mJson in mJsons:
-                        if "email" not in mJson:
-                            pkString = "songc@yahoo.com"
-                        elif not mJson["email"]:
-                            pkString = "songc@yahoo.com"
-                        else:
-                            pkString = mJson["email"]
-                        mJson["pseudoStore"] = self.generateShortHash(pkString+":"+mJson.get("store", "NoneStore"))
-                        mJson["pseudoBrand"] = self.generateShortHash(pkString+":"+mJson.get("brand", "NoneBrand"))
-                        mJson["pseudoASIN"] = self.generateShortHash(pkString+":"+mJson["asin"])
+                            # each buy should be a separate mission.
+                            n_orders = int(mJson["quantity"])
+                            missionsJson = missionsJson + [copy.deepcopy(mJson) for _ in range(n_orders)]
 
-                        if not mJson["feedback_type"]:
-                            mJson["type"] = mTypeTable[mJson["feedback_type"]]
-                        else:
-                            mJson["type"] = "buy"
-
-                        # each buy should be a separate mission.
-                        n_orders = int(mJson["quantity"])
-                        missionsJson = missionsJson + [copy.deepcopy(mJson) for _ in range(n_orders)]
-
-                    log3("total # of orders rows read: "+str(len(mJsons)))
-                    log3("mJsons after conversion:"+json.dumps(mJsons))
-                    m = sum(int(item["quantity"]) for item in mJsons)
-                    log3("total # of missions to be generated: " + str(m))
-
+                        log3("total # of orders rows read: "+str(len(mJsons)))
+                        log3("mJsons after conversion:"+json.dumps(mJsons))
+                        m = sum(int(item["quantity"]) for item in mJsons)
+                        log3("total # of missions to be generated: " + str(m))
+                else:
+                    log3("add missions from direct list of jsons, no data manipulation here.")
+                    missionsJson = mfiles
 
         missions_from_file = []
         for mjson in missionsJson:
@@ -5278,7 +5495,9 @@ class MainWindow(QMainWindow):
             # new_mission.genJson()
 
         print("about to really add these missions...")
-        # self.addNewMissions(missions_from_file)
+        if missions_from_file:
+            self.addNewMissions(missions_from_file)
+
         return missionsJson
 
 
@@ -6056,6 +6275,30 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
             log3(ex_stat, "runbotworks", self)
 
+    def checkManangerToRuns(self, missions):
+        m2RunNow = []
+
+        return m2RunNow
+
+    def runManagerMissions(self, missions):
+        m2RunNow = []
+
+        return m2RunNow
+
+    def genOneTimeMissionWithSkill(self, skid):
+        otm = EBMISSION()
+        return otm
+
+    def run1mission(self, mission):
+        result = None
+        return result
+
+    def processManagerNetMessage(self, msg):
+        if msg.type in ManagerTriggerTable:
+            otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg.type])
+            result = self.run1mission(otm)
+        return m2RunNow
+
 
     async def runmanagerworks(self, gui_manager_queue, manager_rpa_queue, gui_monitor_queue):
         # run all the work
@@ -6072,7 +6315,16 @@ class MainWindow(QMainWindow):
                 #                       it. and the skill can be overwritten with custom skill).
                 # check time. @certain time, time based, read out all manager missions, user can
                 #                  create missions and let them use certain skill and run at certain time.
+                managerMissions = self.findManagerMissionsOfThisVehicle()
+                managerToRun = self.checkManangerToRuns(managerMissions)
 
+                if managerToRun:
+                    self.runManagerMissions(managerToRun)
+                elif not gui_manager_queue.empty():
+                    # Process all available messages in the queue
+                    while not gui_manager_queue.empty():
+                        net_message = await gui_manager_queue.get()
+                        self.processManagerNetMessage(net_message)
 
 
 
@@ -6129,7 +6381,8 @@ class MainWindow(QMainWindow):
             "status": "Running",
             "error": "",
         }])
-        self.parent.vehicles.append(newV)
+        # self.parent.vehicles.append(newV)
+        self.vehicles.append(newV)
 
         newV = VEHICLE(self)
         newV.setIP("192.168.22.34")
@@ -6144,17 +6397,18 @@ class MainWindow(QMainWindow):
             "status": "scheduled",
             "error": "",
         },
-            {
-                "mid": 4,
-                "botid": 3,
-                "sst": "2023-10-22 12:11:12",
-                "sd": 600,
-                "ast": "2023-10-22 12:12:12",
-                "aet": "2023-10-22 12:22:12",
-                "status": "warned",
-                "error": "100: warning reason 1",
-            }])
-        self.parent.vehicles.append(newV)
+        {
+            "mid": 4,
+            "botid": 3,
+            "sst": "2023-10-22 12:11:12",
+            "sd": 600,
+            "ast": "2023-10-22 12:12:12",
+            "aet": "2023-10-22 12:22:12",
+            "status": "warned",
+            "error": "100: warning reason 1",
+        }])
+        # self.parent.vehicles.append(newV)
+        self.vehicles.append(newV)
 
         newV = VEHICLE(self)
         newV.setIP("192.168.22.29")
@@ -6169,7 +6423,8 @@ class MainWindow(QMainWindow):
             "status": "aborted",
             "error": "203: Found Captcha",
         }])
-        self.parent.vehicles.append(newV)
+        # self.parent.vehicles.append(newV)
+        self.vehicles.append(newV)
 
     # msg in json format
     # { sender: "ip addr", type: "intro/status/report", content : "another json" }
@@ -8117,13 +8372,13 @@ class MainWindow(QMainWindow):
         newMisionsFiles = self.checkNewMissionsFiles()
         if newMisionsFiles:
             log3("last_order_file:"+self.general_settings["last_order_file"]+"..."+str(self.general_settings["last_order_file_time"]))
-            self.createMissionsFromFiles(newMisionsFiles)
+            self.createMissionsFromFilesOrJsData(newMisionsFiles)
 
     def createNewBotsFromBotsXlsx(self):
         newBotsFiles = self.checkNewBotsFiles()
         log3("newBotsFiles:"+json.dumps(newBotsFiles))
         if newBotsFiles:
-            self.createBotsFromFiles(newBotsFiles)
+            self.createBotsFromFilesOrJsData(newBotsFiles)
 
     def isPlatoon(self):
         return (self.machine_role == "Platoon")
@@ -8133,7 +8388,8 @@ class MainWindow(QMainWindow):
         foundBots = [x for x in self.bots if "manage" in x.getRoles().lower() and x.getVehicle() == self.machine_name]
         return foundBots
 
-    def findManagerMissionsOfThisVehicle(self, managerBots):
+    def findManagerMissionsOfThisVehicle(self):
+        managerBots = self.findManagerOfThisVehicle()
         managerBids = [x.getBid() for x in managerBots]
         managerMissions = [x for x in self.missions if x.getBid() in managerBids]
         return managerMissions

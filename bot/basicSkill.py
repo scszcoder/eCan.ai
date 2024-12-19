@@ -21,7 +21,7 @@ import importlib.util
 import requests
 
 from ping3 import ping
-
+from utils.logger_helper import login
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
@@ -1086,6 +1086,69 @@ def genStepCreateRequestsSession(session_var, flag_var, stepN):
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+
+def genStepECBCreateBots(bjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Create Bots",
+        "bjs_var": bjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBUpdateBots(bjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Update Bots",
+        "bjs_var": bjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBDeleteBots(bids_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Delete Bots",
+        "bids_var": bids_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBCreateMissions(mjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Create Missions",
+        "mjs_var": mjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBUpdateMissions(mjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Update Missions",
+        "mjs_var": mjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBDeleteMissions(mids_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Delete Missions",
+        "mids_var": mids_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 
 
@@ -5920,6 +5983,142 @@ def processCreateRequestsSession(step, i):
         # Log and skip errors gracefully
         ex_stat = f"Error in Create Requests Session: {traceback.format_exc()} {str(e)}"
         print(f"Error while creating requests session: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBCreateBots(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bjs = symTab[step["bjs_var"]]
+        mainWin.createBotsFromFilesOrJsData(bjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Create Bots: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB creating bots: {ex_stat}")
+
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBUpdateBots(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bjs = symTab[step["bjs_var"]]
+        mainWin.updateBotsWithJsData(bjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Update Bots: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB updating bots: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processECBDeleteBots(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bids = symTab[step["bjs_var"]]
+        # note: the bjs is in this format [{"id": bid, "owner": "", "reason": ""} .... ]
+        mainWin.deleteBotsWithJsons(True, bids)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Delete Bots: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB deleting bots: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processECBCreateMissions(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bjs = symTab[step["bjs_var"]]
+        mainWin.createMissionsFromFilesOrJsData(True, bjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Create Missions: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB creating missions: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBUpdateMissions(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bjs = symTab[step["bjs_var"]]
+        mainWin.updateMissionsWithJsData(bjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Update Missions: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB updating missions: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBDeleteMissions(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        mids = symTab[step["mids_var"]]
+        # note: the mids is in this format [{"id": mid, "owner": "", "reason": ""} .... ]
+        mainWin.deleteMissionsWithJsons(True, mids)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Delete Missions: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB deleting missions: {ex_stat}")
         symTab[step["session_var"]] = None
         symTab[step["flag"]] = False
 

@@ -2,6 +2,7 @@ import json
 import os
 import traceback
 from datetime import datetime
+from idlelib.autocomplete import TRIGGERS
 
 from basicSkill import genStepCreateRequestsSession
 from bot.Logger import log3
@@ -250,6 +251,14 @@ PUBLIC = {
 }
 
 symTab["ecb_pub"] = PUBLIC
+
+ManagerTriggerTable = {
+    "TEAM_COMPLETED": 110,
+    "SCHEDULE_READY": 111
+}
+symTab["manager_trigger_table"] = ManagerTriggerTable
+
+
 
 SkillGeneratorTable = {
     "win_chrome_amz_home_browse_search": lambda x,y,z: genWinChromeAMZWalkSkill(x, y, z),
