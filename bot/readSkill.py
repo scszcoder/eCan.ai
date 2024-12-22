@@ -31,7 +31,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processPasteToData, processMouseMove, processGetWindowsInfo, processBringWindowToFront, \
     processExternalHook, processCreateRequestsSession, processECBCreateBots, processECBUpdateBots, \
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
-    processECBFetchDailySchedule
+    processECBFetchDailySchedule, processECBDispatchTroops
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -261,7 +261,8 @@ RAIS = {
     "ECB Create Missions": lambda x, y: processECBCreateMissions(x, y),
     "ECB Update Missions": lambda x, y: processECBUpdateMissions(x, y),
     "ECB Delete Missions": lambda x, y: processECBDeleteMissions(x, y),
-    "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y)
+    "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y),
+    "ECB Dispatch Troop": lambda x, y: processECBDispatchTroops(x, y)
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
@@ -414,7 +415,8 @@ ARAIS = {
     "ECB Create Missions": lambda x, y: processECBCreateMissions(x, y),
     "ECB Update Missions": lambda x, y: processECBUpdateMissions(x, y),
     "ECB Delete Missions": lambda x, y: processECBDeleteMissions(x, y),
-    "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y)
+    "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y),
+    "ECB Dispatch Troop": lambda x, y: processECBDispatchTroops(x, y)
 }
 
 # read an psk fill into steps (json data structure)

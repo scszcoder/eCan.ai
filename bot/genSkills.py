@@ -15,7 +15,7 @@ from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, g
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
     genAMZBrowseAllReviewsPage, genScroll1StarReviewsPage, genStepAMZScrapePLHtml, genAMZBrowseProductLists, \
     genWinChromeAMZWalkSteps, genStepAMZScrapeProductDetailsHtml, genStepAMZScrapeReviewsHtml, genStepAMZSearchProducts, \
-    genWinADSAMZBuySkill
+    genWinADSAMZBuySkill, genWinChromeAMZDailyPrepSkill, genWinChromeAMZDailyHousekeepingSkill
 from bot.amzBuyerSkillMac import genMacChromeAMZWalkSkill, genMacChromeAMZWalkSteps
 from bot.amzSellerSkill import genWinChromeAMZFullfillOrdersSkill, genWinChromeAMZCollectOrdersSkill, \
     genWinChromeAMZUpdateShipmentTrackingSkill, genWinChromeAMZHandleMessagesSkill
@@ -34,7 +34,7 @@ from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtm
     genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove, genStepGetWindowsInfo, \
     genStepBringWindowToFront, genStepCreateRequestsSession, genStepECBCreateBots, genStepECBDeleteBots, \
     genStepECBUpdateBots, genStepECBUpdateMissions, genStepECBCreateMissions, genStepECBDeleteMissions, \
-    genStepECBFetchDailySchedule
+    genStepECBFetchDailySchedule, genStepECBDispatchTroops
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -249,6 +249,7 @@ PUBLIC = {
     'genStepECBUpdateBots': genStepECBUpdateBots,
     'genStepECBCreateBots': genStepECBCreateBots,
     'genStepECBFetchDailySchedule': genStepECBFetchDailySchedule,
+    'genStepECBDispatchTroops': genStepECBDispatchTroops,
     # done exposing all methods.....now expose data structure defs.
     'selfName': "PUBLIC",
     "loginMain": login,
@@ -281,6 +282,8 @@ SkillGeneratorTable = {
     "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
     "win_ads_amz_home_browser_browse_search": lambda x, y, z: genWinADSAMZBrowserBrowseSearchSkill(x, y, z),
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
+    "win_chrome_amz_home_daily_housekeeping": lambda x, y, z: genWinChromeAMZDailyHousekeepingSkill(x, y, z),
+    "win_chrome_amz_home_daily_prep": lambda x, y, z: genWinChromeAMZDailyPrepSkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
     "win_ads_ebay_orders_buy_shipping": lambda x, y, z: genWinADSEbayBuyShippingSkill(x, y, z),
