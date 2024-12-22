@@ -1747,46 +1747,10 @@ class MainWindow(QMainWindow):
 
         testWebdriverADSAndChromeConnection(self, filename)
 
-        #the grand tests,
-        # 1) fetch today's schedule.
-        # result = self.fetchSchedule("5000", None)            # tests case for chrome etsy seller task automation.
-        # result = self.fetchSchedule("4000", None)            # tests case for ads power ebay seller task automation.
-        # result = self.fetchSchedule("6000", None)            # tests case for chrome amz seller task automation.
 
-        # ===================
-        # 2) run all tasks, with bot profile loading on ADS taken care of....
-
-        #configAMZWalkSkill("", None)
-        #amz_buyer_fetch_product_list(htmlfile)
-
-
-        # this will generate a local skill file to run, the input the skill data structure
-        # which contains the configuration part which comes from cloud scheduling API.
-        # testskfile = self.homepath + "../testdata/testsk.json"
-        # testmissionfile = homepath + "../testdata/testmission.json"
-        # with open(testskfile, 'rb') as skfp:
-        #     testsk = json.load(skfp)
-        #     skillDS = WORKSKILL("browse_search")
-        #     skillDS.loadJson(testsk)
-        #
-        #     with open(testmissionfile, 'rb') as mfp:
-        #         testmission = json.load(mfp)
-        #         self.showMsg("TEST MISSION:"+json.dumps(testmission))
-        #         self.showMsg(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        #         missionDS = EBMISSION(self)
-        #         missionDS.loadJson(testmission)
-        #         self.showMsg("tests json LOADED!!!!")
-        #         steps2brun = configAMZWalkSkill(0, missionDS, testsk, self.homepath)
-        #         self.showMsg("steps GENERATED!!!!")
-        #         #generated
-        #         #step_keys = readSkillFile(testsk.getName(), testsk.get_run_steps_file())
-        #         self.showMsg("steps READ AND LOADED!!!!")
-        #
-        #         runAllSteps(steps2brun, missionDS, skillDS)
-        #
-        #     mfp.close()
-        # skfp.close()
-
+    # 1) prepre ads profile cookies
+    # 2) group them by vehicle
+    # 3) assign them. (move the troop to the vehicle(host computer where they belong， Bots, Missions, Skills, ADS related data and files.)
     def handleCloudScheduledWorks(self, bodyobj):
         log3("handleCloudScheduledWorks...."+str(len(bodyobj))+" "+type(bodyobj), "fetchSchedule", self)
         for nm in bodyobj["added_missions"]:
@@ -1827,8 +1791,8 @@ class MainWindow(QMainWindow):
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
             # self.newBuyMissionFromFiles()
-            self.createNewBotsFromBotsXlsx()
-            self.createNewMissionsFromOrdersXlsx()
+            # self.createNewBotsFromBotsXlsx()
+            # self.createNewMissionsFromOrdersXlsx()
 
             log3("Done handling today's new Buy orders...", "fetchSchedule", self)
 
@@ -1876,7 +1840,7 @@ class MainWindow(QMainWindow):
                             with open(file) as test_schedule_file:
                                 bodyobj = json.load(test_schedule_file)
 
-                    self.handleCloudScheduledWorks(bodyobj)
+                    # self.handleCloudScheduledWorks(bodyobj)
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
@@ -6606,6 +6570,7 @@ class MainWindow(QMainWindow):
                 managerToRun = self.checkManagerToRuns(managerMissions)
 
                 if managerToRun:
+                    print("there is some repeat type mission to run....")
                     self.runManagerMissions(managerToRun, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
 
                 if not gui_manager_queue.empty():
@@ -6613,9 +6578,9 @@ class MainWindow(QMainWindow):
                     while not gui_manager_queue.empty():
                         net_message = await gui_manager_queue.get()
                         self.processManagerNetMessage(net_message, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
+                else:
+                    print("manager msg queue empty...")
 
-
-                log3("running manager works whenever there is some to run....", "runmanagerworks", self)
                 await asyncio.sleep(3)
 
         except Exception as e:

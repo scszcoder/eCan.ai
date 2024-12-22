@@ -1067,10 +1067,11 @@ def genStepKillProcesses(process_name, flag_var, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepExternalHook(file_name_type, file_name, params, result_var, flag_var, stepN):
+def genStepExternalHook(file_name_type, file_path, file_name, params, result_var, flag_var, stepN):
     stepjson = {
         "type": "External Hook",
         "file_name_type": file_name_type,
+        "file_path": file_path,
         "file_name": file_name,
         "params": params,  # Optional dictionary of parameters for the external script
         "result": result_var,
@@ -1158,6 +1159,14 @@ def genStepECBFetchDailySchedule(result_var, flag_var, stepN):
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+
+def genStepECBDispatchTroops(result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Dispatch Troops",
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 
@@ -5933,20 +5942,26 @@ def processExternalHook(step, i):
     global symTab
 
     try:
+        script_prefix = "none"
+        script_file = "none"
         # Determine the script file name
         if step["file_name_type"] == "direct":
-            script_path = step["file_name"]
+            script_file = step["file_name"]
+            script_prefix = step["file_path"]
         elif step["file_name_type"] == "var":
-            script_path = symTab[step["file_name"]]
+            script_file = symTab[step["file_name"]]
+            script_prefix = symTab[step["file_path"]]
         elif step["file_name_type"] == "expr":
-            exec("global script_path\nscript_path = " + step["file_name"])
+            exec("global script_path\nscript_file = " + step["file_name"])
+            exec("global script_prefix\nscript_prefix = " + step["file_path"])
 
+        script_path = script_prefix + "/" + script_file
         print(f"Attempting to execute external script: {script_path}")
 
         # Check if the file exists
         if not os.path.exists(script_path):
             print(f"Script file not found: {script_path}. Skipping...")
-            symTab[step["result"]] = None
+            symTab[step["result"]] = "Script file not found!"
             symTab[step["flag"]] = False
             return (i + 1), ex_stat  # Skip gracefully
 
@@ -5964,14 +5979,14 @@ def processExternalHook(step, i):
             print(f"Hook result: {result}")
         else:
             print(f"Script {script_path} does not have a 'run' function. Skipping...")
-            symTab[step["result"]] = None
+            symTab[step["result"]] = "No run function found"
             symTab[step["flag"]] = False
 
     except Exception as e:
         # Log and skip errors gracefully
         ex_stat = f"Error in Hook: {traceback.format_exc()} {str(e)}"
         print(f"Error while executing hook: {ex_stat}")
-        symTab[step["result"]] = None
+        symTab[step["result"]] = ex_stat
         symTab[step["flag"]] = False
 
     # Always proceed to the next instruction
@@ -6143,7 +6158,7 @@ def processECBFetchDailySchedule(step, i):
 
     try:
         symTab[step["flag"]] = True
-        symTab[step["result_var"]] = mainWin.fetchDailySchedule()
+        symTab[step["result_var"]] = mainWin.fetchSchedule()
 
     except Exception as e:
         # Log and skip errors gracefully
@@ -6154,3 +6169,25 @@ def processECBFetchDailySchedule(step, i):
 
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBDispatchTroops(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Dispatch Troops: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB dispatch troops: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
