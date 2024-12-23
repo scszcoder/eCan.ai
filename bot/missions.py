@@ -71,6 +71,7 @@ class M_Private_Attributes():
         self.follow_seller = ""
         self.follow_price = 0.0
         self.fingerprint_profile = ""
+        self.note = ""
 
 
 
@@ -88,6 +89,12 @@ class M_Private_Attributes():
 
         self.feedbacks = feedbacks
 
+    def setNote(self, note):
+        self.note = note
+
+    def getNote(self):
+        return self.note
+
     def setFeedbacks(self, fbs):
         self.feedbacks = fbs
 
@@ -99,6 +106,12 @@ class M_Private_Attributes():
 
     def getPrice(self):
         return self.price
+
+    def getOrderId(self):
+        return self.order_id
+
+    def setOrderId(self, oid):
+        self.order_id = oid
 
     def setReqFile(self, rf):
         self.original_req_file = rf
@@ -304,9 +317,9 @@ class M_Pub_Attributes():
         self.actual_start_time = dj.get("actual_start_time", 0)
         self.esttime = dj.get("est_start_time", 0)
         self.del_date = dj.get("del_date", "")
-        self.pseudo_store = dj.get("pseudo_store", "")
-        self.pseudo_brand = dj.get("pseudo_brand", "")
-        self.pseudo_asin = dj.get("pseudo_asin", "")
+        self.pseudo_store = dj.get("pseudo_store")
+        self.pseudo_brand = dj.get("pseudo_brand")
+        self.pseudo_asin = dj.get("pseudo_asin")
         self.skills = dj.get("skills", "")
         self.cuspas = dj.get("cuspas", "")
         self.app_exe = dj.get("app_exe", "")
@@ -335,9 +348,9 @@ class M_Pub_Attributes():
         self.run_time = dj.get("runtime", 0)
         self.esttime = dj.get("esttime", 0)
         self.del_date = dj.get("delDate", "")
-        self.pseudo_store = dj.get("pseudoStore", "")
-        self.pseudo_brand = dj.get("pseudoBrand", "")
-        self.pseudo_asin = dj.get("pseudoASIN", "")
+        self.pseudo_store = dj.get("pseudoStore")
+        self.pseudo_brand = dj.get("pseudoBrand")
+        self.pseudo_asin = dj.get("pseudoASIN")
         self.skills = dj.get("skills", "")
         self.cuspas = dj.get("cuspas", "")
         self.createon = dj.get("createon", "")
@@ -790,6 +803,9 @@ class EBMISSION(QStandardItem):
     def getOrderID(self):
         return self.privateAttributes.order_id
 
+    def setOrderID(self, oid):
+        self.privateAttributes.order_id = oid
+
     def getFeedbackImgLink(self):
         return self.privateAttributes.feedback_img_link
 
@@ -886,18 +902,21 @@ class EBMISSION(QStandardItem):
 
     def setASIN(self, asin):
         self.privateAttributes.item_number = asin
+        self.pubAttributes.pseudo_asin = self.main_win.generateShortHash(asin)
 
     def getStore(self):
         return self.privateAttributes.seller
 
     def setStore(self, store):
         self.privateAttributes.seller = store
+        self.pubAttributes.pseudo_store = self.main_win.generateShortHash(store)
 
     def getBrand(self):
         return self.privateAttributes.brand
 
     def setBrand(self, brand):
         self.privateAttributes.brand = brand
+        self.pubAttributes.pseudo_brand = self.main_win.generateShortHash(brand)
 
     def getImagePath(self):
         return self.privateAttributes.imglink
@@ -1035,6 +1054,12 @@ class EBMISSION(QStandardItem):
     def getRepeatUntil(self):
         return self.pubAttributes.repeat_until
 
+    def setNote(self, note):
+        self.privateAttributes.note = note
+
+    def getNote(self):
+        return self.privateAttributes.note
+
     # self.
     def setJsonData(self, ppJson):
         self.pubAttributes.loadJson(ppJson["pubAttributes"])
@@ -1086,16 +1111,16 @@ class EBMISSION(QStandardItem):
         self.setCusPAS(dbd.cuspas)
         self.setSearchCat(dbd.category)
         self.setSearchKW(dbd.phrase)
-        self.setPseudoStore(dbd.pseudoStore)
-        self.setPseudoBrand(dbd.pseudoBrand)
-        self.setPseudoASIN(dbd.pseudoASIN)
+        # self.setPseudoStore(dbd.pseudoStore)
+        # self.setPseudoBrand(dbd.pseudoBrand)
+        # self.setPseudoASIN(dbd.pseudoASIN)
         self.setMtype(dbd.type)
         self.setConfig(dbd.config)
         self.setSkills(dbd.skills)
         self.setDelDate(dbd.delDate)
-        self.setASIN(dbd.asin)
-        self.setStore(dbd.store)
-        self.setBrand(dbd.brand)
+        self.setASIN(dbd.asin)               # this will auto set psudo_asin
+        self.setStore(dbd.store)             # this will auto set psudo_store
+        self.setBrand(dbd.brand)             # this will auto set psudo_brand
         self.setImagePath(dbd.img)
         self.setTitle(dbd.title)
         self.setVariations(dbd.variations)
@@ -1124,15 +1149,15 @@ class EBMISSION(QStandardItem):
         self.setCusPAS(dj.get("platform", "win")+","+dj.get("app", "ads")+","+dj.get("site", "amz"))
         self.setSearchCat(dj.get("search cat", ""))
         self.setSearchKW(dj.get("phrase", ""))
-        self.setPseudoStore(dj.get("pseudoStore", ""))
-        self.setPseudoBrand(dj.get("pseudoBrand", ""))
-        self.setPseudoASIN(dj.get("pseudoASIN", ""))
+        # self.setPseudoStore(self.main_win.generateShortHash(dj.get("pseudoStore")))
+        # self.setPseudoBrand(self.main_win.generateShortHash(dj.get("pseudoBrand")))
+        # self.setPseudoASIN(self.main_win.generateShortHash(dj.get("pseudoASIN")))
         self.setMtype(dj.get("type", ""))
         self.setConfig(dj.get("config", ""))
         self.setSkills(dj.get("skills", ""))
-        self.setASIN(dj.get("asin", ""))
-        self.setStore(dj.get("store", "NoneStore"))
-        self.setBrand(dj.get("brand", "NoneBrand"))
+        self.setASIN(dj.get("asin", ""))                #this will auto set psudo_asin
+        self.setStore(dj.get("store", "NoneStore"))     #this will auto set psudo_store
+        self.setBrand(dj.get("brand", "NoneBrand"))     #this will auto set psudo_brand
         self.setImagePath(dj.get("img", ""))
         self.setTitle(dj.get("title", ""))
         self.setVariations(dj.get("variations", ""))
@@ -1149,22 +1174,50 @@ class EBMISSION(QStandardItem):
         self.setReqFile(dj.get("original_req_file", ""))
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
+    def loadBusinessesDBData(self, dj):
+        self.setMid(dj.get("mid", 0))
+        self.setCusPAS(dj.get("platform", "win")+","+dj.get("app", "ads")+","+dj.get("site", "amz"))
+        self.setSearchKW(dj.get("order_search_term", ""))
+        # self.setPseudoStore(self.main_win.generateShortHash(dj.get("order_seller")))
+        # self.setPseudoBrand(self.main_win.generateShortHash(dj.get("order_brand")))
+        # self.setPseudoASIN(self.main_win.generateShortHash(dj.get("order_asin")))
+        self.setMtype(dj.get("service1_type", ""))
+        self.setSkills(dj.get("skills", "117"))
+        self.setBD(dj.get("order_date"))
+        self.setNote(dj.get("order_note"))
+        self.setASIN(dj.get("order_asin", ""))          # this will auto set pseudo_asin
+        self.setStore(dj.get("order_seller"))           # this will auto set pseudo_store
+        self.setBrand(dj.get("order_brand"))            # this will auto set pseudo_brand
+        self.setTitle(dj.get("order_title", ""))
+        self.setVariations(dj.get("order_variations", ""))
+        self.setPrice(dj.get("order_price", 0.0))
+        self.setCustomerID(dj.get("order_contact", ""))
+        self.setFollowSeller(dj.get("order_follow_seller", ""))
+        self.setFollowPrice(dj.get("order_follow_price", 0.0))
+        self.setReqFile(dj.get("order_source", ""))
+        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
+
+
     def loadAMZReqData(self,jd, reqFile):
         self.setApp("ads")
         self.setSite("amz")
         self.setSearchKW(jd["search term"])
 
-        if jd["fb type"] == "" or jd["fb type"] == "免评":
+        if jd["fb1 type"] == "" or jd["fb type"] == "免评":
             self.setMtype("buy")
-        elif jd["fb type"] == "点星":
+        elif jd["fb1 type"] == "点星":
             self.setMtype("goodRating")
-        elif jd["fb type"] == "好评":
+        elif jd["fb1 type"] == "好评":
             self.setMtype("goodFB")
 
-        self.setASIN(jd["asin"])
-        self.setStore(jd["store"])
-        self.setBrand(jd["brand"])
+        self.setASIN(jd["asin"])        # this will auto set psudo_asin
+        self.setStore(jd["store"])      # this will auto set psudo_store
+        self.setBrand(jd["brand"])      # this will auto set psudo_brand
         self.setTitle(jd["title"])
+
+        # self.setPseudoASIN(self.main_win.generateShortHash(jd["asin"]))
+        # self.setPseudoStore(self.main_win.generateShortHash(jd["store"]))
+        # self.setPseudoBrand(self.main_win.generateShortHash(jd["brand"]))
 
         self.setVariations(jd["variations"])
         if "rating" in jd:
