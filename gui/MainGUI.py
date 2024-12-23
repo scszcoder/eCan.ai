@@ -5530,9 +5530,11 @@ class MainWindow(QMainWindow):
         for filename in mfiles:
             if filename != "":
                 if isinstance(filename, str):
+                    dataType = "file"
                     if "json" in filename:
                         api_missions = []
                         # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+                        dataType = "missionJSFile"
                         filebmissions = json.load(filename)
                         if len(filebmissions) > 0:
                             #add bots to the relavant data structure and add these bots to the cloud and local DB.
@@ -5566,6 +5568,7 @@ class MainWindow(QMainWindow):
                             self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
 
                     elif "xlsx" in filename:
+                        dataType = "businessXlsxFile"
                         # if getting missions from xlsx file it's automatically assumed that the
                         # the mission will be for amz buy.
                         log3("working on order file:"+filename)
@@ -5600,16 +5603,20 @@ class MainWindow(QMainWindow):
                         log3("total # of missions to be generated: " + str(m))
                 else:
                     log3("add missions from direct list of jsons, no data manipulation here.")
+                    dataType = "businessJSData"
                     missionsJson = mfiles
 
         missions_from_file = []
         for mjson in missionsJson:
             new_mission = EBMISSION(self)
-            new_mission.loadXlsxData(mjson)
+            if dataType == "businessJSData":
+                new_mission.loadBusinessesDBData(mjson)
+            else:
+                new_mission.loadXlsxData(mjson)
             missions_from_file.append(new_mission)
             # new_mission.genJson()
 
-        print("about to really add these missions...")
+        print("about to really add these missions to cloud and local DB...")
         if missions_from_file:
             self.addNewMissions(missions_from_file)
 

@@ -884,9 +884,9 @@ class MissionNewWin(QMainWindow):
 
         self.newMission.pubAttributes.setSearch(self.search_kw_edit.text(), self.search_cat_edit.text())
 
-        self.newMission.setPseudoStore(self.pseudo_store_edit.text())
-        self.newMission.setPseudoBrand(self.pseudo_brand_edit.text())
-        self.newMission.setPseudoASIN(self.pseudo_asin_edit.text())
+        # self.newMission.setPseudoStore(self.pseudo_store_edit.text())
+        # self.newMission.setPseudoBrand(self.pseudo_brand_edit.text())
+        # self.newMission.setPseudoASIN(self.pseudo_asin_edit.text())
 
         self.missionStatusSel_changed()
 
