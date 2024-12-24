@@ -4200,6 +4200,7 @@ class MainWindow(QMainWindow):
                 "customer": new_mission.getCustomerID(),
                 "platoon": new_mission.getPlatoonID(),
                 "fingerprint_profile": new_mission.getFingerPrintProfile(),
+                "original_req_file": new_mission.getReqFile(),
                 "as_server": new_mission.getAsServer(),
                 "result": ""
             })
@@ -5620,6 +5621,11 @@ class MainWindow(QMainWindow):
         if missions_from_file:
             self.addNewMissions(missions_from_file)
 
+        # now needs to update the original data with mid and ticket and status.
+        for i, mission in enumerate(missionsJson):
+            missionsJson[i]['mid'] = mission.getMid()
+
+            missionsJson[i]['mid'] = mission.getMid()
         return missionsJson
 
 

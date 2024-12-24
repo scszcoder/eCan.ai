@@ -3731,9 +3731,9 @@ def genWinChromeAMZDailyPrepSkill(worksettings, stepN):
         ex_stat = f"Error in genWinChromeAMZDailyPrepSkill: {traceback.format_exc()} {str(e)}"
         print(f"Error while generating genWinChromeAMZDailyPrepSkill: {ex_stat}")
 
-def genWinChromeAMZDailyHouseKeepingSkill(worksettings, stepN):
+def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN):
     try:
-        log3("GENERATING genWinChromeAMZDailyHouseKeepingSkill======>")
+        log3("GENERATING genWinChromeAMZDailyHousekeepingSkill======>")
 
         psk_words = "{"
         site_url = "https://www.amazon.com/"
@@ -3761,6 +3761,6 @@ def genWinChromeAMZDailyHouseKeepingSkill(worksettings, stepN):
 
     except Exception as e:
         # Log and skip errors gracefully
-        ex_stat = f"Error in genWinChromeAMZDailyHouseKeepingSkill: {traceback.format_exc()} {str(e)}"
-        print(f"Error while generating genWinChromeAMZDailyHouseKeepingSkill: {ex_stat}")
+        ex_stat = f"Error in genWinChromeAMZDailyHousekeepingSkill: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genWinChromeAMZDailyHousekeepingSkill: {ex_stat}")
 

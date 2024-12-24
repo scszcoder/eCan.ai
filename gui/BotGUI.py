@@ -287,7 +287,7 @@ class BotNewWin(QMainWindow):
                                       alignment=Qt.AlignLeft)
         self.role_name_edit = QLineEdit()
         self.role_name_sel = QComboBox()
-        self.role_name_sel_list = ["Manager", "Buyer", "Seller"]
+        self.role_name_sel_list = ["Buyer", "Seller", "Manager"]
         for role_name_sel in self.role_name_sel_list:
             self.role_name_sel.addItem(QApplication.translate("QComboBox", role_name_sel))
         self.role_name_sel.currentTextChanged.connect(self.roleNameSel_changed)

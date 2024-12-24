@@ -15,7 +15,7 @@ from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, g
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
     genAMZBrowseAllReviewsPage, genScroll1StarReviewsPage, genStepAMZScrapePLHtml, genAMZBrowseProductLists, \
     genWinChromeAMZWalkSteps, genStepAMZScrapeProductDetailsHtml, genStepAMZScrapeReviewsHtml, genStepAMZSearchProducts, \
-    genWinADSAMZBuySkill, genWinChromeAMZDailyPrepSkill, genWinChromeAMZDailyHousekeepingSkill
+    genWinADSAMZBuySkill
 from bot.amzBuyerSkillMac import genMacChromeAMZWalkSkill, genMacChromeAMZWalkSteps
 from bot.amzSellerSkill import genWinChromeAMZFullfillOrdersSkill, genWinChromeAMZCollectOrdersSkill, \
     genWinChromeAMZUpdateShipmentTrackingSkill, genWinChromeAMZHandleMessagesSkill
@@ -54,7 +54,7 @@ from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, 
     genWinADSEbayBrowserHandleReturnSkill, genWinADSEbayBrowserHandleReturnWithECBLabelsSkill, \
     genWinADSEbayBrowserHandleReplacementSkill, genWinADSEbayBrowserHandleRefundSkill
 
-from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill
+from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill, genWinChromeAMZDailyPrepSkill, genWinChromeAMZDailyHousekeepingSkill
 
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
