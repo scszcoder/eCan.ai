@@ -116,6 +116,9 @@ class M_Private_Attributes():
     def setReqFile(self, rf):
         self.original_req_file = rf
 
+    def getReqFile(self):
+        return self.original_req_file
+
     def loadJson(self, dj):
         self.item_number = dj.get("item_number", "")
         self.seller = dj.get("seller", "")
@@ -280,8 +283,8 @@ class M_Pub_Attributes():
     def setRepeatUntil(self, ru):
         self.repeat_until = ru
 
-    def setRepeatType(self, rt):
-        self.repeat_type = rt
+    def getRepeatType(self):
+        return self.repeat_type
 
     def getRepeatUnit(self):
         return self.repeat_unit
@@ -901,6 +904,8 @@ class EBMISSION(QStandardItem):
         return self.privateAttributes.item_number
 
     def setASIN(self, asin):
+        if not asin:
+            asin = ""
         self.privateAttributes.item_number = asin
         self.pubAttributes.pseudo_asin = self.main_win.generateShortHash(asin)
 
@@ -908,6 +913,8 @@ class EBMISSION(QStandardItem):
         return self.privateAttributes.seller
 
     def setStore(self, store):
+        if not store:
+            store = ""
         self.privateAttributes.seller = store
         self.pubAttributes.pseudo_store = self.main_win.generateShortHash(store)
 
@@ -915,6 +922,8 @@ class EBMISSION(QStandardItem):
         return self.privateAttributes.brand
 
     def setBrand(self, brand):
+        if not brand:
+            brand = ""
         self.privateAttributes.brand = brand
         self.pubAttributes.pseudo_brand = self.main_win.generateShortHash(brand)
 
@@ -1039,8 +1048,8 @@ class EBMISSION(QStandardItem):
     def setRepeatUntil(self, ru):
         self.pubAttributes.repeat_until = ru
 
-    def setRepeatType(self, rt):
-        self.pubAttributes.repeat_type = rt
+    def getRepeatType(self):
+        return self.pubAttributes.repeat_type
 
     def getRepeatUnit(self):
         return self.pubAttributes.repeat_unit
@@ -1059,6 +1068,13 @@ class EBMISSION(QStandardItem):
 
     def getNote(self):
         return self.privateAttributes.note
+
+    def setReqFile(self, rf):
+        self.privateAttributes.original_req_file = rf
+
+    def getReqFile(self):
+        return self.privateAttributes.original_req_file
+
 
     # self.
     def setJsonData(self, ppJson):

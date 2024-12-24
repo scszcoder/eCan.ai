@@ -1,8 +1,9 @@
 class FileResource:
     def __init__(self, homepath):
         self.bot_icon_path = homepath + '/resource/images/icons/c_robot64_1.png'
-        self.sell_icon_path = homepath + '/resource/images/icons/c_robot64_0.png'
+        self.sell_bot_icon_path = homepath + '/resource/images/icons/c_robot64_0.png'
         self.buy_bot_icon_path = homepath + '/resource/images/icons/c_robot64_1.png'
+        self.manager_bot_icon_path = homepath + '/resource/images/icons/c_robot64_4.png'
         self.mission_icon_path = homepath + '/resource/images/icons/c_mission96_1.png'
         self.mission_success_icon_path = homepath + '/resource/images/icons/successful_launch0_48.png'
         self.mission_failed_icon_path = homepath + '/resource/images/icons/failed_launch0_48.png'
