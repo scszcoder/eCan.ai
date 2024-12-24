@@ -865,6 +865,9 @@ class MissionNewWin(QMainWindow):
                 self.newMission.setMtype("opCustom_" + self.op_mission_type_custome_edit.text())
             else:
                 self.newMission.setMtype(self.op_mission_type_sel.currentText())
+        elif self.manage_rb.isChecked():
+            self.newMission.setMtype("manage")
+            # self.newMission.setMtype("manage_" + self.op_mission_type_custome_edit.text())
 
         self.newMission.setBuyType(self.buy_mission_type_sel.currentText())
         self.newMission.setSellType(self.sell_mission_type_sel.currentText())
@@ -1051,19 +1054,25 @@ class MissionNewWin(QMainWindow):
 
             if self.newMission.getAssignmentType() == "auto":
                 self.auto_rb.setChecked(True)
-            else:
+
+            # print(self.newMission.getConfig())
+            cfg_string = self.newMission.getConfig().replace("'", '"')
+            cfg = json.loads(cfg_string)
+            if "bid" in cfg:
+                self.bid_edit.setText(str(cfg["bid"]))
                 self.manual_rb.setChecked(True)
-                cfg = json.loads(self.newMission.getConfig())
-                if "start_time" in cfg:
-                    hr = int((cfg["start_time"] - 1) * TIME_SLOT_MINS / 60)
-                    min = (cfg["start_time"] - 1) * TIME_SLOT_MINS - hr * 60
-                    self.est_edit.setText("{:02d}".format(hr) + ":" + "{:02d}".format(min) + ":00")
 
-                if "estRunTime" in cfg:
-                    self.ert_edit.setText(str((cfg["estRunTime"]) * 60 * TIME_SLOT_MINS))
+            if "start_time" in cfg:
+                hr = int((cfg["start_time"] - 1) * TIME_SLOT_MINS / 60)
+                min = (cfg["start_time"] - 1) * TIME_SLOT_MINS - hr * 60
+                self.est_edit.setText("{:02d}".format(hr) + ":" + "{:02d}".format(min) + ":00")
 
-                if "bid" in cfg:
-                    self.bid_edit.setText(cfg["bid"])
+            if "estRunTime" in cfg:
+                self.ert_edit.setText(str((cfg["estRunTime"]) * 60 * TIME_SLOT_MINS))
+
+            if "bid" in cfg:
+                self.bid_edit.setText(str(cfg["bid"]))
+                self.manual_rb.setChecked(True)
 
             if self.newMission.getBuyType() in self.static_resource.BUY_TYPES:
                 self.buy_mission_type_sel.setCurrentText(self.newMission.getBuyType())

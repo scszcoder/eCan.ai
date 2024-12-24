@@ -4276,7 +4276,8 @@ class MainWindow(QMainWindow):
                 "platoon": amission.getPlatoonID(),
                 "result": amission.getResult(),
                 "as_server": amission.getAsServer(),
-                "fingerprint_profile": amission.getFingerPrintProfile()
+                "fingerprint_profile": amission.getFingerPrintProfile(),
+                "original_req_file": amission.getReqFile()
             })
 
         jresp = send_update_missions_request_to_cloud(self.session, missions, self.tokens['AuthenticationResult']['IdToken'])
@@ -5496,6 +5497,7 @@ class MainWindow(QMainWindow):
             local_mission.price = new_mission.getPrice()
             local_mission.follow_price = new_mission.getFollowPrice()
             local_mission.fingerprint_profile = new_mission.getFingerPrintProfile()
+            local_mission.original_req_file = new_mission.getReqFile()
             local_mission.customer = new_mission.getCustomerID()
             local_mission.platoon = new_mission.getPlatoonID()
             local_mission.result = new_mission.getResult()
@@ -6544,6 +6546,7 @@ class MainWindow(QMainWindow):
             mdbd.price = 0
             mdbd.follow_price = 0
             mdbd.fingerprint_profile = ""
+            mdbd.original_req_file = ""
             mdbd.customer = ""
             mdbd.platoon = ""
             mdbd.result = ""
