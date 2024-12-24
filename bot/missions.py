@@ -791,10 +791,11 @@ class EBMISSION(QStandardItem):
     def addRepeatToConfig(self):
         cfgJson = json.loads(self.pubAttributes.config)
         cfgJson["repeat_type"] = self.pubAttributes.repeat_type
-        cfgJson["repeat_number"] = self.pubAttributes.repeat_type
-        cfgJson["repeat_unit"] = self.pubAttributes.repeat_type
-        cfgJson["repeat_on"] = self.pubAttributes.repeat_type
-        cfgJson["repeat_until"] = self.pubAttributes.repeat_type
+        cfgJson["repeat_number"] = self.pubAttributes.repeat_number
+        cfgJson["repeat_unit"] = self.pubAttributes.repeat_unit
+        cfgJson["repeat_on"] = self.pubAttributes.repeat_on
+        cfgJson["repeat_until"] = self.pubAttributes.repeat_until
+        self.pubAttributes.config = json.dumps(cfgJson)
 
 
     def getSkills(self):
