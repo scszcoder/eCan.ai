@@ -188,6 +188,7 @@ class M_Pub_Attributes():
         self.repeat_number = 1
         self.repeat_on = "now"
         self.repeat_until = "2050-01-01"
+        self.repeat_last = "2020-01-01 00:00:00"
         self.bot_id = 0                   # the bot associated with a mission.
         self.esd = ""
         self.ecd = ""
@@ -283,6 +284,9 @@ class M_Pub_Attributes():
     def setRepeatUntil(self, ru):
         self.repeat_until = ru
 
+    def setRepeatLast(self, rl):
+        self.repeat_last = rl
+
     def getRepeatType(self):
         return self.repeat_type
 
@@ -297,6 +301,9 @@ class M_Pub_Attributes():
 
     def getRepeatUntil(self):
         return self.repeat_until
+
+    def getRepeatLast(self):
+        return self.repeat_last
 
     def loadJson(self, dj):
         self.missionId = dj.get("missionId", 0)
@@ -777,16 +784,20 @@ class EBMISSION(QStandardItem):
             self.pubAttributes.repeat_type = cfgJson["repeat_type"]
 
         if "repeat_number" in cfgJson:
-            self.pubAttributes.repeat_type = cfgJson["repeat_number"]
+            self.pubAttributes.repeat_number = cfgJson["repeat_number"]
 
         if "repeat_unit" in cfgJson:
-            self.pubAttributes.repeat_type = cfgJson["repeat_unit"]
+            self.pubAttributes.repeat_unit = cfgJson["repeat_unit"]
 
         if "repeat_on" in cfgJson:
-            self.pubAttributes.repeat_type = cfgJson["repeat_on"]
+            self.pubAttributes.repeat_on = cfgJson["repeat_on"]
 
         if "repeat_until" in cfgJson:
-            self.pubAttributes.repeat_type = cfgJson["repeat_until"]
+            self.pubAttributes.repeat_until = cfgJson["repeat_until"]
+
+        if "repeat_last" in cfgJson:
+            self.pubAttributes.repeat_last = cfgJson["repeat_last"]
+
 
     def addRepeatToConfig(self):
         cfgJson = json.loads(self.pubAttributes.config)
@@ -795,6 +806,7 @@ class EBMISSION(QStandardItem):
         cfgJson["repeat_unit"] = self.pubAttributes.repeat_unit
         cfgJson["repeat_on"] = self.pubAttributes.repeat_on
         cfgJson["repeat_until"] = self.pubAttributes.repeat_until
+        cfgJson["repeat_last"] = self.pubAttributes.repeat_last
         self.pubAttributes.config = json.dumps(cfgJson)
 
 
@@ -1049,6 +1061,9 @@ class EBMISSION(QStandardItem):
     def setRepeatUntil(self, ru):
         self.pubAttributes.repeat_until = ru
 
+    def setRepeatLast(self, rl):
+        self.pubAttributes.repeat_last = rl
+
     def getRepeatType(self):
         return self.pubAttributes.repeat_type
 
@@ -1063,6 +1078,9 @@ class EBMISSION(QStandardItem):
 
     def getRepeatUntil(self):
         return self.pubAttributes.repeat_until
+
+    def getRepeatLast(self):
+        return self.pubAttributes.repeat_last
 
     def setNote(self, note):
         self.privateAttributes.note = note

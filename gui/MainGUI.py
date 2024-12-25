@@ -83,6 +83,7 @@ import psutil
 from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
 
+
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
@@ -6405,86 +6406,182 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
             log3(ex_stat, "runbotworks", self)
 
-    def checkManagerToRuns(self, managerMissions):
+    def checkManangerToRuns(self, managerMissions):
         """
-        Determines which missions are due to run based on their repeat settings.
+        Determine which missions are ready to run based on their schedule.
 
-        Parameters:
-            managerMissions (list): List of mission objects containing repeat settings.
+        Args:
+            managerMissions (list): A list of mission data structures.
 
         Returns:
-            list: Missions that need to run.
+            list: Missions ready to run.
         """
         missions_to_run = []
         current_time = datetime.now()
 
         for mission in managerMissions:
-            try:
-                repeat_type = mission.getRepeatType()
-                repeat_unit = mission.getRepeatUnit()
-                repeat_number = mission.getRepeatNumber()
-                repeat_on = mission.getRepeatOn()
-                repeat_until = datetime.strptime(mission.getRepeatUntil(), "%Y-%m-%d")
+            # Parse repeat_last and repeat_until as datetime
+            repeat_last = datetime.strptime(mission.repeat_last, "%Y-%m-%d %H:%M:%S")
+            repeat_until = datetime.strptime(mission.repeat_until, "%Y-%m-%d")
 
-                # Handle non-repeating missions
-                if repeat_type == "none":
-                    esd = datetime.strptime(mission.getEsd(), "%Y-%m-%d")
-                    esttime = mission.getEstimatedStartTime()
+            # Get the time slot as hours and minutes
+            esttime_index = mission.getEstimatedStartTime()  # Index of the 15-min time slot (0–95)
+            hours, minutes = divmod(esttime_index * 15, 60)
 
-                    # Convert esttime to a datetime object
-                    esttime_minutes = esttime * 15
-                    esttime_timedelta = timedelta(minutes=esttime_minutes)
-                    mission_start_time = esd + esttime_timedelta
+            # Determine the baseline date for repetition
+            if mission.repeat_on == "now":
+                if mission.repeat_type == "by day":
+                    repeat_on_date = datetime.strptime(mission.getEsd(), "%Y-%m-%d")
+                else:
+                    repeat_on_date = current_time.date()
+            elif mission.repeat_on in self.static_resource.WEEK_DAY_TYPES:
+                repeat_on_date = self._get_next_weekday_date(mission.repeat_on)
+            else:
+                repeat_on_date = datetime.strptime(mission.repeat_on, "%Y-%m-%d").date()
 
-                    if current_time >= mission_start_time:
-                        missions_to_run.append(mission)
+            # Combine the baseline date with the time slot
+            repeat_on_time = datetime.combine(repeat_on_date, datetime.min.time()).replace(hour=hours, minute=minutes)
+
+            # Check for non-repeating missions
+            if mission.repeat_type == "none":
+                if current_time >= repeat_on_time:
+                    missions_to_run.append(mission)
                     continue
 
-                # Skip if the mission's repeat_until date has passed
-                if current_time > repeat_until:
-                    continue
+            # Check for repeating missions
+            elif mission.repeat_type in self.static_resource.REPEAT_TYPES:
+                # Calculate the repeat interval
+                repeat_interval = self._compute_repeat_interval(mission.repeat_unit, mission.repeat_number,
+                                                                repeat_on_time)
 
-                # Determine the start time of the repetition
-                if repeat_on == "now":
-                    start_time = current_time
-                elif repeat_on in ["M", "Tu", "W", "Th", "F", "Sa", "Su"]:
-                    # Calculate the next occurrence of the specified weekday
-                    week_day_map = {"M": 0, "Tu": 1, "W": 2, "Th": 3, "F": 4, "Sa": 5, "Su": 6}
-                    target_weekday = week_day_map[repeat_on]
-                    start_time = current_time
-                    while start_time.weekday() != target_weekday:
-                        start_time += timedelta(days=1)
-                else:
-                    start_time = datetime.strptime(repeat_on, "%Y-%m-%d")
+                # Determine the supposed last scheduled repetition time
+                elapsed_time = (current_time - repeat_on_time).total_seconds()
+                elapsed_intervals = max(0, int(elapsed_time // repeat_interval.total_seconds())) if isinstance(
+                    repeat_interval, timedelta) else self._calculate_elapsed_intervals_manual(repeat_on_time,
+                                                                                              current_time,
+                                                                                              repeat_interval)
+                supposed_last_run = repeat_on_time + elapsed_intervals * repeat_interval
 
-                # Calculate the next run time based on repeat_type
-                if repeat_type == "by seconds":
-                    time_delta = timedelta(seconds=repeat_number)
-                elif repeat_type == "by minutes":
-                    time_delta = timedelta(minutes=repeat_number)
-                elif repeat_type == "by hours":
-                    time_delta = timedelta(hours=repeat_number)
-                elif repeat_type == "by days":
-                    time_delta = timedelta(days=repeat_number)
-                elif repeat_type == "by weeks":
-                    time_delta = timedelta(weeks=repeat_number)
-                elif repeat_type == "by months":
-                    time_delta = timedelta(days=30 * repeat_number)  # Approximation for months
-                elif repeat_type == "by years":
-                    time_delta = timedelta(days=365 * repeat_number)  # Approximation for years
-                else:
-                    time_delta = None
+                # Calculate the next scheduled run
+                next_scheduled_run = supposed_last_run + repeat_interval
 
-                # Check if it's time to run the mission
-                if time_delta:
-                    elapsed_time = current_time - start_time
-                    if elapsed_time.total_seconds() % time_delta.total_seconds() < 3:  # Allow a small margin
-                        missions_to_run.append(mission)
-
-            except Exception as e:
-                print(f"Error processing mission: {e}")
+                # If the current time is past the supposed last run, schedule the mission
+                if repeat_last < current_time <= repeat_until and current_time >= next_scheduled_run:
+                    missions_to_run.append(mission)
 
         return missions_to_run
+
+    def _compute_repeat_interval(self, repeat_unit, repeat_number, start_time):
+        """
+        Calculate the interval for repetition using timedelta.
+
+        Args:
+            repeat_unit (str): Unit of repetition ("second", "minute", "hour", etc.).
+            repeat_number (int): Number of units for the interval.
+
+        Returns:
+            timedelta: The repeat interval.
+        """
+        if repeat_unit == "second":
+            return timedelta(seconds=repeat_number)
+        elif repeat_unit == "minute":
+            return timedelta(minutes=repeat_number)
+        elif repeat_unit == "hour":
+            return timedelta(hours=repeat_number)
+        elif repeat_unit == "day":
+            return timedelta(days=repeat_number)
+        elif repeat_unit == "week":
+            return timedelta(weeks=repeat_number)
+        elif repeat_unit == "month":
+            return self._add_months(start_time, repeat_number)  # Custom month logic
+        elif repeat_unit == "year":
+            return self._add_years(start_time, repeat_number)  # Custom year logic
+        else:
+            raise ValueError(f"Invalid repeat_unit: {repeat_unit}")
+
+    def _add_months(self, start_time, months):
+        """
+        Manually add months to a datetime, adjusting for month overflow.
+
+        Args:
+            start_time (datetime): The starting date.
+            months (int): Number of months to add.
+
+        Returns:
+            datetime: The resulting datetime.
+        """
+        new_month = (start_time.month - 1 + months) % 12 + 1
+        year_increment = (start_time.month - 1 + months) // 12
+        new_year = start_time.year + year_increment
+
+        # Handle day overflow (e.g., adding 1 month to Jan 31 should result in Feb 28/29)
+        try:
+            return start_time.replace(year=new_year, month=new_month)
+        except ValueError:
+            # For invalid days (e.g., Feb 30), use the last day of the month
+            return start_time.replace(year=new_year, month=new_month, day=28) + timedelta(days=1) - timedelta(days=1)
+
+    def _add_years(self, start_time, years):
+        """
+        Manually add years to a datetime, adjusting for leap years.
+
+        Args:
+            start_time (datetime): The starting date.
+            years (int): Number of years to add.
+
+        Returns:
+            datetime: The resulting datetime.
+        """
+        try:
+            return start_time.replace(year=start_time.year + years)
+        except ValueError:
+            # For Feb 29 on non-leap years, fallback to Feb 28
+            return start_time.replace(year=start_time.year + years, day=28)
+
+    def _calculate_elapsed_intervals_manual(self, start_time, current_time, interval):
+        """
+        Calculate the number of elapsed intervals for manual month/year intervals.
+
+        Args:
+            start_time (datetime): The baseline start time.
+            current_time (datetime): The current time.
+            interval: Function to calculate the next interval (e.g., _add_months).
+
+        Returns:
+            int: Number of elapsed intervals.
+        """
+        intervals = 0
+        next_time = start_time
+
+        while next_time <= current_time:
+            next_time = interval(next_time)
+            intervals += 1
+
+        return intervals - 1  # Subtract 1 because the last addition exceeds current_time
+
+
+    def _get_next_weekday_date(self, target_weekday):
+        """
+        Calculate the date of the next occurrence of the target weekday.
+
+        Args:
+            target_weekday (str): Target weekday ("M", "Tu", "W", etc.).
+
+        Returns:
+            date: The date of the next occurrence of the target weekday.
+        """
+        weekday_map = {"M": 0, "Tu": 1, "W": 2, "Th": 3, "F": 4, "Sa": 5, "Su": 6}
+        current_date = datetime.now()
+        current_weekday = current_date.weekday()
+        target_weekday_num = weekday_map[target_weekday]
+
+        days_ahead = (target_weekday_num - current_weekday) % 7
+        if days_ahead == 0:  # If today is the target weekday, schedule for the next week
+            days_ahead = 7
+
+        return (current_date + timedelta(days=days_ahead)).date()
+
+
 
     async def runManagerMissions(self, missions, in_queue, out_team_queue, out_gui_queue):
         for mission in missions:
@@ -6552,10 +6649,10 @@ class MainWindow(QMainWindow):
             mdbd.result = ""
             mdbd.variations = ""
             mdbd.as_server = False
-            new_mission = EBMISSION(self)
-            new_mission.loadDBData(mdbd)
+            newMisssion = EBMISSION(self)
+            newMisssion.loadDBData(mdbd)
 
-        return new_mission
+        return newMisssion
 
 
     # for now this is mainly used for after team run, a result to trigger some housekeeping work.
@@ -6583,6 +6680,7 @@ class MainWindow(QMainWindow):
                 # check time. @certain time, time based, read out all manager missions, user can
                 #                  create missions and let them use certain skill and run at certain time.
                 managerMissions = self.findManagerMissionsOfThisVehicle()
+                print("# manager missions:", len(managerMissions))
                 managerToRun = self.checkManagerToRuns(managerMissions)
 
                 if managerToRun:
@@ -8653,11 +8751,17 @@ class MainWindow(QMainWindow):
 
 
     def findManagerOfThisVehicle(self):
-        foundBots = [x for x in self.bots if "manage" in x.getRoles().lower() and x.getVehicle() == self.machine_name]
+        # for bot in self.bots:
+        #     print("bot:", bot.getRoles(), bot.getVehicle(), self.machine_name)
+        foundBots = [x for x in self.bots if "manage" in x.getRoles().lower() and self.machine_name in x.getVehicle()]
         return foundBots
 
     def findManagerMissionsOfThisVehicle(self):
         managerBots = self.findManagerOfThisVehicle()
+        print("#manager::", len(managerBots))
         managerBids = [x.getBid() for x in managerBots]
+        print("#managerBids::", managerBids)
         managerMissions = [x for x in self.missions if x.getBid() in managerBids and ("completed" not in x.getStatus().lower())]
+
+
         return managerMissions

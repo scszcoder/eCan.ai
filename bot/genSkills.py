@@ -263,8 +263,8 @@ PUBLIC = {
 symTab["ecb_pub"] = PUBLIC
 
 ManagerTriggerTable = {
-    "TEAM_COMPLETED": (110, "manageAfterWork"),
-    "SCHEDULE_READY": (111, "manageBeforeWork")
+    "TEAM_COMPLETED": (110, "manage_AfterWork"),
+    "SCHEDULE_READY": (111, "manage_BeforeWork")
 }
 symTab["manager_trigger_table"] = ManagerTriggerTable
 
