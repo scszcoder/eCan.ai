@@ -54,7 +54,7 @@ from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, 
     genWinADSEbayBrowserHandleReturnSkill, genWinADSEbayBrowserHandleReturnWithECBLabelsSkill, \
     genWinADSEbayBrowserHandleReplacementSkill, genWinADSEbayBrowserHandleRefundSkill
 
-from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill, genWinChromeAMZDailyPrepSkill, genWinChromeAMZDailyHousekeepingSkill
+from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill, genWinChromeAMZTeamPrepSkill, genWinChromeAMZDailyHousekeepingSkill
 
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
@@ -283,7 +283,7 @@ SkillGeneratorTable = {
     "win_ads_amz_home_browser_browse_search": lambda x, y, z: genWinADSAMZBrowserBrowseSearchSkill(x, y, z),
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
     "win_chrome_amz_home_daily_housekeeping": lambda x, y, z: genWinChromeAMZDailyHousekeepingSkill(x, y, z),
-    "win_chrome_amz_home_daily_prep": lambda x, y, z: genWinChromeAMZDailyPrepSkill(x, y, z),
+    "win_chrome_amz_home_team_prep": lambda x, y, z: genWinChromeAMZTeamPrepSkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
     "win_ads_ebay_orders_buy_shipping": lambda x, y, z: genWinADSEbayBuyShippingSkill(x, y, z),
@@ -518,6 +518,11 @@ def getWorkRunSettings(lieutenant, bot_works):
             fileTBR.close()
 
     bot = lieutenant.bots[bot_idx]
+    print("bot ads profoile:", bot.getADSProfile())
+    if bot.getADSProfile():
+        ads_profile_id = bot.getADSProfile()[0]["id"]
+    else:
+        ads_profile_id = None
 
     #create seller information json for seller related work in case
     sij = {
@@ -565,7 +570,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             # "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
             "web_driver_path":  lieutenant.getWebDriverPath(),
-            "ads_profile_id": bot.getADSProfile()[0]["id"],
+            "ads_profile_id": ads_profile_id,
             "options": "{}",
             "self_ip": lieutenant.ip,
             "display_resolution": lieutenant.getDisplayResolution(),

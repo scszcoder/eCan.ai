@@ -29,6 +29,7 @@ from bot.Logger import log3
 from bot.amzBuyerSkill import genStepsAMZLoginIn
 from bot.adsPowerSkill import genStepsADSPowerExitProfile, genStepsADSPowerObtainLocalAPISettings, \
     genStepADSSaveAPISettings, genStepsADSBatchExportProfiles
+import utils.logger_helper
 
 # the flow is adapted from the same routine in amzBuyerSkill
 # except all screen read becomes in-browser webdriver based read which is much much easier...
@@ -3662,19 +3663,20 @@ def genStepsAMZBrowserPagePeekAndClick(settings_string, target, flag, prev_resul
     return this_step, psk_words
 
 
-def genWinChromeAMZDailyPrepSkill(worksettings, stepN):
+def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
+
+    log3("GENERATING genWinChromeAMZTeamPrepSkill======>")
+    this_step = stepN
+    psk_words = "{"
+    site_url = "https://www.amazon.com/"
+
     try:
-        log3("GENERATING genWinChromeAMZDailyPrepSkill======>")
-
-        psk_words = "{"
-        site_url = "https://www.amazon.com/"
-
         this_step, step_words = genStepHeader("win_chrome_amz_browse_search", "win", "1.0", "AIPPS LLC",
-                                              "PUBWINCHROMEAMZDAILYPREP005",
+                                              "PUBWINCHROMEAMZTEAMPREP005",
                                               "AMZ Daily Prep On Windows Chrome.", stepN)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepStub("start skill main", "public/win_chrome_amz_home/daily_prep", "", this_step)
+        this_step, step_words = genStepStub("start skill main", "public/win_chrome_amz_home/team_prep", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
@@ -3695,32 +3697,42 @@ def genWinChromeAMZDailyPrepSkill(worksettings, stepN):
         this_step, step_words = genStepCreateData("string", "file_name", "NA", "daily_prep_hook.py", this_step)
         psk_words = psk_words + step_words
 
+        # this_step, step_words = genStepCreateData("string", "file_path", "NA", "daily_prep_hook.py", this_step)
+        # psk_words = psk_words + step_words
+
         this_step, step_words = genStepCreateData("string", "file_prefix", "NA", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']\nfile_name = 'daily_housekeeping_hook.py'", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']+'/my_skills/hooks'\nfile_name = 'daily_housekeeping_hook.py'", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global params, params\nparams=''", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCreateData("string", "ts_name", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "forceful", "NA", False, this_step)
         psk_words = psk_words + step_words
 
         # fetch daily schedule
-        this_step, step_words = genStepECBFetchDailySchedule("daily_schedule", "fetch_success", this_step)
+        this_step, step_words = genStepECBFetchDailySchedule("ts_name", "forceful", "daily_schedule", "fetch_success", this_step)
         psk_words = psk_words + step_words
 
         # do some external work - basically do a round of filtering (filter out the accounts not suitable to run)
         # 1) check whether an account has enough resource to do the job(funding)
         # 2）for the ones qualified to run, fill in buy details.
-        this_step, step_words = genStepExternalHook("var", "file_name", "params", "works_ready_to_dispatch", "prep_success", this_step)
+        this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "works_ready_to_dispatch", "prep_success", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepECBDispatchTroops("works_ready_to_dispatch", "dispatch_success", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepStub("end skill", "public/win_chrome_amz_home/daily_prep", "", this_step)
+        this_step, step_words = genStepStub("end skill", "public/win_chrome_amz_home/team_prep", "", this_step)
         psk_words = psk_words + step_words
 
         psk_words = psk_words + "\"dummy\" : \"\"}"
@@ -3728,15 +3740,17 @@ def genWinChromeAMZDailyPrepSkill(worksettings, stepN):
 
     except Exception as e:
         # Log and skip errors gracefully
-        ex_stat = f"Error in genWinChromeAMZDailyPrepSkill: {traceback.format_exc()} {str(e)}"
-        print(f"Error while generating genWinChromeAMZDailyPrepSkill: {ex_stat}")
+        ex_stat = f"Error in genWinChromeAMZTeamPrepSkill: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genWinChromeAMZTeamPrepSkill: {ex_stat}")
 
-def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN):
+    return this_step, psk_words
+
+def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN, theme):
+    log3("GENERATING genWinChromeAMZDailyHousekeepingSkill======>")
+    this_step = stepN
+    psk_words = "{"
+    site_url = "https://www.amazon.com/"
     try:
-        log3("GENERATING genWinChromeAMZDailyHousekeepingSkill======>")
-
-        psk_words = "{"
-        site_url = "https://www.amazon.com/"
 
         this_step, step_words = genStepHeader("win_ads_amz_browse_search", "win", "1.0", "AIPPS LLC",
                                               "PUBWINCHROMEAMZDAILYHOUSEKEEPING006",
@@ -3749,7 +3763,7 @@ def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN):
         this_step, step_words = genStepCallExtern("global file_name, file_prefix\nfile_prefix=''\nfile_name = 'daily_housekeeping.py'", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExternalHook("var", "file_name", "params", "works_ready_to_dispatch", "prep_success", this_step)
+        this_step, step_words = genStepExternalHook("var", "file_path", "file_name", "params", "works_ready_to_dispatch", "prep_success", this_step)
         psk_words = psk_words + step_words
 
 
@@ -3764,3 +3778,4 @@ def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN):
         ex_stat = f"Error in genWinChromeAMZDailyHousekeepingSkill: {traceback.format_exc()} {str(e)}"
         print(f"Error while generating genWinChromeAMZDailyHousekeepingSkill: {ex_stat}")
 
+    return this_step, psk_words

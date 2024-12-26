@@ -7,7 +7,6 @@ import time
 from datetime import datetime
 from difflib import SequenceMatcher
 
-from basicSkill import processExternalHook
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
@@ -31,7 +30,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processPasteToData, processMouseMove, processGetWindowsInfo, processBringWindowToFront, \
     processExternalHook, processCreateRequestsSession, processECBCreateBots, processECBUpdateBots, \
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
-    processECBFetchDailySchedule, processECBDispatchTroops
+    processECBFetchDailySchedule, processECBDispatchTroops, processThink8
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -779,7 +778,7 @@ async def run1step8(steps, si, mission, skill, stack):
                         print("coroutine found....")
                         si, isat = await ARAIS[step["type"]](step, si)
                     else:
-                        print("not coroutine found....")
+                        print("not async type.....")
                         si, isat = await asyncio.to_thread(ARAIS[step["type"]], step, si)
                 else:
                     si = si + 1
