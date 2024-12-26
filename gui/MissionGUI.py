@@ -816,7 +816,10 @@ class MissionNewWin(QMainWindow):
 
         # start capturing repeat definition.
         self.newMission.setRepeatType(self.repeat_type_sel.currentText())
-        self.newMission.setRepeatNumber(int(self.repeat_edit.text()))
+        if self.repeat_edit.text() == "":
+            self.newMission.setRepeatNumber(1)
+        else:
+            self.newMission.setRepeatNumber(int(self.repeat_edit.text()))
         if self.repeat_type_sel.currentText() == "none":
             self.newMission.setRepeatUnit("second")
             self.repeat_on = "now"
@@ -938,18 +941,26 @@ class MissionNewWin(QMainWindow):
         sksite_options = ['amz', 'etsy', 'ebay']
 
         print("all mission skills string:", mission.getMid(), mission.getSkills(), len(self.main_win.skills), [x.getSkid() for x in self.main_win.skills])
-
+        self.selected_skill_row = 0
         if mission.getSkills().strip():
             all_skids = mission.getSkills().split(",")
+            main_skid = int(all_skids[0].strip())
             self.skillModel.clear()
+            sk_index = 0
             for skidw in all_skids:
                 skid = int(skidw.strip())
                 this_skill = next((x for x in self.main_win.skills if x.getSkid() == skid), None)
 
                 if this_skill:
                     self.skillModel.appendRow(this_skill)
+                    if sk_index == 0:
+                        mainSk = this_skill
+                        mainSkillName = mainSk.getPlatform() + "_" + mainSk.getApp() + "_" + mainSk.getSiteName() + "_" + mainSk.getPage() + "_" + mainSk.getName()
+                        self.selected_skill_row = self.skill_action_sel.findText(mainSkillName)
+                        self.skill_action_sel.setCurrentText(mainSkillName)
+                    sk_index = sk_index + 1
 
-            self.selected_skill_row = 0
+
             self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
 
     # convert skills selected on GUI to a string format that can be stored in Mission data object
@@ -1249,8 +1260,10 @@ class MissionNewWin(QMainWindow):
         # if it's a main skill, then removing it will remove all of its dependency , and even more tricky is
         # if one of this main skill's dependency is also another main skill's dependency, then this item is also
         # not removable.
+        print("row to be removed:", self.skillListView.selected_row)
         rows_to_be_removed = [self.skillListView.selected_row]
         all_mission_skills = [self.skillModel.item(row) for row in range(self.skillModel.rowCount())]
+        print("all mission skills:", all_mission_skills)
         other_main_skills = list(
             filter(lambda sk: sk.getIsMain() and sk.getSkid() != self.selected_skill_item.getSkid(),
                    all_mission_skills))

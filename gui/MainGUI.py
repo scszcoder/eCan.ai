@@ -3165,9 +3165,9 @@ class MainWindow(QMainWindow):
         all_done = False
         try:
             worksettings = getWorkRunSettings(self, mission)
-            log3("worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"])+" "+str(worksettings["midx"])+" "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runRPA", self)
+            log3("manager worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"])+" "+str(worksettings["midx"])+" "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runRPA", self)
 
-
+            print("manager work settings:", worksettings)
             rpaScripts = []
 
             # generate walk skills on the fly.
@@ -3300,7 +3300,9 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorRun1ManagerMission:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorRun1ManagerMission: traceback information not available:" + str(e)
-            log3(ex_stat, "runRPA", self)
+
+            print(ex_stat)
+            log3(ex_stat, "run1managerMission", self)
             runResult = "Incomplete: ERRORRunRPA:-1"
 
         log3("manager mission run result:"+json.dums(runResult), "runRPA", self)
@@ -6287,6 +6289,7 @@ class MainWindow(QMainWindow):
             lan_pre_time = datetime.now()
             while running:
                 log3("runbotwork.....", "runbotworks", self)
+                print("runbotworks................")
                 current_time = datetime.now()
 
                 # check whether there is vehicle for hire, if so, check any contract work in the queue
@@ -6406,7 +6409,7 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
             log3(ex_stat, "runbotworks", self)
 
-    def checkManangerToRuns(self, managerMissions):
+    def checkManagerToRuns(self, managerMissions):
         """
         Determine which missions are ready to run based on their schedule.
 
@@ -6416,58 +6419,72 @@ class MainWindow(QMainWindow):
         Returns:
             list: Missions ready to run.
         """
-        missions_to_run = []
-        current_time = datetime.now()
+        try:
+            missions_to_run = []
+            current_time = datetime.now()
 
-        for mission in managerMissions:
-            # Parse repeat_last and repeat_until as datetime
-            repeat_last = datetime.strptime(mission.repeat_last, "%Y-%m-%d %H:%M:%S")
-            repeat_until = datetime.strptime(mission.repeat_until, "%Y-%m-%d")
+            for mission in managerMissions:
+                print("checking next to run mission:", mission.getMid())
+                # Parse repeat_last and repeat_until as datetime
+                repeat_last = datetime.strptime(mission.getRepeatLast(), "%Y-%m-%d %H:%M:%S")
+                repeat_until = datetime.strptime(mission.getRepeatUntil(), "%Y-%m-%d")
+                print("repeat_last, repeat_until:", mission.getRepeatLast(), mission.getRepeatUntil())
+                # Get the time slot as hours and minutes
+                esttime_index = int(mission.getEstimatedStartTime())  # Index of the 15-min time slot (0–95)
+                print("esttime_index", esttime_index)
+                hours, minutes = divmod(esttime_index * 15, 60)
+                print("hours, minutes:", hours, minutes)
 
-            # Get the time slot as hours and minutes
-            esttime_index = mission.getEstimatedStartTime()  # Index of the 15-min time slot (0–95)
-            hours, minutes = divmod(esttime_index * 15, 60)
-
-            # Determine the baseline date for repetition
-            if mission.repeat_on == "now":
-                if mission.repeat_type == "by day":
-                    repeat_on_date = datetime.strptime(mission.getEsd(), "%Y-%m-%d")
+                # Determine the baseline date for repetition
+                if mission.getRepeatOn() == "now":
+                    if mission.getRepeatType() == "by day":
+                        repeat_on_date = datetime.strptime(mission.getEsd(), "%Y-%m-%d")
+                    else:
+                        repeat_on_date = current_time.date()
+                elif mission.getRepeatOn() in self.static_resource.WEEK_DAY_TYPES:
+                    repeat_on_date = self._get_next_weekday_date(mission.getRepeatOn())
                 else:
-                    repeat_on_date = current_time.date()
-            elif mission.repeat_on in self.static_resource.WEEK_DAY_TYPES:
-                repeat_on_date = self._get_next_weekday_date(mission.repeat_on)
-            else:
-                repeat_on_date = datetime.strptime(mission.repeat_on, "%Y-%m-%d").date()
+                    repeat_on_date = datetime.strptime(mission.getRepeatOn(), "%Y-%m-%d").date()
 
-            # Combine the baseline date with the time slot
-            repeat_on_time = datetime.combine(repeat_on_date, datetime.min.time()).replace(hour=hours, minute=minutes)
+                print("repeat on date::", repeat_on_date)
+                # Combine the baseline date with the time slot
+                repeat_on_time = datetime.combine(repeat_on_date, datetime.min.time()).replace(hour=hours, minute=minutes)
+                print("repeat on time::", repeat_on_date)
 
-            # Check for non-repeating missions
-            if mission.repeat_type == "none":
-                if current_time >= repeat_on_time:
-                    missions_to_run.append(mission)
-                    continue
+                # Check for non-repeating missions
+                if mission.getRepeatType() == "none":
+                    if current_time >= repeat_on_time:
+                        missions_to_run.append(mission)
+                        continue
 
-            # Check for repeating missions
-            elif mission.repeat_type in self.static_resource.REPEAT_TYPES:
-                # Calculate the repeat interval
-                repeat_interval = self._compute_repeat_interval(mission.repeat_unit, mission.repeat_number,
-                                                                repeat_on_time)
+                # Check for repeating missions
+                elif mission.getRepeatType() in self.static_resource.REPEAT_TYPES:
+                    # Calculate the repeat interval
+                    repeat_interval = self._compute_repeat_interval(mission.getRepeatUnit(), mission.getRepeatNumber(),
+                                                                    repeat_on_time)
 
-                # Determine the supposed last scheduled repetition time
-                elapsed_time = (current_time - repeat_on_time).total_seconds()
-                elapsed_intervals = max(0, int(elapsed_time // repeat_interval.total_seconds())) if isinstance(
-                    repeat_interval, timedelta) else self._calculate_elapsed_intervals_manual(repeat_on_time,
-                                                                                              current_time,
-                                                                                              repeat_interval)
-                supposed_last_run = repeat_on_time + elapsed_intervals * repeat_interval
+                    # Determine the supposed last scheduled repetition time
+                    elapsed_time = (current_time - repeat_on_time).total_seconds()
+                    elapsed_intervals = max(0, int(elapsed_time // repeat_interval.total_seconds())) if isinstance(
+                        repeat_interval, timedelta) else self._calculate_elapsed_intervals_manual(repeat_on_time,
+                                                                                                  current_time,
+                                                                                                  repeat_interval)
+                    supposed_last_run = repeat_on_time + elapsed_intervals * repeat_interval
+                    print("supposed last run:", supposed_last_run)
+                    # Calculate the next scheduled run
+                    next_scheduled_run = supposed_last_run + repeat_interval
+                    print("next scheduled run:", next_scheduled_run, "repeat_last::", repeat_last)
 
-                # Calculate the next scheduled run
-                next_scheduled_run = supposed_last_run + repeat_interval
-
-                # If the current time is past the supposed last run, schedule the mission
-                if repeat_last < current_time <= repeat_until and current_time >= next_scheduled_run:
-                    missions_to_run.append(mission)
+                    # If the current time is past the supposed last run, schedule the mission
+                    if current_time <= repeat_until:
+                        if repeat_last < (supposed_last_run - repeat_interval*0.5) or current_time >= next_scheduled_run:
+                            print("time to run now....")
+                            missions_to_run.append(mission)
+        except Exception as e:
+            # Log and skip errors gracefully
+            ex_stat = f"Error in check manager to runs: {traceback.format_exc()} {str(e)}"
+            missions_to_run = []
+            print(ex_stat)
 
         return missions_to_run
 
@@ -6483,21 +6500,25 @@ class MainWindow(QMainWindow):
             timedelta: The repeat interval.
         """
         if repeat_unit == "second":
-            return timedelta(seconds=repeat_number)
+            interval = timedelta(seconds=repeat_number)
         elif repeat_unit == "minute":
-            return timedelta(minutes=repeat_number)
+            interval = timedelta(minutes=repeat_number)
         elif repeat_unit == "hour":
-            return timedelta(hours=repeat_number)
+            interval = timedelta(hours=repeat_number)
         elif repeat_unit == "day":
-            return timedelta(days=repeat_number)
+            interval = timedelta(days=repeat_number)
         elif repeat_unit == "week":
-            return timedelta(weeks=repeat_number)
+            interval = timedelta(weeks=repeat_number)
         elif repeat_unit == "month":
-            return self._add_months(start_time, repeat_number)  # Custom month logic
+            interval = self._add_months(start_time, repeat_number)  # Custom month logic
         elif repeat_unit == "year":
-            return self._add_years(start_time, repeat_number)  # Custom year logic
+            interval = self._add_years(start_time, repeat_number)  # Custom year logic
         else:
+            print("invalid repeat unit")
             raise ValueError(f"Invalid repeat_unit: {repeat_unit}")
+
+        print("interval:", interval)
+        return interval
 
     def _add_months(self, start_time, months):
         """
@@ -6516,10 +6537,14 @@ class MainWindow(QMainWindow):
 
         # Handle day overflow (e.g., adding 1 month to Jan 31 should result in Feb 28/29)
         try:
-            return start_time.replace(year=new_year, month=new_month)
+            updated_start_time = start_time.replace(year=new_year, month=new_month)
+            print("month updated start time:", updated_start_time)
+            return updated_start_time
         except ValueError:
             # For invalid days (e.g., Feb 30), use the last day of the month
-            return start_time.replace(year=new_year, month=new_month, day=28) + timedelta(days=1) - timedelta(days=1)
+            updated_start_time = start_time.replace(year=new_year, month=new_month, day=28) + timedelta(days=1) - timedelta(days=1)
+            print("error month updated start time:", updated_start_time)
+            return updated_start_time
 
     def _add_years(self, start_time, years):
         """
@@ -6533,10 +6558,14 @@ class MainWindow(QMainWindow):
             datetime: The resulting datetime.
         """
         try:
-            return start_time.replace(year=start_time.year + years)
+            updated_start_time = start_time.replace(year=start_time.year + years)
+            print("year updated start time:", updated_start_time)
+            return updated_start_time
         except ValueError:
             # For Feb 29 on non-leap years, fallback to Feb 28
-            return start_time.replace(year=start_time.year + years, day=28)
+            updated_start_time = start_time.replace(year=start_time.year + years, day=28)
+            print("error year updated start time:", updated_start_time)
+            return updated_start_time
 
     def _calculate_elapsed_intervals_manual(self, start_time, current_time, interval):
         """
@@ -6557,6 +6586,7 @@ class MainWindow(QMainWindow):
             next_time = interval(next_time)
             intervals += 1
 
+        print("intervals:", intervals)
         return intervals - 1  # Subtract 1 because the last addition exceeds current_time
 
 
@@ -6574,17 +6604,22 @@ class MainWindow(QMainWindow):
         current_date = datetime.now()
         current_weekday = current_date.weekday()
         target_weekday_num = weekday_map[target_weekday]
-
+        print("target_weekday_num", target_weekday_num)
         days_ahead = (target_weekday_num - current_weekday) % 7
         if days_ahead == 0:  # If today is the target weekday, schedule for the next week
             days_ahead = 7
 
-        return (current_date + timedelta(days=days_ahead)).date()
+        print("days_ahead", days_ahead)
+        next_week_day = (current_date + timedelta(days=days_ahead)).date()
+        print("next week day:", next_week_day)
+        return next_week_day
 
 
 
     async def runManagerMissions(self, missions, in_queue, out_team_queue, out_gui_queue):
         for mission in missions:
+            #update the mission's last repeat time.
+            mission.updateRepeatLast()
             await self.run1ManagerMission(mission, in_queue, out_team_queue, out_gui_queue)
 
 
@@ -6658,10 +6693,10 @@ class MainWindow(QMainWindow):
     # for now this is mainly used for after team run, a result to trigger some housekeeping work.
     # like process new orders, turn them into new missions, and so on....
     # the message will likely,
-    def processManagerNetMessage(self, msg, in_queue, out_team_queue, out_gui_queue):
+    async def processManagerNetMessage(self, msg, in_queue, out_team_queue, out_gui_queue):
         if msg["type"] in ManagerTriggerTable:
             otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg["type"]][0], ManagerTriggerTable[msg["type"]][1], msg["bid"])
-            result = self.run1ManagerMission(otm, in_queue, out_team_queue, out_gui_queue)
+            result = await self.run1ManagerMission(otm, in_queue, out_team_queue, out_gui_queue)
 
 
     async def runmanagerworks(self, gui_manager_queue, manager_rpa_queue, gui_monitor_queue):
@@ -6685,13 +6720,13 @@ class MainWindow(QMainWindow):
 
                 if managerToRun:
                     print("there is some repeat type mission to run....")
-                    self.runManagerMissions(managerToRun, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
+                    await self.runManagerMissions(managerToRun, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
 
                 if not gui_manager_queue.empty():
                     # Process all available messages in the queue
                     while not gui_manager_queue.empty():
                         net_message = await gui_manager_queue.get()
-                        self.processManagerNetMessage(net_message, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
+                        await self.processManagerNetMessage(net_message, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
                 else:
                     print("manager msg queue empty...")
 
@@ -7263,9 +7298,9 @@ class MainWindow(QMainWindow):
             traceback_info = traceback.extract_tb(e.__traceback__)
             # Extract the file name and line number from the last entry in the traceback
             if traceback_info:
-                ex_stat = "Errorwanrunbotworks:" + traceback.format_exc() + " " + str(e)
+                ex_stat = "ErrorwanProcessCommanderMsgs:" + traceback.format_exc() + " " + str(e)
             else:
-                ex_stat = "Errorwanrunbotworks traceback information not available:" + str(e)
+                ex_stat = "ErrorwanProcessCommanderMsgs traceback information not available:" + str(e)
             log3(f"{ex_stat}", "serveCommander", self)
 
     def sendCommanderMissionsStatMsg(self, mids):

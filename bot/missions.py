@@ -1064,6 +1064,10 @@ class EBMISSION(QStandardItem):
     def setRepeatLast(self, rl):
         self.pubAttributes.repeat_last = rl
 
+    def updateRepeatLast(self):
+        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.pubAttributes.repeat_last = current_time_str
+
     def getRepeatType(self):
         return self.pubAttributes.repeat_type
 

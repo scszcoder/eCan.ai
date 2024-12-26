@@ -21,7 +21,7 @@ import importlib.util
 import requests
 
 from ping3 import ping
-from utils.logger_helper import login
+import utils.logger_helper
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
@@ -1151,9 +1151,11 @@ def genStepECBDeleteMissions(mids_var, result_var, flag_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepECBFetchDailySchedule(result_var, flag_var, stepN):
+def genStepECBFetchDailySchedule(ts_name_var, force_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "ECB Fetch Daily Schedule",
+        "ts_name_var": ts_name_var,
+        "force_var": force_var,
         "result_var": result_var,
         "flag": flag_var
     }
@@ -5955,6 +5957,7 @@ def processExternalHook(step, i):
             exec("global script_path\nscript_file = " + step["file_name"])
             exec("global script_prefix\nscript_prefix = " + step["file_path"])
 
+        print("script file prefix:", script_prefix, script_file)
         script_path = script_prefix + "/" + script_file
         print(f"Attempting to execute external script: {script_path}")
 
@@ -5972,7 +5975,8 @@ def processExternalHook(step, i):
 
         # Call the `run` function inside the external script
         if hasattr(external_module, "run"):
-            params = step.get("params", {})
+            params = symTab[step["params"]]
+
             result = external_module.run(params)  # Pass parameters
             symTab[step["result"]] = result
             symTab[step["flag"]] = True
@@ -6153,12 +6157,16 @@ def processECBDeleteMissions(step, i):
 def processECBFetchDailySchedule(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    global login
-    mainWin = login.get_mainwin()
+    # global login
+
+    mainWin = utils.logger_helper.login.get_mainwin()
 
     try:
         symTab[step["flag"]] = True
-        symTab[step["result_var"]] = mainWin.fetchSchedule()
+        ts_name = symTab[step["ts_name_var"]]
+        forceful = symTab[step["force_var"]]
+        sch_setting = mainWin.get_vehicle_settings(forceful)
+        symTab[step["result_var"]] = mainWin.fetchSchedule(ts_name, sch_setting)
 
     except Exception as e:
         # Log and skip errors gracefully
