@@ -72,6 +72,8 @@ class M_Private_Attributes():
         self.follow_price = 0.0
         self.fingerprint_profile = ""
         self.note = ""
+        self.use_gift_card = True
+        self.ccard_numer = ""
 
 
 
@@ -118,6 +120,18 @@ class M_Private_Attributes():
 
     def getReqFile(self):
         return self.original_req_file
+
+    def setUseGiftCard(self, ugc):
+        self.use_gift_card = ugc
+
+    def getUseGiftCard(self):
+        return self.use_gift_card
+
+    def setVCCardNumber(self, vcn):
+        self.ccard_numer = vcn
+
+    def getVCCardNumber(self):
+        return self.ccard_numer
 
     def loadJson(self, dj):
         self.item_number = dj.get("item_number", "")
@@ -1098,6 +1112,17 @@ class EBMISSION(QStandardItem):
     def getReqFile(self):
         return self.privateAttributes.original_req_file
 
+    def setUseGiftCard(self, ugc):
+        self.privateAttributes.use_gift_card = ugc
+
+    def getUseGiftCard(self):
+        return self.privateAttributes.use_gift_card
+
+    def setVCCardNumber(self, vcn):
+        self.privateAttributes.ccard_numer = vcn
+
+    def getVCCardNumber(self):
+        return self.privateAttributes.ccard_numer
 
     # self.
     def setJsonData(self, ppJson):

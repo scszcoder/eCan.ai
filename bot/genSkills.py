@@ -482,6 +482,8 @@ def getWorkRunSettings(lieutenant, bot_works):
     app = lieutenant.missions[midx].getApp()
     app_exe = lieutenant.missions[midx].getAppExe()
     as_server = lieutenant.missions[midx].getAsServer()
+    useGiftCard = lieutenant.missions[midx].getUseGiftCard()
+    vccard_number = lieutenant.missions[midx].getVCCardNumber()
     log3("settings setting app_exe: "+app+app_exe+platform+site)
 
     products = lieutenant.getSellerProductCatelog()
@@ -578,6 +580,8 @@ def getWorkRunSettings(lieutenant, bot_works):
             "scroll_resolution": scroll_resolution,
             "as_server": as_server,
             # "commander_link": lieutenant.commanderXport,
+            "use_gift_card": useGiftCard,
+            "vccard_number": vccard_number,
             "name_space": name_space
             }
 
