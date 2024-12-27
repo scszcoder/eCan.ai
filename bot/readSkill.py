@@ -261,7 +261,7 @@ RAIS = {
     "ECB Update Missions": lambda x, y: processECBUpdateMissions(x, y),
     "ECB Delete Missions": lambda x, y: processECBDeleteMissions(x, y),
     "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y),
-    "ECB Dispatch Troop": lambda x, y: processECBDispatchTroops(x, y)
+    "ECB Dispatch Troops": lambda x, y: processECBDispatchTroops(x, y)
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
@@ -415,7 +415,7 @@ ARAIS = {
     "ECB Update Missions": lambda x, y: processECBUpdateMissions(x, y),
     "ECB Delete Missions": lambda x, y: processECBDeleteMissions(x, y),
     "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y),
-    "ECB Dispatch Troop": lambda x, y: processECBDispatchTroops(x, y)
+    "ECB Dispatch Troops": lambda x, y: processECBDispatchTroops(x, y)
 }
 
 # read an psk fill into steps (json data structure)

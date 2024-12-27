@@ -1162,9 +1162,10 @@ def genStepECBFetchDailySchedule(ts_name_var, force_var, result_var, flag_var, s
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepECBDispatchTroops(result_var, flag_var, stepN):
+def genStepECBDispatchTroops(schedule_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "ECB Dispatch Troops",
+        "schedule_var": schedule_var,
         "result_var": result_var,
         "flag": flag_var
     }
@@ -6188,6 +6189,15 @@ def processECBDispatchTroops(step, i):
     try:
         symTab[step["flag"]] = True
         symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        if len(mainWin.todays_work["tbd"]) > 0:
+            mainWin.todays_work["tbd"][0]["status"] = ex_stat
+            # now that a new day starts, clear all reports data structure
+            mainWin.todaysReports = []
+        else:
+            log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", mainWin)
+
 
     except Exception as e:
         # Log and skip errors gracefully

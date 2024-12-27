@@ -1796,7 +1796,7 @@ class MainWindow(QMainWindow):
             # self.createNewMissionsFromOrdersXlsx()
 
             log3("Done handling today's new Buy orders...", "fetchSchedule", self)
-
+            bodyobj = {}
             # next line commented out for testing purpose....
             if not self.debug_mode or self.schedule_mode == "auto":
                 log3("schedule setting:"+json.dumps(settings), "fetchSchedule", self)
@@ -1845,13 +1845,9 @@ class MainWindow(QMainWindow):
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
-            if len(self.todays_work["tbd"]) > 0:
-                self.todays_work["tbd"][0]["status"] = ex_stat
-                # now that a new day starts, clear all reports data structure
-                self.todaysReports = []
-            else:
-                log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", self)
 
+            print("done with fetch schedule....", bodyobj)
+            return bodyobj
         # ni is already incremented by processExtract(), so simply return it.
         except Exception as e:
             # Get the traceback information
@@ -1862,9 +1858,7 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorFetchSchedule: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
-
-        self.showMsg("done with fetch schedule:"+ ex_stat)
-        return ex_stat
+            return {}
 
 
     def fetchScheduleFromFile(self):
@@ -7762,7 +7756,7 @@ class MainWindow(QMainWindow):
                 if type(message) == str:
                     print("wanlog message....", message)
                 else:
-                    self.update_moitor_gui(message)
+                    self.update_monitor_gui(message)
 
                 monitor_msg_queue.task_done()
 
@@ -7770,7 +7764,7 @@ class MainWindow(QMainWindow):
             await asyncio.sleep(1)
 
 
-    def update_moitor_gui(self, in_message):
+    def update_monitor_gui(self, in_message):
         try:
             print("raw rpa monitor incoming msg:", in_message)
             # self.showMsg(f"RPA Monitor:"+in_message)
@@ -7811,9 +7805,9 @@ class MainWindow(QMainWindow):
             traceback_info = traceback.extract_tb(e.__traceback__)
             # Extract the file name and line number from the last entry in the traceback
             if traceback_info:
-                ex_stat = "Errorupdate_moitor_gui:" + traceback.format_exc() + " " + str(e)
+                ex_stat = "Errorupdate_monitor_gui:" + traceback.format_exc() + " " + str(e)
             else:
-                ex_stat = "Errorupdate_moitor_gui traceback information not available:" + str(e)
+                ex_stat = "Errorupdate_monitor_gui traceback information not available:" + str(e)
             print(ex_stat)
 
 

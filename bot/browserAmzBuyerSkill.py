@@ -3694,8 +3694,6 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("boolean", "dispatch_success", "NA", False, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCreateData("string", "file_name", "NA", "daily_prep_hook.py", this_step)
-        psk_words = psk_words + step_words
 
         # this_step, step_words = genStepCreateData("string", "file_path", "NA", "daily_prep_hook.py", this_step)
         # psk_words = psk_words + step_words
@@ -3703,7 +3701,7 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("string", "file_prefix", "NA", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']+'/my_skills/hooks'\nfile_name = 'daily_housekeeping_hook.py'", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']+'/my_skills/hooks'\nfile_name = 'team_prep_hook.py'", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
@@ -3716,7 +3714,7 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("string", "ts_name", "NA", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCreateData("boolean", "forceful", "NA", False, this_step)
+        this_step, step_words = genStepCreateData("string", "forceful", "NA", "false", this_step)
         psk_words = psk_words + step_words
 
         # fetch daily schedule
@@ -3729,6 +3727,7 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "works_ready_to_dispatch", "prep_success", this_step)
         psk_words = psk_words + step_words
 
+        # dispatch the works to the worker agents.
         this_step, step_words = genStepECBDispatchTroops("works_ready_to_dispatch", "dispatch_success", this_step)
         psk_words = psk_words + step_words
 
@@ -3763,7 +3762,22 @@ def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCallExtern("global file_name, file_prefix\nfile_prefix=''\nfile_name = 'daily_housekeeping.py'", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExternalHook("var", "file_path", "file_name", "params", "works_ready_to_dispatch", "prep_success", this_step)
+        this_step, step_words = genStepCreateData("string", "file_name", "NA", "daily_prep_hook.py", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "daily_report_data", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "file_prefix", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']+'/my_skills/hooks'\nfile_name = 'daily_housekeeping_hook.py'", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "daily_report_data", "prep_success", this_step)
         psk_words = psk_words + step_words
 
 
