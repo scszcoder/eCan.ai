@@ -6,10 +6,12 @@ from idlelib.autocomplete import TRIGGERS
 
 from basicSkill import genStepCreateRequestsSession
 from bot.Logger import log3
-from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfilesSkill, \
+from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfileSkill, \
     genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genStepsADSPowerExitProfile, \
     genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt, genStepADSSaveAPISettings, \
-    genStepADSUpdateProfileIds
+    genStepADSUpdateProfileIds, genWinADSCreateProfileSkill
+from bot.adsAPISkill import genStepAPIADSStopProfile, genStepAPIADSRegroupProfile, genStepAPIADSStartProfile, \
+    genStepAPIADSCreateProfile, genStepAPIADSDeleteProfile
 from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
@@ -187,7 +189,8 @@ PUBLIC = {
     'genWinChromeEbayBuyShippingSkill': genWinChromeEbayBuyShippingSkill,
     'genStepSetupADS': genStepSetupADS,
     'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
-    'genWinADSRemoveProfilesSkill': genWinADSRemoveProfilesSkill,
+    'genWinADSCreateProfileSkill': genWinADSCreateProfileSkill,
+    'genWinADSRemoveProfileSkill': genWinADSRemoveProfileSkill,
     'genWinADSBatchImportSkill': genWinADSBatchImportSkill,
     'genADSLoadAmzHomePage': genADSLoadAmzHomePage,
     'genADSPowerConnectProxy': genADSPowerConnectProxy,
@@ -195,6 +198,11 @@ PUBLIC = {
     'genStepADSUpdateProfileIds': genStepADSUpdateProfileIds,
     'genStepsADSPowerExitProfile': genStepsADSPowerExitProfile,
     'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
+    'genStepAPIADSStopProfile': genStepAPIADSStopProfile,
+    'genStepAPIADSRegroupProfile': genStepAPIADSRegroupProfile,
+    'genStepAPIADSStartProfile': genStepAPIADSStartProfile,
+    'genStepAPIADSCreateProfile': genStepAPIADSCreateProfile,
+    'genStepAPIADSDeleteProfile': genStepAPIADSDeleteProfile,
     'genWinChromeAMZWalkSkill': genWinChromeAMZWalkSkill,
     'genWinADSAMZWalkSkill': genWinADSAMZWalkSkill,
     'genAMZScrollProductListToBottom': genAMZScrollProductListToBottom,
@@ -309,6 +317,7 @@ SkillGeneratorTable = {
     "win_chrome_ebay_orders_handle_messages": lambda x, y, z: genWinChromeEbayHandleMessagesSkill(x, y, z),
     "win_ads_local_open_open_profile": lambda x,y,z: genWinADSOpenProfileSkill(x, y, z),
     "win_ads_local_load_batch_import": lambda x,y,z: genWinADSBatchImportSkill(x, y, z),
+    "win_ads_local_open_create_profile": lambda x,y,z: genWinADSCreateProfileSkill(x, y, z),
     "win_chrome_etsy_orders_fullfill_orders": lambda x,y,z: genWinChromeEtsyFullfillOrdersSkill(x, y, z),
     "win_chrome_etsy_orders_collect_orders": lambda x,y,z: genWinChromeEtsyCollectOrderListSkill(x, y, z),
     "win_chrome_etsy_orders_update_tracking": lambda x,y,z: genWinChromeEtsyUpdateShipmentTrackingSkill(x, y, z),

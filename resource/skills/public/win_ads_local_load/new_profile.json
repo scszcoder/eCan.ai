@@ -14,7 +14,7 @@
     "site_name": "local",
     "site": "",
     "page": "wifi",
-    "generator": "genWinADSAMZBrowserBrowseSearchSkill",
+    "generator": "genWinADSNewProfileSkill",
     "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",

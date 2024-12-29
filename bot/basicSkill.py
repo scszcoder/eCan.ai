@@ -6183,8 +6183,7 @@ def processECBFetchDailySchedule(step, i):
 def processECBDispatchTroops(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    global login
-    mainWin = login.get_mainwin()
+    mainWin = utils.logger_helper.login.get_mainwin()
 
     try:
         symTab[step["flag"]] = True
