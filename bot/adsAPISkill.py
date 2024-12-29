@@ -5,6 +5,11 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+from basicSkill import DEFAULT_RUN_STATUS, STEP_GAP
+import traceback
+from bot.Logger import log3
+
+
 API_CONN = "http://local/adspower.net:50360"
 
 
@@ -42,6 +47,41 @@ def startAdspowerProfile(api_key, profile_id, port):
         return data
     else:
         raise Exception('Failed to start Adspower profile', response.text)
+
+def stopAdspowerProfile(api_key, profile_id, port):
+
+    url = f'http://localhost:{port}/api/v1/browser/stop?user_id={profile_id}'
+    print("URL:", url)
+
+    headers = {
+        'Authorization': f'Bearer {api_key}'
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        print("response:", response)
+        data = response.json()
+        print("data:", data)
+        return data
+    else:
+        raise Exception('Failed to stop Adspower profile', response.text)
+
+def createAdspowerProfile(api_key, profile_id, port):
+
+    url = f'http://localhost:{port}/api/v1/user/create'
+    print("URL:", url)
+
+    headers = {
+        'Authorization': f'Bearer {api_key}'
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        print("response:", response)
+        data = response.json()
+        print("data:", data)
+        return data
+    else:
+        raise Exception('Failed to stop Adspower profile', response.text)
+
 
 def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, options):
     # webdriver_info = startAdspowerProfile(API_KEY, PROFILE_ID)
@@ -97,3 +137,188 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
     print("here it is...DRIVER:", driver)
     return driver, result
 
+# local API instructions
+def genStepAPIADSCreateProfile(schedule_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS Create Profile",
+        "schedule_var": schedule_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+def genStepAPIADSStartProfile(schedule_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS Start Profile",
+        "schedule_var": schedule_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepAPIADSStopProfile(schedule_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS Stop Profile",
+        "schedule_var": schedule_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+def genStepAPIADSDeleteProfile(schedule_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS Delete Profile",
+        "schedule_var": schedule_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+def genStepAPIADSRegroupProfile(schedule_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS Regroup Profile",
+        "schedule_var": schedule_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def processAPIADSCreateProfile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        if len(mainWin.todays_work["tbd"]) > 0:
+            mainWin.todays_work["tbd"][0]["status"] = ex_stat
+            # now that a new day starts, clear all reports data structure
+            mainWin.todaysReports = []
+        else:
+            log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", mainWin)
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCreateProfile: {ex_stat}")
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processAPIADSStartProfile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        if len(mainWin.todays_work["tbd"]) > 0:
+            mainWin.todays_work["tbd"][0]["status"] = ex_stat
+            # now that a new day starts, clear all reports data structure
+            mainWin.todaysReports = []
+        else:
+            log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", mainWin)
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCreateProfile: {ex_stat}")
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processAPIADSStopProfile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        if len(mainWin.todays_work["tbd"]) > 0:
+            mainWin.todays_work["tbd"][0]["status"] = ex_stat
+            # now that a new day starts, clear all reports data structure
+            mainWin.todaysReports = []
+        else:
+            log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", mainWin)
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCreateProfile: {ex_stat}")
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processAPIADSDeleteProfile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        if len(mainWin.todays_work["tbd"]) > 0:
+            mainWin.todays_work["tbd"][0]["status"] = ex_stat
+            # now that a new day starts, clear all reports data structure
+            mainWin.todaysReports = []
+        else:
+            log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", mainWin)
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCreateProfile: {ex_stat}")
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processAPIADSRegroupProfile(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        if len(mainWin.todays_work["tbd"]) > 0:
+            mainWin.todays_work["tbd"][0]["status"] = ex_stat
+            # now that a new day starts, clear all reports data structure
+            mainWin.todaysReports = []
+        else:
+            log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", mainWin)
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCreateProfile: {ex_stat}")
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS

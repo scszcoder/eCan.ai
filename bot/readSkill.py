@@ -9,6 +9,8 @@ from difflib import SequenceMatcher
 
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
+from bot.adsAPISkill import processAPIADSStartProfile, processAPIADSRegroupProfile, processAPIADSStopProfile, \
+    processAPIADSCreateProfile, processAPIADSDeleteProfile
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
     processAMZMatchProduct, genStepAMZSearchReviews
@@ -261,7 +263,12 @@ RAIS = {
     "ECB Update Missions": lambda x, y: processECBUpdateMissions(x, y),
     "ECB Delete Missions": lambda x, y: processECBDeleteMissions(x, y),
     "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y),
-    "ECB Dispatch Troops": lambda x, y: processECBDispatchTroops(x, y)
+    "ECB Dispatch Troops": lambda x, y: processECBDispatchTroops(x, y),
+    "API ADS Create Profile": lambda x, y: processAPIADSCreateProfile(x, y),
+    "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
+    "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
+    "API ADS Delete Profile": lambda x, y: processAPIADSDeleteProfile(x, y),
+    "API ADS Regroup Profile": lambda x, y: processAPIADSRegroupProfile(x, y)
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
@@ -415,7 +422,12 @@ ARAIS = {
     "ECB Update Missions": lambda x, y: processECBUpdateMissions(x, y),
     "ECB Delete Missions": lambda x, y: processECBDeleteMissions(x, y),
     "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y),
-    "ECB Dispatch Troops": lambda x, y: processECBDispatchTroops(x, y)
+    "ECB Dispatch Troops": lambda x, y: processECBDispatchTroops(x, y),
+    "API ADS Create Profile": lambda x, y: processAPIADSCreateProfile(x, y),
+    "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
+    "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
+    "API ADS Delete Profile": lambda x, y: processAPIADSDeleteProfile(x, y),
+    "API ADS Regroup Profile": lambda x, y: processAPIADSRegroupProfile(x, y)
 }
 
 # read an psk fill into steps (json data structure)

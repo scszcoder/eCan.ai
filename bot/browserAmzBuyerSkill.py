@@ -3728,7 +3728,7 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # dispatch the works to the worker agents.
-        this_step, step_words = genStepECBDispatchTroops("works_ready_to_dispatch", "dispatch_success", this_step)
+        this_step, step_words = genStepECBDispatchTroops("filtered_schedule", "works_ready_to_dispatch", "dispatch_success", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_chrome_amz_home/team_prep", "", this_step)

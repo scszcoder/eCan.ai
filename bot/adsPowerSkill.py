@@ -1199,7 +1199,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
 
 
 
-def genWinADSRemoveProfilesSkill(worksettings, stepN, theme):
+def genWinADSRemoveProfileSkill(worksettings, stepN, theme):
     try:
         psk_words = "{"
         # site_url = "https://www.amazon.com/"
@@ -1257,10 +1257,40 @@ def genWinADSOpenProfileSkill(worksettings, stepN, theme):
     except Exception as e:
         # Log and skip errors gracefully
         ex_stat = f"Error in genWinADSOpenProfileSkill: {traceback.format_exc()} {str(e)}"
-        print(f"Error while executing hook: {ex_stat}")
+        print(f"Error while executing genWinADSOpenProfileSkill: {ex_stat}")
 
     return this_step, psk_words
 
+
+
+def genWinADSCreateProfileSkill(worksettings, stepN, theme):
+    try:
+        psk_words = "{"
+        # site_url = "https://www.amazon.com/"
+
+        this_step, step_words = genStepHeader("win_ads_local_create_profile", "win", "1.0", "AIPPS LLC", "PUBWINADSOPEN001",
+                                              "Windows ADS Power Create Profile.", stepN)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("start skill", "public/win_ads_local_open/create_profile", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genADSPowerLaunchSteps(worksettings, this_step, theme)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepStub("end skill", "public/win_ads_local_open/create_profile", "", this_step)
+        psk_words = psk_words + step_words
+
+        psk_words = psk_words + "\"dummy\" : \"\"}"
+        log3("DEBUG", "generated skill for windows ads power create new porfile...." + psk_words)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genWinADSCreateProfileSkill: {traceback.format_exc()} {str(e)}"
+        print(f"Error while executing genWinADSCreateProfileSkill: {ex_stat}")
+
+    return this_step, psk_words
 
 def genStepSetupADS(all_fname, tbr_fname, exe_link, ver, stepN):
     stepjson = {

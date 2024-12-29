@@ -14,7 +14,7 @@
     "site_name": "local",
     "site": "",
     "page": "wifi",
-    "generator": "genWinADSRemoveProfilesSkill",
+    "generator": "genWinADSRemoveProfileSkill",
     "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",
