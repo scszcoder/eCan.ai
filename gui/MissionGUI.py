@@ -231,8 +231,18 @@ class MissionNewWin(QMainWindow):
 
         self.sell_rb = QRadioButton(QApplication.translate("QRadioButton", "Sell Side"))
         self.sell_rb.toggled.connect(self.sell_rb_checked_state_changed)
+
         self.op_rb = QRadioButton(QApplication.translate("QRadioButton", "Operation Side"))
         self.op_rb.toggled.connect(self.op_rb_checked_state_changed)
+
+        self.hr_rb = QRadioButton(QApplication.translate("QRadioButton", "HR"))
+        self.hr_rb.toggled.connect(self.hr_rb_checked_state_changed)
+
+        self.finance_rb = QRadioButton(QApplication.translate("QRadioButton", "Finance"))
+        self.finance_rb.toggled.connect(self.finance_rb_checked_state_changed)
+
+        self.legal_rb = QRadioButton(QApplication.translate("QRadioButton", "Legal"))
+        self.legal_rb.toggled.connect(self.legal_rb_checked_state_changed)
 
         self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"), alignment=Qt.AlignLeft)
         self.manual_rb = QRadioButton(QApplication.translate("QRadioButton", "Manual Assign(Bot and Schedule)"))
@@ -370,6 +380,10 @@ class MissionNewWin(QMainWindow):
         self.buy_sell_button_group.addButton(self.buy_rb)
         self.buy_sell_button_group.addButton(self.sell_rb)
         self.buy_sell_button_group.addButton(self.op_rb)
+        self.buy_sell_button_group.addButton(self.hr_rb)
+        self.buy_sell_button_group.addButton(self.finance_rb)
+        self.buy_sell_button_group.addButton(self.legal_rb)
+
         # self.buy_sell_button_group.setExclusive(False)
 
         self.pubAttrLine2Layout = QHBoxLayout(self)
@@ -378,6 +392,10 @@ class MissionNewWin(QMainWindow):
         self.pubAttrLine2Layout.addWidget(self.buy_rb)
         self.pubAttrLine2Layout.addWidget(self.sell_rb)
         self.pubAttrLine2Layout.addWidget(self.op_rb)
+        self.pubAttrLine2Layout.addWidget(self.hr_rb)
+        self.pubAttrLine2Layout.addWidget(self.finance_rb)
+        self.pubAttrLine2Layout.addWidget(self.legal_rb)
+
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2Layout)
 
         self.auto_manual_button_group = QButtonGroup()
@@ -870,6 +888,12 @@ class MissionNewWin(QMainWindow):
                 self.newMission.setMtype(self.op_mission_type_sel.currentText())
         elif self.manage_rb.isChecked():
             self.newMission.setMtype("manage")
+        elif self.hr_rb.isChecked():
+            self.newMission.setMtype("hr")
+        elif self.finance_rb.isChecked():
+            self.newMission.setMtype("finance")
+        elif self.legal_rb.isChecked():
+            self.newMission.setMtype("legal")
             # self.newMission.setMtype("manage_" + self.op_mission_type_custome_edit.text())
 
         self.newMission.setBuyType(self.buy_mission_type_sel.currentText())
@@ -1060,6 +1084,12 @@ class MissionNewWin(QMainWindow):
                         self.op_mission_type_custome_edit.setText("_".join(self.newMission.getMtype().split("_")[1:]))
             elif "manage" in self.newMission.getMtype():
                 self.manage_rb.setChecked(True)
+            elif "hr" in self.newMission.getMtype():
+                self.hr_rb.setChecked(True)
+            elif "finance" in self.newMission.getMtype():
+                self.finance_rb.setChecked(True)
+            elif "legal" in self.newMission.getMtype():
+                self.legal_rb.setChecked(True)
 
             self.mission_status_sel.setCurrentText(self.newMission.getStatus().split(":")[0])
 
@@ -1405,6 +1435,57 @@ class MissionNewWin(QMainWindow):
             self.hide_sell_attributes()
         else:
             self.hide_op_attributes()
+
+
+
+    def hr_rb_checked_state_changed(self):
+        if self.hr_rb.isChecked():
+            self.main_win.showMsg("HR mission is selected....")
+            self.show_hr_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.hide_hr_attributes()
+
+    def finance_rb_checked_state_changed(self):
+        if self.finance_rb.isChecked():
+            self.main_win.showMsg("finance mission is selected....")
+            self.show_finance_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.hide_finance_attributes()
+
+
+    def legal_rb_checked_state_changed(self):
+        if self.legal_rb.isChecked():
+            self.main_win.showMsg("legal mission is selected....")
+            self.show_legal_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.hide_legal_attributes()
+
+    def show_hr_attributes(self):
+        print("show hr related attributes.")
+
+    def hide_hr_attributes(self):
+        print("show hr related attributes.")
+
+    def show_finance_attributes(self):
+        print("show finance related attributes.")
+
+    def hide_finance_attributes(self):
+        print("hide finance related attributes.")
+
+
+    def show_legal_attributes(self):
+        print("show legal related attributes.")
+
+
+    def hide_legal_attributes(self):
+        print("hide legal related attributes.")
+
 
     def show_manage_attributes(self):
         print("show manage related attributes.")
