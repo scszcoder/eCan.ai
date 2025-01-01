@@ -4,13 +4,13 @@ import traceback
 from datetime import datetime
 from idlelib.autocomplete import TRIGGERS
 
-from basicSkill import genStepCreateRequestsSession
+from bot.basicSkill import genStepCreateRequestsSession
 from bot.Logger import log3
 from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfileSkill, \
     genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genStepsADSPowerExitProfile, \
     genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt, genStepADSSaveAPISettings, \
     genStepADSUpdateProfileIds, genWinADSCreateProfileSkill
-from bot.adsAPISkill import genStepAPIADSStopProfile, genStepAPIADSRegroupProfile, genStepAPIADSStartProfile, \
+from bot.adsAPISkill import genStepAPIADSStopProfile, genStepAPIADSRegroupProfiles, genStepAPIADSStartProfile, \
     genStepAPIADSCreateProfile, genStepAPIADSDeleteProfile
 from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
@@ -36,7 +36,7 @@ from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtm
     genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove, genStepGetWindowsInfo, \
     genStepBringWindowToFront, genStepCreateRequestsSession, genStepECBCreateBots, genStepECBDeleteBots, \
     genStepECBUpdateBots, genStepECBUpdateMissions, genStepECBCreateMissions, genStepECBDeleteMissions, \
-    genStepECBFetchDailySchedule, genStepECBDispatchTroops
+    genStepECBFetchDailySchedule, genStepECBDispatchTroops, genStepECBScreenBotCandidates
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -74,6 +74,7 @@ from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
 from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
+from bot.hrSkill import genWinChromeECBHrRecruitSkill
 from utils.logger_helper import login
 
 ecb_data_homepath = getECBotDataHome()
@@ -199,7 +200,7 @@ PUBLIC = {
     'genStepsADSPowerExitProfile': genStepsADSPowerExitProfile,
     'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
     'genStepAPIADSStopProfile': genStepAPIADSStopProfile,
-    'genStepAPIADSRegroupProfile': genStepAPIADSRegroupProfile,
+    'genStepAPIADSRegroupProfiles': genStepAPIADSRegroupProfiles,
     'genStepAPIADSStartProfile': genStepAPIADSStartProfile,
     'genStepAPIADSCreateProfile': genStepAPIADSCreateProfile,
     'genStepAPIADSDeleteProfile': genStepAPIADSDeleteProfile,
@@ -256,6 +257,7 @@ PUBLIC = {
     'genStepECBDeleteBots': genStepECBDeleteBots,
     'genStepECBUpdateBots': genStepECBUpdateBots,
     'genStepECBCreateBots': genStepECBCreateBots,
+    'genStepECBScreenBotCandidates': genStepECBScreenBotCandidates,
     'genStepECBFetchDailySchedule': genStepECBFetchDailySchedule,
     'genStepECBDispatchTroops': genStepECBDispatchTroops,
     # done exposing all methods.....now expose data structure defs.
@@ -271,7 +273,7 @@ PUBLIC = {
 symTab["ecb_pub"] = PUBLIC
 
 ManagerTriggerTable = {
-    "TEAM_COMPLETED": (110, "manage_AfterWork"),
+    "TEAM_REPORT": (110, "manage_AfterWork"),
     "SCHEDULE_READY": (111, "manage_BeforeWork")
 }
 symTab["manager_trigger_table"] = ManagerTriggerTable
@@ -329,6 +331,8 @@ SkillGeneratorTable = {
     "win_printer_local_print_reformat_print": lambda x,y,z: genWinPrinterLocalReformatPrintSkill(x, y, z),
     "win_rar_local_unzip_unzip_archive": lambda x,y,z: genWinRARLocalUnzipSkill(x, y, z),
     "win_wifi_local_list_reconnect_lan": lambda x,y,z: genWinWiFiLocalReconnectLanSkill(x, y, z),
+    "win_chrome_ecb_home_hr_recruit": lambda x,y,z: genWinChromeECBHrRecruitSkill(x, y, z),
+    "win_chrome_ecb_home_hr_layoff": lambda x,y,z: genWinChromeECBHrLayoffSkill(x, y, z),
     "win_test_local_loop_run_simple_loop": lambda x,y,z: genTestRunSimpleLoopSkill(x, y, z),
 }
 

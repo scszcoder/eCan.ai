@@ -1091,6 +1091,17 @@ def genStepCreateRequestsSession(session_var, flag_var, stepN):
 
 
 
+def genStepECBScreenBotCandidates(cjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Screen Bot Candidates",
+        "cjs_var": cjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 def genStepECBCreateBots(bjs_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "ECB Create Bots",
@@ -6018,6 +6029,30 @@ def processCreateRequestsSession(step, i):
     return (i + 1), DEFAULT_RUN_STATUS
 
 
+
+def processECBScreenBotCandidates(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        cjs = symTab[step["cjs_var"]]
+        symTab[step["result_var"]] = mainWin.screenBotCandidates(cjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Screen Bot Candidates: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB Screen Bot Candidates: {ex_stat}")
+
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
 def processECBCreateBots(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
@@ -6163,6 +6198,7 @@ def processECBFetchDailySchedule(step, i):
     mainWin = utils.logger_helper.login.get_mainwin()
 
     try:
+        print("ecb step: fetch schedule....")
         symTab[step["flag"]] = True
         ts_name = symTab[step["ts_name_var"]]
         forceful = symTab[step["force_var"]]

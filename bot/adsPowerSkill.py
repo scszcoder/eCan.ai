@@ -566,7 +566,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
     return this_step, psk_words
 
 
-
+# this one uses screen OCR based technique, so different from createProfile skill, bad naming, need fix
 def genADSPowerNewProfileSkill(worksettings, stepN, theme):
     try:
         psk_words = "{"
@@ -579,7 +579,7 @@ def genADSPowerNewProfileSkill(worksettings, stepN, theme):
         this_step, step_words = genStepStub("start skill", "public/win_ads_local_load/new_profile", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepsADSPowerNewProfile(worksettings, this_step, theme)
+        this_step, step_words = genStepAPIADSCreateProfile("new_bot", "profile_file", "profile_created", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_ads_local_load/new_profile", "", this_step)
@@ -1262,7 +1262,7 @@ def genWinADSOpenProfileSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-
+# this one uses API direct instruction, relly a bad name here....
 def genWinADSCreateProfileSkill(worksettings, stepN, theme):
     try:
         psk_words = "{"
