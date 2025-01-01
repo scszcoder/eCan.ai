@@ -1462,6 +1462,14 @@ class MissionNewWin(QMainWindow):
         else:
             self.hide_op_attributes()
 
+    def it_rb_checked_state_changed(self):
+        if self.it_rb.isChecked():
+            self.main_win.showMsg("sell mission is selected....")
+            self.show_it_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.hide_it_attributes()
 
 
     def hr_rb_checked_state_changed(self):
@@ -1601,6 +1609,20 @@ class MissionNewWin(QMainWindow):
         self.op_mission_type_sel.setVisible(False)
         self.op_mission_type_custome_label.setVisible(False)
         self.op_mission_type_custome_edit.setVisible(False)
+
+
+    def show_it_attributes(self):
+        self.it_mission_type_label.setVisible(True)
+        self.it_mission_type_sel.setVisible(True)
+
+        self.it_mission_type_custome_label.setVisible(True)
+        self.it_mission_type_custome_edit.setVisible(True)
+
+    def hide_it_attributes(self):
+        self.it_mission_type_label.setVisible(False)
+        self.it_mission_type_sel.setVisible(False)
+        self.it_mission_type_custome_label.setVisible(False)
+        self.it_mission_type_custome_edit.setVisible(False)
 
     def show_week_day_month_year(self):
         self.week_day_sel.setVisible(True)

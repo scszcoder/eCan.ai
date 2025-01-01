@@ -54,7 +54,7 @@ from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
-from bot.basicSkill import STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
+from bot.basicSkill import symTab, STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable, ManagerTriggerTable
 from bot.inventories import INVENTORY
@@ -5356,13 +5356,60 @@ class MainWindow(QMainWindow):
         self.showMsg("filling bot data for bot-" + str(nbjson["pubProfile"]["bid"]))
         nb.loadJson(nbjson)
 
+    # this function can only be called by a manager or HR head.
     def syncBotAccounts(self):
         # run a hook function to bring in external accounts.
-
+        acctRows = self.runGetBotAccountsHook()
         # then from there, figure out newly added accounts
         # from newly added accounts, screen the ones ready to be converted to a Bot/Agent
-        # then add new bots from them. including creating ADS profiles if they don't exist
-        # yet.
+        qualified, rowsNeedUpdate = self.screenBuyerBotCandidates(acctRows, self.bots)
+        # turn qualified acct into bots/agents
+        self.hireBuyerBotCandidates(qualified)
+        # add ads power
+
+        # call another hook function update the rowsNeedUpdate
+        results = self.runUpdateBotAccountsHook(rowsNeedUpdate)
+
+    def runGetBotAccountsHook(self):
+        global symTab
+        acctRows = []
+        symTab["hook_flag"] = False
+        symTab["hook_result"] = None
+        symTab["hook_params"] = {}
+        hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
+        hook_file = "hr_recruit_get_candidates_hook.py"
+        stepjson = {
+            "type": "External Hook",
+            "file_name_type": "direct",
+            "file_path": hook_path,
+            "file_name": hook_file,
+            "params": "hook_params",  # Optional dictionary of parameters for the external script
+            "result": "hook_result",
+            "flag": "hook_flag"
+        }
+        i, runStat = processExternalHook(stepjson, 1)
+        if "Complete" in runStat:
+            acctRows = symTab["hook_result"]["candidates"]
+        return acctRows
+
+    def runUpdateBotAccountsHook(self, rows):
+        global symTab
+        symTab["hook_flag"] = False
+        symTab["hook_result"] = None
+        symTab["hook_params"] = {"rows": rows}
+        hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
+        hook_file = "updateAccountsHook.py"
+        stepjson = {
+            "type": "External Hook",
+            "file_name_type": "direct",
+            "file_path": hook_path,
+            "file_name": hook_file,
+            "params": "hook_params",  # Optional dictionary of parameters for the external script
+            "result": "hook_result",
+            "flag": "hook_flag"
+        }
+        i, runStat = processExternalHook(stepjson, 1)
+        return runStat
 
     def newBotFromFile(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -8830,12 +8877,18 @@ class MainWindow(QMainWindow):
         failed = [b for b in self.bots if b.getStatus().lower() == "failed"]
         return failed
 
-    def screenBuyerBotCandidates(self, acctRows):
+    def screenBuyerBotCandidates(self, acctRows, all_bots):
         # note the acctRows is in format of following....
         # just look at the ip, vccard, bot assignment
-        qualified = [row for row in acctRows if row["vcard_num"] and row["proxy_host"] and not row["bot"]]
-
-        return qualified
+        allBotEmails = [b.getEmail() for b in all_bots]
+        qualified = [row for row in acctRows if row["email"] and row["vcard_num"] and row["proxy_host"] and (not row["bot"]) and (row["email"] not in allBotEmails)]
+        rowsNeedsUpdate = [row for row in acctRows if row["email"] and row["proxy_host"] and (not row["bot"]) and (row["email"] in allBotEmails)]
+        # for rows missing bot id, fill it in.
+        for row in rowsNeedsUpdate:
+            foundBot = next((x for x in self.bots if x.getEmail() == row["email"]), None)
+            if foundBot:
+                row["bot"] = foundBot.getBid()
+        return qualified, rowsNeedsUpdate
 
     # turn acct into bots/agents
     def hireBuyerBotCandidates(self, acctRows):
