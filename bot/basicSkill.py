@@ -6039,7 +6039,7 @@ def processECBScreenBotCandidates(step, i):
     try:
         symTab[step["flag"]] = True
         cjs = symTab[step["cjs_var"]]
-        symTab[step["result_var"]] = mainWin.screenBotCandidates(cjs)
+        symTab[step["result_var"]] = mainWin.screenBuyerBotCandidates(cjs)
 
     except Exception as e:
         # Log and skip errors gracefully

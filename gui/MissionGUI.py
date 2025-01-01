@@ -235,6 +235,9 @@ class MissionNewWin(QMainWindow):
         self.op_rb = QRadioButton(QApplication.translate("QRadioButton", "Operation Side"))
         self.op_rb.toggled.connect(self.op_rb_checked_state_changed)
 
+        self.it_rb = QRadioButton(QApplication.translate("QRadioButton", "IT"))
+        self.it_rb.toggled.connect(self.op_it_checked_state_changed)
+
         self.hr_rb = QRadioButton(QApplication.translate("QRadioButton", "HR"))
         self.hr_rb.toggled.connect(self.hr_rb_checked_state_changed)
 
@@ -295,6 +298,17 @@ class MissionNewWin(QMainWindow):
 
         for st in self.static_resource.OP_TYPES:
             self.op_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
+
+        self.it_mission_type_label = QLabel(
+            QApplication.translate("QLabel", "<b style='color:red;'>IT Mission Type:</b>"),
+            alignment=Qt.AlignLeft)
+        self.it_mission_type_sel = QComboBox()
+        self.it_mission_type_custome_label = QLabel(QApplication.translate("QLabel", "Custom IT Mission Type:"),
+                                                    alignment=Qt.AlignLeft)
+        self.it_mission_type_custome_edit = QLineEdit()
+
+        for st in self.static_resource.IT_TYPES:
+            self.it_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
         self.repeat_type_label = QLabel(QApplication.translate("QLabel", "Repeat Type:"), alignment=Qt.AlignLeft)
         self.repeat_type_sel = QComboBox()
@@ -380,6 +394,7 @@ class MissionNewWin(QMainWindow):
         self.buy_sell_button_group.addButton(self.buy_rb)
         self.buy_sell_button_group.addButton(self.sell_rb)
         self.buy_sell_button_group.addButton(self.op_rb)
+        self.buy_sell_button_group.addButton(self.it_rb)
         self.buy_sell_button_group.addButton(self.hr_rb)
         self.buy_sell_button_group.addButton(self.finance_rb)
         self.buy_sell_button_group.addButton(self.legal_rb)
@@ -392,6 +407,7 @@ class MissionNewWin(QMainWindow):
         self.pubAttrLine2Layout.addWidget(self.buy_rb)
         self.pubAttrLine2Layout.addWidget(self.sell_rb)
         self.pubAttrLine2Layout.addWidget(self.op_rb)
+        self.pubAttrLine2Layout.addWidget(self.it_rb)
         self.pubAttrLine2Layout.addWidget(self.hr_rb)
         self.pubAttrLine2Layout.addWidget(self.finance_rb)
         self.pubAttrLine2Layout.addWidget(self.legal_rb)
@@ -667,6 +683,11 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine10Layout.addWidget(self.op_mission_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine10Layout)
 
+        self.prvAttrLine10ALayout = QHBoxLayout(self)
+        self.prvAttrLine10ALayout.addWidget(self.it_mission_type_label)
+        self.prvAttrLine10ALayout.addWidget(self.it_mission_type_sel)
+        self.prvAttrWidget.layout.addLayout(self.prvAttrLine10ALayout)
+
         self.prvAttrLine11Layout = QHBoxLayout(self)
         self.prvAttrLine10Layout.addWidget(self.op_mission_type_custome_label)
         self.prvAttrLine10Layout.addWidget(self.op_mission_type_custome_edit)
@@ -886,6 +907,11 @@ class MissionNewWin(QMainWindow):
                 self.newMission.setMtype("opCustom_" + self.op_mission_type_custome_edit.text())
             else:
                 self.newMission.setMtype(self.op_mission_type_sel.currentText())
+        elif self.it_rb.isChecked():
+            if self.it_mission_type_sel.currentText() == "itCustome":
+                self.newMission.setMtype("itCustom_" + self.op_mission_type_custome_edit.text())
+            else:
+                self.newMission.setMtype(self.it_mission_type_sel.currentText())
         elif self.manage_rb.isChecked():
             self.newMission.setMtype("manage")
         elif self.hr_rb.isChecked():

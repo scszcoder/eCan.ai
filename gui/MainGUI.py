@@ -560,6 +560,7 @@ class MainWindow(QMainWindow):
         self.botEditAction = self._createBotEditAction()
         self.botCloneAction = self._createBotCloneAction()
         self.botNewFromFileAction = self._createBotNewFromFileAction()
+        self.syncBotAccountsAction = self._syncBotAccountsAction()
 
         self.missionNewAction = self._createMissionNewAction()
         self.missionDelAction = self._createMissionDelAction()
@@ -689,6 +690,7 @@ class MainWindow(QMainWindow):
             self.botEditAction.setDisabled(True)
             self.botCloneAction.setDisabled(True)
             self.botNewFromFileAction.setDisabled(True)
+            self.syncBotAccountsAction.setDisaled(True)
 
             self.missionNewAction.setDisabled(True)
             self.missionDelAction.setDisabled(True)
@@ -1260,6 +1262,7 @@ class MainWindow(QMainWindow):
         bot_menu.addAction(self.botCloneAction)
         bot_menu.addAction(self.botDelAction)
         bot_menu.addAction(self.botNewFromFileAction)
+        bot_menu.addAction(self.syncBotAccountsAction)
         menu_bar.addMenu(bot_menu)
 
         mission_menu = QMenu(QApplication.translate("QMenu", "&Missions"), self)
@@ -1363,6 +1366,14 @@ class MainWindow(QMainWindow):
 
     def getUser(self):
         return self.user
+
+
+    def _syncBotAccountsAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Sync Bot Accounts"))
+        new_action.triggered.connect(self.syncBotAccounts)
+        return new_action
 
 
     def _createBotNewFromFileAction(self):
@@ -5345,6 +5356,13 @@ class MainWindow(QMainWindow):
         self.showMsg("filling bot data for bot-" + str(nbjson["pubProfile"]["bid"]))
         nb.loadJson(nbjson)
 
+    def syncBotAccounts(self):
+        # run a hook function to bring in external accounts.
+
+        # then from there, figure out newly added accounts
+        # from newly added accounts, screen the ones ready to be converted to a Bot/Agent
+        # then add new bots from them. including creating ADS profiles if they don't exist
+        # yet.
 
     def newBotFromFile(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -8807,3 +8825,99 @@ class MainWindow(QMainWindow):
 
 
         return managerMissions
+
+    def getDailyFailedBots(self):
+        failed = [b for b in self.bots if b.getStatus().lower() == "failed"]
+        return failed
+
+    def screenBuyerBotCandidates(self, acctRows):
+        # note the acctRows is in format of following....
+        # just look at the ip, vccard, bot assignment
+        qualified = [row for row in acctRows if row["vcard_num"] and row["proxy_host"] and not row["bot"]]
+
+        return qualified
+
+    # turn acct into bots/agents
+    def hireBuyerBotCandidates(self, acctRows):
+        newBotsJs = []
+        for row in acctRows:
+            # format conversion and some.
+            newBotJS = {
+                "pubProfile": {
+                    "bid":0,
+                    "pseudo_nick_name":row[""],
+                    "pseudo_name": self.genPseudoName(row["first_name"],row["last_name"]),
+                    "location": self.genBotLoc(row["addr_state"]),
+                    "pubbirthday": self.genBotPubBirthday(),
+                    "gender": self.getBotGender(),
+                    "interests":row["Any,Any,Any,Any,Any"],
+                    "roles": "amz:buyer",
+                    "org":row[""],
+                    "levels": "amz:green:buyer",
+                    "levelStart": "",
+                    "vehicle": self.genBotVehicle(),
+                    "status": "Unassigned"
+                },
+                "privateProfile":{
+                    "first_name": row["first_name"],
+                    "last_name": row["last_name"],
+                    "email": row["email"],
+                    "email_pw": row["email_pw"],
+                    "phone": row[""],
+                    "backup_email": row["backup_email"],
+                    "acct_pw": row["backup_email_pw"],
+                    "backup_email_site": row[""],
+                    "birthday": row[""],
+                    "addrl1": row["addr_street_line1"],
+                    "addrl2": row["addr_street_line2"],
+                    "addrcity": row["addr_city"],
+                    "addrstate": row["addr_state"],
+                    "addrzip": row["addr_zip"],
+                    "shipaddrl1": row["addr_street_line1"],
+                    "shipaddrl2": row["addr_street_line2"],
+                    "shipaddrcity": row["addr_city"],
+                    "shipaddrstate": row["addr_state"],
+                    "shipaddrzip": row["addr_zip"],
+                    "adsProfile": row[""]
+                },
+                "settings": {
+                    "platform":"win",
+                    "os":"win",
+                    "browser":"ads",
+                    "machine":""
+                }
+            }
+            newBotsJs.append(newBotJS)
+        self.createBotsFromFilesOrJsData(newBotsJs)
+
+
+    def genPseudoName(self, fn, ln):
+        pfn = fn
+        pln = ln
+
+        return pfn+" "+pln
+
+
+    def genBotLoc(self,state):
+        LARGEST_CITY = { "CA": "Los Angeles", "NY": "New York", "IL": "Chicago", "D.C.": "Washington", "WA": "Seattle", "TX": "Dallas"}
+        # for simplicity, just use largest city of that state.
+        return LARGEST_CITY[state]
+
+
+    def genBotPubBirthday(self):
+        # randomely pick
+        yyyy = random.randint(19995, 2005)
+        mm = random.randint(1, 12)
+        dd = random.randint(1, 28)
+        return str(yyyy)+"-"+str(mm)+"-"+str(dd)
+
+    def getBotGender(self):
+        # randomely pick
+        gends = ["F", "M"]
+        random_number = random.randint(0, 1)
+        return gends[random_number]
+
+    def genBotVehicle(self):
+        # fill the least filled vehicle first.
+        sortedV = sorted(self.vehicles, key=lambda v: len(v.getBotIds()), reverse=False)
+        return sortedV[0].getName()
