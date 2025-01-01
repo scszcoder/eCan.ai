@@ -130,7 +130,7 @@ def wanSendMessage(msg_req, mainwin):
 
 
 async def wanSendMessage8(msg_req, mainwin):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmntsymTab["result"]6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
     token = mainwin.tokens["AuthenticationResult"]["IdToken"]
     try:

@@ -348,6 +348,7 @@ class MainWindow(QMainWindow):
         self.log_settings_file = f"{self.my_ecb_data_homepath}/resource/data/log_settings.json"
         self.general_settings = {}
         self.debug_mode = False
+        self.fetch_schedule_counter = 1
         self.readSellerInventoryJsonFile("")
 
         self.showMsg("main window ip:" + self.ip)
@@ -6474,6 +6475,12 @@ class MainWindow(QMainWindow):
                         if repeat_last < (supposed_last_run - repeat_interval*0.5) or current_time >= next_scheduled_run:
                             print("time to run now....")
                             missions_to_run.append(mission)
+                        elif self.debug_mode:
+                            if self.fetch_schedule_counter:
+                                missions_to_run.append(mission)
+                                self.fetch_schedule_counter = self.fetch_schedule_counter -1
+
+
         except Exception as e:
             # Log and skip errors gracefully
             ex_stat = f"Error in check manager to runs: {traceback.format_exc()} {str(e)}"
@@ -7392,13 +7399,19 @@ class MainWindow(QMainWindow):
                     log3("ALLTODOREPORTS:"+json.dumps(allTodoReports), "doneWithToday", self)
                     # missionReports = [item for pr in allTodoReports for item in pr]
                 else:
-                    missionReports = []
+                    allTodoReports = []
 
                 self.updateMissionsStatsFromReports(allTodoReports)
 
                 log3("TO be sent to cloud side::"+json.dumps(allTodoReports), "doneWithToday", self)
                 # if this is a commmander, then send report to cloud
                 # send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'])
+                eodReportMsg = {
+                    "type": "TEAM_REPORT",
+                    "bid": "",
+                    "report": allTodoReports
+                }
+                self.gui_manager_msg_queue.put(eodReportMsg)
             else:
                 # if this is a platoon, send report to commander today's report is just an list mission status....
                 if len(self.todaysReports) > 0:

@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
-from bot.adsAPISkill import processAPIADSStartProfile, processAPIADSRegroupProfile, processAPIADSStopProfile, \
+from bot.adsAPISkill import processAPIADSStartProfile, processAPIADSRegroupProfiles, processAPIADSStopProfile, \
     processAPIADSCreateProfile, processAPIADSDeleteProfile
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
@@ -32,7 +32,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processPasteToData, processMouseMove, processGetWindowsInfo, processBringWindowToFront, \
     processExternalHook, processCreateRequestsSession, processECBCreateBots, processECBUpdateBots, \
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
-    processECBFetchDailySchedule, processECBDispatchTroops, processThink8
+    processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -256,6 +256,7 @@ RAIS = {
     "Check Sublist": lambda x, y: processCheckSublist(x, y),
     "Check Already Processed": lambda x, y: processCheckAlreadyProcessed(x, y),
     "Update Mission Status": lambda x, y, z: processUpdateMissionStatus(x, y, z),
+    "ECB Screen Bot Candidates": lambda x, y: processECBScreenBotCandidates(x, y),
     "ECB Create Bots": lambda x, y: processECBCreateBots(x, y),
     "ECB Update Bots": lambda x, y: processECBUpdateBots(x, y),
     "ECB Delete Bots": lambda x, y: processECBDeleteBots(x, y),
@@ -268,7 +269,7 @@ RAIS = {
     "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
     "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
     "API ADS Delete Profile": lambda x, y: processAPIADSDeleteProfile(x, y),
-    "API ADS Regroup Profile": lambda x, y: processAPIADSRegroupProfile(x, y)
+    "API ADS Regroup Profiles": lambda x, y: processAPIADSRegroupProfiles(x, y)
 }
 
 # async RAIS - this one should be used to prevent blocking GUI and other tasks.
@@ -415,6 +416,7 @@ ARAIS = {
     "Check Sublist": lambda x, y: processCheckSublist(x, y),
     "Check Already Processed": lambda x, y: processCheckAlreadyProcessed(x, y),
     "Update Mission Status": lambda x, y, z: processUpdateMissionStatus(x, y, z),
+    "ECB Screen Bot Candidates": lambda x, y: processECBScreenBotCandidates(x, y),
     "ECB Create Bots": lambda x, y: processECBCreateBots(x, y),
     "ECB Update Bots": lambda x, y: processECBUpdateBots(x, y),
     "ECB Delete Bots": lambda x, y: processECBDeleteBots(x, y),
@@ -427,7 +429,7 @@ ARAIS = {
     "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
     "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
     "API ADS Delete Profile": lambda x, y: processAPIADSDeleteProfile(x, y),
-    "API ADS Regroup Profile": lambda x, y: processAPIADSRegroupProfile(x, y)
+    "API ADS Regroup Profiles": lambda x, y: processAPIADSRegroupProfiles(x, y)
 }
 
 # read an psk fill into steps (json data structure)
