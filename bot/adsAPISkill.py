@@ -1,4 +1,4 @@
-
+import axios
 import requests
 from selenium import webdriver
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
@@ -65,22 +65,92 @@ def stopAdspowerProfile(api_key, profile_id, port):
     else:
         raise Exception('Failed to stop Adspower profile', response.text)
 
-def createAdspowerProfile(api_key, port):
+def createAdspowerProfile(api_key, port, profile):
 
     url = f'http://localhost:{port}/api/v1/user/create'
     print("URL:", url)
 
-    headers = {
-        'Authorization': f'Bearer {api_key}'
+    payload = {
+        "name": profile["name"],
+        "group_id": profile["group_id"],
+        "domain_name": profile["domain_name"],
+        # "open_urls": ["http://www.gmail.com", "http://www.amazon.com"],
+        "repeat_config": ["0"],
+        # "username": "",
+        # "password": "",
+        # "fakey": "",
+        # "cookie": "",
+        # "ignore_cookie_error": "",
+        # "ip": "",
+        "country": "us",
+        # "region": "us",
+        # "city": "us",
+        # "remark": "us",
+        # "ipchecker": "us",
+        # "sys_app_cate_id": "us",
+        # "proxyid": "us",
+        "fingerprint_config": {
+            "language": [
+                "en-US"
+            ],
+            "ua": "Mozilla/5.0 (Linux; Android 8.0.0; BND-AL10 Build/HONORBND-AL10; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/63.0.3239.83 Mobile Safari/537.36 T7/11.5 baiduboxapp/11.5.0.10 (Baidu; P1 8.0.0)",
+            "flash": "block",
+            "scan_port_type": "1",
+            "screen_resolution": "1024_600",
+            "fonts": [
+                "all"
+            ],
+            "longitude": "180",
+            "latitude": "90",
+            "webrtc": "proxy",
+            "do_not_track": "true",
+            "hardware_concurrency": "default",
+            "device_memory": "default"
+        },
+        "user_proxy_config": {
+            "proxy_soft": profile["proxy"]["provider"],
+            "proxy_type": profile["proxy"]["type"],     # http
+            "proxy_host": profile["proxy"]["host"],
+            "proxy_port": profile["proxy"]["port"],
+            "proxy_user": profile["proxy"]["user"],
+            "proxy_password": profile["proxy"]["pw"]
+        }
     }
-    response = requests.get(url, headers=headers)
+
+    headers = {
+        # 'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    response = requests.request("POST", url, headers=headers, json=payload)
     if response.status_code == 200:
         print("response:", response)
         data = response.json()
         print("data:", data)
         return data
     else:
-        raise Exception('Failed to stop Adspower profile', response.text)
+        raise Exception('Failed to create Adspower profile', response.text)
+
+
+def createAdspowerGroup(api_key, port, group):
+
+    url = f'http://localhost:{port}/api/v1/group/create'
+    print("URL:", url)
+
+    payload = { "group_name": group }
+
+    headers = {
+        # 'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    response = requests.request("POST", url, headers=headers, json=payload)
+    if response.status_code == 200:
+        print("response:", response)
+        data = response.json()
+        print("data:", data)
+        return data
+    else:
+        raise Exception('Failed to create Adspower group', response.text)
+
 
 
 def regroupAdspowerProfiles(api_key, group_id, uids, port):
@@ -107,7 +177,7 @@ def regroupAdspowerProfiles(api_key, group_id, uids, port):
 
 
 def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, options):
-    # webdriver_info = startAdspowerProfile(API_KEY, PROFILE_ID)
+    # webdriver_info = startAdspowerProfile(API_KEY, PROFI LE_ID)
     result = ""
     local_api_info = startAdspowerProfile(local_api_key, profile_id, port_string)
     print('WebDriver Info:', local_api_info)
@@ -161,47 +231,61 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
     return driver, result
 
 # local API instructions
-def genStepAPIADSCreateProfile(schedule_var, result_var, flag_var, stepN):
+def genStepAPIADSCreateProfile(ads_cfg_var, ads_profile_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "API ADS Create Profile",
-        "schedule_var": schedule_var,
+        "ads_cfg_var": ads_cfg_var,
+        "ads_profile_var": ads_profile_var,
         "result_var": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def genStepAPIADSStartProfile(schedule_var, result_var, flag_var, stepN):
+def genStepAPIADSCreateGroup(ads_cfg_var, group_name_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS Create Profile",
+        "ads_cfg_var": ads_cfg_var,
+        "group_name_var": group_name_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepAPIADSStartProfile(ads_cfg_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "API ADS Start Profile",
-        "schedule_var": schedule_var,
+        "ads_cfg_var": ads_cfg_var,
         "result_var": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepAPIADSStopProfile(schedule_var, result_var, flag_var, stepN):
+def genStepAPIADSStopProfile(ads_cfg_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "API ADS Stop Profile",
-        "schedule_var": schedule_var,
+        "ads_cfg_var": ads_cfg_var,
         "result_var": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def genStepAPIADSDeleteProfile(schedule_var, result_var, flag_var, stepN):
+def genStepAPIADSDeleteProfile(ads_cfg_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "API ADS Delete Profile",
-        "schedule_var": schedule_var,
+        "ads_cfg_var": ads_cfg_var,
         "result_var": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def genStepAPIADSRegroupProfiles(schedule_var, result_var, flag_var, stepN):
+def genStepAPIADSRegroupProfiles(ads_cfg_var, group_id_var, uids_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "API ADS Regroup Profiles",
-        "schedule_var": schedule_var,
+        "ads_cfg_var": ads_cfg_var,
+        "group_id_var": group_id_var,
+        "uids_var": uids_var,
         "result_var": result_var,
         "flag": flag_var
     }
@@ -216,9 +300,33 @@ def processAPIADSCreateProfile(step, i):
     try:
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
+        ads_profile = symTab[step["ads_profile_var"]]
 
         # once works are dispatched, empty the report data for a fresh start.....
-        result = createAdspowerProfile(ads_cfg["api_key"], ads_cfg["port"])
+        result = createAdspowerProfile(ads_cfg["api_key"], ads_cfg["port"], ads_profile)
+        symTab[step["result_var"]] = result
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCreateProfile: {ex_stat}")
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processAPIADSCreateGroup(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        ads_cfg = symTab[step["ads_cfg_var"]]
+        group = symTab[step["group_name_var"]]
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        result = createAdspowerGroup(ads_cfg["api_key"], ads_cfg["port"], group)
         symTab[step["result_var"]] = result
 
     except Exception as e:
@@ -322,5 +430,43 @@ def processAPIADSRegroupProfiles(step, i):
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
 
+# might need host name info... as group id?
+def genInitialADSProfiles(dataJsons, api_Key, port):
+    for dj in dataJsons:
+        domain = "www.gmail.com"
+        group = ""
+        profile = {
+            "name": dj["email"],
+            "group_id": group,
+            "domain_name": domain,
+            # "open_urls": ["http://www.gmail.com", "http://www.amazon.com"],
+            "repeat_config": ["0"],
+            # "username": "",
+            # "password": "",
+            # "fakey": "",
+            # "cookie": "",
+            # "ignore_cookie_error": "",
+            "ip": dj["ip"],
+            "country": "us",
+            # "region": "us",
+            # "city": "us",
+            # "remark": "us",
+            "ipchecker": "ip2location",
+            # "sys_app_cate_id": "us",
+            # "proxyid": "us",
+            "fingerprint": {
+                "language": ["en-US"]
+            },
+            "proxy": {
+                "provider": dj["proxy_provider"],
+                "type": "http",  # http
+                "host": dj["proxy_host"],
+                "port": dj["proxy_port"],
+                "user": dj["proxy_un"],
+                "pw": dj["proxy_pw"]
+            }
+        }
+        result = createAdspowerProfile(api_key, port, profile)
+        # this is half done, correct?
 
 
