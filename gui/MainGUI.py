@@ -8967,7 +8967,9 @@ class MainWindow(QMainWindow):
     def genBotLoc(self,state):
         LARGEST_CITY = { "CA": "Los Angeles", "NY": "New York", "IL": "Chicago", "D.C.": "Washington", "WA": "Seattle", "TX": "Dallas"}
         # for simplicity, just use largest city of that state.
-        return LARGEST_CITY[state]
+        loc = LARGEST_CITY[state]+","+state
+        print("gen loc:", loc)
+        return loc
 
 
     def genBotPubBirthday(self):
@@ -8975,15 +8977,20 @@ class MainWindow(QMainWindow):
         yyyy = random.randint(19995, 2005)
         mm = random.randint(1, 12)
         dd = random.randint(1, 28)
-        return str(yyyy)+"-"+str(mm)+"-"+str(dd)
+        pbd = str(yyyy)+"-"+str(mm)+"-"+str(dd)
+        print("pbd:", pbd)
+        return pbd
 
     def getBotGender(self):
         # randomely pick
         gends = ["F", "M"]
         random_number = random.randint(0, 1)
-        return gends[random_number]
+        gend = gends[random_number]
+        print("gend", gend)
+        return gend
 
     def genBotVehicle(self):
         # fill the least filled vehicle first.
         sortedV = sorted(self.vehicles, key=lambda v: len(v.getBotIds()), reverse=False)
+        print([v.getName() for v in sortedV])
         return sortedV[0].getName()
