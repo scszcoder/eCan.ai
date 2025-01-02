@@ -5362,12 +5362,16 @@ class MainWindow(QMainWindow):
         acctRows = self.runGetBotAccountsHook()
         # then from there, figure out newly added accounts
         # from newly added accounts, screen the ones ready to be converted to a Bot/Agent
+        # rows are updated....
         qualified, rowsNeedUpdate = self.screenBuyerBotCandidates(acctRows, self.bots)
         # turn qualified acct into bots/agents
         self.hireBuyerBotCandidates(qualified)
-        # add ads power
+        # create new ads power profile for the newly added accounts.
+
+        # genInitialADSProfiles(qualified)
 
         # call another hook function update the rowsNeedUpdate
+        rowsNeedUpdate = rowsNeedUpdate + qualified
         results = self.runUpdateBotAccountsHook(rowsNeedUpdate)
 
     def runGetBotAccountsHook(self):
@@ -5500,6 +5504,9 @@ class MainWindow(QMainWindow):
             if len(bots_from_file) > 0:
                 print("adding new bots to both cloud and local DB... update BID and Interests along the way since they're cloud generated.")
                 self.addNewBots(bots_from_file)
+                firstAddedBotId = bots_from_file[0].getBid()
+                return firstAddedBotId
+
 
 
         except Exception as e:
@@ -5511,6 +5518,7 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorCreateBotsFromFilesOrJsData: traceback information not available:" + str(e)
             log3(ex_stat)
+            return 0
 
     # data format conversion. nb is in EBMISSION data structure format., nbdata is json
     def fillNewMissionFromCloud(self, nmjson, nm):
@@ -8851,7 +8859,7 @@ class MainWindow(QMainWindow):
         newBotsFiles = self.checkNewBotsFiles()
         log3("newBotsFiles:"+json.dumps(newBotsFiles))
         if newBotsFiles:
-            self.createBotsFromFilesOrJsData(newBotsFiles)
+            firstNewBid = self.createBotsFromFilesOrJsData(newBotsFiles)
 
     def isPlatoon(self):
         return (self.machine_role == "Platoon")
@@ -8941,7 +8949,12 @@ class MainWindow(QMainWindow):
                 }
             }
             newBotsJs.append(newBotJS)
-        self.createBotsFromFilesOrJsData(newBotsJs)
+        firstNewBid = self.createBotsFromFilesOrJsData(newBotsJs)
+        if firstNewBid:
+            newBid = firstNewBid
+            for row in acctRows:
+                row["bot"] = newBid
+                newBid = newBid + 1
 
 
     def genPseudoName(self, fn, ln):
