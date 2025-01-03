@@ -2833,7 +2833,6 @@ class MainWindow(QMainWindow):
                 runType = "reactive"
             else:
                 log3("no contract work to run", "checkNextToRun", self)
-
         return nextrun, runType
 
     def getNumUnassignedWork(self):
