@@ -690,7 +690,7 @@ class MainWindow(QMainWindow):
             self.botEditAction.setDisabled(True)
             self.botCloneAction.setDisabled(True)
             self.botNewFromFileAction.setDisabled(True)
-            self.syncBotAccountsAction.setDisaled(True)
+            self.syncBotAccountsAction.setDisabled(True)
 
             self.missionNewAction.setDisabled(True)
             self.missionDelAction.setDisabled(True)
