@@ -793,7 +793,10 @@ class EBMISSION(QStandardItem):
     def setConfig(self, cfg):
         self.pubAttributes.config = cfg
         print("cfg:", cfg, type(cfg))
-        cfgJson = json.loads(cfg.replace("'", '"'))
+        if isinstance(cfg, str):
+            cfgJson = json.loads(cfg.replace("'", '"'))
+        else:
+            cfgJson = cfg
         if "repeat_type" in cfgJson:
             self.pubAttributes.repeat_type = cfgJson["repeat_type"]
 

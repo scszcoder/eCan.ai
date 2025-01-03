@@ -103,7 +103,7 @@ def wanSendMessage(msg_req, mainwin):
             'cache-control': "no-cache",
         }
         # print("about to send wan msg:", variables, query_string, headers)
-        print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        # print("++++++++++++++++++++++++++++++++++++++++++++++++++++")
         session.headers.update(headers)
         response = session.post(
             url=APPSYNC_API_ENDPOINT_URL,
@@ -114,7 +114,7 @@ def wanSendMessage(msg_req, mainwin):
             timeout=30  # Timeout in seconds as int or float
         )
         jresp = response.json()
-        log3("wan send JRESP:"+json.dumps(jresp), "wanSendMessage", mainwin)
+        # log3("wan send JRESP:"+json.dumps(jresp), "wanSendMessage", mainwin)
         return jresp
 
     except Exception as e:
@@ -154,7 +154,7 @@ async def wanSendMessage8(msg_req, mainwin):
             'cache-control': "no-cache",
         }
         log3("about to send wan msg: "+json.dumps(variables)+" "+query_string+" "+json.dumps(headers), "wanSendMessage", mainwin)
-        log3("++++++++++++++++++++++++++++++++++++++++++++++++++++", "wanSendMessage", mainwin)
+        # log3("++++++++++++++++++++++++++++++++++++++++++++++++++++", "wanSendMessage", mainwin)
         async with aiohttp.ClientSession() as session8:
             async with session8.post(
                     url=APPSYNC_API_ENDPOINT_URL,

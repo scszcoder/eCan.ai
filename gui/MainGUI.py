@@ -347,7 +347,7 @@ class MainWindow(QMainWindow):
         self.general_settings_file = f"{self.my_ecb_data_homepath}/resource/data/settings.json"
         self.log_settings_file = f"{self.my_ecb_data_homepath}/resource/data/log_settings.json"
         self.general_settings = {}
-        self.debug_mode = False
+        self.debug_mode = True
         self.fetch_schedule_counter = 1
         self.readSellerInventoryJsonFile("")
 
@@ -1765,7 +1765,8 @@ class MainWindow(QMainWindow):
     # 2) group them by vehicle
     # 3) assign them. (move the troop to the vehicle(host computer where they belong， Bots, Missions, Skills, ADS related data and files.)
     def handleCloudScheduledWorks(self, bodyobj):
-        log3("handleCloudScheduledWorks...."+str(len(bodyobj))+" "+type(bodyobj), "fetchSchedule", self)
+        log3("handleCloudScheduledWorks...."+str(len(bodyobj))+" "+str(type(bodyobj)), "fetchSchedule", self)
+        print("bodyobj:", bodyobj)
         for nm in bodyobj["added_missions"]:
             today = datetime.today()
             formatted_today = today.strftime('%Y-%m-%d')
@@ -1780,11 +1781,12 @@ class MainWindow(QMainWindow):
             newlyAdded = self.addNewlyAddedMissions(bodyobj)
             # now that todays' newly added missions are in place, generate the cookie site list for the run.
             self.num_todays_task_groups = self.num_todays_task_groups + len(bodyobj["task_groups"])
+            print("num_todays_task_groups:", self.num_todays_task_groups)
             # self.todays_scheduled_task_groups = self.groupTaskGroupsByOS(bodyobj["task_groups"])
             #  turn this into a per-vehicle flattend list of tasks (vehicle name based dictionary).
             self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
             self.unassigned_scheduled_task_groups = self.todays_scheduled_task_groups
-            # print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
+            print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
             # print("current work to do:", self.todays_work)
             # for works on this host, add to the list of todos, otherwise send to the designated vehicle.
             self.assignWork()
@@ -1824,7 +1826,7 @@ class MainWindow(QMainWindow):
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
-                if not self.debug_mode or self.schedule_mode == "auto":
+                if not self.debug_mode and self.schedule_mode == "auto":
                     uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
                 else:
                     uncompressed = "{}"
@@ -1839,7 +1841,7 @@ class MainWindow(QMainWindow):
 
                     bodyobj = {"task_groups": {}, "added_missions": []}
 
-                    if not self.debug_mode or self.schedule_mode == "auto":
+                    if not self.debug_mode and self.schedule_mode == "auto":
                         bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
                     else:
                         log3("debug mode, using test vector....", "fetchSchedule", self)
@@ -5527,7 +5529,19 @@ class MainWindow(QMainWindow):
 
     def addMissionsToLocalDB(self, missions: [EBMISSION]):
         local_missions: [MissionModel] = []
+
+        # Extract all mids from the new missions
+        new_mids = [mission.getMid() for mission in missions]
+
+        # Query existing mids in the local database
+        existing_missions = self.mission_service.find_missions_by_mids(new_mids)
+        existing_mids = {mission.mid for mission in existing_missions}
+
         for new_mission in missions:
+            if new_mission.getMid() in existing_mids:
+                log3(f"Mission with mid {new_mission.getMid()} already exists. Skipping.", "debug")
+                continue
+
             local_mission = MissionModel()
             local_mission.mid = new_mission.getMid()
             local_mission.ticket = new_mission.getTicket()
@@ -5575,7 +5589,9 @@ class MainWindow(QMainWindow):
             local_mission.variations = new_mission.getVariations()
             local_mission.as_server = new_mission.getAsServer()
             local_missions.append(local_mission)
-        self.mission_service.insert_missions_batch_(local_missions)
+
+        if local_missions:
+            self.mission_service.insert_missions_batch_(local_missions)
 
 
     def newMissionFromFile(self):

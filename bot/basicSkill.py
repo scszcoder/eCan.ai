@@ -6013,10 +6013,10 @@ def processExternalHook(step, i):
         if hasattr(external_module, "run"):
             params = symTab[step["params"]]
 
-            result = external_module.run(params)  # Pass parameters
-            symTab[step["result"]] = result
+            hook_out = external_module.run(params)  # Pass parameters
+            symTab[step["result"]] = hook_out["result"]
             symTab[step["flag"]] = True
-            print(f"Hook result: {result}")
+            print(f"Hook result: {hook_out}")
         else:
             print(f"Script {script_path} does not have a 'run' function. Skipping...")
             symTab[step["result"]] = "No run function found"
@@ -6248,6 +6248,7 @@ def processECBDispatchTroops(step, i):
     try:
         symTab[step["flag"]] = True
         symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
 
         # once works are dispatched, empty the report data for a fresh start.....
         if len(mainWin.todays_work["tbd"]) > 0:

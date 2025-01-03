@@ -83,7 +83,7 @@ LOG_SWITCH_BOARD = {
     "processReadXlsxFile": {"log": False, "py_console": True, "win_console": True, "range": "lan"},
     "processGetDefault": {"log": False, "py_console": True, "win_console": True, "range": "lan"},
 
-
+    "wanSendMessage": {"log": False, "py_console": False, "win_console": False, "range": "lan"},
     "processWebdriverClick": {"log": True, "py_console": True, "win_console": True, "range": "wan"},
     "processWebdriverStartExistingChrome": {"log": False, "py_console": True, "win_console": True, "range": "lan"},
     "processWebdriverStartNewChrome": {"log": False, "py_console": True, "win_console": True, "range": "lan"},
