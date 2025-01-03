@@ -3708,9 +3708,8 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login\nparams['test_mode']=True", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
-
 
         this_step, step_words = genStepCreateData("string", "ts_name", "NA", "", this_step)
         psk_words = psk_words + step_words
@@ -3722,6 +3721,9 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepECBFetchDailySchedule("ts_name", "forceful", "daily_schedule", "fetch_success", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCallExtern("global params, daily_schedule\nparams['daily_schedule']=daily_schedule\n", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
         # do some external work - basically do a round of filtering (filter out the accounts not suitable to run)
         # 1) check whether an account has enough resource to do the job(funding)
         # 2）for the ones qualified to run, fill in buy details.
@@ -3729,7 +3731,7 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # dispatch the works to the worker agents.
-        this_step, step_words = genStepECBDispatchTroops("filtered_schedule", "works_ready_to_dispatch", "dispatch_success", this_step)
+        this_step, step_words = genStepECBDispatchTroops("works_ready_to_dispatch", "dispatch_result", "dispatch_success", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_chrome_amz_home/team_prep", "", this_step)

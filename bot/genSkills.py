@@ -74,7 +74,7 @@ from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
 from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
-from bot.hrSkill import genWinChromeECBHrRecruitSkill
+from bot.hrSkill import genWinChromeECBHrRecruitSkill, genWinChromeECBHrLayoffSkill
 from utils.logger_helper import login
 
 ecb_data_homepath = getECBotDataHome()
