@@ -222,13 +222,30 @@ class MissionNewWin(QMainWindow):
 
         self.mission_type_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Mission Type:</b>"),
                                          alignment=Qt.AlignLeft)
+
+        self.manage_rb = QRadioButton(QApplication.translate("QRadioButton", "Manage Side"))
+        self.manage_rb.toggled.connect(self.manage_rb_checked_state_changed)
+
         self.buy_rb = QRadioButton(QApplication.translate("QRadioButton", "Buy Side"))
         self.buy_rb.toggled.connect(self.buy_rb_checked_state_changed)
 
         self.sell_rb = QRadioButton(QApplication.translate("QRadioButton", "Sell Side"))
         self.sell_rb.toggled.connect(self.sell_rb_checked_state_changed)
+
         self.op_rb = QRadioButton(QApplication.translate("QRadioButton", "Operation Side"))
         self.op_rb.toggled.connect(self.op_rb_checked_state_changed)
+
+        self.it_rb = QRadioButton(QApplication.translate("QRadioButton", "IT"))
+        self.it_rb.toggled.connect(self.op_it_checked_state_changed)
+
+        self.hr_rb = QRadioButton(QApplication.translate("QRadioButton", "HR"))
+        self.hr_rb.toggled.connect(self.hr_rb_checked_state_changed)
+
+        self.finance_rb = QRadioButton(QApplication.translate("QRadioButton", "Finance"))
+        self.finance_rb.toggled.connect(self.finance_rb_checked_state_changed)
+
+        self.legal_rb = QRadioButton(QApplication.translate("QRadioButton", "Legal"))
+        self.legal_rb.toggled.connect(self.legal_rb_checked_state_changed)
 
         self.mission_auto_assign_label = QLabel(QApplication.translate("QLabel", "Assignment Type:"), alignment=Qt.AlignLeft)
         self.manual_rb = QRadioButton(QApplication.translate("QRadioButton", "Manual Assign(Bot and Schedule)"))
@@ -282,10 +299,53 @@ class MissionNewWin(QMainWindow):
         for st in self.static_resource.OP_TYPES:
             self.op_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
 
+        self.it_mission_type_label = QLabel(
+            QApplication.translate("QLabel", "<b style='color:red;'>IT Mission Type:</b>"),
+            alignment=Qt.AlignLeft)
+        self.it_mission_type_sel = QComboBox()
+        self.it_mission_type_custome_label = QLabel(QApplication.translate("QLabel", "Custom IT Mission Type:"),
+                                                    alignment=Qt.AlignLeft)
+        self.it_mission_type_custome_edit = QLineEdit()
+
+        for st in self.static_resource.IT_TYPES:
+            self.it_mission_type_sel.addItem(QApplication.translate("QComboBox", st))
+
+        self.repeat_type_label = QLabel(QApplication.translate("QLabel", "Repeat Type:"), alignment=Qt.AlignLeft)
+        self.repeat_type_sel = QComboBox()
+        for rt in self.static_resource.REPEAT_TYPES:
+            self.repeat_type_sel.addItem(QApplication.translate("QComboBox", rt))
+
+        self.repeat_type_sel.currentTextChanged.connect(self.repeatTypeSel_changed)
+
         self.repeat_label = QLabel(QApplication.translate("QLabel", "Repeat every:"), alignment=Qt.AlignLeft)
         self.repeat_edit = QLineEdit()
         self.repeat_edit.setPlaceholderText("1")
+        self.repeat_unit_label = QLabel(QApplication.translate("QLabel", "second"), alignment=Qt.AlignLeft)
 
+        self.week_day_sel = QComboBox()
+        for wd in self.static_resource.WEEK_DAY_TYPES:
+            self.week_day_sel.addItem(QApplication.translate("QComboBox", wd))
+
+        self.month_label = QLabel(QApplication.translate("QLabel", "month"), alignment=Qt.AlignLeft)
+        self.month_sel = QComboBox()
+        for mo in self.static_resource.MONTH_TYPES:
+            self.month_sel.addItem(QApplication.translate("QComboBox", mo))
+
+        self.day_label = QLabel(QApplication.translate("QLabel", "day"), alignment=Qt.AlignLeft)
+        self.day_edit = QLineEdit()
+        self.year_label = QLabel(QApplication.translate("QLabel", "year"), alignment=Qt.AlignLeft)
+
+        self.year_edit = QLineEdit()
+
+        self.repeat_until_label = QLabel(QApplication.translate("QLabel", "until:"), alignment=Qt.AlignLeft)
+        self.repeat_until_edit = QLineEdit()
+        self.repeat_until_edit.setPlaceholderText("2050-01-01")
+
+        self.gap_label = QLabel(" ", alignment=Qt.AlignLeft)
+
+        self.retry_label = QLabel(QApplication.translate("QLabel", "Failed Retries:"), alignment=Qt.AlignLeft)
+        self.retry_edit = QLineEdit()
+        self.retry_edit.setPlaceholderText("3")
         # self.repeat_interval_label = QLabel(QApplication.translate("QLabel", " "), alignment=Qt.AlignLeft)
         # self.repeat_interval_sel = QComboBox()
         #
@@ -330,16 +390,28 @@ class MissionNewWin(QMainWindow):
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine1Layout)
 
         self.buy_sell_button_group = QButtonGroup()
+        self.buy_sell_button_group.addButton(self.manage_rb)
         self.buy_sell_button_group.addButton(self.buy_rb)
         self.buy_sell_button_group.addButton(self.sell_rb)
         self.buy_sell_button_group.addButton(self.op_rb)
+        self.buy_sell_button_group.addButton(self.it_rb)
+        self.buy_sell_button_group.addButton(self.hr_rb)
+        self.buy_sell_button_group.addButton(self.finance_rb)
+        self.buy_sell_button_group.addButton(self.legal_rb)
+
         # self.buy_sell_button_group.setExclusive(False)
 
         self.pubAttrLine2Layout = QHBoxLayout(self)
         self.pubAttrLine2Layout.addWidget(self.mission_type_label)
+        self.pubAttrLine2Layout.addWidget(self.manage_rb)
         self.pubAttrLine2Layout.addWidget(self.buy_rb)
         self.pubAttrLine2Layout.addWidget(self.sell_rb)
         self.pubAttrLine2Layout.addWidget(self.op_rb)
+        self.pubAttrLine2Layout.addWidget(self.it_rb)
+        self.pubAttrLine2Layout.addWidget(self.hr_rb)
+        self.pubAttrLine2Layout.addWidget(self.finance_rb)
+        self.pubAttrLine2Layout.addWidget(self.legal_rb)
+
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2Layout)
 
         self.auto_manual_button_group = QButtonGroup()
@@ -364,8 +436,26 @@ class MissionNewWin(QMainWindow):
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine2BLayout)
 
         self.pubAttrLine3Layout = QHBoxLayout(self)
+        self.pubAttrLine3Layout.addWidget(self.repeat_type_label)
+        self.pubAttrLine3Layout.addWidget(self.repeat_type_sel)
         self.pubAttrLine3Layout.addWidget(self.repeat_label)
         self.pubAttrLine3Layout.addWidget(self.repeat_edit)
+        self.pubAttrLine3Layout.addWidget(self.repeat_unit_label)
+        self.pubAttrLine3Layout.addWidget(self.week_day_sel)
+        self.pubAttrLine3Layout.addWidget(self.month_label)
+        self.pubAttrLine3Layout.addWidget(self.month_sel)
+        self.pubAttrLine3Layout.addWidget(self.day_label)
+        self.pubAttrLine3Layout.addWidget(self.day_edit)
+        self.pubAttrLine3Layout.addWidget(self.year_label)
+        self.pubAttrLine3Layout.addWidget(self.year_edit)
+        self.pubAttrLine3Layout.addWidget(self.repeat_until_label)
+        self.pubAttrLine3Layout.addWidget(self.repeat_until_edit)
+        self.pubAttrLine3Layout.addWidget(self.gap_label)
+        self.pubAttrLine3Layout.addWidget(self.retry_label)
+        self.pubAttrLine3Layout.addWidget(self.retry_edit)
+
+
+
         # self.pubAttrLine3Layout.addWidget(self.repeat_interval_label)
         # self.pubAttrLine3Layout.addWidget(self.repeat_interval_sel)
         self.pubAttrWidget.layout.addLayout(self.pubAttrLine3Layout)
@@ -593,6 +683,11 @@ class MissionNewWin(QMainWindow):
         self.prvAttrLine10Layout.addWidget(self.op_mission_type_sel)
         self.prvAttrWidget.layout.addLayout(self.prvAttrLine10Layout)
 
+        self.prvAttrLine10ALayout = QHBoxLayout(self)
+        self.prvAttrLine10ALayout.addWidget(self.it_mission_type_label)
+        self.prvAttrLine10ALayout.addWidget(self.it_mission_type_sel)
+        self.prvAttrWidget.layout.addLayout(self.prvAttrLine10ALayout)
+
         self.prvAttrLine11Layout = QHBoxLayout(self)
         self.prvAttrLine10Layout.addWidget(self.op_mission_type_custome_label)
         self.prvAttrLine10Layout.addWidget(self.op_mission_type_custome_edit)
@@ -659,6 +754,7 @@ class MissionNewWin(QMainWindow):
 
         self.buy_rb.setChecked(False)
         self.buy_rb.setChecked(True)
+        self.hide_week_day_month_year()
 
     def setMode(self, mode):
         self.mode = mode
@@ -691,6 +787,41 @@ class MissionNewWin(QMainWindow):
         if file_name:
             self.fingerprint_profile_edit.setText(file_name)
 
+    def getMonthNumber(self, mo):
+        moTable = {
+            "Jan": "01",
+            "Feb": "02",
+            "Mar": "03",
+            "Apr": "04",
+            "May": "05",
+            "Jun": "06",
+            "Jul": "07",
+            "Aug": "08",
+            "Sep": "09",
+            "Oct": "10",
+            "Nov": "11",
+            "Dec": "12"
+        }
+        return moTable[mo]
+
+    def getMonthString(self, mo):
+        moTable = {
+            "01":"Jan",
+            "02":"Feb",
+            "03":"Mar",
+            "04":"Apr",
+            "05":"May",
+            "06":"Jun",
+            "07":"Jul",
+            "08":"Aug",
+            "09":"Sep",
+            "10":"Oct",
+            "11":"Nov",
+            "12":"Dec"
+        }
+        return moTable[mo]
+
+
     def saveMission(self):
         self.main_win.showMsg("saving bot....")
         # if this bot already exists, then, this is an update case, else this is a new bot creation case.
@@ -719,8 +850,49 @@ class MissionNewWin(QMainWindow):
             self.newMission.setAssignmentType("auto")
             self.newMission.setConfig("{}")
 
-        if self.repeat_edit.text().isnumeric():
-            self.newMission.setRetry(int(self.repeat_edit.text()))
+        if self.retry_edit.text().isnumeric():
+            self.newMission.setRetry(int(self.retry_edit.text()))
+
+        # start capturing repeat definition.
+        self.newMission.setRepeatType(self.repeat_type_sel.currentText())
+        if self.repeat_edit.text() == "":
+            self.newMission.setRepeatNumber(1)
+        else:
+            self.newMission.setRepeatNumber(int(self.repeat_edit.text()))
+        if self.repeat_type_sel.currentText() == "none":
+            self.newMission.setRepeatUnit("second")
+            self.repeat_on = "now"
+        elif self.repeat_type_sel.currentText() == "by seconds":
+            self.newMission.setRepeatUnit("second")
+            self.repeat_on = "now"
+            self.repeat_until = "2050-01-01"
+        elif self.repeat_type_sel.currentText() == "by minutes":
+            self.newMission.setRepeatUnit("minute")
+        elif self.repeat_type_sel.currentText() == "by hours":
+            self.newMission.setRepeatUnit("hour")
+        elif self.repeat_type_sel.currentText() == "by days":
+            self.newMission.setRepeatUnit("day")
+        elif self.repeat_type_sel.currentText() == "by weeks":
+            self.newMission.setRepeatUnit("week")
+            nextDate = self.week_day_sel.currentText()
+            self.newMission.setRepeatOn(nextDate)
+        elif self.repeat_type_sel.currentText() == "by months":
+            self.newMission.setRepeatUnit("month")
+            mo = self.getMonthNumber(self.month_sel.currentText())
+            onDate = self.year_edit.text()+"-"+mo+"-"+self.day_edit.text()
+            self.newMission.setRepeatOn(onDate)
+        elif self.repeat_type_sel.currentText() == "by years":
+            self.newMission.setRepeatUnit("year")
+            mo = self.getMonthNumber(self.month_sel.currentText())
+            onDate = self.year_edit.text() + "-" + mo + "-" + self.day_edit.text()
+            self.newMission.setRepeatOn(onDate)
+
+        if self.repeat_until_edit.text():
+            # no error checking done, maybe need later....
+            self.newMission.setRepeatUntil(self.repeat_until_edit.text())
+
+        self.newMission.addRepeatToConfig()
+        # done with capturing repeat definition.
 
         if self.buy_rb.isChecked():
             if self.buy_mission_type_sel.currentText() == "browse":
@@ -735,6 +907,20 @@ class MissionNewWin(QMainWindow):
                 self.newMission.setMtype("opCustom_" + self.op_mission_type_custome_edit.text())
             else:
                 self.newMission.setMtype(self.op_mission_type_sel.currentText())
+        elif self.it_rb.isChecked():
+            if self.it_mission_type_sel.currentText() == "itCustome":
+                self.newMission.setMtype("itCustom_" + self.op_mission_type_custome_edit.text())
+            else:
+                self.newMission.setMtype(self.it_mission_type_sel.currentText())
+        elif self.manage_rb.isChecked():
+            self.newMission.setMtype("manage")
+        elif self.hr_rb.isChecked():
+            self.newMission.setMtype("hr")
+        elif self.finance_rb.isChecked():
+            self.newMission.setMtype("finance")
+        elif self.legal_rb.isChecked():
+            self.newMission.setMtype("legal")
+            # self.newMission.setMtype("manage_" + self.op_mission_type_custome_edit.text())
 
         self.newMission.setBuyType(self.buy_mission_type_sel.currentText())
         self.newMission.setSellType(self.sell_mission_type_sel.currentText())
@@ -754,9 +940,9 @@ class MissionNewWin(QMainWindow):
 
         self.newMission.pubAttributes.setSearch(self.search_kw_edit.text(), self.search_cat_edit.text())
 
-        self.newMission.setPseudoStore(self.pseudo_store_edit.text())
-        self.newMission.setPseudoBrand(self.pseudo_brand_edit.text())
-        self.newMission.setPseudoASIN(self.pseudo_asin_edit.text())
+        # self.newMission.setPseudoStore(self.pseudo_store_edit.text())
+        # self.newMission.setPseudoBrand(self.pseudo_brand_edit.text())
+        # self.newMission.setPseudoASIN(self.pseudo_asin_edit.text())
 
         self.missionStatusSel_changed()
 
@@ -805,18 +991,26 @@ class MissionNewWin(QMainWindow):
         sksite_options = ['amz', 'etsy', 'ebay']
 
         print("all mission skills string:", mission.getMid(), mission.getSkills(), len(self.main_win.skills), [x.getSkid() for x in self.main_win.skills])
-
+        self.selected_skill_row = 0
         if mission.getSkills().strip():
             all_skids = mission.getSkills().split(",")
+            main_skid = int(all_skids[0].strip())
             self.skillModel.clear()
+            sk_index = 0
             for skidw in all_skids:
                 skid = int(skidw.strip())
                 this_skill = next((x for x in self.main_win.skills if x.getSkid() == skid), None)
 
                 if this_skill:
                     self.skillModel.appendRow(this_skill)
+                    if sk_index == 0:
+                        mainSk = this_skill
+                        mainSkillName = mainSk.getPlatform() + "_" + mainSk.getApp() + "_" + mainSk.getSiteName() + "_" + mainSk.getPage() + "_" + mainSk.getName()
+                        self.selected_skill_row = self.skill_action_sel.findText(mainSkillName)
+                        self.skill_action_sel.setCurrentText(mainSkillName)
+                    sk_index = sk_index + 1
 
-            self.selected_skill_row = 0
+
             self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
 
     # convert skills selected on GUI to a string format that can be stored in Mission data object
@@ -857,7 +1051,48 @@ class MissionNewWin(QMainWindow):
             self.est_edit.setText(str(self.newMission.getEstimatedStartTime()))
             self.ert_edit.setText(str(self.newMission.getEstimatedRunTime()))
 
-            self.repeat_edit.setText(str(self.newMission.getRetry()))
+            self.retry_edit.setText(str(self.newMission.getRetry()))
+
+            # start loading repeat definition.
+            self.repeat_type_sel.setCurrentText(self.newMission.getRepeatType())
+            self.repeat_edit.setText(str(self.newMission.getRepeatNumber()))
+            if self.repeat_type_sel.currentText() == "none":
+                self.repeat_on = "now"
+            elif self.repeat_type_sel.currentText() == "by seconds":
+                self.repeat_unit_label.setText("second")
+                self.repeat_on = "now"
+                self.repeat_until = "2050-01-01"
+            elif self.repeat_type_sel.currentText() == "by minutes":
+                self.repeat_unit_label.setText("minute")
+            elif self.repeat_type_sel.currentText() == "by hours":
+                self.repeat_unit_label.setText("hour")
+            elif self.repeat_type_sel.currentText() == "by days":
+                self.repeat_unit_label.setText("day")
+            elif self.repeat_type_sel.currentText() == "by weeks":
+                self.repeat_unit_label.setText("week")
+                dateParts=self.newMission.getRepeatOn().splirt("-")
+                mo = self.getMonthString(dateParts[1])
+                self.month_sel.setCurrentText(mo)
+                self.year_edit.setText(dateParts[0])
+                self.day_edit.setText(dateParts[2])
+            elif self.repeat_type_sel.currentText() == "by months":
+                self.repeat_unit_label.setText("month")
+                dateParts = self.newMission.getRepeatOn().splirt("-")
+                mo = self.getMonthString(dateParts[1])
+                self.month_sel.setCurrentText(mo)
+                self.year_edit.setText(dateParts[0])
+                self.day_edit.setText(dateParts[2])
+            elif self.repeat_type_sel.currentText() == "by years":
+                self.repeat_unit_label.setText("year")
+                dateParts = self.newMission.getRepeatOn().splirt("-")
+                mo = self.getMonthString(dateParts[1])
+                self.month_sel.setCurrentText(mo)
+                self.year_edit.setText(dateParts[0])
+                self.day_edit.setText(dateParts[2])
+
+            self.repeat_until_edit.setText(self.newMission.getRepeatUntil())
+            # done with loading repeat definition.
+
             if "browse" in self.newMission.getMtype() or "buy" in self.newMission.getMtype() or "Rating" in self.newMission.getMtype() or "FB" in self.newMission.getMtype():
                 self.buy_rb.setChecked(True)
                 self.buy_mission_type_sel.setCurrentText(self.newMission.getMtype().split("_")[0])
@@ -873,23 +1108,38 @@ class MissionNewWin(QMainWindow):
                 if self.newMission.getMtype().split("_")[0] == "opCustom":
                     if "_" in self.newMission.getMtype():
                         self.op_mission_type_custome_edit.setText("_".join(self.newMission.getMtype().split("_")[1:]))
+            elif "manage" in self.newMission.getMtype():
+                self.manage_rb.setChecked(True)
+            elif "hr" in self.newMission.getMtype():
+                self.hr_rb.setChecked(True)
+            elif "finance" in self.newMission.getMtype():
+                self.finance_rb.setChecked(True)
+            elif "legal" in self.newMission.getMtype():
+                self.legal_rb.setChecked(True)
+
             self.mission_status_sel.setCurrentText(self.newMission.getStatus().split(":")[0])
 
             if self.newMission.getAssignmentType() == "auto":
                 self.auto_rb.setChecked(True)
-            else:
+
+            # print(self.newMission.getConfig())
+            cfg_string = self.newMission.getConfig().replace("'", '"')
+            cfg = json.loads(cfg_string)
+            if "bid" in cfg:
+                self.bid_edit.setText(str(cfg["bid"]))
                 self.manual_rb.setChecked(True)
-                cfg = json.loads(self.newMission.getConfig())
-                if "start_time" in cfg:
-                    hr = int((cfg["start_time"] - 1) * TIME_SLOT_MINS / 60)
-                    min = (cfg["start_time"] - 1) * TIME_SLOT_MINS - hr * 60
-                    self.est_edit.setText("{:02d}".format(hr) + ":" + "{:02d}".format(min) + ":00")
 
-                if "estRunTime" in cfg:
-                    self.ert_edit.setText(str((cfg["estRunTime"]) * 60 * TIME_SLOT_MINS))
+            if "start_time" in cfg:
+                hr = int((cfg["start_time"] - 1) * TIME_SLOT_MINS / 60)
+                min = (cfg["start_time"] - 1) * TIME_SLOT_MINS - hr * 60
+                self.est_edit.setText("{:02d}".format(hr) + ":" + "{:02d}".format(min) + ":00")
 
-                if "bid" in cfg:
-                    self.bid_edit.setText(cfg["bid"])
+            if "estRunTime" in cfg:
+                self.ert_edit.setText(str((cfg["estRunTime"]) * 60 * TIME_SLOT_MINS))
+
+            if "bid" in cfg:
+                self.bid_edit.setText(str(cfg["bid"]))
+                self.manual_rb.setChecked(True)
 
             if self.newMission.getBuyType() in self.static_resource.BUY_TYPES:
                 self.buy_mission_type_sel.setCurrentText(self.newMission.getBuyType())
@@ -1066,8 +1316,10 @@ class MissionNewWin(QMainWindow):
         # if it's a main skill, then removing it will remove all of its dependency , and even more tricky is
         # if one of this main skill's dependency is also another main skill's dependency, then this item is also
         # not removable.
+        print("row to be removed:", self.skillListView.selected_row)
         rows_to_be_removed = [self.skillListView.selected_row]
         all_mission_skills = [self.skillModel.item(row) for row in range(self.skillModel.rowCount())]
+        print("all mission skills:", all_mission_skills)
         other_main_skills = list(
             filter(lambda sk: sk.getIsMain() and sk.getSkid() != self.selected_skill_item.getSkid(),
                    all_mission_skills))
@@ -1173,6 +1425,16 @@ class MissionNewWin(QMainWindow):
             self.skill_action_sel.addItem(QApplication.translate("QComboBox",
                                                                  sk.getPlatform() + "_" + sk.getApp() + "_" + sk.getSiteName() + "_" + sk.getPage() + "_" + sk.getName()))
 
+    def manage_rb_checked_state_changed(self):
+        if self.manage_rb.isChecked():
+            self.main_win.showMsg("manage mission is selected....")
+            self.show_manage_attributes()
+
+            self.hide_sell_attributes()
+            self.hide_op_attributes()
+            self.hide_buy_attributes()
+
+
     def buy_rb_checked_state_changed(self):
         if self.buy_rb.isChecked():
             self.main_win.showMsg("buy mission is selected....")
@@ -1199,6 +1461,73 @@ class MissionNewWin(QMainWindow):
             self.hide_sell_attributes()
         else:
             self.hide_op_attributes()
+
+    def it_rb_checked_state_changed(self):
+        if self.it_rb.isChecked():
+            self.main_win.showMsg("sell mission is selected....")
+            self.show_it_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.hide_it_attributes()
+
+
+    def hr_rb_checked_state_changed(self):
+        if self.hr_rb.isChecked():
+            self.main_win.showMsg("HR mission is selected....")
+            self.show_hr_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.hide_hr_attributes()
+
+    def finance_rb_checked_state_changed(self):
+        if self.finance_rb.isChecked():
+            self.main_win.showMsg("finance mission is selected....")
+            self.show_finance_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.hide_finance_attributes()
+
+
+    def legal_rb_checked_state_changed(self):
+        if self.legal_rb.isChecked():
+            self.main_win.showMsg("legal mission is selected....")
+            self.show_legal_attributes()
+            self.hide_buy_attributes()
+            self.hide_sell_attributes()
+        else:
+            self.hide_legal_attributes()
+
+    def show_hr_attributes(self):
+        print("show hr related attributes.")
+
+    def hide_hr_attributes(self):
+        print("show hr related attributes.")
+
+    def show_finance_attributes(self):
+        print("show finance related attributes.")
+
+    def hide_finance_attributes(self):
+        print("hide finance related attributes.")
+
+
+    def show_legal_attributes(self):
+        print("show legal related attributes.")
+
+
+    def hide_legal_attributes(self):
+        print("hide legal related attributes.")
+
+
+    def show_manage_attributes(self):
+        print("show manage related attributes.")
+        # self.pseudo_store_label.setVisible(True)
+
+    def hide_manage_attributes(self):
+        print("hide manage related attributes.")
+        # self.pseudo_store_label.setVisible(False)
 
     def show_buy_attributes(self):
         self.pseudo_store_label.setVisible(True)
@@ -1280,3 +1609,61 @@ class MissionNewWin(QMainWindow):
         self.op_mission_type_sel.setVisible(False)
         self.op_mission_type_custome_label.setVisible(False)
         self.op_mission_type_custome_edit.setVisible(False)
+
+
+    def show_it_attributes(self):
+        self.it_mission_type_label.setVisible(True)
+        self.it_mission_type_sel.setVisible(True)
+
+        self.it_mission_type_custome_label.setVisible(True)
+        self.it_mission_type_custome_edit.setVisible(True)
+
+    def hide_it_attributes(self):
+        self.it_mission_type_label.setVisible(False)
+        self.it_mission_type_sel.setVisible(False)
+        self.it_mission_type_custome_label.setVisible(False)
+        self.it_mission_type_custome_edit.setVisible(False)
+
+    def show_week_day_month_year(self):
+        self.week_day_sel.setVisible(True)
+        self.month_label.setVisible(True)
+        self.month_sel.setVisible(True)
+        self.day_label.setVisible(True)
+        self.day_edit.setVisible(True)
+        self.year_label.setVisible(True)
+        self.year_edit.setVisible(True)
+
+    def hide_week_day_month_year(self):
+        self.week_day_sel.setVisible(False)
+        self.month_label.setVisible(False)
+        self.month_sel.setVisible(False)
+        self.day_label.setVisible(False)
+        self.day_edit.setVisible(False)
+        self.year_label.setVisible(False)
+        self.year_edit.setVisible(False)
+
+
+    def repeatTypeSel_changed(self):
+        if self.repeat_type_sel.currentText() == "none":
+            self.day_label.setVisible(False)
+        elif self.repeat_type_sel.currentText() == "by minutes":
+            self.repeat_unit_label.setText("minute")
+            self.hide_week_day_month_year()
+        elif self.repeat_type_sel.currentText() == "by hours":
+            self.repeat_unit_label.setText("hour")
+            self.hide_week_day_month_year()
+        elif self.repeat_type_sel.currentText() == "by days":
+            self.repeat_unit_label.setText("day")
+            self.hide_week_day_month_year()
+        elif self.repeat_type_sel.currentText() == "by weeks":
+            self.repeat_unit_label.setText("week")
+            self.hide_week_day_month_year()
+            self.week_day_sel.setVisible(True)
+        elif self.repeat_type_sel.currentText() == "by months":
+            self.repeat_unit_label.setText("month")
+            self.show_week_day_month_year()
+            self.week_day_sel.setVisible(False)
+        elif self.repeat_type_sel.currentText() == "by years":
+            self.repeat_unit_label.setText("year")
+            self.show_week_day_month_year()
+            self.week_day_sel.setVisible(False)

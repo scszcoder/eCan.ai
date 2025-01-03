@@ -4,6 +4,10 @@ from flask import Flask, send_from_directory, jsonify, request, Response
 from flask_cors import CORS
 import os
 import time
+import uuid
+from concurrent.futures import Future
+from asyncio import Future as AsyncFuture
+response_dict = {}
 
 newECB = Flask(__name__, static_folder='dist')  # Serve Vue static files
 CORS(newECB)
@@ -24,8 +28,22 @@ def get_data():
 def post_data():
     incoming_data = request.json  # Get JSON data sent from Vue
     print(f"Received data: {incoming_data}")
-    # Process data here
-    return jsonify({"status": "success", "received": incoming_data})
+    # Generate a unique ID for the task
+    task_id = str(uuid.uuid4())
+    future = Future()
+
+    # Add the future to the response dictionary
+    response_dict[task_id] = future
+
+    # Send the task to the async worker
+    MainWin.task_queue.put({
+        "task_id": task_id,
+        "data": request.json  # Pass the request data
+    })
+
+    # Wait for the result (blocks until future is resolved)
+    result = future.result(timeout=30)  # Timeout after 30 seconds
+    return jsonify({"status": "success", "result": result})
 
 
 # SSE route to send real-time data to Vue frontend

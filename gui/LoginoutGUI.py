@@ -42,6 +42,7 @@ ecb_data_homepath = getECBotDataHome()
 
 ACCT_FILE = ecb_data_homepath + "/uli.json"
 ROLE_FILE = ecb_data_homepath + "/role.json"
+MAX_RETRIES = 5
 
 class Login(QDialog):
     def __init__(self, parent=None):
@@ -522,9 +523,21 @@ class Login(QDialog):
     def getSignedIn(self):
         return self.signed_in
 
+    def authenticate_with_backoff(self, inAwsSRP, max_retries=MAX_RETRIES):
+        for attempt in range(max_retries):
+            try:
+                return inAwsSRP.authenticate_user()
+            except botocore.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == 'TooManyRequestsException':
+                    wait_time = 2 ** attempt
+                    print("Too many requests, retrying in %d seconds...", wait_time)
+                    time.sleep(wait_time)
+                else:
+                    raise e
+        raise Exception("Max retries exceeded")
 
     def handleLogin(self):
-        print("logging in....")
+        print("logging in....", self.textPass.text())
         # global commanderServer
         # global commanderXport
 
@@ -533,8 +546,10 @@ class Login(QDialog):
             #                       client_id=CLIENT_ID, client_secret=CLIENT_SECRET, client=self.aws_client)
             self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
                                   client_id=CLIENT_ID, client=self.aws_client)
-            self.tokens = self.aws_srp.authenticate_user()
 
+            # self.tokens = self.aws_srp.authenticate_user()
+
+            self.tokens = self.authenticate_with_backoff(self.aws_srp)
 
             # print("token: ", self.tokens)
             # Decode the ID Token to extract user information
@@ -623,9 +638,11 @@ class Login(QDialog):
             asyncio.create_task(self.refresh_tokens_periodically(refresh_token))
             # self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client, self.cognito_user_id)
 
-        except botocore.errorfactory.ClientError as e:
+        # except botocore.errorfactory.ClientError as e:
+        except Exception as e:
             # except ClientError as e:
-            print("Exception Error:", e)
+            ex_stat = f"Error in handleLogin: {traceback.format_exc()} {str(e)}"
+            print("Exception Error:", ex_stat)
             msgBox = QMessageBox()
             if "UserNotConfirmedException" in str(e):
                 msgBox.setText(QApplication.translate("QMessageBox",
@@ -637,7 +654,9 @@ class Login(QDialog):
 
             ret = msgBox.exec()
         except Exception as e:
-            print("Exception Error:", e)
+            ex_stat = f"Error in handleLogin: {traceback.format_exc()} {str(e)}"
+
+            print("Exception Error:", ex_stat)
 
     async def refresh_tokens_periodically(self, refresh_token, interval=2700):
         """Refresh tokens periodically using the refresh token (async version)"""
@@ -737,9 +756,12 @@ class Login(QDialog):
                 msgBox.setText(QApplication.translate("QMessageBox",
                                                       "Please confirm that you have received the verification email and verified it."))
 
-            except botocore.errorfactory.ClientError as e:
+            # except botocore.errorfactory.ClientError as e:
+            except Exception as e:
                 # except ClientError as e:
-                print("Exception Error:", type(e))
+                ex_stat = f"Error in handleLogin: {traceback.format_exc()} {str(e)}"
+
+                print("Exception Error:", ex_stat)
                 msgBox = QMessageBox()
                 if "UsernameExistsException" in str(e):
                     msgBox.setText(QApplication.translate("QMessageBox", "Oops! User already exists.  Try again..."))

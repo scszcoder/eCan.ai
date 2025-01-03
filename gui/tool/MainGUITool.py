@@ -1,8 +1,9 @@
 class FileResource:
     def __init__(self, homepath):
         self.bot_icon_path = homepath + '/resource/images/icons/c_robot64_1.png'
-        self.sell_icon_path = homepath + '/resource/images/icons/c_robot64_0.png'
+        self.sell_bot_icon_path = homepath + '/resource/images/icons/c_robot64_0.png'
         self.buy_bot_icon_path = homepath + '/resource/images/icons/c_robot64_1.png'
+        self.manager_bot_icon_path = homepath + '/resource/images/icons/c_robot64_4.png'
         self.mission_icon_path = homepath + '/resource/images/icons/c_mission96_1.png'
         self.mission_success_icon_path = homepath + '/resource/images/icons/successful_launch0_48.png'
         self.mission_failed_icon_path = homepath + '/resource/images/icons/failed_launch0_48.png'
@@ -37,10 +38,21 @@ class StaticResource:
         self.SUB_BUY_TYPES = ['addCart', 'pay', 'addCartPay', "checkShipping", 'rate', 'feedback', "checkFB"]
         self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
         self.SUB_SELL_TYPES = []
-        self.OP_TYPES = ['opProcure', 'opPromote', 'opAccount', 'opCustom']
+        self.OP_TYPES = ['procure', 'outsource', 'manufacture']
         self.SUB_OP_TYPES = []
+        self.IT_TYPES = ['serveData', 'fixNetwork', 'securityCheck']
+        self.SUB_IT_TYPES = []
+        self.SUB_OP_TYPES = []
+        self.HR_TYPES = ['recruit', 'layoff']
+        self.SUB_HR_TYPES = []
+        self.FINANCE_TYPES = ['bookKeeping', 'accounting', 'audit', 'plan']
+        self.SUB_FINANCE_TYPES = []
+        self.LEGAL_TYPES = ['counsel']
+        self.SUB_LEGAL_TYPES = []
         self.STATUS_TYPES = ['Unassigned', 'Assigned', 'Incomplete', 'Completed']
         self.BUY_STATUS_TYPES = ['Searched', 'InCart', 'Paid', 'Arrived', 'RatingDone', 'FBDone', 'RatingConfirmed',
                                  'FBConfirmed']
         self.PRODUCT_SEL_TYPES = ["ac", "op", "bs", "mr", "mhr", "cp", "cus"]
-
+        self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
+        self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
+        self.MONTH_TYPES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]

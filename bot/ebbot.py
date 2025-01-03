@@ -110,6 +110,8 @@ class BOT_PRIVATE_PROFILE():
         self.shipping_addrzip = ""
         self.createon = datetime.today().strftime('%Y-%m-%d')
         self.adsProfile = []
+        self.vc_card_fund = 0.0
+        self.gift_card_fund = 0.0
 
     def setFirstLastName(self, fn, ln):
         self.name = fn + " " + ln
@@ -306,8 +308,10 @@ class BOT_PRIVATE_PROFILE():
             "shipaddrcity": self.shipping_addrcity,
             "shipaddrstate": self.shipping_addrstate,
             "shipaddrzip": self.shipping_addrzip,
-            "adsProfile": self.adsProfile
-
+            "adsProfile": self.adsProfile,
+            "createon": self.createon,
+            "addr": self.addr,
+            "shipping_addr": self.shipping_addr
         }
         return jd
 
@@ -326,7 +330,7 @@ class BOT_PUB_PROFILE():
         self.gender = ""
         self.interests = ""
         self.roles = ""
-        self.org = ""
+        self.org = "{}"
         self.owner = ""
         self.levels = ""
         self.status = "active"
@@ -334,6 +338,7 @@ class BOT_PUB_PROFILE():
         self.levelStart = ""
         self.vid = ""
         self.vehicle = ""
+
 
 
     def setBid(self, bid):
@@ -483,6 +488,7 @@ class BOT_PUB_PROFILE():
             "bid": self.bid,
             "vehicle": self.vehicle,
             "gender": self.gender,
+            "delDate": self.delDate,
             "status": self.status
         }
         return jd
@@ -595,7 +601,7 @@ class EBBOT(QStandardItem):
                 self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
             self.setText(self.icon_text)
         self.setFont(self.main_win.std_item_font)
-        self.setBotIcon(self.main_win.file_resource.bot_icon_path)
+        self.setBotIcon()
         self.seller_inventories = []
         self.msg_queue = asyncio.Queue()  # this is the messaging queue for the bot.
 
@@ -609,7 +615,7 @@ class EBBOT(QStandardItem):
                 self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
             self.setText(self.icon_text)
         self.setFont(self.main_win.std_item_font)
-        self.setBotIcon(self.main_win.file_resource.bot_icon_path)
+        self.setBotIcon()
 
     def getMsgQ(self):
         return self.msg_queue
@@ -617,7 +623,16 @@ class EBBOT(QStandardItem):
     def setEmail(self, em):
         self.privateProfile.email = em
 
-    def setBotIcon(self, icon):
+    def setBotIcon(self):
+        if "manager" in self.pubProfile.roles.lower():
+            icon = self.main_win.file_resource.sell_bot_icon_path
+        elif "buy" in self.pubProfile.roles.lower():
+            icon = self.main_win.file_resource.buy_bot_icon_path
+        elif "sell" in self.pubProfile.roles.lower():
+            icon = self.main_win.file_resource.manager_bot_icon_path
+        else:
+            icon = self.main_win.file_resource.buy_bot_icon_path
+
         self.icon = icon
         self.setIcon(QIcon(icon))
 
@@ -824,6 +839,15 @@ class EBBOT(QStandardItem):
             self.setText(
                 'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
+        self.setBotIcon()
+
+
+    def getVCCardFund(self):
+        return self.privateProfile.vc_card_fund
+
+    def getGiftCardFund(self) :
+        return self.privateProfile.gift_card_fund
+
     def getVid(self):
         return self.pubProfile.vid
 
@@ -890,6 +914,9 @@ class EBBOT(QStandardItem):
         self.privateProfile.setBackEmailSite(dbd.backemail_site)
         self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
+        self.setBotIcon()
+
+
     def loadXlsxData(self, dj):
         # location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr
         self.pubProfile.setLevels(dj.get("Levels", ""))
@@ -913,3 +940,5 @@ class EBBOT(QStandardItem):
         self.privateProfile.setEBPW(dj.get("Back PW", ""))
         self.privateProfile.setBackEmailSite(dj.get("BackEmailSite", ""))
         self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
+
+        self.setBotIcon()

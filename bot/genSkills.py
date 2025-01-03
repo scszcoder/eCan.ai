@@ -2,12 +2,16 @@ import json
 import os
 import traceback
 from datetime import datetime
+from idlelib.autocomplete import TRIGGERS
 
+from bot.basicSkill import genStepCreateRequestsSession
 from bot.Logger import log3
-from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfilesSkill, \
+from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfileSkill, \
     genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genStepsADSPowerExitProfile, \
     genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt, genStepADSSaveAPISettings, \
-    genStepADSUpdateProfileIds
+    genStepADSUpdateProfileIds, genWinADSCreateProfileSkill
+from bot.adsAPISkill import genStepAPIADSStopProfile, genStepAPIADSRegroupProfiles, genStepAPIADSStartProfile, \
+    genStepAPIADSCreateProfile, genStepAPIADSDeleteProfile
 from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
@@ -17,7 +21,7 @@ from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, g
 from bot.amzBuyerSkillMac import genMacChromeAMZWalkSkill, genMacChromeAMZWalkSteps
 from bot.amzSellerSkill import genWinChromeAMZFullfillOrdersSkill, genWinChromeAMZCollectOrdersSkill, \
     genWinChromeAMZUpdateShipmentTrackingSkill, genWinChromeAMZHandleMessagesSkill
-from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genStepExtractInfo, genStepFillRecipients, \
+from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtml, genStepExtractInfo, genStepFillRecipients, \
     genStepSearchAnchorInfo, genStepSearchWordLine, genStepSearchScroll, genStepRecordTxtLineLocation, \
     genStepMouseClick, genStepKeyInput, genStepTextInput, genStepCheckCondition, genStepGoto, genStepLoop, genStepStub, \
     genStepListDir, genStepCheckExistence, genStepCreateDir, genStep7z, genStepTextToNumber, genStepEndException, \
@@ -30,7 +34,9 @@ from bot.basicSkill import genStepHeader, genStepOpenApp, genStepSaveHtml, genSt
     genStepUseExternalSkill, genStepReadJsonFile, genStepReadXlsxFile, genStepGetDefault, genStepUploadFiles, \
     genStepDownloadFiles, genStepWaitUntil, genStepZipUnzip, genStepKillProcesses, genStepUpdateMissionStatus, \
     genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove, genStepGetWindowsInfo, \
-    genStepBringWindowToFront
+    genStepBringWindowToFront, genStepCreateRequestsSession, genStepECBCreateBots, genStepECBDeleteBots, \
+    genStepECBUpdateBots, genStepECBUpdateMissions, genStepECBCreateMissions, genStepECBDeleteMissions, \
+    genStepECBFetchDailySchedule, genStepECBDispatchTroops, genStepECBScreenBotCandidates
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -50,7 +56,7 @@ from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, 
     genWinADSEbayBrowserHandleReturnSkill, genWinADSEbayBrowserHandleReturnWithECBLabelsSkill, \
     genWinADSEbayBrowserHandleReplacementSkill, genWinADSEbayBrowserHandleRefundSkill
 
-from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill
+from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill, genWinChromeAMZTeamPrepSkill, genWinChromeAMZDailyHousekeepingSkill
 
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
@@ -68,6 +74,7 @@ from bot.wifiSkill import genWinWiFiLocalReconnectLanSkill
 from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
 from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
+from bot.hrSkill import genWinChromeECBHrRecruitSkill, genWinChromeECBHrLayoffSkill
 from utils.logger_helper import login
 
 ecb_data_homepath = getECBotDataHome()
@@ -183,7 +190,8 @@ PUBLIC = {
     'genWinChromeEbayBuyShippingSkill': genWinChromeEbayBuyShippingSkill,
     'genStepSetupADS': genStepSetupADS,
     'genWinADSOpenProfileSkill': genWinADSOpenProfileSkill,
-    'genWinADSRemoveProfilesSkill': genWinADSRemoveProfilesSkill,
+    'genWinADSCreateProfileSkill': genWinADSCreateProfileSkill,
+    'genWinADSRemoveProfileSkill': genWinADSRemoveProfileSkill,
     'genWinADSBatchImportSkill': genWinADSBatchImportSkill,
     'genADSLoadAmzHomePage': genADSLoadAmzHomePage,
     'genADSPowerConnectProxy': genADSPowerConnectProxy,
@@ -191,6 +199,11 @@ PUBLIC = {
     'genStepADSUpdateProfileIds': genStepADSUpdateProfileIds,
     'genStepsADSPowerExitProfile': genStepsADSPowerExitProfile,
     'genADSPowerLaunchSteps': genADSPowerLaunchSteps,
+    'genStepAPIADSStopProfile': genStepAPIADSStopProfile,
+    'genStepAPIADSRegroupProfiles': genStepAPIADSRegroupProfiles,
+    'genStepAPIADSStartProfile': genStepAPIADSStartProfile,
+    'genStepAPIADSCreateProfile': genStepAPIADSCreateProfile,
+    'genStepAPIADSDeleteProfile': genStepAPIADSDeleteProfile,
     'genWinChromeAMZWalkSkill': genWinChromeAMZWalkSkill,
     'genWinADSAMZWalkSkill': genWinADSAMZWalkSkill,
     'genAMZScrollProductListToBottom': genAMZScrollProductListToBottom,
@@ -237,7 +250,18 @@ PUBLIC = {
     'genStepDeleteFile': genStepDeleteFile,
     'genStepObtainReviews': genStepObtainReviews,
     'genStepKillProcesses': genStepKillProcesses,
+    'genStepCreateRequestsSession': genStepCreateRequestsSession,
+    'genStepECBDeleteMissions': genStepECBDeleteMissions,
+    'genStepECBUpdateMissions': genStepECBUpdateMissions,
+    'genStepECBCreateMissions': genStepECBCreateMissions,
+    'genStepECBDeleteBots': genStepECBDeleteBots,
+    'genStepECBUpdateBots': genStepECBUpdateBots,
+    'genStepECBCreateBots': genStepECBCreateBots,
+    'genStepECBScreenBotCandidates': genStepECBScreenBotCandidates,
+    'genStepECBFetchDailySchedule': genStepECBFetchDailySchedule,
+    'genStepECBDispatchTroops': genStepECBDispatchTroops,
     # done exposing all methods.....now expose data structure defs.
+    'selfName': "PUBLIC",
     "loginMain": login,
     # 'mainwin': login.main_win,
     'OrderedProduct': OrderedProduct,
@@ -245,6 +269,15 @@ PUBLIC = {
     'Shipping': Shipping,
     'OrderPerson': OrderPerson
 }
+
+symTab["ecb_pub"] = PUBLIC
+
+ManagerTriggerTable = {
+    "TEAM_REPORT": (110, "manage_AfterWork"),
+    "SCHEDULE_READY": (111, "manage_BeforeWork")
+}
+symTab["manager_trigger_table"] = ManagerTriggerTable
+
 
 
 SkillGeneratorTable = {
@@ -259,6 +292,8 @@ SkillGeneratorTable = {
     "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
     "win_ads_amz_home_browser_browse_search": lambda x, y, z: genWinADSAMZBrowserBrowseSearchSkill(x, y, z),
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
+    "win_chrome_amz_home_daily_housekeeping": lambda x, y, z: genWinChromeAMZDailyHousekeepingSkill(x, y, z),
+    "win_chrome_amz_home_team_prep": lambda x, y, z: genWinChromeAMZTeamPrepSkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
     "win_ads_ebay_orders_collect_orders": lambda x, y, z: genWinADSEbayCollectOrderListSkill(x, y, z),
     "win_ads_ebay_orders_buy_shipping": lambda x, y, z: genWinADSEbayBuyShippingSkill(x, y, z),
@@ -284,6 +319,7 @@ SkillGeneratorTable = {
     "win_chrome_ebay_orders_handle_messages": lambda x, y, z: genWinChromeEbayHandleMessagesSkill(x, y, z),
     "win_ads_local_open_open_profile": lambda x,y,z: genWinADSOpenProfileSkill(x, y, z),
     "win_ads_local_load_batch_import": lambda x,y,z: genWinADSBatchImportSkill(x, y, z),
+    "win_ads_local_open_create_profile": lambda x,y,z: genWinADSCreateProfileSkill(x, y, z),
     "win_chrome_etsy_orders_fullfill_orders": lambda x,y,z: genWinChromeEtsyFullfillOrdersSkill(x, y, z),
     "win_chrome_etsy_orders_collect_orders": lambda x,y,z: genWinChromeEtsyCollectOrderListSkill(x, y, z),
     "win_chrome_etsy_orders_update_tracking": lambda x,y,z: genWinChromeEtsyUpdateShipmentTrackingSkill(x, y, z),
@@ -295,6 +331,8 @@ SkillGeneratorTable = {
     "win_printer_local_print_reformat_print": lambda x,y,z: genWinPrinterLocalReformatPrintSkill(x, y, z),
     "win_rar_local_unzip_unzip_archive": lambda x,y,z: genWinRARLocalUnzipSkill(x, y, z),
     "win_wifi_local_list_reconnect_lan": lambda x,y,z: genWinWiFiLocalReconnectLanSkill(x, y, z),
+    "win_chrome_ecb_home_hr_recruit": lambda x,y,z: genWinChromeECBHrRecruitSkill(x, y, z),
+    "win_chrome_ecb_home_hr_layoff": lambda x,y,z: genWinChromeECBHrLayoffSkill(x, y, z),
     "win_test_local_loop_run_simple_loop": lambda x,y,z: genTestRunSimpleLoopSkill(x, y, z),
 }
 
@@ -413,16 +451,37 @@ def getWorkSettings(lieutenant, bot_works):
             }
 
 def getWorkRunSettings(lieutenant, bot_works):
-    works = bot_works["works"]
-    widx = bot_works["current widx"]  # walk task index
 
-    log3("works:"+json.dumps(works))
-    log3("widx: "+str(widx)+" mid:"+str(works[widx]["mid"]))
+    if isinstance(bot_works, dict):
+        works = bot_works["works"]
+        widx = bot_works["current widx"]  # walk task index
 
-    log3("bot_works: "+json.dumps(works[widx]))
-    mission_id = works[widx]["mid"]
-    midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(mission_id)), -1)
-    log3("MissionIDs:"+json.dumps([m.getMid() for m in lieutenant.missions])+" midx:"+str(midx))
+        log3("works:"+json.dumps(works))
+        log3("widx: "+str(widx)+" mid:"+str(works[widx]["mid"]))
+
+        log3("bot_works: "+json.dumps(works[widx]))
+        mission_id = works[widx]["mid"]
+        midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(mission_id)), -1)
+        log3("MissionIDs:"+json.dumps([m.getMid() for m in lieutenant.missions])+" midx:"+str(midx))
+        rpa_name = works[widx]["name"]
+        # m_status = works[widx]["status"]
+
+        # cargs = lieutenant.skills[skidx].getAppArgs()
+
+        bot_id = works[widx]["bid"]
+        log3("bot_id: "+str(bot_id))
+        run_config = works[widx]["config"]
+        fp_profile = works[widx]["fingerprint_profile"]
+    else:
+        in_mission = bot_works
+        mission_id = in_mission.getMid()
+        midx = next((i for i, mission in enumerate(lieutenant.missions) if str(mission.getMid()) == str(in_mission.getMid())), -1)
+        rpa_name = in_mission.getType()
+
+        bot_id = in_mission.getBid()
+        log3("bot_id: " + str(bot_id))
+        run_config = in_mission.getConfig()
+        fp_profile = in_mission.getFingerPrintProfile()
 
     if midx < 0 or midx >= len(lieutenant.missions):
         log3("ERROR: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
@@ -436,15 +495,9 @@ def getWorkRunSettings(lieutenant, bot_works):
     app = lieutenant.missions[midx].getApp()
     app_exe = lieutenant.missions[midx].getAppExe()
     as_server = lieutenant.missions[midx].getAsServer()
+    useGiftCard = lieutenant.missions[midx].getUseGiftCard()
+    vccard_number = lieutenant.missions[midx].getVCCardNumber()
     log3("settings setting app_exe: "+app+app_exe+platform+site)
-
-    rpa_name = works[widx]["name"]
-    # m_status = works[widx]["status"]
-
-    # cargs = lieutenant.skills[skidx].getAppArgs()
-
-    bot_id = works[widx]["bid"]
-    log3("bot_id: "+str(bot_id))
 
     products = lieutenant.getSellerProductCatelog()
 
@@ -458,7 +511,7 @@ def getWorkRunSettings(lieutenant, bot_works):
 
     name_space = "B" + str(bot_id) + "M" + str(mission_id) + "!" + "" + "!"
 
-    run_config = works[widx]["config"]
+
     root_path = lieutenant.homepath
 
     dtnow = datetime.now()
@@ -480,6 +533,11 @@ def getWorkRunSettings(lieutenant, bot_works):
             fileTBR.close()
 
     bot = lieutenant.bots[bot_idx]
+    print("bot ads profoile:", bot.getADSProfile())
+    if bot.getADSProfile():
+        ads_profile_id = bot.getADSProfile()[0]["id"]
+    else:
+        ads_profile_id = None
 
     #create seller information json for seller related work in case
     sij = {
@@ -505,7 +563,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "b_backup_email": bot.getBackEm() if bot.getBackEm() else "",
             "b_backup_email_pw": bot.getAcctPw() if bot.getAcctPw() else "",
             "b_backup_email_site": bot.getBackEmSite() if bot.getBackEmSite() else "",
-            "batch_profile": works[widx]["fingerprint_profile"],
+            "batch_profile": fp_profile,
             "full_site": full_site,
             "seller": sij,
             "mid": mission_id,
@@ -527,7 +585,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             # "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
             "web_driver_path":  lieutenant.getWebDriverPath(),
-            "ads_profile_id": bot.getADSProfile()[0]["id"],
+            "ads_profile_id": ads_profile_id,
             "options": "{}",
             "self_ip": lieutenant.ip,
             "display_resolution": lieutenant.getDisplayResolution(),
@@ -535,6 +593,8 @@ def getWorkRunSettings(lieutenant, bot_works):
             "scroll_resolution": scroll_resolution,
             "as_server": as_server,
             # "commander_link": lieutenant.commanderXport,
+            "use_gift_card": useGiftCard,
+            "vccard_number": vccard_number,
             "name_space": name_space
             }
 
@@ -621,10 +681,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
 
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            file_name, line_number, _, _ = traceback_info[-1]
-
-            # log3 the file name and line number
-            ex_stat = "ErrorWritePSK:" + file_name + " " + str(line_number) + " " + str(e)
+            ex_stat = "ErrorWritePSK:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWritePSK traceback information not available"
 

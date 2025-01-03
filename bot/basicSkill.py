@@ -18,9 +18,10 @@ import pandas as pd
 import numpy as np
 from deepdiff import DeepDiff
 import importlib.util
+import requests
 
 from ping3 import ping
-
+import utils.logger_helper
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
@@ -687,15 +688,26 @@ def genStepExceptionHandler(cause, cdata, stepN):
 
 # wait
 def genStepWait(wait, random_min, random_max, stepN):
-    stepjson = {
-        "type": "Wait",
-        "random_min": random_min,
-        "random_max": random_max,
-        "time": wait
-    }
+    try:
+        stepjson = {
+            "type": "Wait",
+            "random_min": random_min,
+            "random_max": random_max,
+            "time": wait
+        }
 
-    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+        return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGenStepWait:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGenStepWait: traceback information not available:" + str(e)
+
+        print(ex_stat)
 
 def genStepWaitUntil(wait, events_var, ev_relation, result_var, flag_var, stepN):
     stepjson = {
@@ -823,15 +835,27 @@ def genStepOverloadSkill(skname, args, output, stepN):
 
 
 def genStepCreateData(dtype, dname, keyname, keyval, stepN):
-    stepjson = {
-        "type": "Create Data",
-        "data_type": dtype,
-        "data_name": dname,
-        "key_name": keyname,
-        "key_value": keyval
-    }
+    try:
+        stepjson = {
+            "type": "Create Data",
+            "data_type": dtype,
+            "data_name": dname,
+            "key_name": keyname,
+            "key_value": keyval
+        }
 
-    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+        return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGenStepCreateData:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGenStepCreateData: traceback information not available:" + str(e)
+
+        print(ex_stat)
 
 def genStepCheckAppRunning(appname, result, stepN):
     stepjson = {
@@ -1066,10 +1090,11 @@ def genStepKillProcesses(process_name, flag_var, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepExternalHook(file_name_type, file_name, params, result_var, flag_var, stepN):
+def genStepExternalHook(file_name_type, file_path, file_name, params, result_var, flag_var, stepN):
     stepjson = {
         "type": "External Hook",
         "file_name_type": file_name_type,
+        "file_path": file_path,
         "file_name": file_name,
         "params": params,  # Optional dictionary of parameters for the external script
         "result": result_var,
@@ -1077,6 +1102,108 @@ def genStepExternalHook(file_name_type, file_name, params, result_var, flag_var,
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+
+def genStepCreateRequestsSession(session_var, flag_var, stepN):
+    stepjson = {
+        "type": "Create Requests Session",
+        "session_var": session_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+
+def genStepECBScreenBotCandidates(cjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Screen Bot Candidates",
+        "cjs_var": cjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepECBCreateBots(bjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Create Bots",
+        "bjs_var": bjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBUpdateBots(bjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Update Bots",
+        "bjs_var": bjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBDeleteBots(bids_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Delete Bots",
+        "bids_var": bids_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBCreateMissions(mjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Create Missions",
+        "mjs_var": mjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBUpdateMissions(mjs_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Update Missions",
+        "mjs_var": mjs_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBDeleteMissions(mids_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Delete Missions",
+        "mids_var": mids_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBFetchDailySchedule(ts_name_var, force_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Fetch Daily Schedule",
+        "ts_name_var": ts_name_var,
+        "force_var": force_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepECBDispatchTroops(schedule_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Dispatch Troops",
+        "schedule_var": schedule_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
 
@@ -5808,6 +5935,7 @@ def processGetWindowsInfo(step, i):
                 found_wins.append({"title": names[nth], "rect": win_rect})
 
         symTab[step["results_var"]] = found_wins
+        print("windows info:", found_wins)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -5852,20 +5980,27 @@ def processExternalHook(step, i):
     global symTab
 
     try:
+        script_prefix = "none"
+        script_file = "none"
         # Determine the script file name
         if step["file_name_type"] == "direct":
-            script_path = step["file_name"]
+            script_file = step["file_name"]
+            script_prefix = step["file_path"]
         elif step["file_name_type"] == "var":
-            script_path = symTab[step["file_name"]]
+            script_file = symTab[step["file_name"]]
+            script_prefix = symTab[step["file_path"]]
         elif step["file_name_type"] == "expr":
-            exec("global script_path\nscript_path = " + step["file_name"])
+            exec("global script_path\nscript_file = " + step["file_name"])
+            exec("global script_prefix\nscript_prefix = " + step["file_path"])
 
+        print("script file prefix:", script_prefix, script_file)
+        script_path = script_prefix + "/" + script_file
         print(f"Attempting to execute external script: {script_path}")
 
         # Check if the file exists
         if not os.path.exists(script_path):
             print(f"Script file not found: {script_path}. Skipping...")
-            symTab[step["result"]] = None
+            symTab[step["result"]] = "Script file not found!"
             symTab[step["flag"]] = False
             return (i + 1), ex_stat  # Skip gracefully
 
@@ -5876,22 +6011,261 @@ def processExternalHook(step, i):
 
         # Call the `run` function inside the external script
         if hasattr(external_module, "run"):
-            params = step.get("params", {})
-            result = external_module.run(params)  # Pass parameters
-            symTab[step["result"]] = result
+            params = symTab[step["params"]]
+
+            hook_out = external_module.run(params)  # Pass parameters
+            symTab[step["result"]] = hook_out["result"]
             symTab[step["flag"]] = True
-            print(f"Hook result: {result}")
+            print(f"Hook result: {hook_out}")
         else:
             print(f"Script {script_path} does not have a 'run' function. Skipping...")
-            symTab[step["result"]] = None
+            symTab[step["result"]] = "No run function found"
             symTab[step["flag"]] = False
 
     except Exception as e:
         # Log and skip errors gracefully
         ex_stat = f"Error in Hook: {traceback.format_exc()} {str(e)}"
         print(f"Error while executing hook: {ex_stat}")
-        symTab[step["result"]] = None
+        symTab[step["result"]] = ex_stat
         symTab[step["flag"]] = False
 
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processCreateRequestsSession(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["session_var"]] = requests.Session()
+        symTab[step["flag"]] = True
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in Create Requests Session: {traceback.format_exc()} {str(e)}"
+        print(f"Error while creating requests session: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processECBScreenBotCandidates(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        cjs = symTab[step["cjs_var"]]
+        symTab[step["result_var"]] = mainWin.screenBuyerBotCandidates(cjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Screen Bot Candidates: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB Screen Bot Candidates: {ex_stat}")
+
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processECBCreateBots(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bjs = symTab[step["bjs_var"]]
+        mainWin.createBotsFromFilesOrJsData(bjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Create Bots: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB creating bots: {ex_stat}")
+
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBUpdateBots(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bjs = symTab[step["bjs_var"]]
+        mainWin.updateBotsWithJsData(bjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Update Bots: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB updating bots: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processECBDeleteBots(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bids = symTab[step["bjs_var"]]
+        # note: the bjs is in this format [{"id": bid, "owner": "", "reason": ""} .... ]
+        mainWin.deleteBotsWithJsons(True, bids)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Delete Bots: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB deleting bots: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processECBCreateMissions(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bjs = symTab[step["bjs_var"]]
+        mainWin.createMissionsFromFilesOrJsData(True, bjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Create Missions: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB creating missions: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBUpdateMissions(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        bjs = symTab[step["bjs_var"]]
+        mainWin.updateMissionsWithJsData(bjs)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Update Missions: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB updating missions: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBDeleteMissions(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    global login
+    mainWin = login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        mids = symTab[step["mids_var"]]
+        # note: the mids is in this format [{"id": mid, "owner": "", "reason": ""} .... ]
+        mainWin.deleteMissionsWithJsons(True, mids)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Delete Missions: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB deleting missions: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+
+def processECBFetchDailySchedule(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    # global login
+
+    mainWin = utils.logger_helper.login.get_mainwin()
+
+    try:
+        print("ecb step: fetch schedule....")
+        symTab[step["flag"]] = True
+        ts_name = symTab[step["ts_name_var"]]
+        forceful = symTab[step["force_var"]]
+        sch_setting = mainWin.get_vehicle_settings(forceful)
+        symTab[step["result_var"]] = mainWin.fetchSchedule(ts_name, sch_setting)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Fetch Daily Schedule: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB fetch daily schedule: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBDispatchTroops(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    mainWin = utils.logger_helper.login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
+
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        if len(mainWin.todays_work["tbd"]) > 0:
+            mainWin.todays_work["tbd"][0]["status"] = ex_stat
+            # now that a new day starts, clear all reports data structure
+            mainWin.todaysReports = []
+        else:
+            log3("WARNING!!!! no work TBD after fetching schedule...", "fetchSchedule", mainWin)
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Dispatch Troops: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB dispatch troops: {ex_stat}")
+        symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
