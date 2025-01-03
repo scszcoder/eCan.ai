@@ -14,6 +14,7 @@
     "site_name": "local",
     "site": "",
     "page": "open",
+    "generator": "genWinADSOpenProfileSkill",
     "procedural_skill": {
         "nameSpace": "",
         "runStepsFile": "",

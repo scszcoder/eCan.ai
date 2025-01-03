@@ -565,6 +565,9 @@ def processWebdriverStartExistingADS(step, i):
         print("profile_id, port, api_key, options:", profile_id, port, api_key, options)
         symTab[step["driver_var"]],symTab[step["result_var"]]  = startADSWebDriver(api_key, port, profile_id, driver_path, options)
 
+        if not symTab[step["driver_var"]]:
+            symTab[step["flag_var"]] = False
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
