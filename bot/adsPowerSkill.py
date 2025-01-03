@@ -206,7 +206,7 @@ def genStepsADSPowerObtainLocalAPISettings(settings_var, stepN, theme):
         this_step, step_words = genStepSearchAnchorInfo("screen_info", "api_addr", "direct", "info 2", "any", "api_addr_texts", "key_found", "ads", False, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global local_api_port, sk_work_settings\nlocal_api_port = re.search(r'http://local\.adspower\.net:(\d+)',api_addr_texts[0]['text']).group(1)\nsk_work_settings['fp_browser_settings']['ads_port'] = local_api_port\nprint('local_api_port', local_api_port)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global local_api_port, sk_work_settings\nlocal_api_port = re.search(r'http://local\\.adspower\\.net:(\\d+)',api_addr_texts[0]['text']).group(1)\nsk_work_settings['fp_browser_settings']['ads_port'] = local_api_port\nprint('local_api_port', local_api_port)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
 
@@ -1161,15 +1161,20 @@ def genStepsSelectTargetBrowser(theme, stepN):
                                                         "useless", "sun_selected", "ads", False, this_step)
         psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("not sun_selected", "", "", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepCheckCondition("not sun_selected", "", "", this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "browser_sun", "anchor text", "",
-                                              0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "browser_sun", "anchor text", "",
+                                                  0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsSelectTargetBrowser: {traceback.format_exc()} {str(e)}"
+        print(f"Error while executing genStepsSelectTargetBrowser: {ex_stat}")
 
     return this_step, psk_words
 
@@ -1258,6 +1263,10 @@ def genStepsSelectTargetWebSite(theme, stepN):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsSelectTargetWebSite: {traceback.format_exc()} {str(e)}"
+        print(f"Error while executing genStepsSelectTargetWebSite: {ex_stat}")
 
     return this_step, psk_words
 
