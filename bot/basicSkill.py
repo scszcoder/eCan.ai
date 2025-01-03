@@ -688,15 +688,26 @@ def genStepExceptionHandler(cause, cdata, stepN):
 
 # wait
 def genStepWait(wait, random_min, random_max, stepN):
-    stepjson = {
-        "type": "Wait",
-        "random_min": random_min,
-        "random_max": random_max,
-        "time": wait
-    }
+    try:
+        stepjson = {
+            "type": "Wait",
+            "random_min": random_min,
+            "random_max": random_max,
+            "time": wait
+        }
 
-    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+        return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGenStepWait:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGenStepWait: traceback information not available:" + str(e)
+
+        print(ex_stat)
 
 def genStepWaitUntil(wait, events_var, ev_relation, result_var, flag_var, stepN):
     stepjson = {
@@ -824,15 +835,27 @@ def genStepOverloadSkill(skname, args, output, stepN):
 
 
 def genStepCreateData(dtype, dname, keyname, keyval, stepN):
-    stepjson = {
-        "type": "Create Data",
-        "data_type": dtype,
-        "data_name": dname,
-        "key_name": keyname,
-        "key_value": keyval
-    }
+    try:
+        stepjson = {
+            "type": "Create Data",
+            "data_type": dtype,
+            "data_name": dname,
+            "key_name": keyname,
+            "key_value": keyval
+        }
 
-    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+        return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGenStepCreateData:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGenStepCreateData: traceback information not available:" + str(e)
+
+        print(ex_stat)
 
 def genStepCheckAppRunning(appname, result, stepN):
     stepjson = {
@@ -5912,6 +5935,7 @@ def processGetWindowsInfo(step, i):
                 found_wins.append({"title": names[nth], "rect": win_rect})
 
         symTab[step["results_var"]] = found_wins
+        print("windows info:", found_wins)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)

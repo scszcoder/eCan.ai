@@ -451,6 +451,13 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any",
+                                                        "useless", "no_profiles", "ads", False, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("not no_profiles", "", "", this_step)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepCreateData("expr", "ads_file_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
         psk_words = psk_words + step_words
 
@@ -469,10 +476,19 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "export_selected", "anchor text", "", 0, "center", [0, 0], "box", 2, 3, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0,
+                                                   0, 0.5, False, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text",
+                                                   theme, this_step, None)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global ads_main_ver_num\nprint('ads_main_ver_num', ads_main_ver_num)", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCheckCondition("ads_main_ver_num < 60229", "", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "tags", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
@@ -496,11 +512,26 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "fingerprints", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text",
+                                                   theme, this_step, None)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "screen_resolution",
+                                                  "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0],
+                                                  this_step)
         psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("print('ADS after 6.2.29 all options are default selected.')", "",
+                                                  "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "text_file", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
@@ -511,7 +542,8 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon",
+                                                  "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
         # now file dialog will show up for you to input the dir name, so do so.....
@@ -525,6 +557,9 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "select_folder", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0.5, 0.85, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
@@ -556,6 +591,9 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
 
         # uncheck all the checkboxes.
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "checked", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
     except Exception as e:
@@ -917,6 +955,9 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCheckCondition("in_ads_ver < 60229", "", "", this_step)
+        psk_words = psk_words + step_words
+
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "new_profile", "anchor text", "", 0, "center", [0, 0], "box", 2, 5, [0, 0], this_step)
         psk_words = psk_words + step_words
@@ -928,29 +969,111 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "batch_import", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [-3, 5], this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # for post 6.2.29 version of ADS power, should click on batch import icon button instead.....
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "batch_import_icon", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [-3, 5], this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
         # first, confirm browser selection
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
         psk_words = psk_words + step_words
 
-
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "chrome_kernel", "direct", "anchor text", "any", "useless", "sun_selected", "ads", False, this_step)
+        this_step, step_words = genStepCheckCondition("in_ads_ver < 60229", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCheckCondition("not sun_selected", "", "", this_step)
+        # for pre 6.2.29 version of ADS, the UI sequence is select broswer and OS first, then scroll down to
+        # select web site, and finally upload the batch xlsx profile.
+        this_step, step_words = genStepsSelectTargetBrowser(theme, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "browser_sun", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+
+        # now select OS
+        this_step, step_words = genStepsSelectTargetOS(theme, this_step)
+        psk_words = psk_words + step_words
+
+        # now select website.
+
+        # now scroll down a bit and click on account platform,  and select and correct site.
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepsSelectTargetWebSite(theme, this_step)
+        psk_words = psk_words + step_words
+
+        # now load the batch xlsx profile
+        this_step, step_words = genStepsLoadBatchXlsxFile(theme, this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # post 6.2.29 version of ADS, the UI is set website first, then upload file, then the os and browser stuff...
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepsSelectTargetWebSite(theme, this_step)
+        psk_words = psk_words + step_words
+
+
+        # now load the batch xlsx profile
+        this_step, step_words = genStepsLoadBatchXlsxFile(theme, this_step)
+        psk_words = psk_words + step_words
+
+        # now scroll down a bit and click on account platform,  and select and correct site.
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepsSelectTargetBrowser(theme, this_step)
+        psk_words = psk_words + step_words
+
+        # now select OS
+        this_step, step_words = genStepsSelectTargetOS(theme, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-        # now select OS
+        this_step, step_words = genStepStub("end skill", "public/win_ads_local_load/batch_import", "", this_step)
+        psk_words = psk_words + step_words
 
+        psk_words = psk_words + "\"dummy\" : \"\"}"
+        log3("DEBUG", "generated skill for windows ads power batch import profiles....." + psk_words)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genWinADSBatchImportSkill: {traceback.format_exc()} {str(e)}"
+        print(f"Error while executing genWinADSBatchImportSkill: {ex_stat}")
+
+    return this_step, psk_words
+
+
+
+def genStepsSelectTargetOS(theme, stepN):
+    try:
+        psk_words = ""
+
+        this_step, step_words = genStepCallExtern("print('now gen steps to select approriate OS')", "", "in_line", "", stepN)
+        psk_words = psk_words + step_words
+
+        # this should bring out a list of OS choices
         this_step, step_words = genStepCheckCondition("in_os == 'win'", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "windows_checked", "direct", "anchor text", "any", "useless", "win_selected", "ads", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "windows_checked", "direct", "anchor text", "any",
+                                                        "useless", "win_selected", "ads", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("not win_selected", "", "", this_step)
@@ -969,13 +1092,15 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCheckCondition("in_os == 'mac'", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_checked", "direct", "anchor text", "any", "useless", "mac_selected", "ads", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "mac_checked", "direct", "anchor text", "any",
+                                              "useless", "mac_selected", "ads", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("not mac_selected", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "os_mac", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "os_mac", "anchor text", "", 0,
+                                                  "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
         # end of "not mac_selected"
@@ -989,13 +1114,15 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCheckCondition("in_os == 'linux'", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "linux_checked", "direct", "anchor text", "any", "useless", "linux_selected", "ads", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "linux_checked", "direct", "anchor text", "any",
+                                                        "useless", "linux_selected", "ads", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("not linux_selected", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "os_linux", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "os_linux", "anchor text", "", 0,
+                                                  "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
         # end of "not linux_selected"
@@ -1014,43 +1141,86 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsSelectTargetOS: {traceback.format_exc()} {str(e)}"
+        print(f"Error while executing genStepsSelectTargetOS: {ex_stat}")
 
-        # now select website.
+    return this_step, psk_words
 
-        # now scroll down a bit and click on account platform,  and select and correct site.
-        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+
+
+def genStepsSelectTargetBrowser(theme, stepN):
+    try:
+        psk_words = ""
+
+        this_step, step_words = genStepCallExtern("print('now gen steps to select target browser')", "", "in_line", "", stepN)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "chrome_kernel", "direct", "anchor text", "any",
+                                                        "useless", "sun_selected", "ads", False, this_step)
+        psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("not sun_selected", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "browser_sun", "anchor text", "",
+                                              0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
+
+def genStepsSelectTargetWebSite(theme, stepN):
+    try:
+        psk_words = ""
+
+        this_step, step_words = genStepCallExtern("print('now gen steps to select approriate web site')", "", "in_line", "", stepN)
         psk_words = psk_words + step_words
 
         # this should bring out a list of web site choices
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "specified_url", "anchor text", "", 0, "left", [2, 0], "box", 2, 2, [0, 5], this_step)
+        # this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "specified_url", "anchor text",
+        #                                           "", 0, "left", [2, 0], "box", 2, 2, [0, 5], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "platform", "anchor text",
+                                                  "", 0, "right", [3, 0], "box", 2, 2, [0, 5], this_step)
+
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchWordLine("screen_info", "in_full_site", "expr", "any", "useless", "site_found", "ads", False, this_step)
+        this_step, step_words = genStepSearchWordLine("screen_info", "in_full_site", "expr", "any", "useless", "site_found",
+                                                      "ads", False, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "other", "direct", "anchor text", "any", "useless", "site_list_ended", "ads", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "other", "direct", "anchor text", "any", "useless",
+                                                        "site_list_ended", "ads", False, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepLoop("not (site_found or site_list_ended)", "", "", "search_site" + str(stepN), this_step)
+        this_step, step_words = genStepLoop("not (site_found or site_list_ended)", "", "", "search_site" + str(stepN),
+                                            this_step)
         psk_words = psk_words + step_words
 
         # give 2 scoll steps
-        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 2, "raw", "scroll_resolution", 0, 0, 0.5, False, this_step)
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 2, "raw", "scroll_resolution", 0, 0, 0.5,
+                                                   False, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchWordLine("screen_info", "in_full_site", "expr", "any", "useless", "site_found", "ads", False, this_step)
+        this_step, step_words = genStepSearchWordLine("screen_info", "in_full_site", "expr", "any", "useless", "site_found",
+                                                      "ads", False, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "other", "direct", "anchor text", "any", "useless", "site_list_ended", "ads", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "other", "direct", "anchor text", "any", "useless",
+                                                        "site_list_ended", "ads", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end loop", "", "", this_step)
@@ -1061,7 +1231,8 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # make sure the OS is selected correctly.
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "paragraph", "info", "in_full_site", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "paragraph", "info",
+                                                  "in_full_site", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
         # else for condition "site_found"
@@ -1069,13 +1240,16 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # the site is not in the list, so type it in
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "other", "anchor text", "", 0, "left", [3, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "other", "anchor text", "", 0,
+                                                  "left", [3, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "enter_platform", "anchor text", "", 0, "left", [3, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "enter_platform", "anchor text",
+                                                  "", 0, "left", [3, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepTextInput("var", False, "in_full_site", "direct", 0.05, "enter", 1, this_step)
@@ -1084,28 +1258,44 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-        # now start file open routine.
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+
+    return this_step, psk_words
+
+
+def genStepsLoadBatchXlsxFile(theme, stepN):
+    try:
+        psk_words = ""
+
+        this_step, step_words = genStepCallExtern("print('now gen steps to load profile xlsx')", "", "in_line", "", stepN)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "drag_drop", "direct", "anchor text", "any", "useless", "file_load_found", "ads", False, this_step)
+        # now start file open routine.
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "drag_drop", "direct", "anchor text", "any",
+                                                        "useless", "file_load_found", "ads", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("not file_load_found", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0, 0.5, False, this_step)
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 0,
+                                                   0.5, False, this_step)
         psk_words = psk_words + step_words
 
-
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None)
         psk_words = psk_words + step_words
 
         # end of "not linux_selected"
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "drag_drop", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "drag_drop", "anchor text",
+                                                  "",
+                                                  0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
         # wait for batch import to fully load
@@ -1113,61 +1303,74 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # get rid to call open_save_as sub skill
-        this_step, step_words = genStepCreateData("expr", "file_open_input", "NA", "['open', current_profile_path, current_profile_name]", this_step)
+        this_step, step_words = genStepCreateData("expr", "file_open_input", "NA",
+                                                  "['open', current_profile_path, current_profile_name]", this_step)
         psk_words = psk_words + step_words
 
         # now open the profile
-        this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_open_input", "fileStatus", this_step)
+        this_step, step_words = genStepUseSkill("open_save_as", "public/win_file_local_op", "file_open_input", "fileStatus",
+                                                this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.1, 0.5, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern(
+            "global scrn_options\nscrn_options = {'attention_area':[0.1, 0.5, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
+            "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # click the OK button
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0,
+                                                  "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
-
 
         # wait for batch import to fully load
         this_step, step_words = genStepWait(10, 0, 0, this_step)
         psk_words = psk_words + step_words
 
         # now get ready to click OK button on the pop up window.
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0,
+                                                  "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
-
 
         # now that the new profile is loaded. double check to make sure the designated bot profile is loaded from this batch.
-        this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern(
+            "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+            "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None, "dyn_options")
         psk_words = psk_words + step_words
 
         # this_step, step_words = genStepSearchWordLine("screen_info", "bot_user", "direct", "any", "useless", "bot_loaded", "ads", False, this_step)
         # psk_words = psk_words + step_words
 
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_user", "direct", "anchor text", "any", "useless", "bot_loaded", "ads", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_user", "direct", "anchor text", "any",
+                                                        "useless", "bot_loaded", "ads", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("not bot_loaded", "", "", this_step)
         psk_words = psk_words + step_words
 
         # if not on screen, scroll down and check again.
-        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 2, 0.5, False, this_step)
+        this_step, step_words = genStepMouseScroll("Scroll Down", "screen_info", 50, "screen", "scroll_resolution", 0, 2,
+                                                   0.5, False, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme,
+                                                   this_step, None, "dyn_options")
         psk_words = psk_words + step_words
 
         # this_step, step_words = genStepSearchWordLine("screen_info", "bot_user", "direct", "any", "useless", "bot_loaded", "ads", False, this_step)
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_user", "direct", "anchor text", "any", "useless", "bot_loaded", "ads", False, this_step)
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_user", "direct", "anchor text", "any",
+                                                        "useless", "bot_loaded", "ads", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -1178,17 +1381,13 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
 
         # this_step, step_words = genStepSearchAnchorInfo("screen_info", "bot_open", "direct", "anchor text", "any", "bot_open_button", "bot_loaded", "ads", False, this_step)
         # psk_words = psk_words + step_words
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "bot_open", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "bot_open", "anchor text",
+                                                  "", 0,
+                                                  "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
-
-        this_step, step_words = genStepStub("end skill", "public/win_ads_local_load/batch_import", "", this_step)
-        psk_words = psk_words + step_words
-
-        psk_words = psk_words + "\"dummy\" : \"\"}"
-        log3("DEBUG", "generated skill for windows ads power batch import profiles....." + psk_words)
 
     except Exception as e:
         # Log and skip errors gracefully
