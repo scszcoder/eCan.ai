@@ -1899,7 +1899,7 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
 
-        this_step, step_words = genStepsAMZBrowserLoginIn(theme, this_step)
+        this_step, step_words = genStepsAMZBrowserLoginIn(this_step, theme)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
@@ -2124,7 +2124,7 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # this could be the case where the ads power's local api port and api key has changed, so re-gain it.
-        this_step, step_words = genStepsADSPowerObtainLocalAPISettings(worksettings, theme, this_step)
+        this_step, step_words = genStepsADSPowerObtainLocalAPISettings(worksettings, this_step, theme)
         psk_words = psk_words + step_words
 
         # now try to connec to ads power again
