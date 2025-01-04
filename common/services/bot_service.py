@@ -148,7 +148,10 @@ class BotService:
         try:
             jresp = send_query_bots_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
                                                      {"byowneruser": True})
-            all_bots = json.loads(jresp['body'])
+            # print("what's happening....", type(jresp['body']))
+            # all_bots = json.loads(jresp['body'])
+            all_bots = jresp['body']
+
             for bot in all_bots:
                 bid = bot['bid']
                 result: BotModel = self.session.query(BotModel).filter(BotModel.botid == bid).first()

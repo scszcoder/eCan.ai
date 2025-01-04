@@ -257,6 +257,7 @@ class MissionService:
         jresp = send_query_missions_by_time_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
                                                      [{"byowneruser": True}])
         all_missions = json.loads(jresp['body'])
+        # all_missions = jresp['body']
         for mission in all_missions:
             mid = mission['mid']
             local_mission = self.find_missions_by_mid(mid)

@@ -1913,7 +1913,7 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
 # a batch can be done easily.
 # input: batch_profiles_txt: just saved batch of profiles in txt format:
 # site_list:
-def updateIndividualProfileFromBatchSavedTxt(batch_profiles_txt, mainwin, settings_var_name):
+def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settings_var_name="", excludeUsernames=[]):
     pfJsons = readTxtProfile(batch_profiles_txt)
     pf_dir = os.path.dirname(batch_profiles_txt)
     # log3("pf_dir:"+pf_dir)
@@ -1923,35 +1923,37 @@ def updateIndividualProfileFromBatchSavedTxt(batch_profiles_txt, mainwin, settin
     for pfJson in pfJsons:
         # each pfJson is a json for the bot-mission pair
         # xlsx_file_path = pf_dir + "/" + pfJson["username"].split("@")[0]+".xlsx"
-        txt_file_path = pf_dir + "/" + pfJson["username"].split("@")[0] + ".txt"
+        userInFile = pfJson["username"].split("@")[0]
+        txt_file_path = pf_dir + "/" + userInFile + ".txt"
         # log3("txt_file_path:"+txt_file_path)
         # genProfileXlsx([pfJson], xlsx_file_path, site_list)
+        if userInFile not in excludeUsernames:
+            # existing is a bot's current profile, the cookie section contains all cookies this bot has collected so far.
+            if os.path.exists(txt_file_path):
+                existing = readTxtProfile(txt_file_path)
+                # log3("existing:"+json.dumps(existing))
+                existing_cookies = existing[0]["cookie"]
+                new_cookies = pfJson["cookie"]
 
-        # existing is a bot's current profile, the cookie section contains all cookies this bot has collected so far.
-        if os.path.exists(txt_file_path):
-            existing = readTxtProfile(txt_file_path)
-            # log3("existing:"+json.dumps(existing))
-            existing_cookies = existing[0]["cookie"]
-            new_cookies = pfJson["cookie"]
+                # now merge the new cookies into all cookies.
+                pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
+            else:
+                # if the individual bot's profile doesn't even exist, create one.
+                print("bot request can be sh")
 
-            # now merge the new cookies into all cookies.
-            pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
-        else:
-            # if the individual bot's profile doesn't even exist, create one.
-            print("bot request can be sh")
+            #now update txt version of the profile of the bot
+            genProfileTxt([pfJson], txt_file_path)
 
-        #now update txt version of the profile of the bot
-        genProfileTxt([pfJson], txt_file_path)
+            # find the bot related to this fingerprint and update it.
+            found_bot = next((bot for i, bot in enumerate(mainwin.bots) if bot.getEmail() == pfJson["username"]), None)
+            if found_bot:
+                found_bot.setADSProfile([pfJson])
+                # also need to update settings, make sure the ads profile id
+                if settings_var_name:
+                    symTab[settings_var_name]["ads_profile_id"] = pfJson["id"]
 
-        # find the bot
-        found_bot = next((bot for i, bot in enumerate(mainwin.bots) if bot.getEmail() == pfJson["username"]), None)
-        if found_bot:
-            found_bot.setADSProfile([pfJson])
-            # also need to update settings, make sure the ads profile id
-            symTab[settings_var_name]["ads_profile_id"] = pfJson["id"]
-
-        else:
-            log3("Bot pfJson:" + pfJson["username"] + " not found.", "genAdsProfileBatchs", mainwin)
+            else:
+                log3("Bot pfJson:" + pfJson["username"] + " not found.", "genAdsProfileBatchs", mainwin)
 
 
 # for a list of existing cookies, find matching in name and domain and path, if matched all three in newones,
@@ -2014,7 +2016,7 @@ def processUpdateBotADSProfileFromSavedBatchTxt(step, i, mission):
         # first remove the previously save rollback point, but leave up to 3 rollback points
         for latest in latest_n_files:
             log3("extract individual ADS profile from latest_file:" + latest)
-            updateIndividualProfileFromBatchSavedTxt(latest, mainwin, step["settings_var"])
+            updateIndividualProfileFromBatchSavedTxt(mainwin, latest, step["settings_var"])
 
 
         # wait after key action.
