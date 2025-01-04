@@ -501,9 +501,9 @@ def gen_query_skills_string(q_setting):
 
 def gen_query_bots_string(q_setting):
     if q_setting["byowneruser"]:
-        query_string = "query MySkQuery { queryBots(qb: \"{ \\\"byowneruser\\\": true}\") } "
+        query_string = "query MyBOTQuery { queryBots(qb: \"{ \\\"byowneruser\\\": true}\") } "
     else:
-        query_string = "query MySkQuery { queryBots(qb: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\""+q_setting["qphrase"]+"\\\"}\") } "
+        query_string = "query MyBOTQuery { queryBots(qb: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\""+q_setting["qphrase"]+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
@@ -1718,16 +1718,14 @@ def send_dequeue_tasks_to_cloud(session, token, vehicles):
 def send_query_bots_request_to_cloud(session, token, q_settings):
 
     queryInfo = gen_query_bots_string(q_settings)
-
     jresp = appsync_http_request(queryInfo, session, token)
-
     if "errors" in jresp:
         screen_error = True
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryBots"])
-
+        # print("jresponse", jresponse)
 
     return jresponse
 

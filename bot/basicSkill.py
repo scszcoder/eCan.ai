@@ -6014,7 +6014,7 @@ def processExternalHook(step, i):
             params = symTab[step["params"]]
 
             hook_out = external_module.run(params)  # Pass parameters
-            symTab[step["result"]] = hook_out["result"]
+            symTab[step["result"]] = hook_out
             symTab[step["flag"]] = True
             print(f"Hook result: {hook_out}")
         else:

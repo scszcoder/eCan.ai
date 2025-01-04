@@ -596,6 +596,8 @@ class MainWindow(QMainWindow):
         self.toolsWanChatTestAction = self._createToolsWanChatTestAction()
         self.toolsStopWaitUntilTestAction = self._createToolsStopWaitUntilTestAction()
         self.toolsSimWanRequestAction = self._createToolsSimWanRequestAction()
+        self.toolsSyncFingerPrintRequestAction = self._createToolsSyncFingerPrintRequestAction()
+        self.toolsGatherFingerPrintsRequestAction = self._createToolsGatherFingerPrintsRequestAction()
 
         self.helpUGAction = self._createHelpUGAction()
         self.helpCommunityAction = self._createHelpCommunityAction()
@@ -862,7 +864,9 @@ class MainWindow(QMainWindow):
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
             if not self.debug_mode or self.schedule_mode == "auto":
+                print("getting bots from cloud....")
                 self.bot_service.sync_cloud_bot_data(self.session, self.tokens)
+                print("bot cloud done....")
             print("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
             print("find all bots")
@@ -1329,6 +1333,8 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.toolsWanChatTestAction)
         tools_menu.addAction(self.toolsStopWaitUntilTestAction)
         tools_menu.addAction(self.toolsSimWanRequestAction)
+        tools_menu.addAction(self.toolsSyncFingerPrintRequestAction)
+        tools_menu.addAction(self.toolsGatherFingerPrintsRequestAction)
 
         menu_bar.addMenu(tools_menu)
 
@@ -1656,6 +1662,19 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.simWanRequest)
         return new_action
 
+    def _createToolsSyncFingerPrintRequestAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Sync Finger Print Request(Manager Only)"))
+        new_action.triggered.connect(self.syncFingerPrintRequest)
+        return new_action
+
+    def _createToolsGatherFingerPrintsRequestAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Gather Finger Prints Request(Platoon Only)"))
+        new_action.triggered.connect(self.gatherFingerPrints)
+        return new_action
 
     def _createHelpUGAction(self):
         # File actions
@@ -3880,10 +3899,10 @@ class MainWindow(QMainWindow):
         try:
             if exists(filename):
                 print("file name:", filename)
-                updateIndividualProfileFromBatchSavedTxt(filename)
+                updateIndividualProfileFromBatchSavedTxt(self, filename)
 
         except IOError:
-            QMessageBox.information(self, "Unable to open/save file: %s" % filename)
+            QMessageBox.information(self, "Error", "Unable to open/save file: %s" % filename)
 
 
 
@@ -5363,10 +5382,13 @@ class MainWindow(QMainWindow):
     def syncBotAccounts(self):
         # run a hook function to bring in external accounts.
         acctRows = self.runGetBotAccountsHook()
+        print("ACCT ROWS:", acctRows)
         # then from there, figure out newly added accounts
         # from newly added accounts, screen the ones ready to be converted to a Bot/Agent
         # rows are updated....
         qualified, rowsNeedUpdate = self.screenBuyerBotCandidates(acctRows, self.bots)
+        print("qualified:", len(qualified), qualified)
+        print("rowsNeedUpdate:", len(rowsNeedUpdate), rowsNeedUpdate)
         # turn qualified acct into bots/agents
         self.hireBuyerBotCandidates(qualified)
         # create new ads power profile for the newly added accounts.
@@ -5395,6 +5417,7 @@ class MainWindow(QMainWindow):
             "flag": "hook_flag"
         }
         i, runStat = processExternalHook(stepjson, 1)
+        print("runStat:", runStat)
         if "Complete" in runStat:
             acctRows = symTab["hook_result"]["candidates"]
         return acctRows
@@ -7026,6 +7049,10 @@ class MainWindow(QMainWindow):
                 self.showMsg("received botsADSProfilesUpdate message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receivePlatoonBotsADSProfileUpdateMessage(msg)
+            elif msg["type"] == "botsADSProfilesBatchUpdate":
+                self.showMsg("received botsADSProfilesBatchUpdate message")
+                # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
+                self.receivePlatoonBotsADSProfilesBatchUpdateMessage(msg)
             elif msg["type"] == "missionResultFile":
                 self.showMsg("received missionResultFile message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
@@ -7084,6 +7111,49 @@ class MainWindow(QMainWindow):
             file.write(file_contents)
             file.close()
 
+    def receivePlatoonBotsADSProfilesBatchUpdateMessage(self, pMsg):
+        """
+        Receive multiple fingerprint profiles sent from the sender side.
+        Args:
+            pMsg: A dictionary containing:
+                  - "profiles": A list of dictionaries, each containing:
+                      - "file_name": The name of the file to be saved
+                      - "file_type": The type of the file (e.g., txt)
+                      - "file_contents": The base64-encoded content of the file
+        """
+        try:
+            profiles = pMsg.get("profiles", [])
+            if not profiles:
+                self.showMsg("ErrorReceiveBatchProfiles: No profiles received.")
+                return
+
+            for profile in profiles:
+                file_name = self.my_ecb_data_homepath + profile[
+                    "file_name"]  # msg["file_name"] should start with "/"
+                file_name_wo_extension = os.path.basename(file_name).split(".")[0]
+                file_name_dir = os.path.dirname(file_name)
+                new_filename = os.path.join(file_name_dir, f"{file_name_wo_extension}_old.txt")
+
+                # Rename existing file, if it exists
+                if os.path.exists(file_name):
+                    os.rename(file_name, new_filename)
+
+                # Decode and write the new profile
+                file_type = profile["file_type"]
+                file_contents = base64.b64decode(profile["file_contents"])  # Decode base64-encoded binary data
+                with open(file_name, "wb") as file:
+                    file.write(file_contents)
+
+                log3(f"Successfully updated profile: {file_name}")
+
+        except Exception as e:
+            # Handle and log errors
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            if traceback_info:
+                ex_stat = "ErrorReceiveBatchFPProfiles:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorReceiveBatchFPProfiles: traceback information not available:" + str(e)
+            self.showMsg(ex_stat)
 
     def receivePlatoonMissionResultFilesMessage(self, pMsg):
         file_name = pMsg["file_name"]           # msg["file_name"] should start with "/"
@@ -7366,6 +7436,12 @@ class MainWindow(QMainWindow):
                 # update vehicle status display.
                 log3(json.dumps(msg["content"]), "serveCommander", self)
                 # this is for manual generated missions, simply added to the todo list.
+            elif msg["cmd"] == "reqSyncFingerPrintProfiles":
+                # update vehicle status display.
+                log3(json.dumps(msg["content"]), "serveCommander", self)
+                # first gather all finger prints and update them to the latest
+                localFingerPrintProfiles = self.gatherFingerPrints()
+                self.sendFingerPrintProfilesToCommander(localFingerPrintProfiles)
             elif msg["cmd"] == "ping":
                 # respond to ping with pong
                 self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
@@ -7532,6 +7608,10 @@ class MainWindow(QMainWindow):
             self.todays_completed = []
             self.todaysReports = []                     # per vehicle/host
             self.todaysPlatoonReports = []
+
+    def sendFingerPrintProfilesToCommander(self, profiles):
+        for bot_profile in profiles:
+            self.send_ads_profile_to_commander(self.commanderXport, "txt", bot_profile)
 
     def obtainTZ(self):
         local_time = time.localtime()  # returns a `time.struct_time`
@@ -8118,7 +8198,49 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg(f"ErrorSendFileToCommander: TCP link doesn't exist")
 
+    def batch_send_ads_profiles_to_commander(self, commander_link, file_type, file_paths):
+        try:
+            if not commander_link:
+                self.showMsg("ErrorSendFilesToCommander: TCP link doesn't exist")
+                return
 
+            profiles = []
+            for file_name_full_path in file_paths:
+                if os.path.exists(file_name_full_path):
+                    self.showMsg(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}")
+                    with open(file_name_full_path, 'rb') as fileTBSent:
+                        binary_data = fileTBSent.read()
+                        encoded_data = base64.b64encode(binary_data).decode('utf-8')
+
+                        # Embed in JSON
+                        file_timestamp = os.path.getmtime(file_name_full_path)
+
+                        profiles.append({
+                            "file_name": file_name_full_path,
+                            "file_type": file_type,
+                            "timestamp": file_timestamp,  # Include file timestamp
+                            "file_contents": encoded_data
+                        })
+
+            else:
+                self.showMsg(f"ErrorSendFileToCommander: File [{file_name_full_path}] not found")
+
+            # Send data
+            json_data = json.dumps({
+                "type": "botsADSProfilesBatchUpdate",
+                "profiles": prfoiles
+            })
+            length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
+            commander_link.write(length_prefix + json_data.encode('utf-8'))
+            # await commander_link.drain()  # Uncomment if using asyncio
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorSendingBatchProfilesToCommander:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorSendingBatchProfilesToCommander traceback information not available:" + str(e)
 
     def send_mission_result_files_to_commander(self, commander_link, mid, file_type, file_name_full_paths):
         try:
@@ -8926,29 +9048,29 @@ class MainWindow(QMainWindow):
             newBotJS = {
                 "pubProfile": {
                     "bid":0,
-                    "pseudo_nick_name":row[""],
+                    "pseudo_nick_name":row["first_name"],
                     "pseudo_name": self.genPseudoName(row["first_name"],row["last_name"]),
                     "location": self.genBotLoc(row["addr_state"]),
                     "pubbirthday": self.genBotPubBirthday(),
                     "gender": self.getBotGender(),
-                    "interests":row["Any,Any,Any,Any,Any"],
+                    "interests":"Any,Any,Any,Any,Any",
                     "roles": "amz:buyer",
-                    "org":row[""],
+                    "org":"{}",
                     "levels": "amz:green:buyer",
                     "levelStart": "",
                     "vehicle": self.genBotVehicle(),
-                    "status": "Unassigned"
+                    "status": "Active"
                 },
                 "privateProfile":{
                     "first_name": row["first_name"],
                     "last_name": row["last_name"],
                     "email": row["email"],
                     "email_pw": row["email_pw"],
-                    "phone": row[""],
+                    "phone": "",
                     "backup_email": row["backup_email"],
                     "acct_pw": row["backup_email_pw"],
-                    "backup_email_site": row[""],
-                    "birthday": row[""],
+                    "backup_email_site": "",
+                    "birthday": "2000-02-02",
                     "addrl1": row["addr_street_line1"],
                     "addrl2": row["addr_street_line2"],
                     "addrcity": row["addr_city"],
@@ -8959,7 +9081,7 @@ class MainWindow(QMainWindow):
                     "shipaddrcity": row["addr_city"],
                     "shipaddrstate": row["addr_state"],
                     "shipaddrzip": row["addr_zip"],
-                    "adsProfile": row[""]
+                    "adsProfile": ""
                 },
                 "settings": {
                     "platform":"win",
@@ -8969,7 +9091,10 @@ class MainWindow(QMainWindow):
                 }
             }
             newBotsJs.append(newBotJS)
+
+        print("newBotsJs:", newBotsJs)
         firstNewBid = self.createBotsFromFilesOrJsData(newBotsJs)
+        print("firstNewBid:", firstNewBid)
         if firstNewBid:
             newBid = firstNewBid
             for row in acctRows:
@@ -8991,13 +9116,13 @@ class MainWindow(QMainWindow):
         print("gen loc:", loc)
         return loc
 
-
     def genBotPubBirthday(self):
-        # randomely pick
-        yyyy = random.randint(19995, 2005)
+        # Randomly pick
+        yyyy = random.randint(1995, 2005)
         mm = random.randint(1, 12)
         dd = random.randint(1, 28)
-        pbd = str(yyyy)+"-"+str(mm)+"-"+str(dd)
+        # Format with leading zeros
+        pbd = f"{yyyy}-{str(mm).zfill(2)}-{str(dd).zfill(2)}"
         print("pbd:", pbd)
         return pbd
 
@@ -9012,5 +9137,110 @@ class MainWindow(QMainWindow):
     def genBotVehicle(self):
         # fill the least filled vehicle first.
         sortedV = sorted(self.vehicles, key=lambda v: len(v.getBotIds()), reverse=False)
-        print([v.getName() for v in sortedV])
+        print("sorted vehicles:", [v.getName() for v in sortedV])
         return sortedV[0].getName()
+
+    # this function sends request to all on-line platoons and request they send back
+    # all the latest finger print profiles of the troop members on that team.
+    # we will store them onto the local dir, if there is existing ones, compare the time stamp of incoming file and existing file,
+    # if the incoming file has a later time stamp, then overwrite the existing one.
+    def syncFingerPrintRequest(self):
+        try:
+            if self.machine_role == "Commander":
+                log3("syncing finger prints")
+
+                reqMsg = {"cmd": "reqSyncFingerPrintProfiles", "contents": "now"}
+
+                # send over scheduled tasks to platton.
+                for vehicle in self.vehicles:
+                    if vehicle.getFieldLink() and "running" in vehicle.getStatus():
+                        self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" + vehicle.getFieldLink()[
+                            "ip"] + "]: " + json.dumps(reqMsg))
+
+                        self.send_json_to_platoon(vehicle.getFieldLink(), reqMsg)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorSyncFingerPrintRequest:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorSyncFingerPrintRequest: traceback information not available:" + str(e)
+            log3(ex_stat)
+
+
+    # this function updates latest finger prints on this vehicle.
+    # 1) go to ads dir, look for all xlsx, gather unique emails from username column
+    # 2) then string part before "@" will be the user name to use.
+    #    in the finger prints directory, there could be three types of files:
+    #    i) individual user's text version of finger print profile named {username}.txt for example, JohnSmith.txt, (may or may not exist)
+    #    ii) text version of batched finger print profiles which starts with "profiles", for example profiles*.txt file, this file could contains multiple individual user's finger print profile
+    #    iii) xlsx version of batched finger print profiles which starts with "profiles", for example profiles*.txt file, this file could contains multiple individual user's finger print profile (may or may not exist)
+    # 3) a individual's profile could exist in all three type of files.
+    # 4) is it easier to just call batch to singles?
+    def gatherFingerPrints(self):
+        try:
+            updated_profiles = []
+            if self.machine_role == "Platoon":
+                log3("gathering finger pritns....")
+
+                # Define the directory containing profiles*.txt and individual profiles
+
+                # Get all profiles*.txt files, sorted by timestamp (latest first)
+                batch_files = sorted(
+                    [
+                        os.path.join(self.ads_profile_dir, f)
+                        for f in os.listdir(self.ads_profile_dir)
+                        if f.startswith("profiles") and f.endswith(".txt")
+                    ],
+                    key=os.path.getmtime,
+                    reverse=True,
+                )
+                print("time sorted batch_files:", batch_files)
+
+                # Track already updated usernames
+                updated_usernames = set()
+
+                # Process each batch file
+                for batch_file in batch_files:
+                    log3(f"Processing batch file: {batch_file}")
+
+                    # Extract usernames from the batch file
+                    with open(batch_file, "r") as bf:
+                        batch_content = bf.readlines()
+
+                    usernames = set(
+                        line.split("=")[1].strip().split("@")[0]  # Extract username before "@"
+                        for line in batch_content
+                        if line.startswith("username=")
+                    )
+                    print("usernames in this batch file:", batch_file, usernames)
+                    # Exclude already updated usernames when processing this batch
+                    remaining_usernames = usernames - updated_usernames
+
+                    if remaining_usernames:
+                        log3(f"Updating profiles for: {remaining_usernames}")
+                        updateIndividualProfileFromBatchSavedTxt(self, batch_file,
+                                                                      excludeUsernames=list(updated_usernames))
+                        # Add updated profiles to the list
+                        for username in remaining_usernames:
+                            individual_profile_path = os.path.join(self.ads_profiles_dir, f"{username}.txt")
+                            updated_profiles.append(individual_profile_path)
+
+
+                    # Add processed usernames to the updated list
+                    updated_usernames.update(usernames)
+
+            return updated_profiles
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorGatherFingerPrints:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorGatherFingerPrints: traceback information not available:" + str(e)
+            log3(ex_stat)
+            return []
