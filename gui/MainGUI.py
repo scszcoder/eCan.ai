@@ -7441,7 +7441,7 @@ class MainWindow(QMainWindow):
                 log3(json.dumps(msg["content"]), "serveCommander", self)
                 # first gather all finger prints and update them to the latest
                 localFingerPrintProfiles = self.gatherFingerPrints()
-                self.sendFingerPrintProfilesToCommander(localFingerPrintProfiles)
+                self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
             elif msg["cmd"] == "ping":
                 # respond to ping with pong
                 self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
@@ -7592,8 +7592,10 @@ class MainWindow(QMainWindow):
                     self.commanderXport.write(rpt_with_delimiter.encode('utf-8'))
 
                 # also send updated bot ADS profiles to the commander for backup purose.
-                for bot_profile in self.todays_bot_profiles:
-                    self.send_ads_profile_to_commander(self.commanderXport, "txt", bot_profile)
+                # for bot_profile in self.todays_bot_profiles:
+                #     self.send_ads_profile_to_commander(self.commanderXport, "txt", bot_profile)
+                localFingerPrintProfiles = self.gatherFingerPrints()
+                self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
 
             # 2) log reports on local drive.
             self.saveDailyRunReport(self.todaysPlatoonReports)
@@ -7612,6 +7614,10 @@ class MainWindow(QMainWindow):
     def sendFingerPrintProfilesToCommander(self, profiles):
         for bot_profile in profiles:
             self.send_ads_profile_to_commander(self.commanderXport, "txt", bot_profile)
+
+    def batchSendFingerPrintProfilesToCommander(self, profiles):
+        self.batch_send_ads_profiles_to_commander(self.commanderXport, "txt", profiles)
+
 
     def obtainTZ(self):
         local_time = time.localtime()  # returns a `time.struct_time`
@@ -8222,13 +8228,13 @@ class MainWindow(QMainWindow):
                             "file_contents": encoded_data
                         })
 
-            else:
-                self.showMsg(f"ErrorSendFileToCommander: File [{file_name_full_path}] not found")
+                else:
+                    self.showMsg(f"ErrorSendFileToCommander: File [{file_name_full_path}] not found")
 
             # Send data
             json_data = json.dumps({
                 "type": "botsADSProfilesBatchUpdate",
-                "profiles": prfoiles
+                "profiles": profiles
             })
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
             commander_link.write(length_prefix + json_data.encode('utf-8'))
