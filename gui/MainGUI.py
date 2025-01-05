@@ -9223,11 +9223,17 @@ class MainWindow(QMainWindow):
                         log3(f"Updating profiles for: {remaining_usernames}")
                         updateIndividualProfileFromBatchSavedTxt(self, batch_file,
                                                                       excludeUsernames=list(updated_usernames))
+                        # obtain batch file's time stamp
+                        batch_file_timestamp = os.path.getmtime(batch_file)
+
                         # Add updated profiles to the list
                         for username in remaining_usernames:
-                            individual_profile_path = os.path.join(self.ads_profiles_dir, f"{username}.txt")
+                            individual_profile_path = os.path.join(self.ads_profile_dir, f"{username}.txt")
                             updated_profiles.append(individual_profile_path)
 
+                            # Set the timestamp of the individual profile to match the batch profile's timestamp
+                            if os.path.exists(individual_profile_path):
+                                os.utime(individual_profile_path, (batch_file_timestamp, batch_file_timestamp))
 
                     # Add processed usernames to the updated list
                     updated_usernames.update(usernames)
