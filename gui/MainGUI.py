@@ -406,6 +406,8 @@ class MainWindow(QMainWindow):
         if os.path.exists(self.ads_settings_file):
             with open(self.ads_settings_file, 'r') as ads_settings_f:
                 self.ads_settings = json.load(ads_settings_f)
+                if "ads_profile_dir" in self.ads_settings:
+                    self.ads_profile_dir = self.ads_settings["ads_profile_dir"]
 
             ads_settings_f.close()
         self.showMsg("ADS SETTINGS:"+json.dumps(self.ads_settings))
@@ -3882,7 +3884,8 @@ class MainWindow(QMainWindow):
         try:
             if exists(filename):
                 print("file name:", filename)
-                covertTxtProfiles2DefaultXlsxProfiles([filename])
+                convertTxtProfiles2DefaultXlsxProfiles([filename])
+
 
         except IOError:
             QMessageBox.information(self, "Unable to open/save file: %s" % filename)
@@ -9259,6 +9262,7 @@ class MainWindow(QMainWindow):
             updated_profiles = []
             if self.machine_role == "Platoon":
                 log3("gathering finger pritns....")
+                print("gaterhing fp profiles", self.ads_profile_dir)
 
                 # Define the directory containing profiles*.txt and individual profiles
 
@@ -9293,6 +9297,7 @@ class MainWindow(QMainWindow):
                     print("usernames in this batch file:", batch_file, usernames)
                     # Exclude already updated usernames when processing this batch
                     remaining_usernames = usernames - updated_usernames
+                    print("remaining_usernames", remaining_usernames)
 
                     if remaining_usernames:
                         log3(f"Updating profiles for: {remaining_usernames}")
