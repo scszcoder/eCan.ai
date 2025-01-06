@@ -1942,6 +1942,7 @@ def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settin
                 print("bot request can be sh")
 
             #now update txt version of the profile of the bot
+            print("pfJson updating :", txt_file_path)
             genProfileTxt([pfJson], txt_file_path)
 
             # find the bot related to this fingerprint and update it.
@@ -1951,9 +1952,8 @@ def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settin
                 # also need to update settings, make sure the ads profile id
                 if settings_var_name:
                     symTab[settings_var_name]["ads_profile_id"] = pfJson["id"]
-
             else:
-                log3("Bot pfJson:" + pfJson["username"] + " not found.", "genAdsProfileBatchs", mainwin)
+                log3("Warning - Bot pfJson:" + pfJson["username"] + " not found.", "genAdsProfileBatchs", mainwin)
 
 
 # for a list of existing cookies, find matching in name and domain and path, if matched all three in newones,
