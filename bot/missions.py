@@ -10,6 +10,7 @@ import tzlocal
 
 from bot.readSkill import runAllSteps
 from common.models.mission import MissionModel
+import ast
 
 TIME_SLOT_MINS = 20
 # Every bot has a run schedule which is specified in the following parameters
@@ -791,29 +792,68 @@ class EBMISSION(QStandardItem):
         return self.pubAttributes.config
 
     def setConfig(self, cfg):
-        self.pubAttributes.config = cfg
-        print("cfg:", cfg, type(cfg))
-        if isinstance(cfg, str):
-            cfgJson = json.loads(cfg.replace("'", '"'))
-        else:
-            cfgJson = cfg
-        if "repeat_type" in cfgJson:
-            self.pubAttributes.repeat_type = cfgJson["repeat_type"]
+        try:
+            self.pubAttributes.config = cfg
+            print("cfg:", cfg, type(cfg))
 
-        if "repeat_number" in cfgJson:
-            self.pubAttributes.repeat_number = cfgJson["repeat_number"]
+            # Determine the type of cfg and process accordingly
+            if isinstance(cfg, str):
+                try:
+                    # Safely evaluate string as a Python dictionary
+                    cfgJson = ast.literal_eval(cfg)
+                except (ValueError, SyntaxError):
+                    # Fallback to replacing single quotes with double quotes for JSON compatibility
+                    cfgJson = json.loads(cfg.replace("'", '"'))
+            else:
+                cfgJson = cfg  # Assume it's already a dictionary or valid structure
 
-        if "repeat_unit" in cfgJson:
-            self.pubAttributes.repeat_unit = cfgJson["repeat_unit"]
+            # Safely update attributes based on the keys in cfgJson
+            if "repeat_type" in cfgJson:
+                self.pubAttributes.repeat_type = cfgJson["repeat_type"]
 
-        if "repeat_on" in cfgJson:
-            self.pubAttributes.repeat_on = cfgJson["repeat_on"]
+            if "repeat_number" in cfgJson:
+                self.pubAttributes.repeat_number = cfgJson["repeat_number"]
 
-        if "repeat_until" in cfgJson:
-            self.pubAttributes.repeat_until = cfgJson["repeat_until"]
+            if "repeat_unit" in cfgJson:
+                self.pubAttributes.repeat_unit = cfgJson["repeat_unit"]
 
-        if "repeat_last" in cfgJson:
-            self.pubAttributes.repeat_last = cfgJson["repeat_last"]
+            if "repeat_on" in cfgJson:
+                self.pubAttributes.repeat_on = cfgJson["repeat_on"]
+
+            if "repeat_until" in cfgJson:
+                self.pubAttributes.repeat_until = cfgJson["repeat_until"]
+
+            if "repeat_last" in cfgJson:
+                self.pubAttributes.repeat_last = cfgJson["repeat_last"]
+
+            print("Configuration successfully loaded:", cfgJson)
+
+        except (json.JSONDecodeError, ValueError, SyntaxError) as e:
+            raise ValueError(f"Invalid config format: {cfg}. Error: {e}")
+
+        # self.pubAttributes.config = cfg
+        # print("cfg:", cfg, type(cfg))
+        # if isinstance(cfg, str):
+        #     cfgJson = json.loads(cfg.replace("'", '"'))
+        # else:
+        #     cfgJson = cfg
+        # if "repeat_type" in cfgJson:
+        #     self.pubAttributes.repeat_type = cfgJson["repeat_type"]
+        #
+        # if "repeat_number" in cfgJson:
+        #     self.pubAttributes.repeat_number = cfgJson["repeat_number"]
+        #
+        # if "repeat_unit" in cfgJson:
+        #     self.pubAttributes.repeat_unit = cfgJson["repeat_unit"]
+        #
+        # if "repeat_on" in cfgJson:
+        #     self.pubAttributes.repeat_on = cfgJson["repeat_on"]
+        #
+        # if "repeat_until" in cfgJson:
+        #     self.pubAttributes.repeat_until = cfgJson["repeat_until"]
+        #
+        # if "repeat_last" in cfgJson:
+        #     self.pubAttributes.repeat_last = cfgJson["repeat_last"]
 
 
     def addRepeatToConfig(self):
