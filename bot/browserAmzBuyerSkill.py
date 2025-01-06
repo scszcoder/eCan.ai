@@ -3717,6 +3717,12 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("string", "forceful", "NA", "false", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCreateData("obj", "hook_result", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "works_ready_to_dispatch", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
         # fetch daily schedule
         this_step, step_words = genStepECBFetchDailySchedule("ts_name", "forceful", "daily_schedule", "fetch_success", this_step)
         psk_words = psk_words + step_words
@@ -3727,7 +3733,10 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         # do some external work - basically do a round of filtering (filter out the accounts not suitable to run)
         # 1) check whether an account has enough resource to do the job(funding)
         # 2）for the ones qualified to run, fill in buy details.
-        this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "works_ready_to_dispatch", "prep_success", this_step)
+        this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "hook_result", "prep_success", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global works_ready_to_dispatch, hook_result\nworks_ready_to_dispatch=hook_result['result']\n", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # dispatch the works to the worker agents.

@@ -1831,7 +1831,7 @@ class MainWindow(QMainWindow):
             log3("Done handling today's new Buy orders...", "fetchSchedule", self)
             bodyobj = {}
             # next line commented out for testing purpose....
-            if not self.debug_mode or self.schedule_mode == "auto":
+            if not self.debug_mode and self.schedule_mode == "auto":
                 log3("schedule setting:"+json.dumps(settings), "fetchSchedule", self)
                 jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
                 log3("schedule JRESP:"+json.dumps(jresp), "fetchSchedule", self)
@@ -4029,7 +4029,7 @@ class MainWindow(QMainWindow):
             # now add bots to local DB.
             self.bot_service.insert_bots_batch(jbody, api_bots)
 
-    def updateBots(self, bots):
+    def updateBots(self, bots, localOnly=False):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
         # otherwise, only update locally.
         api_bots = []
@@ -4062,22 +4062,25 @@ class MainWindow(QMainWindow):
                 "backemail_site": abot.getAcctPw()
             })
             # self.updateBotRelatedVehicles(abot)
-
-        jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'])
-        if "errorType" in jresp:
-            screen_error = True
-            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
-        else:
-            jbody = jresp["body"]
-            if jbody['numberOfRecordsUpdated'] == len(bots):
-                for i, abot in enumerate(bots):
-                    api_bots[i]["vehicle"] = abot.getVehicle()
-                self.bot_service.update_bots_batch(api_bots)
+        if not localOnly:
+            jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'])
+            if "errorType" in jresp:
+                screen_error = True
+                self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
             else:
-                self.showMsg("WARNING: bot NOT updated in Cloud!")
+                jbody = jresp["body"]
+                if jbody['numberOfRecordsUpdated'] == len(bots):
+                    for i, abot in enumerate(bots):
+                        api_bots[i]["vehicle"] = abot.getVehicle()
+                    self.bot_service.update_bots_batch(api_bots)
+                else:
+                    self.showMsg("WARNING: bot NOT updated in Cloud!")
+        else:
+            print("updating local only....")
+            self.bot_service.update_bots_batch(api_bots)
 
     # update in cloud, local DB, and local Memory
-    def updateBotsWithJsData(self, bjs):
+    def updateBotsWithJsData(self, bjs, localOnly=False):
         try:
             api_bots = []
             for abot in bjs:
@@ -4110,20 +4113,25 @@ class MainWindow(QMainWindow):
                 })
                 self.updateBotRelatedVehicles(abot)
 
-            jresp = send_update_bots_request_to_cloud(self.session, bjs, self.tokens['AuthenticationResult']['IdToken'])
-            if "errorType" in jresp:
-                screen_error = True
-                self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]),
-                             "ERROR Info: " + json.dumps(jresp["errorInfo"]))
-            else:
-                jbody = jresp["body"]
-                if jbody['numberOfRecordsUpdated'] == len(bjs):
-                    self.bot_service.update_bots_batch(api_bots)
-
-                    # finally update into in-memory data structure.
-
+            if not localOnly:
+                jresp = send_update_bots_request_to_cloud(self.session, bjs, self.tokens['AuthenticationResult']['IdToken'])
+                if "errorType" in jresp:
+                    screen_error = True
+                    self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]),
+                                 "ERROR Info: " + json.dumps(jresp["errorInfo"]))
                 else:
-                    self.showMsg("WARNING: bot NOT updated in Cloud!")
+                    jbody = jresp["body"]
+                    if jbody['numberOfRecordsUpdated'] == len(bjs):
+                        self.bot_service.update_bots_batch(api_bots)
+
+                        # finally update into in-memory data structure.
+
+                    else:
+                        self.showMsg("WARNING: bot NOT updated in Cloud!")
+
+            else:
+                self.bot_service.update_bots_batch(api_bots)
+
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
@@ -5380,65 +5388,89 @@ class MainWindow(QMainWindow):
 
     # this function can only be called by a manager or HR head.
     def syncBotAccounts(self):
-        # run a hook function to bring in external accounts.
-        acctRows = self.runGetBotAccountsHook()
-        print("ACCT ROWS:", acctRows)
-        # then from there, figure out newly added accounts
-        # from newly added accounts, screen the ones ready to be converted to a Bot/Agent
-        # rows are updated....
-        qualified, rowsNeedUpdate = self.screenBuyerBotCandidates(acctRows, self.bots)
-        print("qualified:", len(qualified), qualified)
-        print("rowsNeedUpdate:", len(rowsNeedUpdate), rowsNeedUpdate)
-        # turn qualified acct into bots/agents
-        self.hireBuyerBotCandidates(qualified)
-        # create new ads power profile for the newly added accounts.
+        try:
+            # run a hook function to bring in external accounts.
+            acctRows = self.runGetBotAccountsHook()
+            print("ACCT ROWS:", acctRows)
+            # then from there, figure out newly added accounts
+            # from newly added accounts, screen the ones ready to be converted to a Bot/Agent
+            # rows are updated....
+            qualified, rowsNeedUpdate, botsNeedUpdate = self.screenBuyerBotCandidates(acctRows, self.bots)
+            print("qualified:", len(qualified), qualified)
+            print("rowsNeedUpdate:", len(rowsNeedUpdate), rowsNeedUpdate)
+            print("botsNeedUpdate:", len(botsNeedUpdate), [b.getAddr() for b in botsNeedUpdate])
+            # turn qualified acct into bots/agents
+            self.hireBuyerBotCandidates(qualified)
+            # create new ads power profile for the newly added accounts.
 
-        # genInitialADSProfiles(qualified)
+            # genInitialADSProfiles(qualified)
 
-        # call another hook function update the rowsNeedUpdate
-        rowsNeedUpdate = rowsNeedUpdate + qualified
-        results = self.runUpdateBotAccountsHook(rowsNeedUpdate)
+            # call another hook function update the rowsNeedUpdate
+            rowsNeedUpdate = rowsNeedUpdate + qualified
+            results = self.runUpdateBotAccountsHook(rowsNeedUpdate)
+
+            self.updateBots(botsNeedUpdate, True)
+
+        except Exception as e:
+            # Log and skip errors gracefully
+            ex_stat = f"Error in SyncBotAccounts: {traceback.format_exc()} {str(e)}"
+            print(f"{ex_stat}")
+
 
     def runGetBotAccountsHook(self):
-        global symTab
-        acctRows = []
-        symTab["hook_flag"] = False
-        symTab["hook_result"] = None
-        symTab["hook_params"] = {}
-        hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
-        hook_file = "hr_recruit_get_candidates_hook.py"
-        stepjson = {
-            "type": "External Hook",
-            "file_name_type": "direct",
-            "file_path": hook_path,
-            "file_name": hook_file,
-            "params": "hook_params",  # Optional dictionary of parameters for the external script
-            "result": "hook_result",
-            "flag": "hook_flag"
-        }
-        i, runStat = processExternalHook(stepjson, 1)
-        print("runStat:", runStat)
-        if "Complete" in runStat:
-            acctRows = symTab["hook_result"]["candidates"]
+        try:
+            global symTab
+            acctRows = []
+            symTab["hook_flag"] = False
+            symTab["hook_result"] = None
+            symTab["hook_params"] = {"all": True}
+            hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
+            hook_file = "hr_recruit_get_candidates_hook.py"
+            stepjson = {
+                "type": "External Hook",
+                "file_name_type": "direct",
+                "file_path": hook_path,
+                "file_name": hook_file,
+                "params": "hook_params",  # Optional dictionary of parameters for the external script
+                "result": "hook_result",
+                "flag": "hook_flag"
+            }
+            i, runStat = processExternalHook(stepjson, 1)
+            print("runStat:", runStat)
+            if "Complete" in runStat:
+                acctRows = symTab["hook_result"]["candidates"]
+
+        except Exception as e:
+            # Log and skip errors gracefully
+            ex_stat = f"Error in runGetBotAccountsHook: {traceback.format_exc()} {str(e)}"
+            print(f"{ex_stat}")
+
         return acctRows
 
     def runUpdateBotAccountsHook(self, rows):
-        global symTab
-        symTab["hook_flag"] = False
-        symTab["hook_result"] = None
-        symTab["hook_params"] = {"rows": rows}
-        hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
-        hook_file = "updateAccountsHook.py"
-        stepjson = {
-            "type": "External Hook",
-            "file_name_type": "direct",
-            "file_path": hook_path,
-            "file_name": hook_file,
-            "params": "hook_params",  # Optional dictionary of parameters for the external script
-            "result": "hook_result",
-            "flag": "hook_flag"
-        }
-        i, runStat = processExternalHook(stepjson, 1)
+        try:
+            global symTab
+            symTab["hook_flag"] = False
+            symTab["hook_result"] = None
+            symTab["hook_params"] = {"rows": rows}
+            hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
+            hook_file = "updateAccountsHook.py"
+            stepjson = {
+                "type": "External Hook",
+                "file_name_type": "direct",
+                "file_path": hook_path,
+                "file_name": hook_file,
+                "params": "hook_params",  # Optional dictionary of parameters for the external script
+                "result": "hook_result",
+                "flag": "hook_flag"
+            }
+            i, runStat = processExternalHook(stepjson, 1)
+
+        except Exception as e:
+            # Log and skip errors gracefully
+            ex_stat = f"Error in runUpdateBotAccountsHook: {traceback.format_exc()} {str(e)}"
+            print(f"{ex_stat}")
+
         return runStat
 
     def newBotFromFile(self):
@@ -9033,18 +9065,55 @@ class MainWindow(QMainWindow):
         failed = [b for b in self.bots if b.getStatus().lower() == "failed"]
         return failed
 
+    def isValidAddr(self, addr):
+        val = True
+
+        if "Any,Any" in addr or not addr.split("\n")[0].strip():
+            val = False
+
+        return val
+
     def screenBuyerBotCandidates(self, acctRows, all_bots):
         # note the acctRows is in format of following....
         # just look at the ip, vccard, bot assignment
         allBotEmails = [b.getEmail() for b in all_bots]
+        botsNeedsUpdate = [b for b in all_bots if (not b.getEmail()) or (not b.getBackEm()) or (not self.isValidAddr(b.getAddr())) or (not self.isValidAddr(b.getShippingAddr()))]
+
+        print('allBotEmails:', allBotEmails)
         qualified = [row for row in acctRows if row["email"] and row["vcard_num"] and row["proxy_host"] and (not row["bot"]) and (row["email"] not in allBotEmails)]
         rowsNeedsUpdate = [row for row in acctRows if row["email"] and row["proxy_host"] and (not row["bot"]) and (row["email"] in allBotEmails)]
+
         # for rows missing bot id, fill it in.
         for row in rowsNeedsUpdate:
             foundBot = next((x for x in self.bots if x.getEmail() == row["email"]), None)
             if foundBot:
                 row["bot"] = foundBot.getBid()
-        return qualified, rowsNeedsUpdate
+
+        # update in data structure
+        print("row bot:", [r["bot"] for r in acctRows])
+        for bot in botsNeedsUpdate:
+            print("ids:", bot.getBid())
+            row = next((r for i, r in enumerate(acctRows) if bot.getBid() == r["bot"]), None)
+            if row:
+                print("found row....", row["addr_street_line1"])
+                if row["email"]:
+                    bot.setEmail(row["email"])
+                    bot.setEPW(row["email_pw"])
+
+                if row["backup_email"]:
+                    bot.setBackEmail(row["backup_email"])
+                    bot.setEBPW(row["backup_email_pw"])
+
+                if row["addr_street_line1"]:
+                    print("set address....")
+                    bot.setAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"], row["addr_state"], row["addr_zip"])
+                    print("after set addr:", bot.getAddr())
+
+                if not self.isValidAddr(bot.getShippingAddr()) and row["addr_street_line1"]:
+                    bot.setShippingAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"], row["addr_state"], row["addr_zip"])
+
+        print("bot ids for ones need update:", [b.getBid() for b in botsNeedsUpdate])
+        return qualified, rowsNeedsUpdate, botsNeedsUpdate
 
     # turn acct into bots/agents
     def hireBuyerBotCandidates(self, acctRows):

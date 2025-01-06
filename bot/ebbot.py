@@ -623,6 +623,19 @@ class EBBOT(QStandardItem):
     def setEmail(self, em):
         self.privateProfile.email = em
 
+
+    def setEPW(self, epw):
+        self.privateProfile.email_pw = epw
+
+    def setBackEmail(self, em):
+        self.privateProfile.backup_email = em
+
+    def setEBPW(self, epw):
+        self.privateProfile.acct_pw = epw
+
+    def setBackEmailSite(self, site):
+        self.backup_email_site = site
+
     def setBotIcon(self):
         if "manager" in self.pubProfile.roles.lower():
             icon = self.main_win.file_resource.sell_bot_icon_path
@@ -853,6 +866,12 @@ class EBBOT(QStandardItem):
 
     def getVehicle(self):
         return self.pubProfile.vehicle
+
+    def setAddr(self, l1, l2, city, state, zip):
+        self.privateProfile.setAddr(l1, l2, city, state, zip)
+
+    def setShippingAddr(self, l1, l2, city, state, zip):
+        self.privateProfile.setShippingAddr(l1, l2, city, state, zip)
 
     def setADSProfile(self, adsprofile):
         self.privateProfile.adsProfile = adsprofile
