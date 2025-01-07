@@ -946,7 +946,21 @@ class BotNewWin(QMainWindow):
 
         self.fillRoles()
         self.fillInterests()
-        self.newBot.pubProfile.setVehicle(self.selected_vehicle_combo_box)
+        oldV = None
+        newV = None
+        v2update = []
+        if self.selected_vehicle_combo_box != self.newBot.getVehicle():
+            self.newBot.pubProfile.setVehicle(self.selected_vehicle_combo_box)
+            oldV = next((v for i, v in enumerate(self.main_win.vehicles) if v.getName() == self.newBot.getVehicle()), None)
+            newV = next((v for i, v in enumerate(self.main_win.vehicles) if v.getName() == self.selected_vehicle_combo_box), None)
+            if oldV:
+                oldV.removeBot(self.newBot.getBid())
+                v2update.append(oldV)
+
+            if newV:
+                newV.addBot(self.newBot.getBid())
+                v2update.append(newV)
+
         # os = self.selected_vehicle_combo_box.split("-")[0]
         # roles = self.newBot.getRoles()
         # if os not in roles:
@@ -963,6 +977,9 @@ class BotNewWin(QMainWindow):
             self.main_win.showMsg("update a bot....")
             print("new bot:", self.newBot.getVehicle(), self.newBot.getInterests())
             self.main_win.updateBots([self.newBot])
+
+        if v2update:
+            self.main_win.updateVehicles(v2update)
 
         self.close()
 

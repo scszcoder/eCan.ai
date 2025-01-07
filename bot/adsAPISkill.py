@@ -7,6 +7,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from bot.basicSkill import DEFAULT_RUN_STATUS, STEP_GAP
 import traceback
 from bot.Logger import log3
+import json
 
 
 API_CONN = "http://local/adspower.net:50360"

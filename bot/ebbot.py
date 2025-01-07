@@ -867,6 +867,9 @@ class EBBOT(QStandardItem):
     def getVehicle(self):
         return self.pubProfile.vehicle
 
+    def setVehicle(self, v):
+        self.pubProfile.vehicle = v
+
     def setAddr(self, l1, l2, city, state, zip):
         self.privateProfile.setAddr(l1, l2, city, state, zip)
 

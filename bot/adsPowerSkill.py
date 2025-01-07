@@ -10,7 +10,8 @@ from bot.basicSkill import genStepStub, genStepCreateData, genStepCallExtern, ge
     genStepExtractInfo, genStepSearchAnchorInfo, genStepCheckCondition, genStepMouseClick, genStepLoop, genStepKeyInput, \
     genStepMouseScroll, genStepTextInput, genStepHeader, STEP_GAP, symTab, DEFAULT_RUN_STATUS, genStepSearchWordLine,  \
     genStepUseSkill, genStepPasteToData
-
+from bot.adsAPISkill import genStepAPIADSCreateProfile, genStepAPIADSStartProfile, genStepAPIADSStopProfile, \
+    genStepAPIADSCreateGroup, genStepAPIADSDeleteProfile, genStepAPIADSRegroupProfiles
 from pathlib import Path
 
 
@@ -617,7 +618,23 @@ def genADSPowerNewProfileSkill(worksettings, stepN, theme):
         this_step, step_words = genStepStub("start skill", "public/win_ads_local_load/new_profile", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepAPIADSCreateProfile("new_bot", "profile_file", "profile_created", this_step)
+        this_step, step_words = genStepAPIADSCreateProfile("ads_cfg", "ads_profile", "profile_created", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepAPIADSStartProfile("ads_cfg", "ads_result", "ads_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # try to open browser
+
+        # launch browser, might have to install it
+
+        # try to set up gmail
+
+        # try to set up amazon
+
+
+
+        this_step, step_words = genStepAPIADSStopProfile("ads_cfg", "ads_result", "ads_flag", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_ads_local_load/new_profile", "", this_step)
@@ -1486,6 +1503,8 @@ def genWinADSCreateProfileSkill(worksettings, stepN, theme):
         this_step, step_words = genADSPowerLaunchSteps(worksettings, this_step, theme)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepAPIADSCreateProfile("ads_cfg", "ads_profile", "ads_result", "ads_flag", this_step)
+        psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_ads_local_open/create_profile", "", this_step)
         psk_words = psk_words + step_words
