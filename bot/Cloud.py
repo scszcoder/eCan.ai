@@ -441,6 +441,7 @@ def gen_report_vehicles_string(vehicles):
         rec_string = rec_string + "owner: \"" + vehicles[i]["owner"] + "\", "
         rec_string = rec_string + "status: \"" + vehicles[i]["status"] + "\", "
         rec_string = rec_string + "lastseen: \"" + vehicles[i]["lastseen"] + "\", "
+        rec_string = rec_string + "functions: \"" + vehicles[i]["functions"] + "\", "
         rec_string = rec_string + "bids: \"" + vehicles[i]["bids"] + "\", "
         rec_string = rec_string + "hardware: \"" + vehicles[i]["hardware"] + "\", "
         rec_string = rec_string + "software: \"" + vehicles[i]["software"] + "\", "
@@ -735,6 +736,37 @@ def gen_update_bots_string(bots):
     return query_string
 
 
+def gen_update_vehicles_string(vehicles):
+    query_string = """
+        mutation MyMutation {
+      updateVehicles (input:[
+    """
+    rec_string = ""
+    for i in range(len(vehicles)):
+        rec_string = rec_string + "{ vid: " + str(int(vehicles[i]["vid"])) + ", "
+        rec_string = rec_string + "vname: \"" + vehicles[i]["vname"] + "\", "
+        rec_string = rec_string + "owner: \"" + vehicles[i]["owner"] + "\", "
+        rec_string = rec_string + "status: \"" + vehicles[i]["status"] + "\", "
+        rec_string = rec_string + "lastseen: \"" + vehicles[i]["lastseen"] + "\", "
+        rec_string = rec_string + "functions: \"" + vehicles[i]["functions"] + "\", "
+        rec_string = rec_string + "bids: \"" + vehicles[i]["bids"] + "\", "
+        rec_string = rec_string + "hardware: \"" + vehicles[i]["hardware"] + "\", "
+        rec_string = rec_string + "software: \"" + vehicles[i]["software"] + "\", "
+        rec_string = rec_string + "ip: \"" + vehicles[i]["ip"] + "\", "
+        rec_string = rec_string + "created_at: \"" + vehicles[i]["created_at"] + "\" }"
+
+        if i != len(vehicles) - 1:
+            rec_string = rec_string + ', '
+        else:
+            rec_string = rec_string + ']'
+
+    tail_string = """
+        ) 
+        } """
+    query_string = query_string + rec_string + tail_string
+
+    logger_helper.debug(query_string)
+    return query_string
 
 
 def gen_remove_bots_string(removeOrders):
@@ -1483,6 +1515,21 @@ def send_remove_bots_request_to_cloud(session, removes, token):
         jresponse = json.loads(jresp["data"]["removeBots"])
     return jresponse
 
+
+def send_update_vehicles_request_to_cloud(session, vehicles, token):
+
+    mutationInfo = gen_update_vehicles_string(vehicles)
+
+    jresp = appsync_http_request(mutationInfo, session, token)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["updateVehicles"])
+
+    return jresponse
 
 
 

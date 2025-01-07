@@ -43,7 +43,9 @@ from gui.BotGUI import BotNewWin
 from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud
+    send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud,\
+    send_update_vehicles_request_to_cloud
+
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from gui.LoggerGUI import CommanderLogWin
 from bot.Logger import LOG_SWITCH_BOARD, log3
@@ -208,7 +210,7 @@ class MainWindow(QMainWindow):
         self.lang = lang
         self.tz = self.obtainTZ()
         self.file_resource = FileResource(self.homepath)
-        self.VEHICLES_FILE = ecb_data_homepath + "/vehicles.json"
+
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
         self.wan_chat_msg_queue = asyncio.Queue()
@@ -218,6 +220,12 @@ class MainWindow(QMainWindow):
         self.mainLoop = mainloop
         self.tokens = inTokens
         self.machine_role = machine_role
+        if "Platoon" in self.machine_role:
+            self.functions = "buyer,seller"
+        elif "Commander" in self.machine_role:
+            self.functions = "manager,hr,it"
+        else:
+            self.functions = ""
         self.schedule_mode = schedule_mode
         self.ip = ip
         self.main_key = main_key
@@ -229,6 +237,7 @@ class MainWindow(QMainWindow):
             os.makedirs(f"{self.my_ecb_data_homepath}/resource/data/")
         self.cog = None
         self.cog_client = None
+        self.VEHICLES_FILE = self.my_ecb_data_homepath + "/vehicles.json"
         self.host_role = machine_role
         self.screen_size = getScreenSize()
         self.display_resolution = "D"+str(self.screen_size[0])+"X"+str(self.screen_size[1])
@@ -4071,7 +4080,9 @@ class MainWindow(QMainWindow):
                 screen_error = True
                 self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
             else:
-                jbody = jresp["body"]
+                print("update bot jresp:", jresp)
+                # jbody = jresp["body"]
+                jbody = jresp
                 if jbody['numberOfRecordsUpdated'] == len(bots):
                     for i, abot in enumerate(bots):
                         api_bots[i]["vehicle"] = abot.getVehicle()
@@ -5398,7 +5409,7 @@ class MainWindow(QMainWindow):
             # then from there, figure out newly added accounts
             # from newly added accounts, screen the ones ready to be converted to a Bot/Agent
             # rows are updated....
-            qualified, rowsNeedUpdate, botsNeedUpdate = self.screenBuyerBotCandidates(acctRows, self.bots)
+            qualified, rowsNeedUpdate, botsNeedUpdate, vehiclesNeedUpdate = self.screenBuyerBotCandidates(acctRows, self.bots)
             print("qualified:", len(qualified), qualified)
             print("rowsNeedUpdate:", len(rowsNeedUpdate), rowsNeedUpdate)
             print("botsNeedUpdate:", len(botsNeedUpdate), [b.getAddr() for b in botsNeedUpdate])
@@ -5412,7 +5423,10 @@ class MainWindow(QMainWindow):
             rowsNeedUpdate = rowsNeedUpdate + qualified
             results = self.runUpdateBotAccountsHook(rowsNeedUpdate)
 
-            self.updateBots(botsNeedUpdate, True)
+            self.updateBots(botsNeedUpdate)
+
+            if vehiclesNeedUpdate:
+                self.updateVehicles(vehiclesNeedUpdate)
 
         except Exception as e:
             # Log and skip errors gracefully
@@ -7872,6 +7886,7 @@ class MainWindow(QMainWindow):
                     "owner": self.user,
                     "status": vstat,
                     "lastseen": v.getLastUpdateTime().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
+                    "functions": v.getFunctions(),
                     "bids": ",".join(v.getBotIds()),
                     "hardware": v.getArch(),
                     "software": v.getOS(),
@@ -7885,6 +7900,7 @@ class MainWindow(QMainWindow):
                     "owner": self.user,
                     "status": self.working_state,
                     "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
+                    "functions": self.functions,
                     "bids": self.getBidsOnThisVehicle(),
                     "hardware": self.processor,
                     "software": self.platform,
@@ -7902,6 +7918,7 @@ class MainWindow(QMainWindow):
                     "owner": self.user,
                     "status": self.working_state,
                     "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
+                    "functions": self.functions,
                     "bids": self.getBidsOnThisVehicle(),
                     "hardware": self.processor,
                     "software": self.platform,
@@ -7924,6 +7941,7 @@ class MainWindow(QMainWindow):
                 "owner": self.user,
                 "status": v.getStatus(),
                 "lastseen": v.getLastUpdateTime().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
+                "functions": v.getFunctions(),
                 "bids": json.dumps(v.getBotIds()),
                 "hardware": v.getArch(),
                 "software": v.getOS(),
@@ -7937,6 +7955,7 @@ class MainWindow(QMainWindow):
                 "owner": self.user,
                 "status": self.working_state,
                 "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
+                "functions": self.functions,
                 "bids": self.getBidsOnThisVehicle(),
                 "hardware": self.processor,
                 "software": self.platform,
@@ -8649,6 +8668,14 @@ class MainWindow(QMainWindow):
                                                  vehicle_report)
             self.saveVehiclesJsonFile()
 
+    def updateVehicles(self, vehicles):
+        vjs=[self.prepVehicleReportData(v) for v in vehicles]
+
+        resp = send_update_vehicles_request_to_cloud(self.session, vjs, self.tokens['AuthenticationResult']['IdToken'])
+        # for now simply update json file, can put in local db if needed in future.... sc-01/06/2025
+        self.saveVehiclesJsonFile()
+
+
     # capture current state and send in heartbeat signal to the cloud
     def stateCapture(self):
         current_time = datetime.now()
@@ -9080,12 +9107,12 @@ class MainWindow(QMainWindow):
         # note the acctRows is in format of following....
         # just look at the ip, vccard, bot assignment
         allBotEmails = [b.getEmail() for b in all_bots]
-        botsNeedsUpdate = [b for b in all_bots if (not b.getEmail()) or (not b.getBackEm()) or (not self.isValidAddr(b.getAddr())) or (not self.isValidAddr(b.getShippingAddr()))]
+        botsNeedsUpdate = [b for b in all_bots if (not b.getEmail()) or (not b.getBackEm()) or (not self.isValidAddr(b.getAddr())) or (not self.isValidAddr(b.getShippingAddr())) or (not b.getVehicle()) or (not b.getOrg())]
 
         print('allBotEmails:', allBotEmails)
         qualified = [row for row in acctRows if row["email"] and row["vcard_num"] and row["proxy_host"] and (not row["bot"]) and (row["email"] not in allBotEmails)]
         rowsNeedsUpdate = [row for row in acctRows if row["email"] and row["proxy_host"] and (not row["bot"]) and (row["email"] in allBotEmails)]
-
+        vehiclesNeedsUpdate = []
         # for rows missing bot id, fill it in.
         for row in rowsNeedsUpdate:
             foundBot = next((x for x in self.bots if x.getEmail() == row["email"]), None)
@@ -9115,8 +9142,23 @@ class MainWindow(QMainWindow):
                 if not self.isValidAddr(bot.getShippingAddr()) and row["addr_street_line1"]:
                     bot.setShippingAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"], row["addr_state"], row["addr_zip"])
 
+            if not bot.getVehicle():
+                bv = self.genBotVehicle(bot)
+                if bv:
+                    bot.setVehicle(bv.getName())
+                    print("setting vehicle:", bot.getVehicle())
+                    bv.addBot(bot.getBid())
+                    if bv not in vehiclesNeedsUpdate:
+                        vehiclesNeedsUpdate.append(bv)
+                else:
+                    log3("vehicle not found for a bot")
+
+            if not bot.getOrg():
+                bot.setOrg("{}")
+
+
         print("bot ids for ones need update:", [b.getBid() for b in botsNeedsUpdate])
-        return qualified, rowsNeedsUpdate, botsNeedsUpdate
+        return qualified, rowsNeedsUpdate, botsNeedsUpdate, vehiclesNeedsUpdate
 
     # turn acct into bots/agents
     def hireBuyerBotCandidates(self, acctRows):
@@ -9136,7 +9178,7 @@ class MainWindow(QMainWindow):
                     "org":"{}",
                     "levels": "amz:green:buyer",
                     "levelStart": "",
-                    "vehicle": self.genBotVehicle(),
+                    "vehicle": self.genBotVehicle("buyer").getName(),
                     "status": "Active"
                 },
                 "privateProfile":{
@@ -9212,11 +9254,35 @@ class MainWindow(QMainWindow):
         print("gend", gend)
         return gend
 
-    def genBotVehicle(self):
+    def botFunctionMatchVehicle(self, b, v):
+        fit = False
+        if isinstance(b, str):
+            roles = b.lower()
+        else:
+            roles = b.getRoles().lower()
+
+        vfws = v.getFunctions().split(",")
+        vfs = [r.strip().lower() for r in vfws]
+        for vf in vfs:
+            if vf in roles:
+                fit = True
+
+        return fit
+
+        
+    def genBotVehicle(self, bot):
         # fill the least filled vehicle first.
-        sortedV = sorted(self.vehicles, key=lambda v: len(v.getBotIds()), reverse=False)
-        print("sorted vehicles:", [v.getName() for v in sortedV])
-        return sortedV[0].getName()
+        fitV = ""
+        functionMatchedV = [v for v in self.vehicles if self.botFunctionMatchVehicle(bot, v)]
+        sortedV = sorted(functionMatchedV, key=lambda v: len(v.getBotIds()), reverse=False)
+        print("sorted vehicles:", [(v.getName(), len(v.getBotIds())) for v in sortedV])
+        fitV = ""
+        for v in sortedV:
+            if not v.getBotsOverCapStatus():
+                fitV = v
+                break
+
+        return fitV
 
     # this function sends request to all on-line platoons and request they send back
     # all the latest finger print profiles of the troop members on that team.

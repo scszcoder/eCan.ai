@@ -1,6 +1,9 @@
 from PySide6.QtGui import QStandardItem, QIcon
 from datetime import timedelta, datetime
 
+from numpy.ma.core import bitwise_or
+
+
 class VEHICLE(QStandardItem):
     def __init__(self, parent, name="x", ip="0.0.0.0"):
         super().__init__()
@@ -20,7 +23,8 @@ class VEHICLE(QStandardItem):
         self.mstats = []
         self.field_link = None
         self.daily_mids = []
-        self.CAP = 56*3
+        self.functions = ""
+        self.CAP = 16*4*2       # 16xhr/day, 4x15min time slot/hr, 1 agent can run every 2 days.
 
 
     def getFieldLink(self):
@@ -88,7 +92,7 @@ class VEHICLE(QStandardItem):
         return self.bot_ids
 
     def addBot(self, bid):
-        if len(self.getBotIds()) < self.CAP:
+        if len(self.getBotIds()) < self.CAP and bid not in self.getBotIds():
             self.bot_ids.append(bid)
             nAdded = 1
         else:
@@ -97,7 +101,13 @@ class VEHICLE(QStandardItem):
         return nAdded
 
     def removeBot(self, bid):
-        self.bot_ids.remove(bid)
+        if bid in self.bot_ids:
+            self.bot_ids.remove(bid)
+            nRemoved = 1
+        else:
+            nRemoved = 0
+
+        return nRemoved
 
 
     def setBotIds(self, bot_ids):
@@ -112,6 +122,11 @@ class VEHICLE(QStandardItem):
     def setMids(self, mids):
         self.daily_mids = mids
 
+    def getFunctions(self):
+        return self.functions
+
+    def setFunctions(self, fs):
+        self.functions = fs
 
     def genJson(self):
         jsd = {
@@ -122,6 +137,7 @@ class VEHICLE(QStandardItem):
                 "arch": self.arch,
                 "bot_ids": self.bot_ids,
                 "status": self.status,
+                "functions": self.functions,
                 "last_update_time": self.last_update_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
                 }
         return jsd
@@ -135,4 +151,5 @@ class VEHICLE(QStandardItem):
         self.arch = dj.get("arch", "")  # Default to empty string if "arch" is missing
         self.setStatus(dj.get("status", ""))
         self.bot_ids = dj.get("bot_ids", [])
+        self.functions = dj.get("functions", [])
         self.last_update_time = datetime.strptime(dj.get("last_update_time", "1970-01-01 00:00:00.000"), "%Y-%m-%d %H:%M:%S.%f")
