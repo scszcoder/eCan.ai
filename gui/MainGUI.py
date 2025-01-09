@@ -2788,6 +2788,7 @@ class MainWindow(QMainWindow):
             else:
                 log3("ERROR: skid NOT FOUND [" + str(skid) + "]", "empower_platoon_with_skills", self)
 
+
     def setTaskGroupInitialState(self, tg):
         initial_tz = ""
         initial_group = ""
