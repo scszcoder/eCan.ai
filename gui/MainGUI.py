@@ -4983,6 +4983,28 @@ class MainWindow(QMainWindow):
         elif (event.type() == QEvent.MouseButtonPress ) and source is self.missionListView:
             self.showMsg("CLICKED on mission:"+str(source.indexAt(event.pos()).row())+"selected row:"+str(self.missions))
         #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
+        elif event.type() == QEvent.ContextMenu and source is self.vehicleListView:
+            self.showMsg("vehicles RC menu....")
+            self.popMenu = QMenu(self)
+            self.pop_menu_font = QFont("Helvetica", 10)
+            self.popMenu.setFont(self.pop_menu_font)
+            self.vehicleViewAction = self._createVehicleViewAction()
+            self.popMenu.addAction(self.vehicleViewAction)
+            self.vehicleSetUpTeamAction = self._createVehicleSetUpTeamAction()
+            self.popMenu.addAction(self.vehicleSetUpTeamAction)
+
+            selected_act = self.popMenu.exec_(event.globalPos())
+            if selected_act:
+                selected_indexes = self.vehicleListView.selectedIndexes()
+                print("selected indexes:", selected_indexes)
+
+                self.selected_vehicle_row = source.indexAt(event.pos()).row()
+                self.selected_vehicle_item = self.vehicleModel.item(self.selected_vehicle_row)
+
+                if selected_act == self.vehicleSetUpTeamAction:
+                    print("vehicle setup team clicked....")
+                    self.vehicleSetupTeam()
+
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
             self.popMenu = QMenu(self)
@@ -5298,6 +5320,17 @@ class MainWindow(QMainWindow):
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Chat"))
         return new_action
+
+    def _createVehicleViewAction(self):
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&View"))
+       return new_action
+
+    def _createVehicleSetUpTeamAction(self):
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&Set Up Team"))
+       return new_action
+
 
     def editBot(self):
         if self.BotNewWin == None:
@@ -8256,7 +8289,7 @@ class MainWindow(QMainWindow):
             if not os.path.exists(file_name_full_path):
                 self.showMsg(f"ErrorSendFileToCommander: File [{file_name_full_path}] not found")
             else:
-                self.showMsg(f"ErrorSendFileToCommander: TCP link doesn't exist")
+                self.showMsg(f" : TCP link doesn't exist")
 
     def batch_send_ads_profiles_to_commander(self, commander_link, file_type, file_paths):
         try:
@@ -8301,6 +8334,53 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorSendingBatchProfilesToCommander:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorSendingBatchProfilesToCommander traceback information not available:" + str(e)
+
+
+    def batch_send_ads_profiles_to_platoon(self, platoon_link, file_type, file_paths):
+        try:
+            if not platoon_link:
+                self.showMsg("ErrorSendFilesToCommander: TCP link doesn't exist")
+                return
+
+            profiles = []
+            for file_name_full_path in file_paths:
+                if os.path.exists(file_name_full_path):
+                    self.showMsg(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}")
+                    with open(file_name_full_path, 'rb') as fileTBSent:
+                        binary_data = fileTBSent.read()
+                        encoded_data = base64.b64encode(binary_data).decode('utf-8')
+
+                        # Embed in JSON
+                        file_timestamp = os.path.getmtime(file_name_full_path)
+
+                        profiles.append({
+                            "file_name": file_name_full_path,
+                            "file_type": file_type,
+                            "timestamp": file_timestamp,  # Include file timestamp
+                            "file_contents": encoded_data
+                        })
+
+                else:
+                    self.showMsg(f"ErrorSendFileToCommander: File [{file_name_full_path}] not found")
+
+            # Send data
+            json_data = json.dumps({
+                "type": "botsADSProfilesBatchUpdate",
+                "profiles": profiles
+            })
+            length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
+            platoon_link.write(length_prefix + json_data.encode('utf-8'))
+            # await commander_link.drain()  # Uncomment if using asyncio
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorSendingBatchProfilesToCommander:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorSendingBatchProfilesToCommander traceback information not available:" + str(e)
+
+
 
     def send_mission_result_files_to_commander(self, commander_link, mid, file_type, file_name_full_paths):
         try:
@@ -9396,3 +9476,17 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorGatherFingerPrints: traceback information not available:" + str(e)
             log3(ex_stat)
             return []
+
+    def vehicleSetupTeam(self):
+        print("send all ads profiles to the vehicle")
+        vname = ""
+        # find all bots on this vehicle,
+        vbs = [b for b in self.bots if b.getVehicle() == vname]
+        # gather all ads profiles fo the bots, and send over the files.
+        bot_profile_paths = [b.getADSProfile() for b in vbs]
+        #
+        vlink = next((fl for i, fl in enumerate(fieldLinks) if vname in fl["name"]), None)
+
+        # if not self.tcpServer == None:
+        if vlink:
+            self.batch_send_ads_profiles_to_platoon(vlink, "text", bot_profile_paths)

@@ -236,7 +236,7 @@ class MissionNewWin(QMainWindow):
         self.op_rb.toggled.connect(self.op_rb_checked_state_changed)
 
         self.it_rb = QRadioButton(QApplication.translate("QRadioButton", "IT"))
-        self.it_rb.toggled.connect(self.op_it_checked_state_changed)
+        self.it_rb.toggled.connect(self.it_rb_checked_state_changed)
 
         self.hr_rb = QRadioButton(QApplication.translate("QRadioButton", "HR"))
         self.hr_rb.toggled.connect(self.hr_rb_checked_state_changed)
