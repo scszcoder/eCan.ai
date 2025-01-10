@@ -2728,8 +2728,9 @@ class MainWindow(QMainWindow):
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
 
                             # send fingerprint browser profiles to platoon/vehicle
-                            for profile in ads_profiles:
-                                self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
+                            # for profile in ads_profiles:
+                            #     self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
+                            self.vehicleSetupTeam(vehicle)
 
                             # now need to fetch this task associated bots, mission, skills
                             # get all bots IDs involved. get all mission IDs involved.
