@@ -1206,6 +1206,15 @@ def genStepECBDispatchTroops(schedule_var, result_var, flag_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepECBCollectBotProfiles(result_var, flag_var, stepN):
+    stepjson = {
+        "type": "ECB Collect Bot Profiles",
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 def genException():
     psk_words = ""
@@ -6264,6 +6273,26 @@ def processECBDispatchTroops(step, i):
         ex_stat = f"Error in ECB Dispatch Troops: {traceback.format_exc()} {str(e)}"
         print(f"Error while ECB dispatch troops: {ex_stat}")
         symTab[step["session_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processECBCollectBotProfiles(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    mainWin = utils.logger_helper.login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        mainWin.syncFingerPrintRequest()
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in ECB Collect Field Bot Profiles: {traceback.format_exc()} {str(e)}"
+        print(f"Error while ECB Collect Field Bot Profiles: {ex_stat}")
+        symTab[step["result_var"]] = None
         symTab[step["flag"]] = False
 
     # Always proceed to the next instruction

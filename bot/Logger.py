@@ -119,7 +119,7 @@ LOG_SWITCH_BOARD = {
     "processGSExtractZippedFileName": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
 
     "dailySkillsetUpdate": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
-    "fetchSchedule": {"log": True, "py_console": True, "win_console": True, "range": "wan"},
+    "fetchSchedule": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "checkNextToRun": {"log": True, "py_console": True, "win_console": True, "range": "wan"},
     "mainwinInit": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "mainGUI": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
@@ -128,7 +128,8 @@ LOG_SWITCH_BOARD = {
     "botGUI": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "missionGUI": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "gen_addresses": {"log": True, "py_console": False, "win_console": False, "range": "lan"},
-
+    "formADSProfileBatchesFor1Vehicle": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
+    "genAdsProfileBatchs": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "serveCommander": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "runAllSteps": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "servePlatoons": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
