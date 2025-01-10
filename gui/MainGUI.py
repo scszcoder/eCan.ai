@@ -9448,6 +9448,10 @@ class MainWindow(QMainWindow):
     #    iii) xlsx version of batched finger print profiles which starts with "profiles", for example profiles*.txt file, this file could contains multiple individual user's finger print profile (may or may not exist)
     # 3) a individual's profile could exist in all three type of files.
     # 4) is it easier to just call batch to singles?
+    # 5) finally make a backup copy of all updated profiles for record keeping. the backup
+    #    dir should be self.ads_profile_dir/backup_datestring for example backup_20250110
+    #    and at the same time, get rid of backup folders dated more than 2 weeks older than
+    #    current date.
     def gatherFingerPrints(self):
         try:
             updated_profiles = []
@@ -9508,6 +9512,33 @@ class MainWindow(QMainWindow):
 
                     # Add processed usernames to the updated list
                     updated_usernames.update(usernames)
+
+                # **Point #5: Save Backups and Delete Old Backup Directories**
+                # Create backup directory with a date suffix
+                today_date = datetime.datetime.now().strftime("%Y%m%d")
+                backup_dir = os.path.join(self.ads_profile_dir, f"backup_{today_date}")
+                os.makedirs(backup_dir, exist_ok=True)
+
+                # Backup all updated profiles
+                for profile in updated_profiles:
+                    if os.path.exists(profile):
+                        shutil.copy2(profile, backup_dir)  # Preserve file metadata during copy
+
+                log3(f"Backup created at: {backup_dir}")
+
+                # Delete old backups (older than 2 weeks)
+                two_weeks_ago = datetime.datetime.now() - datetime.timedelta(weeks=2)
+                for folder in os.listdir(self.ads_profile_dir):
+                    if folder.startswith("backup_"):
+                        folder_path = os.path.join(self.ads_profile_dir, folder)
+                        # Parse the date suffix from the folder name
+                        try:
+                            folder_date = datetime.datetime.strptime(folder.split("_")[1], "%Y%m%d")
+                            if folder_date < two_weeks_ago:
+                                shutil.rmtree(folder_path)
+                                log3(f"Deleted old backup folder: {folder_path}")
+                        except (IndexError, ValueError):
+                            log3(f"Skipped invalid backup folder: {folder_path}")
 
             return updated_profiles
 
