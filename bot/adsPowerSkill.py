@@ -1794,17 +1794,18 @@ def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
 
 
 
+# turn cooke which is a list of json dicts into a string, then overwrite every thing to the file
 def genProfileTxt(pfJsons, fname):
     # Convert JSON data to a DataFrame
-    if os.path.exists(fname):
-        with open(fname, 'w') as f:
-            for pfJson in pfJsons:
-                f.write("\n")
-                pfJson["cookie"]=json.dumps(pfJson["cookie"])
 
-                for pfkey in pfJson.keys():
-                    f.write(pfkey+"="+pfJson[pfkey]+"\n")
-        f.close()
+    with open(fname, 'w') as f:
+        for pfJson in pfJsons:
+            f.write("\n")
+            pfJson["cookie"]=json.dumps(pfJson["cookie"])
+
+            for pfkey in pfJson.keys():
+                f.write(pfkey+"="+pfJson[pfkey]+"\n")
+    f.close()
 
 # this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
 # site_lists is in the format "{email_before@ : ["google", "gmail", "amazon"]}, .... }
@@ -1961,7 +1962,9 @@ def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settin
                 pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
             else:
                 # if the individual bot's profile doesn't even exist, create one.
-                print("bot request can be sh")
+                print("Warning: bot text profile doesn't exist - "+txt_file_path)
+                with open(txt_file_path, 'w') as file:
+                    pass
 
             #now update txt version of the profile of the bot
             print("pfJson updating :", txt_file_path)
@@ -1975,7 +1978,7 @@ def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settin
                 if settings_var_name:
                     symTab[settings_var_name]["ads_profile_id"] = pfJson["id"]
             else:
-                log3("Warning - Bot pfJson:" + pfJson["username"] + " not found.", "genAdsProfileBatchs", mainwin)
+                log3("Warning: Bot corresponding to pfJson -" + pfJson["username"] + " not found.(no data structure to set value to)", "genAdsProfileBatchs", mainwin)
 
 
 # for a list of existing cookies, find matching in name and domain and path, if matched all three in newones,
